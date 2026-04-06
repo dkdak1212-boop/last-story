@@ -36,16 +36,19 @@ router.post('/login', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   const { username, password } = parsed.data;
-  const result = await query<{ id: number; password_hash: string }>(
-    'SELECT id, password_hash FROM users WHERE username = $1',
+  const result = await query<{ id: number; password_hash: string; banned: boolean; ban_reason: string | null }>(
+    'SELECT id, password_hash, banned, ban_reason FROM users WHERE username = $1',
     [username]
   );
   if (result.rowCount === 0) return res.status(401).json({ error: 'invalid credentials' });
 
-  const ok = await bcrypt.compare(password, result.rows[0].password_hash);
+  const user = result.rows[0];
+  if (user.banned) return res.status(403).json({ error: user.ban_reason ? `계정 정지: ${user.ban_reason}` : '계정이 정지되었습니다.' });
+
+  const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'invalid credentials' });
 
-  const token = signToken(result.rows[0].id, username);
+  const token = signToken(user.id, username);
   res.json({ token });
 });
 

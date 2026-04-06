@@ -36,6 +36,7 @@ import worldEventRoutes from './routes/worldEvent.js';
 import prefixRoutes from './routes/prefixes.js';
 import dropLogRoutes from './routes/dropLog.js';
 import { initWebSocket } from './ws/index.js';
+import { setIo } from './ws/io.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -97,6 +98,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 const httpServer = createServer(app);
 const io = initWebSocket(httpServer);
+setIo(io);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
