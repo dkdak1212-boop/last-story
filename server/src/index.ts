@@ -35,6 +35,9 @@ import worldEventRoutes from './routes/worldEvent.js';
 import { initWebSocket } from './ws/index.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
 
+console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
+console.log('[env] PORT =', process.env.PORT);
+
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 
