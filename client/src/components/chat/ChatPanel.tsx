@@ -11,7 +11,7 @@ interface ChatMsg {
 type Channel = 'global' | 'trade' | 'guild' | 'party';
 const CHANNELS: { id: Channel; label: string }[] = [
   { id: 'global', label: '전체' }, { id: 'trade', label: '거래' },
-  { id: 'guild', label: '길드' }, { id: 'party', label: '파티' },
+  { id: 'guild', label: '길드' },
 ];
 
 export function ChatPanel() {
@@ -77,18 +77,23 @@ export function ChatPanel() {
 
   return (
     <div style={{
-      position: 'fixed', bottom: 0, right: 16,
-      width: open ? 380 : 140, background: 'var(--bg-panel)',
-      border: '1px solid var(--border)', borderBottom: 'none', zIndex: 100,
-      transition: 'width 0.2s',
+      position: 'fixed', bottom: 0, right: 20,
+      width: open ? 420 : 160, background: 'var(--bg-panel)',
+      border: `2px solid ${open ? 'var(--accent)' : 'var(--border)'}`,
+      borderBottom: 'none', zIndex: 100,
+      transition: 'all 0.2s',
+      borderRadius: '8px 8px 0 0',
+      boxShadow: open ? '0 -4px 20px rgba(0,0,0,0.4)' : 'none',
     }}>
       <div onClick={() => setOpen(!open)} style={{
-        padding: '8px 12px', cursor: 'pointer', display: 'flex',
+        padding: '10px 14px', cursor: 'pointer', display: 'flex',
         justifyContent: 'space-between', alignItems: 'center',
         borderBottom: open ? '1px solid var(--border)' : 'none',
+        background: open ? 'var(--bg-elev)' : 'var(--bg-panel)',
+        borderRadius: '6px 6px 0 0',
       }}>
-        <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>채팅</span>
-        <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>{open ? '▼' : '▲'}</span>
+        <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>채팅</span>
+        <span style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 700 }}>{open ? '▼ 닫기' : '▲ 열기'}</span>
       </div>
 
       {open && (
@@ -103,7 +108,7 @@ export function ChatPanel() {
             ))}
           </div>
           <div ref={bodyRef} style={{
-            height: 240, overflowY: 'auto', padding: 8, fontSize: 12,
+            height: 280, overflowY: 'auto', padding: 10, fontSize: 13,
             fontFamily: 'monospace', background: 'var(--bg)',
           }}>
             {scopeMissing && (

@@ -16,10 +16,9 @@ interface PremiumItem {
 }
 
 const ITEMS: PremiumItem[] = [
-  { code: 'inv_slots_10', name: '인벤토리 +10 슬롯', description: '영구히 인벤토리가 10칸 늘어납니다.', priceKrw: 4900, requireCharacter: true },
-  { code: 'offline_100_7d', name: '오프라인 효율 100% (7일)', description: '7일간 오프라인 보상 효율이 100%가 됩니다.', priceKrw: 2900 },
-  { code: 'char_slot', name: '추가 캐릭터 슬롯', description: '캐릭터 생성 가능 수가 1 증가합니다.', priceKrw: 2900 },
-  { code: 'exp_boost_3d', name: '경험치 부스터 +50% (3일)', description: '3일간 획득 경험치가 50% 증가합니다.', priceKrw: 3900, requireCharacter: true },
+  { code: 'inv_slots_10', name: '인벤토리 +10 슬롯', description: '영구히 인벤토리가 10칸 늘어납니다.', priceKrw: 0, requireCharacter: true },
+  { code: 'offline_100_7d', name: '오프라인 효율 100% (7일)', description: '7일간 오프라인 보상 효율이 100%가 됩니다.', priceKrw: 0 },
+  { code: 'exp_boost_3d', name: '경험치 부스터 +50% (3일)', description: '3일간 획득 경험치가 50% 증가합니다.', priceKrw: 0, requireCharacter: true },
 ];
 
 router.get('/shop', async (_req, res) => {
@@ -43,7 +42,16 @@ router.post('/purchase', async (req: AuthedRequest, res: Response) => {
     if (!char) return res.status(404).json({ error: 'character not found' });
   }
 
-  // 효과 적용 (실제 결제는 스텁)
+  // 계정당 1회 구매 제한
+  const already = await query(
+    'SELECT 1 FROM premium_purchases WHERE user_id = $1 AND item_code = $2',
+    [req.userId, code]
+  );
+  if (already.rowCount && already.rowCount > 0) {
+    return res.status(400).json({ error: '이미 구매한 상품입니다.' });
+  }
+
+  // 효과 적용
   switch (code) {
     case 'inv_slots_10':
       await query(`UPDATE characters SET inventory_slots_bonus = inventory_slots_bonus + 10 WHERE id = $1`, [characterId]);

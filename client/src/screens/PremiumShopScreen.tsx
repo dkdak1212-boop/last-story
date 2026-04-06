@@ -56,8 +56,7 @@ export function PremiumShopScreen() {
         <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 16, fontSize: 13 }}>
           <div style={{ marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>오프라인 100%:</span> {activeUntil(status.premiumUntil)}</div>
           <div style={{ marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>경험치 부스트:</span> {activeUntil(status.expBoostUntil)}</div>
-          <div style={{ marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>추가 인벤 슬롯:</span> +{status.inventorySlotsBonus}</div>
-          <div><span style={{ color: 'var(--text-dim)' }}>최대 캐릭터 수:</span> {status.maxCharacterSlots}</div>
+          <div><span style={{ color: 'var(--text-dim)' }}>추가 인벤 슬롯:</span> +{status.inventorySlotsBonus}</div>
         </div>
       )}
 
@@ -74,7 +73,7 @@ export function PremiumShopScreen() {
               <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>{item.description}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ color: 'var(--text)' }}>₩{item.priceKrw.toLocaleString()}</div>
+              <div style={{ color: 'var(--success)', fontWeight: 700 }}>{item.priceKrw === 0 ? '무료' : `₩${item.priceKrw.toLocaleString()}`}</div>
               <button className="primary" onClick={() => buy(item.code, item.requireCharacter)}>구매</button>
             </div>
           </div>

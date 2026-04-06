@@ -41,11 +41,11 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
 
   const invR = await query<{
     slot_index: number; quantity: number; enhance_level: number;
-    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
+    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
   }>(
-    `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
+    `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
@@ -63,6 +63,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixIds: pIds,
       prefixStats: r.prefix_stats || {},
       prefixName: pName,
+      locked: r.locked,
       item: {
         id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
         baseName: r.name,
@@ -74,11 +75,11 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
 
   const eqR = await query<{
     slot: string; item_id: number; enhance_level: number;
-    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
+    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     name: string; type: string; grade: string;
     item_slot: string | null; stats: Record<string, number> | null; description: string;
   }>(
-    `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats,
+    `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats, ce.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
@@ -95,6 +96,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
       prefixStats: r.prefix_stats || {},
+      locked: r.locked,
     };
   }
 
@@ -111,12 +113,13 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   // 슬롯에서 아이템 찾기
-  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean }>(
+    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.slot_index = $2`,
     [id, parsed.data.slotIndex]
   );
   if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  if (invR.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
   const { item_id, slot, enhance_level, prefix_ids, prefix_stats } = invR.rows[0];
   if (!slot) return res.status(400).json({ error: 'not equippable' });
 
@@ -149,11 +152,12 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ slot: z.string() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    'SELECT item_id, enhance_level, prefix_ids, prefix_stats FROM character_equipped WHERE character_id = $1 AND slot = $2',
+  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean }>(
+    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked FROM character_equipped WHERE character_id = $1 AND slot = $2',
     [id, parsed.data.slot]
   );
   if (eq.rowCount === 0) return res.status(404).json({ error: 'nothing equipped' });
+  if (eq.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
 
   // 빈 인벤토리 슬롯 찾기
   const usedR = await query<{ slot_index: number }>(
@@ -170,6 +174,38 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
     [id, eqRow.item_id, freeSlot, eqRow.enhance_level, eqRow.prefix_ids || '{}', JSON.stringify(eqRow.prefix_stats || {})]);
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
+  res.json({ ok: true });
+});
+
+// 잠금 토글 (인벤토리)
+router.post('/:id/lock', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ slotIndex: z.number().int() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  await query(
+    'UPDATE character_inventory SET locked = NOT locked WHERE character_id = $1 AND slot_index = $2',
+    [id, parsed.data.slotIndex]
+  );
+  res.json({ ok: true });
+});
+
+// 잠금 토글 (장착)
+router.post('/:id/lock-equipped', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ slot: z.string() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  await query(
+    'UPDATE character_equipped SET locked = NOT locked WHERE character_id = $1 AND slot = $2',
+    [id, parsed.data.slot]
+  );
   res.json({ ok: true });
 });
 

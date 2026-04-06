@@ -8,6 +8,7 @@ interface Skill {
   description: string;
   cooldown: number;
   mpCost: number;
+  requiredLevel: number;
   learned: boolean;
   autoUse: boolean;
 }
@@ -32,6 +33,8 @@ export function SkillsScreen() {
     refresh();
   }
 
+  const className = active?.className || 'warrior';
+
   return (
     <div>
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>스킬</h2>
@@ -43,14 +46,24 @@ export function SkillsScreen() {
               padding: 14,
               background: 'var(--bg-panel)',
               border: '1px solid var(--border)',
-              opacity: s.learned ? 1 : 0.5,
+              opacity: s.learned ? 1 : 0.4,
               display: 'flex',
-              justifyContent: 'space-between',
               alignItems: 'center',
+              gap: 14,
             }}
           >
+            <img
+              src={`/images/skills/${className}_${s.requiredLevel}.png`}
+              alt={s.name}
+              width={40}
+              height={40}
+              style={{ imageRendering: 'pixelated', flexShrink: 0, border: '1px solid var(--border)', background: 'var(--bg)' }}
+            />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{s.name}</div>
+              <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
+                {s.name}
+                <span style={{ color: 'var(--text-dim)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>Lv.{s.requiredLevel}</span>
+              </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{s.description}</div>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
                 쿨다운 {s.cooldown}s · MP {s.mpCost}

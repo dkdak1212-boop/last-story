@@ -104,6 +104,24 @@ export function StatusScreen() {
           모든 전투 능력치 +{status.guildBuff.pct}%
         </div>
       )}
+
+      <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
+          <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력에 영향 (공격력 = 힘 × 1.0)</span>
+          <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율과 명중률에 영향 (회피 = 민첩 × 0.4%, 명중 = 80 + 민첩 × 0.5%)</span>
+          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력, 마법 방어, MP에 영향 (마공 = 지능 × 1.2, MP +4/지능)</span>
+          <span style={{ color: 'var(--text)' }}>체력</span><span>방어력과 HP에 영향 (방어 = 체력 × 0.8, HP +10/체력)</span>
+          <span style={{ color: 'var(--text)' }}>스피드</span><span>행동 속도에 영향 (높을수록 빠르게 공격)</span>
+          <span style={{ color: 'var(--text)' }}>치명타</span><span>치명타 확률 (발동 시 1.5배 데미지)</span>
+        </div>
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
+          <div>· 마법사, 사제, 드루이드는 스킬 데미지가 <span style={{ color: 'var(--text)' }}>지능(마법공격력)</span> 기반</div>
+          <div>· 전사, 검사, 궁수, 도적, 암살자는 스킬 데미지가 <span style={{ color: 'var(--text)' }}>힘(물리공격력)</span> 기반</div>
+          <div>· 회복 스킬은 모든 클래스가 <span style={{ color: 'var(--text)' }}>마법공격력</span> 기반으로 회복량 결정</div>
+        </div>
+      </div>
     </div>
   );
 }

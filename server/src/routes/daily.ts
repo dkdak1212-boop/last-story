@@ -8,17 +8,46 @@ import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 const router = Router();
 router.use(authRequired);
 
-interface RandomBoxReward { type: 'gold' | 'item'; gold?: number; itemId?: number; qty?: number; label: string }
+// 랜덤 상자: 모든 아이템 등장 가능 (등급별 확률)
+// 일반 70%, 희귀 20%, 영웅 8%, 전설 2%
+let dailyBoxCache: { grade: string; itemId: number; name: string }[] | null = null;
 
-const DAILY_BOX: RandomBoxReward[] = [
-  { type: 'gold', gold: 200,  label: '200 골드' },
-  { type: 'gold', gold: 500,  label: '500 골드' },
-  { type: 'gold', gold: 1000, label: '1,000 골드' },
-  { type: 'item', itemId: 100, qty: 3, label: '작은 체력 물약 ×3' },
-  { type: 'item', itemId: 101, qty: 3, label: '작은 마나 물약 ×3' },
-  { type: 'item', itemId: 102, qty: 2, label: '중급 체력 물약 ×2' },
-  { type: 'item', itemId: 103, qty: 2, label: '중급 마나 물약 ×2' },
-];
+async function getDailyBoxItems() {
+  if (dailyBoxCache) return dailyBoxCache;
+  const r = await query<{ id: number; name: string; grade: string }>(
+    `SELECT id, name, grade FROM items WHERE type != 'material' ORDER BY id`
+  );
+  dailyBoxCache = r.rows.map(row => ({ grade: row.grade, itemId: row.id, name: row.name }));
+  return dailyBoxCache;
+}
+
+function pickGrade(): string {
+  const roll = Math.random() * 100;
+  if (roll < 2) return 'legendary';
+  if (roll < 10) return 'epic';
+  if (roll < 30) return 'rare';
+  return 'common';
+}
+
+async function rollDailyBox(): Promise<{ gold: number; items: { itemId: number; qty: number; label: string }[] }> {
+  const allItems = await getDailyBoxItems();
+  const result: { gold: number; items: { itemId: number; qty: number; label: string }[] } = { gold: 0, items: [] };
+
+  // 골드 보상 (항상)
+  result.gold = [200, 300, 500, 800, 1000, 1500, 2000][Math.floor(Math.random() * 7)];
+
+  // 아이템 1~2개
+  const itemCount = Math.random() < 0.2 ? 2 : 1;
+  for (let i = 0; i < itemCount; i++) {
+    const grade = pickGrade();
+    const candidates = allItems.filter(it => it.grade === grade);
+    if (candidates.length === 0) continue;
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    result.items.push({ itemId: picked.itemId, qty: 1, label: picked.name });
+  }
+
+  return result;
+}
 
 interface WeeklyReward { gold: number; items: { itemId: number; qty: number; label: string }[] }
 
@@ -80,13 +109,15 @@ router.post('/check-in', async (req: AuthedRequest, res: Response) => {
 
   // 보상 지급
   const isWeekly = newConsec % 7 === 0;
-  let rewards: { gold: number; items: { itemId: number; qty: number; label: string }[] } = { gold: 0, items: [] };
+  let rewards: { gold: number; items: { itemId: number; qty: number; label: string }[] };
   if (isWeekly) {
     rewards = { gold: WEEKLY_REWARD.gold, items: [...WEEKLY_REWARD.items] };
+    // 7일 연속 보너스: 추가 랜덤 상자
+    const bonus = await rollDailyBox();
+    rewards.gold += bonus.gold;
+    rewards.items.push(...bonus.items);
   } else {
-    const pick = DAILY_BOX[Math.floor(Math.random() * DAILY_BOX.length)];
-    if (pick.type === 'gold') rewards.gold = pick.gold!;
-    else rewards.items.push({ itemId: pick.itemId!, qty: pick.qty!, label: pick.label });
+    rewards = await rollDailyBox();
   }
 
   // 적용

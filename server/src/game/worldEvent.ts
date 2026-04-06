@@ -5,7 +5,8 @@ import { applyExpGain } from './leveling.js';
 import type { CharacterRow } from './character.js';
 import type { Server } from 'socket.io';
 
-const ATTACK_COOLDOWN_MS = 3000;
+const ATTACK_COOLDOWN_MS = 300_000; // 5분
+const SIMULATION_SECONDS = 300; // 5분간 시뮬레이션
 
 // ─── 활성 이벤트 조회 ───
 
@@ -49,10 +50,67 @@ export async function attackBoss(characterId: number) {
     }
   }
 
-  // 데미지 계산
+  // 5분간 전투 시뮬레이션
   const eff = await getEffectiveStats(char);
-  const rawDmg = Math.max(eff.atk, eff.matk);
-  const damage = Math.round(rawDmg * (0.9 + Math.random() * 0.2));
+  const mageClass = ['mage', 'priest', 'druid'].includes(char.class_name);
+  const rawDmg = mageClass ? eff.matk : eff.atk;
+
+  // 보유 스킬 로드
+  const skillsR = await query<{ name: string; damage_mult: number; cooldown_sec: number; mp_cost: number }>(
+    `SELECT s.name, s.damage_mult, s.cooldown_sec, s.mp_cost FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2 AND s.kind = 'damage'
+     ORDER BY s.damage_mult DESC`,
+    [characterId, char.level]
+  );
+  const skills = skillsR.rows;
+
+  // 시뮬레이션: 틱 단위로 5분간 공격
+  const tickSec = eff.tickMs / 1000;
+  const totalTicks = Math.floor(SIMULATION_SECONDS / tickSec);
+  let totalDamage = 0;
+  let critCount = 0;
+  let skillUseCount = 0;
+  let mp = char.mp;
+  const maxMp = eff.maxMp;
+  const cooldowns: Record<string, number> = {}; // 스킬명 → 남은 쿨다운(초)
+  const skillLog: { name: string; damage: number; crit: boolean }[] = [];
+
+  for (let t = 0; t < totalTicks; t++) {
+    const now = t * tickSec;
+    let used = false;
+
+    // 스킬 시도
+    for (const sk of skills) {
+      const cdEnd = cooldowns[sk.name] ?? 0;
+      if (now < cdEnd) continue;
+      if (mp < sk.mp_cost) continue;
+
+      const isCrit = Math.random() * 100 < eff.cri;
+      let dmg = Math.round(rawDmg * sk.damage_mult * (0.9 + Math.random() * 0.2));
+      if (isCrit) { dmg = Math.round(dmg * 1.5); critCount++; }
+      totalDamage += dmg;
+      mp -= sk.mp_cost;
+      cooldowns[sk.name] = now + sk.cooldown_sec;
+      skillUseCount++;
+      if (skillLog.length < 10) skillLog.push({ name: sk.name, damage: dmg, crit: isCrit });
+      used = true;
+      break;
+    }
+
+    // 기본 공격 (스킬 못 썼을 때)
+    if (!used) {
+      const isCrit = Math.random() * 100 < eff.cri;
+      let dmg = Math.round(rawDmg * (0.9 + Math.random() * 0.2));
+      if (isCrit) { dmg = Math.round(dmg * 1.5); critCount++; }
+      totalDamage += dmg;
+      if (skillLog.length < 10) skillLog.push({ name: '기본 공격', damage: dmg, crit: isCrit });
+    }
+
+    // MP 자연 회복 (틱당 1%)
+    mp = Math.min(maxMp, mp + Math.round(maxMp * 0.01));
+  }
+
+  const damage = totalDamage;
 
   // HP 원자적 감소
   const upd = await query<{ current_hp: number }>(
@@ -89,6 +147,10 @@ export async function attackBoss(characterId: number) {
 
   return {
     damage,
+    totalTicks,
+    skillUseCount,
+    critCount,
+    skillLog,
     currentHp: newHp,
     maxHp: event.max_hp,
     myDamage: my?.total_damage ?? damage,
@@ -116,6 +178,80 @@ export async function getLeaderboard(eventId: number, limit = 20) {
     className: row.class_name,
     damage: row.total_damage,
   }));
+}
+
+// ─── S등급 보상: 3옵 랜덤 악세서리 ───
+
+async function grantRandomAccessory(characterId: number, prefixCount: number = 3): Promise<string> {
+  // 등급 결정: 희귀 90%, 영웅 9%, 전설 1%
+  const roll = Math.random() * 100;
+  let grade: string;
+  if (roll < 1) grade = 'legendary';
+  else if (roll < 10) grade = 'epic';
+  else grade = 'rare';
+
+  // 해당 등급 악세서리 랜덤 선택
+  const items = await query<{ id: number; name: string }>(
+    `SELECT id, name FROM items WHERE type = 'accessory' AND grade = $1 AND slot IS NOT NULL`,
+    [grade]
+  );
+  if (items.rowCount === 0) return '(악세서리 없음)';
+  const picked = items.rows[Math.floor(Math.random() * items.rows.length)];
+
+  // 접두사 강제 생성 (prefixCount개)
+  const allPrefixes = await query<{ id: number; name: string; tier: number; stat_key: string; min_val: number; max_val: number }>(
+    'SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
+  );
+  const prefixIds: number[] = [];
+  const bonusStats: Record<string, number> = {};
+  const usedKeys = new Set<string>();
+
+  for (let i = 0; i < prefixCount; i++) {
+    // 등급 롤
+    const tRoll = Math.random() * 100;
+    let tier: number;
+    if (tRoll < 0.1) tier = 4;
+    else if (tRoll < 1) tier = 3;
+    else if (tRoll < 10) tier = 2;
+    else tier = 1;
+
+    const candidates = allPrefixes.rows.filter(p => p.tier === tier && !usedKeys.has(p.stat_key));
+    if (candidates.length === 0) continue;
+    const pf = candidates[Math.floor(Math.random() * candidates.length)];
+    const val = pf.min_val + Math.floor(Math.random() * (pf.max_val - pf.min_val + 1));
+    prefixIds.push(pf.id);
+    bonusStats[pf.stat_key] = (bonusStats[pf.stat_key] ?? 0) + val;
+    usedKeys.add(pf.stat_key);
+  }
+
+  // 인벤토리에 추가
+  const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]);
+  const used = new Set(usedR.rows.map(r => r.slot_index));
+  let freeSlot = -1;
+  for (let i = 0; i < 60; i++) { if (!used.has(i)) { freeSlot = i; break; } }
+
+  const prefixNames = allPrefixes.rows.filter(p => prefixIds.includes(p.id)).map(p => p.name).join(' ');
+  const fullName = prefixNames ? `${prefixNames} ${picked.name}` : picked.name;
+
+  if (freeSlot >= 0) {
+    await query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
+       VALUES ($1, $2, $3, 1, $4, $5)`,
+      [characterId, picked.id, freeSlot, prefixIds, JSON.stringify(bonusStats)]
+    );
+  } else {
+    await deliverToMailbox(characterId, '월드 이벤트 S등급 보상', `${fullName} — 가방이 가득 차 우편으로 발송`, picked.id, 1);
+  }
+
+  // 드롭 로그
+  const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+  await query(
+    `INSERT INTO item_drop_log (character_id, character_name, item_name, item_grade, prefix_count, prefix_names)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [characterId, charInfo.rows[0]?.name ?? '???', fullName, grade, prefixIds.length, prefixNames]
+  );
+
+  return fullName;
 }
 
 // ─── 보상 분배 ───
@@ -148,7 +284,7 @@ async function distributeRewards(eventId: number) {
     const pct = (rank / total) * 100;
 
     // 매칭 티어 찾기
-    let matched = tiers[tiers.length - 1]; // 기본: 최하위 티어
+    let matched = tiers[tiers.length - 1];
     for (const t of tiers) {
       if (t.minRank != null && t.maxRank != null && rank >= t.minRank && rank <= t.maxRank) {
         matched = t; break;
@@ -160,6 +296,43 @@ async function distributeRewards(eventId: number) {
 
     const rw = matched.rewards;
     const tierLabel = matched.tier;
+
+    // S등급: 3옵 랜덤 악세서리 추가 지급
+    if (tierLabel === 'S') {
+      const itemName = await grantRandomAccessory(p.character_id, 3);
+      await deliverToMailbox(p.character_id, '월드 이벤트 S등급 특별 보상', `축하합니다! ${itemName}을(를) 획득했습니다.`, 0, 0, 0);
+    }
+    // A등급: 2옵 랜덤 악세서리 추가 지급
+    if (tierLabel === 'A') {
+      const itemName = await grantRandomAccessory(p.character_id, 2);
+      await deliverToMailbox(p.character_id, '월드 이벤트 A등급 특별 보상', `축하합니다! ${itemName}을(를) 획득했습니다.`, 0, 0, 0);
+    }
+    // B등급: 1옵 랜덤 악세서리 추가 지급
+    if (tierLabel === 'B') {
+      const itemName = await grantRandomAccessory(p.character_id, 1);
+      await deliverToMailbox(p.character_id, '월드 이벤트 B등급 특별 보상', `축하합니다! ${itemName}을(를) 획득했습니다.`, 0, 0, 0);
+    }
+
+    // C등급: 랜덤상자 1개 (출석 보상과 동일)
+    if (tierLabel === 'C') {
+      // 랜덤 아이템 1개 (일반70%/희귀20%/영웅8%/전설2%)
+      const gradeRoll = Math.random() * 100;
+      let boxGrade: string;
+      if (gradeRoll < 2) boxGrade = 'legendary';
+      else if (gradeRoll < 10) boxGrade = 'epic';
+      else if (gradeRoll < 30) boxGrade = 'rare';
+      else boxGrade = 'common';
+      const boxItems = await query<{ id: number; name: string }>(
+        `SELECT id, name FROM items WHERE grade = $1 AND type != 'material' ORDER BY RANDOM() LIMIT 1`, [boxGrade]
+      );
+      if (boxItems.rows[0]) {
+        const { overflow } = await addItemToInventory(p.character_id, boxItems.rows[0].id, 1);
+        if (overflow > 0) {
+          await deliverToMailbox(p.character_id, '월드 이벤트 C등급 보상', '랜덤 상자 아이템 — 가방 초과로 우편 발송', boxItems.rows[0].id, 1);
+        }
+        await deliverToMailbox(p.character_id, '월드 이벤트 C등급 보상', `참여 보상: ${boxItems.rows[0].name}`, 0, 0, 0);
+      }
+    }
 
     // 골드 지급
     if (rw.gold) {

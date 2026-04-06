@@ -61,12 +61,18 @@ export interface Item {
   description: string;
   stackSize: number;
   sellPrice: number;
+  enhanceLevel?: number;
+  prefixIds?: number[];
+  prefixStats?: Record<string, number>;
 }
 
 export interface InventorySlot {
   slotIndex: number;
   item: Item;
   quantity: number;
+  enhanceLevel: number;
+  prefixIds: number[];
+  prefixStats: Record<string, number>;
 }
 
 export interface Equipped {

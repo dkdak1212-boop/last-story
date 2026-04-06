@@ -34,6 +34,7 @@ import enhanceRoutes from './routes/enhance.js';
 import dailyRoutes from './routes/daily.js';
 import worldEventRoutes from './routes/worldEvent.js';
 import prefixRoutes from './routes/prefixes.js';
+import dropLogRoutes from './routes/dropLog.js';
 import { initWebSocket } from './ws/index.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
 
@@ -78,6 +79,7 @@ app.use('/api/ranking', rankingRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/world-event', worldEventRoutes);
 app.use('/api/prefixes', prefixRoutes);
+app.use('/api/drop-log', dropLogRoutes);
 
 // 프로덕션: 빌드된 클라이언트 정적 파일 서빙
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

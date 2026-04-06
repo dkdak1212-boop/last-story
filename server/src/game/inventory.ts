@@ -67,6 +67,24 @@ export async function addItemToInventory(
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [characterId, itemId, slot, qty, prefixIds, JSON.stringify(bonusStats)]
       );
+      // 전설 등급 또는 3옵 → 드롭 로그 기록
+      const itemInfo = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);
+      if (itemInfo.rows[0]) {
+        const { name: iName, grade } = itemInfo.rows[0];
+        if (grade === 'legendary' || prefixIds.length >= 3) {
+          const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+          const cName = charInfo.rows[0]?.name ?? '???';
+          const prefixNameList = prefixIds.length > 0
+            ? (await query<{ name: string }>('SELECT name FROM item_prefixes WHERE id = ANY($1)', [prefixIds])).rows.map(r => r.name).join(' ')
+            : '';
+          const fullName = prefixNameList ? `${prefixNameList} ${iName}` : iName;
+          await query(
+            `INSERT INTO item_drop_log (character_id, character_name, item_name, item_grade, prefix_count, prefix_names)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [characterId, cName, fullName, grade, prefixIds.length, prefixNameList]
+          );
+        }
+      }
     } else {
       await query(
         'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',

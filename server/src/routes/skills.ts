@@ -42,6 +42,7 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
     description: row.description,
     cooldown: Number(row.cooldown_sec),
     mpCost: row.mp_cost,
+    requiredLevel: row.required_level,
     learned: char.level >= row.required_level,
     autoUse: row.auto_use ?? false,
   })));
