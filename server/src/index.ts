@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: false }); // 기존 환경변수를 덮어쓰지 않음
 import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
