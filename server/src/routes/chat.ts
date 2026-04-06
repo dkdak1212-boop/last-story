@@ -15,15 +15,17 @@ router.get('/history', async (req, res) => {
   let r;
   if (channel === 'guild' || channel === 'party') {
     if (!scopeId) return res.json([]);
-    r = await query<{ id: number; from_name: string; text: string; created_at: string }>(
-      `SELECT id, from_name, text, created_at FROM chat_messages
-       WHERE channel = $1 AND scope_id = $2 ORDER BY created_at DESC LIMIT 50`,
+    r = await query<{ id: number; from_name: string; text: string; created_at: string; is_admin: boolean }>(
+      `SELECT cm.id, cm.from_name, cm.text, cm.created_at, COALESCE(u.is_admin, FALSE) AS is_admin
+       FROM chat_messages cm LEFT JOIN users u ON u.username = cm.from_name
+       WHERE cm.channel = $1 AND cm.scope_id = $2 ORDER BY cm.created_at DESC LIMIT 50`,
       [channel, scopeId]
     );
   } else {
-    r = await query<{ id: number; from_name: string; text: string; created_at: string }>(
-      `SELECT id, from_name, text, created_at FROM chat_messages
-       WHERE channel = $1 ORDER BY created_at DESC LIMIT 50`,
+    r = await query<{ id: number; from_name: string; text: string; created_at: string; is_admin: boolean }>(
+      `SELECT cm.id, cm.from_name, cm.text, cm.created_at, COALESCE(u.is_admin, FALSE) AS is_admin
+       FROM chat_messages cm LEFT JOIN users u ON u.username = cm.from_name
+       WHERE cm.channel = $1 ORDER BY cm.created_at DESC LIMIT 50`,
       [channel]
     );
   }
@@ -31,6 +33,7 @@ router.get('/history', async (req, res) => {
     id: row.id,
     from: row.from_name,
     text: row.text,
+    isAdmin: row.is_admin,
     createdAt: row.created_at,
     channel,
   })));

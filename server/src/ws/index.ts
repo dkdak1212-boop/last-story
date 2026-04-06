@@ -17,6 +17,10 @@ export function initWebSocket(httpServer: HttpServer) {
       const payload = jwt.verify(token, SECRET) as { userId: number; username: string };
       socket.data.userId = payload.userId;
       socket.data.username = payload.username;
+      // admin 여부 조회
+      query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [payload.userId])
+        .then(r => { socket.data.isAdmin = r.rows[0]?.is_admin ?? false; })
+        .catch(() => { socket.data.isAdmin = false; });
       next();
     } catch {
       next(new Error('invalid token'));
@@ -62,6 +66,7 @@ export function initWebSocket(httpServer: HttpServer) {
           channel, scopeId,
           from: socket.data.username,
           text,
+          isAdmin: socket.data.isAdmin ?? false,
           createdAt: r.rows[0].created_at,
         });
       } catch (e) {

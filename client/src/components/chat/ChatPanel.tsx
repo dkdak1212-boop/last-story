@@ -5,7 +5,7 @@ import { useCharacterStore } from '../../stores/characterStore';
 import { api } from '../../api/client';
 
 interface ChatMsg {
-  id?: number; channel: string; from: string; text: string; createdAt?: string; scopeId?: number | null;
+  id?: number; channel: string; from: string; text: string; isAdmin?: boolean; createdAt?: string; scopeId?: number | null;
 }
 
 type Channel = 'global' | 'trade' | 'guild' | 'party';
@@ -118,8 +118,10 @@ export function ChatPanel() {
             )}
             {!scopeMissing && messages[channel].map((m, i) => (
               <div key={m.id ?? `${i}-${m.createdAt}`} style={{ marginBottom: 3 }}>
-                <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{m.from}:</span>{' '}
-                <span style={{ color: 'var(--text)' }}>{m.text}</span>
+                <span style={{ color: m.isAdmin ? 'var(--success)' : 'var(--accent)', fontWeight: 700 }}>
+                  {m.isAdmin ? '[운영자] ' : ''}{m.from}:
+                </span>{' '}
+                <span style={{ color: m.isAdmin ? 'var(--success)' : 'var(--text)' }}>{m.text}</span>
               </div>
             ))}
             {!scopeMissing && messages[channel].length === 0 && (

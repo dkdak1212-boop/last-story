@@ -167,7 +167,8 @@ export async function getLeaderboard(eventId: number, limit = 20) {
     `SELECT c.name AS character_name, c.class_name, p.total_damage
      FROM world_event_participants p
      JOIN characters c ON c.id = p.character_id
-     WHERE p.event_id = $1
+     JOIN users u ON u.id = c.user_id
+     WHERE p.event_id = $1 AND u.is_admin = FALSE
      ORDER BY p.total_damage DESC
      LIMIT $2`,
     [eventId, limit]

@@ -32,6 +32,7 @@ router.get('/ranking', async (_req, res) => {
   const r = await query<{ character_id: number; name: string; class_name: string; level: number; wins: number; losses: number; elo: number }>(
     `SELECT ps.character_id, c.name, c.class_name, c.level, ps.wins, ps.losses, ps.elo
      FROM pvp_stats ps JOIN characters c ON c.id = ps.character_id
+     JOIN users u ON u.id = c.user_id WHERE u.is_admin = FALSE
      ORDER BY ps.elo DESC, ps.wins DESC LIMIT 100`
   );
   res.json(r.rows.map((row, idx) => ({

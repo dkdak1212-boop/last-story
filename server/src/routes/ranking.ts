@@ -16,8 +16,10 @@ router.get('/', async (req, res) => {
   }
 
   const r = await query<{ id: number; name: string; class_name: string; level: number; gold: string; exp: string }>(
-    `SELECT id, name, class_name, level, gold, exp
-     FROM characters ORDER BY ${orderBy} LIMIT $1`,
+    `SELECT c.id, c.name, c.class_name, c.level, c.gold, c.exp
+     FROM characters c JOIN users u ON u.id = c.user_id
+     WHERE u.is_admin = FALSE
+     ORDER BY ${orderBy} LIMIT $1`,
     [limit]
   );
   res.json(r.rows.map((row, idx) => ({
