@@ -1,0 +1,11 @@
+{
+  "name": "last-story",
+  "version": "0.8.0",
+  "private": true,
+  "scripts": {
+    "install:all": "cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build && cd ../server && npm run build",
+    "start": "cd server && node dist/index.js",
+    "dev": "echo 'Run server and client separately'"
+  }
+}
