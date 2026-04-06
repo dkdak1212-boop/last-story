@@ -28,7 +28,7 @@ export function RankingScreen() {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {rows.map((r) => (
-          <div key={r.id} style={{
+          <div key={r.id} className="ranking-row" style={{
             padding: '10px 14px', background: 'var(--bg-panel)', border: '1px solid var(--border)',
             display: 'flex', gap: 14, alignItems: 'center',
           }}>
@@ -36,9 +36,9 @@ export function RankingScreen() {
               #{r.rank}
             </div>
             <div style={{ flex: 1, fontWeight: 700 }}>{r.name}</div>
-            <div style={{ width: 70, color: 'var(--text-dim)', fontSize: 13 }}>{CLASS_LABEL[r.className] || r.className}</div>
+            <div className="rank-class" style={{ width: 70, color: 'var(--text-dim)', fontSize: 13 }}>{CLASS_LABEL[r.className] || r.className}</div>
             <div style={{ width: 80, textAlign: 'right' }}>Lv.{r.level}</div>
-            <div style={{ width: 100, textAlign: 'right', color: 'var(--accent)' }}>{r.gold.toLocaleString()}G</div>
+            <div className="rank-gold" style={{ width: 100, textAlign: 'right', color: 'var(--accent)' }}>{r.gold.toLocaleString()}G</div>
           </div>
         ))}
         {rows.length === 0 && <div style={{ color: 'var(--text-dim)' }}>랭킹 데이터 없음</div>}

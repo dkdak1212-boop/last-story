@@ -76,7 +76,7 @@ export function ChatPanel() {
   const scopeMissing = (channel === 'guild' && !scopeIds.guild) || (channel === 'party' && !scopeIds.party);
 
   return (
-    <div style={{
+    <div className={`chat-panel ${open ? 'chat-panel-open' : ''}`} style={{
       position: 'fixed', bottom: 0, right: 20,
       width: open ? 420 : 160, background: 'var(--bg-panel)',
       border: `2px solid ${open ? 'var(--accent)' : 'var(--border)'}`,

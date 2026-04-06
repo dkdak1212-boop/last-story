@@ -131,7 +131,7 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
   return (
     <div style={{ padding: 12, background: 'var(--bg-panel)', border: `1px solid ${GRADE_COLOR[a.itemGrade]}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+      <div className="auction-row-inner" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div>
             <span style={{ color: GRADE_COLOR[a.itemGrade], fontWeight: 700 }}>{a.itemName}</span>
@@ -148,7 +148,7 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
           <div style={{ color: 'var(--accent)' }}>{cur.toLocaleString()}G</div>
           {a.buyoutPrice && <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>즉구: {a.buyoutPrice.toLocaleString()}G</div>}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="auction-actions" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button className="primary" onClick={onBid} style={{ fontSize: 12, padding: '4px 12px' }}>입찰</button>
           {a.buyoutPrice && <button onClick={onBuyout} style={{ fontSize: 12, padding: '4px 12px' }}>즉구</button>}
         </div>

@@ -137,7 +137,7 @@ export function WorldEventScreen() {
       </div>
 
       {/* 공격 버튼 + 내 정보 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div className="combat-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center' }}>
           <button
             className="primary"
@@ -160,7 +160,7 @@ export function WorldEventScreen() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="combat-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* 전투 결과 */}
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>전투 결과</div>

@@ -66,7 +66,7 @@ export function InventoryScreen() {
       {msg && <div style={{ color: 'var(--danger)', marginBottom: 12, fontSize: 13 }}>{msg}</div>}
 
       <h3 style={{ marginBottom: 10, fontSize: 16 }}>장착</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
+      <div className="inventory-equipped-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
         {(['weapon', 'helm', 'chest', 'boots', 'ring', 'amulet'] as const).map((s) => {
           const it = equipped[s] as (typeof equipped)[typeof s] & { locked?: boolean } | undefined;
           const locked = it?.locked ?? false;
@@ -114,7 +114,7 @@ export function InventoryScreen() {
       </div>
 
       <h3 style={{ marginBottom: 10, fontSize: 16 }}>가방 ({inv.length})</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+      <div className="inventory-bag-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
         {inv.map((s) => {
           const locked = (s as unknown as { locked?: boolean }).locked ?? false;
           return (

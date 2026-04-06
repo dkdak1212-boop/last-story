@@ -37,6 +37,7 @@ export function LoginScreen() {
       }}
     >
       <div
+        className="login-box"
         style={{
           width: 380,
           padding: 32,

@@ -58,6 +58,7 @@ export function ShopScreen() {
         {shop.map((e) => (
           <div
             key={e.item.id}
+            className="shop-item-row"
             style={{
               padding: 14,
               background: 'var(--bg-panel)',
@@ -75,7 +76,7 @@ export function ShopScreen() {
               {e.item.stats && <div style={{ marginTop: 2 }}><ItemStatsInline stats={e.item.stats} /></div>}
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 2, fontStyle: 'italic' }}>{e.item.description}</div>
             </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="shop-item-actions" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <div style={{ color: 'var(--accent)', minWidth: 60, textAlign: 'right' }}>
                 {(e.price * getQty(e.item.id)).toLocaleString()}G
               </div>

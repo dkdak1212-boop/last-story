@@ -61,7 +61,7 @@ export function StatusScreen() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div className="status-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {/* HP/MP + 유효 전투 능력치 */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>전투 능력치</h3>
@@ -107,7 +107,7 @@ export function StatusScreen() {
 
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
+        <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
           <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력에 영향 (공격력 = 힘 × 1.0)</span>
           <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율과 명중률에 영향 (회피 = 민첩 × 0.4%, 명중 = 80 + 민첩 × 0.5%)</span>
           <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력, 마법 방어, MP에 영향 (마공 = 지능 × 1.2, MP +4/지능)</span>

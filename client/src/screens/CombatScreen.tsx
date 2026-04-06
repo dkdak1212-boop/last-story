@@ -106,7 +106,7 @@ export function CombatScreen() {
         <PotionSettingsPanel settings={settings} onChange={saveSettings} onClose={() => setShowSettings(false)} />
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+      <div className="combat-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
         {/* Player */}
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -148,7 +148,7 @@ export function CombatScreen() {
 
       {/* 포션 보유량 */}
       {state.potions && (
-        <div style={{
+        <div className="potion-bar" style={{
           display: 'flex', gap: 12, padding: 10, marginBottom: 16,
           background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 13,
         }}>

@@ -46,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <OfflineReportOverlay />
       <AnnouncementPopup />
       <header
+        className="app-header"
         style={{
           padding: '16px 24px',
           borderBottom: '2px solid var(--accent)',
@@ -55,7 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           gap: 24,
         }}
       >
-        <Link to="/village" style={{
+        <Link to="/village" className="app-title" style={{
           fontSize: 26, fontWeight: 900, color: 'var(--accent)',
           fontFamily: '"Georgia", "Palatino", serif',
           letterSpacing: 2, textShadow: '0 1px 4px rgba(0,0,0,0.4)',
@@ -64,7 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           마지막이야기
         </Link>
         {active && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
+          <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>{active.name}</span>
             <span style={{ color: 'var(--text-dim)' }}>Lv.{active.level}</span>
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
@@ -72,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
           </div>
         )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+        <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
           {me?.isAdmin && (
             <Link to="/admin" style={{
               padding: '4px 10px', fontSize: 12, color: 'var(--danger)',
@@ -87,6 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {showNav && (
         <nav
+          className="app-nav"
           style={{
             display: 'flex',
             gap: 4,
@@ -115,7 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div style={{ display: 'flex', flex: 1 }}>
         {/* 왼쪽 사이드 장식 */}
-        <aside style={{
+        <aside className="app-side-decor" style={{
           width: 60, flexShrink: 0,
           background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 40%)',
           borderRight: '1px solid var(--border)',
@@ -133,15 +135,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* 메인 콘텐츠 */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {showNav && <div style={{ maxWidth: 1200, width: '100%', margin: '10px auto 0', padding: '0 20px' }}><DailyCheckInBanner /></div>}
-          <main style={{ flex: 1, padding: 20, paddingBottom: 60, maxWidth: 1200, width: '100%', margin: '0 auto' }}>
+        <div className="app-main-wrapper" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {showNav && <div className="app-daily-banner" style={{ maxWidth: 1200, width: '100%', margin: '10px auto 0', padding: '0 20px' }}><DailyCheckInBanner /></div>}
+          <main className="app-main" style={{ flex: 1, padding: 20, paddingBottom: 60, maxWidth: 1200, width: '100%', margin: '0 auto' }}>
             {children}
           </main>
         </div>
 
         {/* 오른쪽 사이드 장식 */}
-        <aside style={{
+        <aside className="app-side-decor" style={{
           width: 60, flexShrink: 0,
           background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 40%)',
           borderLeft: '1px solid var(--border)',

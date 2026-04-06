@@ -59,7 +59,7 @@ export function EnhanceScreen() {
   return (
     <div>
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>장비 강화</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16 }}>
+      <div className="enhance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16 }}>
         {/* 좌: 아이템 목록 */}
         <div>
           <h3 style={{ fontSize: 14, marginBottom: 8 }}>강화 가능 장비</h3>
