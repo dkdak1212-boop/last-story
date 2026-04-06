@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { generatePrefixes } from './prefix.js';
 
 export const BASE_INVENTORY_SLOTS = 50;
 
@@ -14,13 +15,14 @@ export async function addItemToInventory(
   itemId: number,
   quantity: number
 ): Promise<{ added: number; overflow: number }> {
-  // 아이템 조회 — 스택 가능 여부
-  const itemR = await query<{ stack_size: number }>(
-    'SELECT stack_size FROM items WHERE id = $1',
+  // 아이템 조회 — 스택 가능 여부 + 장비 여부
+  const itemR = await query<{ stack_size: number; slot: string | null }>(
+    'SELECT stack_size, slot FROM items WHERE id = $1',
     [itemId]
   );
   if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
   const stackSize = itemR.rows[0].stack_size;
+  const isEquipment = !!itemR.rows[0].slot; // 장비 아이템이면 접두사 부여
 
   let remaining = quantity;
 
@@ -56,10 +58,21 @@ export async function addItemToInventory(
   while (remaining > 0 && freeSlots.length > 0) {
     const slot = freeSlots.shift()!;
     const qty = Math.min(remaining, stackSize);
-    await query(
-      'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
-      [characterId, itemId, slot, qty]
-    );
+
+    if (isEquipment) {
+      // 장비 아이템: 접두사 랜덤 생성
+      const { prefixIds, bonusStats } = await generatePrefixes();
+      await query(
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [characterId, itemId, slot, qty, prefixIds, JSON.stringify(bonusStats)]
+      );
+    } else {
+      await query(
+        'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
+        [characterId, itemId, slot, qty]
+      );
+    }
     remaining -= qty;
   }
 

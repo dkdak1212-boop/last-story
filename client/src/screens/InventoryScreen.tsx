@@ -4,6 +4,7 @@ import { useCharacterStore } from '../stores/characterStore';
 import type { InventorySlot, Equipped } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock } from '../components/ui/ItemStats';
 import { ItemComparison } from '../components/ui/ItemComparison';
+import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
@@ -73,6 +74,7 @@ export function InventoryScreen() {
                     {it.name}
                   </div>
                   <ItemStatsBlock stats={it.stats} />
+                  <PrefixDisplay prefixStats={(it as unknown as Record<string, unknown>).prefixStats as Record<string, number>} />
                 </>
               ) : (
                 <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>비어있음</div>
@@ -107,6 +109,7 @@ export function InventoryScreen() {
             )}
             <div style={{ marginTop: 6 }}>
               <ItemStatsBlock stats={s.item.stats} />
+              <PrefixDisplay prefixStats={(s as unknown as Record<string, unknown>).prefixStats as Record<string, number>} />
               {s.item.slot && (
                 <ItemComparison
                   itemStats={s.item.stats}

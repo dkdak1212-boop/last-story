@@ -52,21 +52,30 @@ export async function loadCharacterOwned(id: number, userId: number): Promise<Ch
 }
 
 export async function getEquippedItems(characterId: number) {
-  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number }>(
-    `SELECT ce.slot, i.stats, ce.enhance_level
+  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number; prefix_stats: Record<string, number> | null }>(
+    `SELECT ce.slot, i.stats, ce.enhance_level, ce.prefix_stats
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [characterId]
   );
-  // 강화 레벨 적용: 각 스탯 × (1 + enhance_level × 0.1)
+  // 강화 레벨 적용 + 접두사 보너스 합산
   return r.rows.map(row => {
-    if (!row.stats || row.enhance_level === 0) return { stats: row.stats };
-    const mult = 1 + row.enhance_level * 0.1;
-    const boosted: Partial<Stats> = {};
-    for (const [k, v] of Object.entries(row.stats)) {
-      boosted[k as keyof Stats] = Math.round((v as number) * mult);
+    const result: Partial<Stats> = {};
+    if (row.stats) {
+      const mult = 1 + (row.enhance_level || 0) * 0.1;
+      for (const [k, v] of Object.entries(row.stats)) {
+        result[k as keyof Stats] = Math.round((v as number) * mult);
+      }
     }
-    return { stats: boosted };
+    // 접두사 보너스 (str, dex, int, vit, spd, cri는 직접 합산)
+    if (row.prefix_stats) {
+      for (const [k, v] of Object.entries(row.prefix_stats)) {
+        if (['str', 'dex', 'int', 'vit', 'spd', 'cri'].includes(k)) {
+          result[k as keyof Stats] = (result[k as keyof Stats] ?? 0) + (v as number);
+        }
+      }
+    }
+    return { stats: Object.keys(result).length > 0 ? result : null, prefixStats: row.prefix_stats };
   });
 }
 

@@ -13,12 +13,17 @@ export interface EffectiveStats extends Stats {
 }
 
 // 장비 스탯 합산
-export function sumEquipmentStats(equippedItems: { stats: Partial<Stats> | null }[]): Partial<Stats> {
-  const acc: Partial<Stats> = {};
+export function sumEquipmentStats(equippedItems: { stats: Partial<Stats> | null; prefixStats?: Record<string, number> | null }[]): Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number } {
+  const acc: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number } = {};
   for (const it of equippedItems) {
     if (!it.stats) continue;
     for (const [k, v] of Object.entries(it.stats)) {
       acc[k as keyof Stats] = (acc[k as keyof Stats] ?? 0) + (v as number);
+    }
+    // 접두사의 dodge/accuracy 보너스 합산
+    if (it.prefixStats) {
+      if (it.prefixStats.dodge) acc.bonusDodge = (acc.bonusDodge ?? 0) + it.prefixStats.dodge;
+      if (it.prefixStats.accuracy) acc.bonusAccuracy = (acc.bonusAccuracy ?? 0) + it.prefixStats.accuracy;
     }
   }
   return acc;
@@ -29,7 +34,7 @@ export function computeEffective(
   base: Stats,
   baseMaxHp: number,
   baseMaxMp: number,
-  equipBonus: Partial<Stats>
+  equipBonus: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number }
 ): EffectiveStats {
   const str = base.str + (equipBonus.str ?? 0);
   const dex = base.dex + (equipBonus.dex ?? 0);
@@ -48,8 +53,8 @@ export function computeEffective(
   const matk = intl * 1.2;
   const def = vit * 0.8;
   const mdef = intl * 0.5;
-  const dodge = dex * 0.4;
-  const accuracy = 80 + dex * 0.5;
+  const dodge = dex * 0.4 + (equipBonus.bonusDodge ?? 0);
+  const accuracy = 80 + dex * 0.5 + (equipBonus.bonusAccuracy ?? 0);
   const tickMs = clamp(2000 / (spd / 100), 500, 5000);
 
   return { str, dex, int: intl, vit, spd, cri, maxHp, maxMp, atk, matk, def, mdef, dodge, accuracy, tickMs };
