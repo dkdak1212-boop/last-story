@@ -7,16 +7,17 @@ pg.types.setTypeParser(20, (v) => parseInt(v, 10));
 // NUMERIC(OID 1700)도 숫자로 파싱
 pg.types.setTypeParser(1700, (v) => parseFloat(v));
 
-const connStr = process.env.DATABASE_URL || '';
-console.log('[db] DATABASE_URL', connStr ? 'is SET (' + connStr.substring(0, 20) + '...)' : '!!!MISSING!!!');
+const RAILWAY_DB = 'postgresql://postgres:kkdZoXIuKmAadyDcyOVzhPlJpiitIBhG@postgres.railway.internal:5432/railway';
+const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? RAILWAY_DB : '');
+console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 export const pool = new pg.Pool(
   connStr ? { connectionString: connStr } : {
-    host: process.env.PGHOST || 'localhost',
-    port: Number(process.env.PGPORT || 5432),
-    user: process.env.PGUSER || 'postgres',
-    password: process.env.PGPASSWORD || 'postgres',
-    database: process.env.PGDATABASE || 'laststory',
+    host: 'localhost',
+    port: 5432,
+    user: 'postgres',
+    password: 'postgres',
+    database: 'laststory',
   }
 );
 
