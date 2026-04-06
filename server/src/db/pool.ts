@@ -7,8 +7,13 @@ pg.types.setTypeParser(20, (v) => parseInt(v, 10));
 // NUMERIC(OID 1700)도 숫자로 파싱
 pg.types.setTypeParser(1700, (v) => parseFloat(v));
 
+const connStr = process.env.DATABASE_URL;
+if (!connStr) {
+  console.error('[db] DATABASE_URL is not set! Current env keys:', Object.keys(process.env).filter(k => k.includes('DATA') || k.includes('PG') || k.includes('RAIL')).join(', '));
+}
+
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: connStr,
 });
 
 pool.on('error', (err) => {
