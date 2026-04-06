@@ -55,13 +55,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           gap: 24,
         }}
       >
-        <div style={{
+        <Link to="/village" style={{
           fontSize: 26, fontWeight: 900, color: 'var(--accent)',
           fontFamily: '"Georgia", "Palatino", serif',
           letterSpacing: 2, textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+          textDecoration: 'none',
         }}>
           마지막이야기
-        </div>
+        </Link>
         {active && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>{active.name}</span>

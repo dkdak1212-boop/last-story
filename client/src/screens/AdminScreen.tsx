@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 
 interface Stats {
@@ -19,7 +20,10 @@ export function AdminScreen() {
   const [tab, setTab] = useState<'stats' | 'announcements' | 'feedback' | 'grant'>('stats');
   return (
     <div>
-      <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>관리자 대시보드</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ color: 'var(--accent)' }}>관리자 대시보드</h2>
+        <Link to="/village" style={{ padding: '6px 16px', color: 'var(--text)', border: '1px solid var(--border)', textDecoration: 'none', fontSize: 13 }}>메인으로</Link>
+      </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <button className={tab === 'stats' ? 'primary' : ''} onClick={() => setTab('stats')}>통계</button>
         <button className={tab === 'announcements' ? 'primary' : ''} onClick={() => setTab('announcements')}>공지 관리</button>

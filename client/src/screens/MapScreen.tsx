@@ -24,10 +24,7 @@ export function MapScreen() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 6, color: 'var(--accent)' }}>지도</h2>
-      <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>
-        떠날 구역을 고르라.
-      </p>
+      <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>사냥터</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {fields.map((f) => {
           const locked = (active?.level ?? 1) < f.requiredLevel;
