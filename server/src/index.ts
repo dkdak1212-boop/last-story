@@ -605,7 +605,7 @@ httpServer.listen(PORT, () => {
   // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅 (15초 딜레이로 다른 마이그레이션 완료 후 실행)
   setTimeout(async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v3'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v4'`);
       if (applied.rowCount && applied.rowCount > 0) return;
       // 방어구 아이템 존재 확인 (armor_unify_v1 완료 여부)
       const check = await query(`SELECT 1 FROM items WHERE id = 400`);
@@ -614,7 +614,9 @@ httpServer.listen(PORT, () => {
         return;
       }
 
-      console.log('[migration] full_drop_setup_v1: 방어구 재지급 + 드랍테이블 세팅...');
+      console.log('[migration] full_drop_setup_v4: 드랍테이블 완전 리셋...');
+      // 먼저 모든 몬스터 드랍 완전 초기화
+      await query(`UPDATE monsters SET drop_table = '[]'::jsonb`);
 
       const allPrefixes = await query<{ id: number; name: string; tier: number; stat_key: string; min_val: number; max_val: number }>(
         'SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
@@ -708,17 +710,20 @@ httpServer.listen(PORT, () => {
           wChance: 0.008, aChance: 0.006, accChance: 0.003 },
       ];
 
+      // 레벨별 포션 드랍
+      const potionByLevel: { minLv: number; maxLv: number; potionId: number; chance: number; min: number; max: number }[] = [
+        { minLv: 1, maxLv: 12, potionId: 100, chance: 0.3, min: 1, max: 2 },   // 작은 체력 물약
+        { minLv: 12, maxLv: 30, potionId: 102, chance: 0.25, min: 1, max: 2 },  // 중급 체력 물약
+        { minLv: 30, maxLv: 50, potionId: 104, chance: 0.2, min: 1, max: 2 },   // 고급 체력 물약
+        { minLv: 50, maxLv: 999, potionId: 106, chance: 0.15, min: 1, max: 2 }, // 최상급 체력 물약
+      ];
+
       for (const m of monsters.rows) {
-        // 기존 드랍에서 유효 아이템만 유지 (소모품 등)
-        let drops: any[] = [];
-        if (Array.isArray(m.drop_table)) {
-          // 기존 드랍 중 소모품(포션)만 유지, 장비는 리셋
-          drops = m.drop_table.filter((d: any) => {
-            if (!validSet.has(d.itemId)) return false;
-            // 포션(100,102,104,106) 등 소모품만 유지, 나머지 리셋
-            return [100,102,104,106].includes(d.itemId);
-          });
-        }
+        const drops: any[] = [];
+
+        // 포션 추가
+        const potionTier = potionByLevel.find(p => m.level >= p.minLv && m.level < p.maxLv) || potionByLevel[potionByLevel.length - 1];
+        drops.push({ itemId: potionTier.potionId, chance: potionTier.chance, minQty: potionTier.min, maxQty: potionTier.max });
 
         // 레벨에 맞는 장비 드랍 추가
         const tier = dropTiers.find(t => m.level >= t.minLv && m.level < t.maxLv) || dropTiers[dropTiers.length - 1];
@@ -742,7 +747,7 @@ httpServer.listen(PORT, () => {
       }
       console.log(`  드랍테이블: ${monsters.rowCount}마리 몬스터 재설정`);
 
-      await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v3')`);
+      await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v4')`);
       console.log('[migration] full_drop_setup_v3: 완료');
     } catch (e) {
       console.error('[migration] full_drop_setup_v3 error:', e);
