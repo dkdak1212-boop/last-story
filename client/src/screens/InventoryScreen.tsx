@@ -13,6 +13,7 @@ const SLOT_LABEL: Record<string, string> = {
 
 export function InventoryScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
+  const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
@@ -34,6 +35,7 @@ export function InventoryScreen() {
     try {
       await api(`/characters/${active.id}/equip`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
       refresh();
+      refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
@@ -43,6 +45,7 @@ export function InventoryScreen() {
     try {
       await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) });
       refresh();
+      refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
@@ -56,6 +59,7 @@ export function InventoryScreen() {
       );
       setMsg(`${res.sold} ×${res.quantity} 판매 → +${res.gold}G`);
       refresh();
+      refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
   }
 
