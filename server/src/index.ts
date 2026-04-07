@@ -485,7 +485,10 @@ httpServer.listen(PORT, () => {
   // 현타/코피에 상급 용린세트 3옵 지급
   (async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_armor_hyunta_copi'`);
+      const itemCheck2 = await query(`SELECT 1 FROM items WHERE id = 420`);
+      if (!itemCheck2.rowCount || itemCheck2.rowCount === 0) return;
+
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_armor_hyunta_copi_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
 
       const charNames = ['현타', '코피'];
@@ -536,15 +539,19 @@ httpServer.listen(PORT, () => {
         console.log(`[grant] ${cname}: 상급 용린세트 3옵 지급 완료`);
       }
 
-      await query(`INSERT INTO _migrations (name) VALUES ('grant_armor_hyunta_copi')`);
+      await query(`INSERT INTO _migrations (name) VALUES ('grant_armor_hyunta_copi_v2')`);
     } catch (e) {
       console.error('[grant] armor error:', e);
     }
   })();
-  // 모든 유저에게 중급 방어구 2옵세트 지급
+  // 모든 유저에게 중급 방어구 2옵세트 지급 (재지급)
   (async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_mid_armor_all'`);
+      // 아이템 410이 존재하는지 먼저 확인 (armor_unify_v1 완료 대기)
+      const itemCheck = await query(`SELECT 1 FROM items WHERE id = 410`);
+      if (!itemCheck.rowCount || itemCheck.rowCount === 0) return; // 아직 방어구 생성 안 됨
+
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_mid_armor_all_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
 
       const allChars = await query<{ id: number; name: string }>(`SELECT id, name FROM characters`);
@@ -588,8 +595,8 @@ httpServer.listen(PORT, () => {
         }
       }
 
-      await query(`INSERT INTO _migrations (name) VALUES ('grant_mid_armor_all')`);
-      console.log(`[grant] 중급 방어구 2옵 세트: ${allChars.rowCount}캐릭터 지급 완료`);
+      await query(`INSERT INTO _migrations (name) VALUES ('grant_mid_armor_all_v2')`);
+      console.log(`[grant] 중급 방어구 2옵 세트 재지급: ${allChars.rowCount}캐릭터 완료`);
     } catch (e) {
       console.error('[grant] mid armor all error:', e);
     }
