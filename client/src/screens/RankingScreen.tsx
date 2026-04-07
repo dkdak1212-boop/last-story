@@ -7,8 +7,7 @@ interface RankEntry {
 }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
-  assassin: '암살자', mage: '마법사', priest: '사제', druid: '드루이드',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
 };
 
 export function RankingScreen() {
