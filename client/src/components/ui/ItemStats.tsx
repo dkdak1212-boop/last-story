@@ -14,24 +14,29 @@ export const GRADE_LABEL: Record<ItemGrade, string> = {
   legendary: '전설',
 };
 
-export const STAT_LABEL: Record<keyof Stats, string> = {
+export const STAT_LABEL: Record<string, string> = {
   str: '힘',
   dex: '민첩',
   int: '지능',
   vit: '체력',
   spd: '스피드',
   cri: '치명타',
+  atk: '물리 공격',
+  matk: '마법 공격',
+  def: '방어력',
+  mdef: '마법 방어',
+  hp: 'HP',
 };
 
-const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
+const STAT_ORDER: string[] = ['atk', 'matk', 'def', 'mdef', 'hp', 'str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
 // 스탯 jsonb → 라인 배열
-export function formatStats(stats: Partial<Stats> | null | undefined): string[] {
+export function formatStats(stats: Record<string, number> | null | undefined): string[] {
   if (!stats) return [];
   const lines: string[] = [];
   for (const key of STAT_ORDER) {
-    const v = stats[key];
-    if (v) lines.push(`${STAT_LABEL[key]} +${v}`);
+    const v = (stats as any)[key];
+    if (v) lines.push(`${STAT_LABEL[key] || key} +${v}`);
   }
   return lines;
 }
