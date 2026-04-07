@@ -602,20 +602,32 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
   const boostedExp = boostActive ? Math.floor(m.exp_reward * 1.5) : m.exp_reward;
-  const result = applyExpGain(char.level, char.exp, boostedExp);
+  const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel}`);
+    const g = result.statGrowth;
     await query(
       `UPDATE characters SET level=$1, exp=$2, gold=gold+$3,
-              max_hp=max_hp+$4, hp=max_hp+$4, node_points=node_points+$5
+              max_hp=max_hp+$4, hp=max_hp+$4, node_points=node_points+$5,
+              stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(
+                stats,
+                '{str}', (COALESCE((stats->>'str')::int,0) + $7)::text::jsonb),
+                '{dex}', (COALESCE((stats->>'dex')::int,0) + $8)::text::jsonb),
+                '{int}', (COALESCE((stats->>'int')::int,0) + $9)::text::jsonb),
+                '{vit}', (COALESCE((stats->>'vit')::int,0) + $10)::text::jsonb),
+                '{spd}', (COALESCE((stats->>'spd')::int,0) + $11)::text::jsonb),
+                '{cri}', (COALESCE((stats->>'cri')::int,0) + $12)::text::jsonb)
        WHERE id=$6`,
       [result.newLevel, result.newExp, m.gold_reward,
-       result.hpGained, result.nodePointsGained, s.characterId]
+       result.hpGained, result.nodePointsGained, s.characterId,
+       g.str, g.dex, g.int, g.vit, g.spd, g.cri]
     );
     s.playerMaxHp += result.hpGained;
     s.playerHp = s.playerMaxHp;
-    s.playerStats = await getEffectiveStats({ ...char, level: result.newLevel, max_hp: s.playerMaxHp } as any);
+    // 스탯 반영된 캐릭터 다시 로드
+    const updatedChar = await loadCharacter(s.characterId);
+    s.playerStats = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: s.playerMaxHp } as any);
     s.playerSpeed = s.playerStats.spd;
     // 새 스킬 학습
     s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);

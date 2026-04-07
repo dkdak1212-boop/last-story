@@ -188,6 +188,43 @@ httpServer.listen(PORT, () => {
       console.error('[migration] node_merge_v2 error:', e);
     }
   })();
+  // 접두사 수치 상향 마이그레이션
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'prefix_buff_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] prefix_buff_v1: 접두사 수치 상향...');
+      // STR/DEX/INT/VIT: 대폭 상향
+      await query(`UPDATE item_prefixes SET min_val=5,  max_val=10 WHERE tier=1 AND stat_key IN ('str','dex','int','vit')`);
+      await query(`UPDATE item_prefixes SET min_val=12, max_val=20 WHERE tier=2 AND stat_key IN ('str','dex','int','vit')`);
+      await query(`UPDATE item_prefixes SET min_val=22, max_val=35 WHERE tier=3 AND stat_key IN ('str','dex','int','vit')`);
+      await query(`UPDATE item_prefixes SET min_val=38, max_val=55 WHERE tier=4 AND stat_key IN ('str','dex','int','vit')`);
+      // SPD: 상향
+      await query(`UPDATE item_prefixes SET min_val=8,  max_val=15 WHERE tier=1 AND stat_key='spd'`);
+      await query(`UPDATE item_prefixes SET min_val=18, max_val=30 WHERE tier=2 AND stat_key='spd'`);
+      await query(`UPDATE item_prefixes SET min_val=35, max_val=55 WHERE tier=3 AND stat_key='spd'`);
+      await query(`UPDATE item_prefixes SET min_val=60, max_val=90 WHERE tier=4 AND stat_key='spd'`);
+      // CRI: 상향
+      await query(`UPDATE item_prefixes SET min_val=2,  max_val=4  WHERE tier=1 AND stat_key='cri'`);
+      await query(`UPDATE item_prefixes SET min_val=5,  max_val=9  WHERE tier=2 AND stat_key='cri'`);
+      await query(`UPDATE item_prefixes SET min_val=10, max_val=16 WHERE tier=3 AND stat_key='cri'`);
+      await query(`UPDATE item_prefixes SET min_val=18, max_val=28 WHERE tier=4 AND stat_key='cri'`);
+      // ACC: 상향
+      await query(`UPDATE item_prefixes SET min_val=3,  max_val=6  WHERE tier=1 AND stat_key='accuracy'`);
+      await query(`UPDATE item_prefixes SET min_val=8,  max_val=14 WHERE tier=2 AND stat_key='accuracy'`);
+      await query(`UPDATE item_prefixes SET min_val=16, max_val=25 WHERE tier=3 AND stat_key='accuracy'`);
+      await query(`UPDATE item_prefixes SET min_val=28, max_val=40 WHERE tier=4 AND stat_key='accuracy'`);
+      // DODGE: 상향
+      await query(`UPDATE item_prefixes SET min_val=2,  max_val=5  WHERE tier=1 AND stat_key='dodge'`);
+      await query(`UPDATE item_prefixes SET min_val=6,  max_val=12 WHERE tier=2 AND stat_key='dodge'`);
+      await query(`UPDATE item_prefixes SET min_val=14, max_val=22 WHERE tier=3 AND stat_key='dodge'`);
+      await query(`UPDATE item_prefixes SET min_val=24, max_val=35 WHERE tier=4 AND stat_key='dodge'`);
+      await query(`INSERT INTO _migrations (name) VALUES ('prefix_buff_v1')`);
+      console.log('[migration] prefix_buff_v1: 완료');
+    } catch (e) {
+      console.error('[migration] prefix_buff_v1 error:', e);
+    }
+  })();
   // 기존 전투 세션 복구
   restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
 });
