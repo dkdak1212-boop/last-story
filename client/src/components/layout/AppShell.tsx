@@ -5,8 +5,9 @@ import { OfflineReportOverlay } from '../ui/OfflineReportOverlay';
 import { AnnouncementPopup } from '../ui/AnnouncementPopup';
 import { DailyCheckInBanner } from '../ui/DailyCheckInBanner';
 import { ChatPanel } from '../chat/ChatPanel';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useMeStore } from '../../stores/meStore';
+import { io as socketIo } from 'socket.io-client';
 
 const NAV = [
   { to: '/village', label: '메인' },
@@ -38,7 +39,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const me = useMeStore((s) => s.me);
   const fetchMe = useMeStore((s) => s.fetch);
   const clearMe = useMeStore((s) => s.clear);
+  const token = useAuthStore((s) => s.token);
   const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
+  const [onlineCount, setOnlineCount] = useState(0);
   useEffect(() => { fetchMe(); }, [fetchMe]);
   // 새로고침 시 저장된 캐릭터 자동 복구
   useEffect(() => {
@@ -46,6 +49,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       fetchCharacters().catch(() => {});
     }
   }, []);
+  // 접속자 수 실시간 수신
+  useEffect(() => {
+    if (!token) return;
+    const socket = socketIo({ auth: { token }, transports: ['websocket', 'polling'] });
+    socket.on('online-count', (count: number) => setOnlineCount(count));
+    return () => { socket.disconnect(); };
+  }, [token]);
 
   const showNav = !!active && loc.pathname !== '/characters';
 
@@ -81,7 +91,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {(active as any).nodePoints ?? 0}</span>
           </div>
         )}
-        <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+        <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
+          {onlineCount > 0 && (
+            <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 700 }}>
+              {onlineCount}명 접속 중
+            </span>
+          )}
           {me?.isAdmin && (
             <Link to="/admin" style={{
               padding: '4px 10px', fontSize: 12, color: 'var(--danger)',

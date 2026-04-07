@@ -27,8 +27,14 @@ export function initWebSocket(httpServer: HttpServer) {
     }
   });
 
+  function broadcastOnlineCount() {
+    const count = io.sockets.sockets.size;
+    io.emit('online-count', count);
+  }
+
   io.on('connection', (socket) => {
     console.log(`[ws] connected: ${socket.data.username}`);
+    broadcastOnlineCount();
 
     // 전투 채널 구독
     socket.on('combat:subscribe', (characterId: number) => {
@@ -98,6 +104,7 @@ export function initWebSocket(httpServer: HttpServer) {
 
     socket.on('disconnect', () => {
       console.log(`[ws] disconnected: ${socket.data.username}`);
+      broadcastOnlineCount();
     });
   });
 

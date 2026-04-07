@@ -19,8 +19,64 @@ const NODE_COLORS = {
 };
 const TIER_GLOW: Record<string, string> = { small: '', medium: 'rgba(218,165,32,0.3)', large: 'rgba(255,60,60,0.5)' };
 
-const CELL = 48; // 노드 간 간격
-const PADDING = 60;
+const CELL_X = 80;
+const CELL_Y = 70;
+const PADDING = 80;
+
+// 선행순서 기반 자동 레이아웃 계산
+function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
+  const positions = new Map<number, { x: number; y: number }>();
+  if (nodes.length === 0) return positions;
+
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  // 각 노드의 depth 계산 (선행 없는 노드 = 0)
+  const depths = new Map<number, number>();
+  function getDepth(id: number, visited: Set<number> = new Set()): number {
+    if (depths.has(id)) return depths.get(id)!;
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const node = nodeMap.get(id);
+    if (!node || node.prerequisites.length === 0) {
+      depths.set(id, 0);
+      return 0;
+    }
+    const maxPreDepth = Math.max(...node.prerequisites.map(pid => getDepth(pid, visited)));
+    const d = maxPreDepth + 1;
+    depths.set(id, d);
+    return d;
+  }
+  for (const n of nodes) getDepth(n.id);
+
+  // depth별 노드 그룹핑
+  const depthGroups = new Map<number, NodeDefinition[]>();
+  for (const n of nodes) {
+    const d = depths.get(n.id) || 0;
+    if (!depthGroups.has(d)) depthGroups.set(d, []);
+    depthGroups.get(d)!.push(n);
+  }
+
+  // 각 depth의 노드를 가로로 배치
+  const maxDepth = Math.max(...depthGroups.keys());
+  for (let d = 0; d <= maxDepth; d++) {
+    const group = depthGroups.get(d) || [];
+    // 같은 depth에서 tier별 정렬 (small → medium → large)
+    const tierOrder: Record<string, number> = { small: 0, medium: 1, large: 2 };
+    group.sort((a, b) => (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0) || a.id - b.id);
+
+    const totalWidth = (group.length - 1) * CELL_X;
+    const startX = -totalWidth / 2;
+
+    for (let i = 0; i < group.length; i++) {
+      positions.set(group[i].id, {
+        x: startX + i * CELL_X,
+        y: d * CELL_Y,
+      });
+    }
+  }
+
+  return positions;
+}
 
 export function NodeTreeScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -54,14 +110,16 @@ export function NodeTreeScreen() {
   const zoneNodes = treeState ? treeState.nodes.filter(n => n.zone === activeZone) : [];
   const nodeMap = new Map(zoneNodes.map(n => [n.id, n]));
 
-  // 노드 위치를 로컬 좌표로 변환
+  // 선행순서 기반 자동 레이아웃
+  const layoutPositions = computeLayout(zoneNodes);
+
   function getNodePos(node: NodeDefinition) {
-    // 노드의 position_x, position_y를 캔버스 좌표로
-    const minX = Math.min(...zoneNodes.map(n => n.positionX));
-    const minY = Math.min(...zoneNodes.map(n => n.positionY));
+    const pos = layoutPositions.get(node.id) || { x: 0, y: 0 };
+    const canvas = canvasRef.current;
+    const centerX = canvas ? canvas.width / 2 : 400;
     return {
-      x: (node.positionX - minX) * CELL + PADDING + offset.x,
-      y: (node.positionY - minY) * CELL + PADDING + offset.y,
+      x: centerX + pos.x + offset.x,
+      y: pos.y + PADDING + offset.y,
     };
   }
 
@@ -102,10 +160,11 @@ export function NodeTreeScreen() {
         if (!preNode) continue;
         const prePos = getNodePos(preNode);
         const bothInvested = invested.has(node.id) && invested.has(preId);
+        const oneAvailable = canInvest(node) && invested.has(preId);
         ctx.beginPath();
         ctx.moveTo(prePos.x, prePos.y);
         ctx.lineTo(pos.x, pos.y);
-        ctx.strokeStyle = bothInvested ? '#daa520' : canInvest(node) && invested.has(preId) ? '#4caf50' : '#333';
+        ctx.strokeStyle = bothInvested ? '#daa520' : oneAvailable ? '#4caf50' : '#333';
         ctx.lineWidth = bothInvested ? 2.5 : 1.5;
         ctx.stroke();
       }
@@ -156,7 +215,7 @@ export function NodeTreeScreen() {
       ctx.textBaseline = 'middle';
       ctx.fillText(node.cost.toString(), pos.x, pos.y);
     }
-  }, [zoneNodes, invested, offset, treeState]);
+  }, [zoneNodes, invested, offset, treeState, layoutPositions]);
 
   // 캔버스 클릭 → 노드 찾기
   function handleCanvasClick(e: React.MouseEvent) {
