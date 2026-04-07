@@ -55,6 +55,26 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
+// 디버그: 마이그레이션 상태 + 아이템 수 확인
+app.get('/api/debug/status', async (_req, res) => {
+  try {
+    const migrations = await query('SELECT name, applied_at FROM _migrations ORDER BY applied_at DESC');
+    const itemCount = await query('SELECT COUNT(*)::int AS cnt FROM items WHERE slot IS NOT NULL');
+    const itemSample = await query('SELECT id, name, slot, grade FROM items WHERE slot IS NOT NULL ORDER BY id LIMIT 10');
+    const itemMax = await query('SELECT MAX(id)::int AS max_id FROM items');
+    const potionCount = await query('SELECT COUNT(*)::int AS cnt FROM items WHERE type = \'consumable\'');
+    res.json({
+      migrations: migrations.rows,
+      equipItemCount: itemCount.rows[0]?.cnt,
+      potionCount: potionCount.rows[0]?.cnt,
+      maxItemId: itemMax.rows[0]?.max_id,
+      sampleItems: itemSample.rows,
+    });
+  } catch (e: any) {
+    res.json({ error: e.message });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/characters', characterRoutes);
 app.use('/api/characters', combatRoutes);
