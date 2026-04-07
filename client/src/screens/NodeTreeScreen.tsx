@@ -532,42 +532,47 @@ export function NodeTreeScreen() {
 
       {selected && (
         <div style={{
-          padding: 14, background: 'var(--bg-panel)', border: `2px solid ${
+          position: 'sticky', bottom: 0, zIndex: 50,
+          padding: 12, background: 'rgba(10,10,10,0.95)', backdropFilter: 'blur(4px)',
+          border: `2px solid ${
             nodeStatus(selected) === 'invested' ? 'var(--accent)' :
             nodeStatus(selected) === 'available' ? 'var(--success)' : '#ff8800'}`,
-          marginBottom: 12, borderRadius: 6,
+          borderRadius: '8px 8px 0 0',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: nodeStatus(selected) === 'invested' ? 'var(--accent)' : '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: nodeStatus(selected) === 'invested' ? 'var(--accent)' : '#fff' }}>
                 {selected.name}
+                <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
+                  {tierLabel(selected.tier)} · {selected.cost}pt
+                </span>
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 2 }}>
-                {tierLabel(selected.tier)} · {selected.cost}pt · {selected.description}
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+                {selected.description}
               </div>
               {selected.prerequisites.length > 0 && (
-                <div style={{ fontSize: 12, color: '#ff8800', marginTop: 6 }}>
+                <div style={{ fontSize: 11, color: '#ff8800', marginTop: 4 }}>
                   선행: {selected.prerequisites.map(pid => {
                     const pn = treeState.nodes.find(n => n.id === pid);
                     const met = invested.has(pid);
-                    return <span key={pid} style={{ color: met ? 'var(--success)' : '#ff8800', marginRight: 8 }}>
+                    return <span key={pid} style={{ color: met ? 'var(--success)' : '#ff8800', marginRight: 6 }}>
                       {pn ? pn.name : `#${pid}`} {met ? '✓' : '✗'}
                     </span>;
                   })}
                 </div>
               )}
             </div>
-            <div>
+            <div style={{ flexShrink: 0 }}>
               {nodeStatus(selected) === 'available' && (
                 <button onClick={() => invest(selected.id)} disabled={loading} style={{
-                  padding: '8px 20px', background: 'var(--success)', color: '#000', border: 'none', fontWeight: 700, fontSize: 14,
+                  padding: '10px 24px', background: 'var(--success)', color: '#000', border: 'none', fontWeight: 700, fontSize: 15,
                 }}>투자</button>
               )}
               {nodeStatus(selected) === 'invested' && (
                 <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>투자됨 ✓</span>
               )}
               {nodeStatus(selected) === 'locked' && (
-                <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>선행 노드 필요</span>
+                <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>선행 필요</span>
               )}
             </div>
           </div>
