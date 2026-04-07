@@ -601,6 +601,149 @@ httpServer.listen(PORT, () => {
       console.error('[grant] mid armor all error:', e);
     }
   })();
+  // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      // 아이템 400 존재 확인
+      const check = await query(`SELECT 1 FROM items WHERE id = 400`);
+      if (!check.rowCount) return;
+
+      console.log('[migration] full_drop_setup_v1: 방어구 재지급 + 드랍테이블 세팅...');
+
+      const allPrefixes = await query<{ id: number; name: string; tier: number; stat_key: string; min_val: number; max_val: number }>(
+        'SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
+      );
+
+      function rollPrefixes(count: number, luckBoost = false) {
+        const prefixIds: number[] = [];
+        const bonusStats: Record<string, number> = {};
+        const usedKeys = new Set<string>();
+        for (let i = 0; i < count; i++) {
+          const tRoll = Math.random() * 100;
+          let tier: number;
+          if (luckBoost) { tier = tRoll < 5 ? 4 : tRoll < 20 ? 3 : tRoll < 50 ? 2 : 1; }
+          else { tier = tRoll < 3 ? 3 : tRoll < 20 ? 2 : 1; }
+          const candidates = allPrefixes.rows.filter(p => p.tier === tier && !usedKeys.has(p.stat_key));
+          if (candidates.length === 0) continue;
+          const pf = candidates[Math.floor(Math.random() * candidates.length)];
+          const val = pf.min_val + Math.floor(Math.random() * (pf.max_val - pf.min_val + 1));
+          prefixIds.push(pf.id);
+          bonusStats[pf.stat_key] = (bonusStats[pf.stat_key] ?? 0) + val;
+          usedKeys.add(pf.stat_key);
+        }
+        return { prefixIds, bonusStats };
+      }
+
+      async function grantItem(cid: number, itemId: number, prefixCount: number, luck = false) {
+        const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [cid]);
+        const used = new Set(usedR.rows.map(r => r.slot_index));
+        let freeSlot = -1;
+        for (let i = 0; i < 60; i++) { if (!used.has(i)) { freeSlot = i; break; } }
+        if (freeSlot < 0) return;
+        const { prefixIds, bonusStats } = rollPrefixes(prefixCount, luck);
+        await query(`INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats) VALUES ($1,$2,$3,1,$4,$5::jsonb)`,
+          [cid, itemId, freeSlot, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats)]);
+      }
+
+      // 1) 모든 캐릭터에 중급 방어구 2옵 지급
+      const allChars = await query<{ id: number; name: string }>('SELECT id, name FROM characters');
+      for (const c of allChars.rows) {
+        await grantItem(c.id, 410, 2);
+        await grantItem(c.id, 411, 2);
+        await grantItem(c.id, 412, 2);
+      }
+      console.log(`  중급 방어구: ${allChars.rowCount}캐릭터 지급`);
+
+      // 2) 현타/코피에 상급 용린 3옵
+      for (const name of ['현타', '코피']) {
+        const cr = await query<{ id: number }>('SELECT id FROM characters WHERE name = $1', [name]);
+        if (cr.rowCount === 0) continue;
+        await grantItem(cr.rows[0].id, 420, 3, true);
+        await grantItem(cr.rows[0].id, 421, 3, true);
+        await grantItem(cr.rows[0].id, 422, 3, true);
+        console.log(`  ${name}: 상급 용린 3옵 지급`);
+      }
+
+      // 3) 전체 몬스터 드랍테이블 재설정
+      // 먼저 기존 드랍에서 삭제된 아이템 정리
+      const validItems = await query<{ id: number }>('SELECT id FROM items');
+      const validSet = new Set(validItems.rows.map(r => r.id));
+
+      const monsters = await query<{ id: number; level: number; drop_table: any[] }>(
+        'SELECT id, level, drop_table FROM monsters'
+      );
+
+      // 레벨대별 드랍 아이템 정의
+      // Lv.1~12: 초급무기(1-5) + 초급방어구(400-402) + 초급악세(20,21)
+      // Lv.12~30: common/rare무기(200-215,220-222) + 중급방어구(410-412) + rare악세(270-274,280-283)
+      // Lv.30~50: epic무기(203-205,213-215,223-225) + 상급방어구(420-422) + epic악세(275-277,284,340,342)
+      // Lv.50~70: legendary무기(206,207,216,217,226,227,300-323) + 전설방어구(430-432) + legend악세(278,285,341,343)
+
+      const dropTiers: { minLv: number; maxLv: number; weapons: number[]; armors: number[]; accessories: number[]; wChance: number; aChance: number; accChance: number }[] = [
+        { minLv: 1, maxLv: 12,
+          weapons: [1,2,3,4,5],
+          armors: [400,401,402],
+          accessories: [20,21],
+          wChance: 0.02, aChance: 0.01, accChance: 0.005 },
+        { minLv: 12, maxLv: 30,
+          weapons: [200,201,202,210,211,212,220,221,222],
+          armors: [410,411,412],
+          accessories: [270,271,272,273,274,280,281,282,283],
+          wChance: 0.015, aChance: 0.01, accChance: 0.005 },
+        { minLv: 30, maxLv: 50,
+          weapons: [203,204,205,213,214,215,223,224,225],
+          armors: [420,421,422],
+          accessories: [275,276,277,284,340,342],
+          wChance: 0.01, aChance: 0.008, accChance: 0.004 },
+        { minLv: 50, maxLv: 999,
+          weapons: [206,207,216,217,226,227,300,301,302,303,310,311,312,313,320,321,322,323],
+          armors: [430,431,432,330,331,332,333,336,337],
+          accessories: [278,285,341,343],
+          wChance: 0.008, aChance: 0.006, accChance: 0.003 },
+      ];
+
+      for (const m of monsters.rows) {
+        // 기존 드랍에서 유효 아이템만 유지 (소모품 등)
+        let drops: any[] = [];
+        if (Array.isArray(m.drop_table)) {
+          // 기존 드랍 중 소모품(포션)만 유지, 장비는 리셋
+          drops = m.drop_table.filter((d: any) => {
+            if (!validSet.has(d.itemId)) return false;
+            // 포션(100,102,104,106) 등 소모품만 유지, 나머지 리셋
+            return [100,102,104,106].includes(d.itemId);
+          });
+        }
+
+        // 레벨에 맞는 장비 드랍 추가
+        const tier = dropTiers.find(t => m.level >= t.minLv && m.level < t.maxLv) || dropTiers[dropTiers.length - 1];
+
+        // 무기 2~3개 랜덤 선택
+        const wPick = tier.weapons.sort(() => Math.random() - 0.5).slice(0, Math.min(3, tier.weapons.length));
+        for (const wid of wPick) {
+          drops.push({ itemId: wid, chance: tier.wChance, minQty: 1, maxQty: 1 });
+        }
+        // 방어구 전부
+        for (const aid of tier.armors) {
+          drops.push({ itemId: aid, chance: tier.aChance, minQty: 1, maxQty: 1 });
+        }
+        // 악세서리 2개 랜덤
+        const accPick = tier.accessories.sort(() => Math.random() - 0.5).slice(0, Math.min(2, tier.accessories.length));
+        for (const acid of accPick) {
+          drops.push({ itemId: acid, chance: tier.accChance, minQty: 1, maxQty: 1 });
+        }
+
+        await query('UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2', [JSON.stringify(drops), m.id]);
+      }
+      console.log(`  드랍테이블: ${monsters.rowCount}마리 몬스터 재설정`);
+
+      await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v1')`);
+      console.log('[migration] full_drop_setup_v1: 완료');
+    } catch (e) {
+      console.error('[migration] full_drop_setup_v1 error:', e);
+    }
+  })();
   // 드랍테이블 강제 재정리 (삭제된 아이템 제거)
   (async () => {
     try {
