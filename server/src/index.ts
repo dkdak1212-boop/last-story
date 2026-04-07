@@ -933,21 +933,21 @@ async function runMigrations() {
   // ═══════════════════════════════════════════════
   {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v2'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v3'`);
       if (applied.rowCount && applied.rowCount > 0) {
-        console.log('[migration] equip_overhaul_v2: 이미 적용됨');
+        console.log('[migration] equip_overhaul_v3: 이미 적용됨');
       } else {
-        console.log('[migration] equip_overhaul_v2: 장비 전면 개편 시작...');
+        console.log('[migration] equip_overhaul_v3: 장비 전면 개편 시작...');
 
-        // 1) 기존 장비 아이템 전부 삭제 (slot IS NOT NULL인 모든 아이템)
-        const oldEquip = await query<{ id: number }>(`SELECT id FROM items WHERE slot IS NOT NULL`);
-        const oldIds = oldEquip.rows.map(r => r.id);
-        if (oldIds.length > 0) {
-          await query(`DELETE FROM character_inventory WHERE item_id = ANY($1::int[])`, [oldIds]);
-          await query(`DELETE FROM character_equipped WHERE item_id = ANY($1::int[])`, [oldIds]);
-          await query(`DELETE FROM items WHERE id = ANY($1::int[])`, [oldIds]);
-          console.log(`  기존 장비 ${oldIds.length}개 삭제`);
-        }
+        // 1) 모든 장비 아이템 완전 삭제 (이전 실패 잔해 포함)
+        await query(`DELETE FROM character_inventory WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
+        await query(`DELETE FROM character_equipped WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
+        await query(`DELETE FROM items WHERE slot IS NOT NULL`);
+        // ID 1000+ 잔해도 강제 삭제 (이전 실패 마이그레이션 대비)
+        await query(`DELETE FROM character_inventory WHERE item_id >= 1000`);
+        await query(`DELETE FROM character_equipped WHERE item_id >= 1000`);
+        await query(`DELETE FROM items WHERE id >= 1000`);
+        console.log('  기존 장비 전부 삭제 완료');
 
         // required_level 컬럼 보장
         await query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS required_level INT NOT NULL DEFAULT 1`);
@@ -999,7 +999,8 @@ async function runMigrations() {
               const fullName = `${g.label}${t.label} ${wc.name}`;
               await query(
                 `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
-                 VALUES ($1, $2, 'weapon', $3, 'weapon', $4::jsonb, $5, 1, $6, $7)`,
+                 VALUES ($1, $2, 'weapon', $3, 'weapon', $4::jsonb, $5, 1, $6, $7)
+                 ON CONFLICT (id) DO UPDATE SET name=$2, grade=$3, stats=$4::jsonb, description=$5, sell_price=$6, required_level=$7`,
                 [itemId, fullName, g.g, JSON.stringify(stats),
                  `Lv.${t.lvl}~${t.maxLv} ${wc.cls} 전용`,
                  Math.round(atk * 2), t.lvl]
@@ -1028,7 +1029,8 @@ async function runMigrations() {
               const fullName = `${g.label}${t.label} ${as.name}`;
               await query(
                 `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
-                 VALUES ($1, $2, 'armor', $3, $4, $5::jsonb, $6, 1, $7, $8)`,
+                 VALUES ($1, $2, 'armor', $3, $4, $5::jsonb, $6, 1, $7, $8)
+                 ON CONFLICT (id) DO UPDATE SET name=$2, grade=$3, slot=$4, stats=$5::jsonb, description=$6, sell_price=$7, required_level=$8`,
                 [itemId, fullName, g.g, as.slot, JSON.stringify(stats),
                  `Lv.${t.lvl}~${t.maxLv} 공용 ${as.name}`,
                  Math.round(Object.values(stats).reduce((a, b) => a + b, 0)), t.lvl]
@@ -1056,7 +1058,8 @@ async function runMigrations() {
               const fullName = `${g.label}${t.label} ${ac.name}`;
               await query(
                 `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
-                 VALUES ($1, $2, 'accessory', $3, $4, $5::jsonb, $6, 1, $7, $8)`,
+                 VALUES ($1, $2, 'accessory', $3, $4, $5::jsonb, $6, 1, $7, $8)
+                 ON CONFLICT (id) DO UPDATE SET name=$2, grade=$3, slot=$4, stats=$5::jsonb, description=$6, sell_price=$7, required_level=$8`,
                 [itemId, fullName, g.g, ac.slot, JSON.stringify(stats),
                  `Lv.${t.lvl}~${t.maxLv} 공용 ${ac.name}`,
                  Math.round(Object.values(stats).reduce((a, b) => a + b, 0)), t.lvl]
@@ -1182,11 +1185,11 @@ async function runMigrations() {
         await query(`DELETE FROM character_inventory WHERE item_id NOT IN (SELECT id FROM items)`);
         await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
 
-        await query(`INSERT INTO _migrations (name) VALUES ('equip_overhaul_v2')`);
-        console.log('[migration] equip_overhaul_v2: 완료');
+        await query(`INSERT INTO _migrations (name) VALUES ('equip_overhaul_v3')`);
+        console.log('[migration] equip_overhaul_v3: 완료');
       }
     } catch (e) {
-      console.error('[migration] equip_overhaul_v2 error:', e);
+      console.error('[migration] equip_overhaul_v3 error:', e);
     }
   }
 
