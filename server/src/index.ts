@@ -106,8 +106,16 @@ setIo(io);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
+  // 모든 마이그레이션을 순차 실행
+  runMigrations().then(() => {
+    console.log('[migrations] 전체 완료');
+    restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
+  }).catch(e => console.error('[migrations] fatal:', e));
+});
+
+async function runMigrations() {
   // 노드트리 존 통합 마이그레이션 (017)
-  (async () => {
+  {
     try {
       // 이미 적용됐는지 체크 (migration_applied 플래그)
       await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
@@ -187,9 +195,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] node_merge_v2 error:', e);
     }
-  })();
+  }
   // 접두사 수치 상향 마이그레이션
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'prefix_buff_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -225,9 +233,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] prefix_buff_v1 error:', e);
     }
-  })();
+  }
   // 기존 캐릭터 레벨업 스탯 소급 적용 (밸런스 v2)
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'stat_rebalance_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -278,9 +286,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] stat_rebalance_v2 error:', e);
     }
-  })();
+  }
   // 성직자 Lv.1 공격스킬 추가 마이그레이션
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'cleric_lv1_attack'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -305,9 +313,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] cleric_lv1_attack error:', e);
     }
-  })();
+  }
   // 직업별 스킬 4개씩 추가 마이그레이션
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'add_skills_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -350,9 +358,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] add_skills_v2 error:', e);
     }
-  })();
+  }
   // MP 물약 제거 마이그레이션
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'remove_mp_potions'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -368,9 +376,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] remove_mp_potions error:', e);
     }
-  })();
+  }
   // 방어구 통일화 마이그레이션
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'armor_unify_v1'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -482,9 +490,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] armor_unify_v1 error:', e);
     }
-  })();
+  }
   // 현타/코피에 상급 용린세트 3옵 지급
-  (async () => {
+  {
     try {
       const itemCheck2 = await query(`SELECT 1 FROM items WHERE id = 420`);
       if (!itemCheck2.rowCount || itemCheck2.rowCount === 0) return;
@@ -544,9 +552,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[grant] armor error:', e);
     }
-  })();
+  }
   // 모든 유저에게 중급 방어구 2옵세트 지급 (재지급)
-  (async () => {
+  {
     try {
       // 아이템 410이 존재하는지 먼저 확인 (armor_unify_v1 완료 대기)
       const itemCheck = await query(`SELECT 1 FROM items WHERE id = 410`);
@@ -601,9 +609,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[grant] mid armor all error:', e);
     }
-  })();
+  }
   // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅 (15초 딜레이로 다른 마이그레이션 완료 후 실행)
-  setTimeout(async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v4'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -749,9 +757,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] full_drop_setup_v3 error:', e);
     }
-  }, 15000); // 15초 딜레이
+  }
   // 드랍테이블 강제 재정리 (삭제된 아이템 제거) — 다른 마이그레이션 완료 후 실행
-  setTimeout(async () => {
+  {
     try {
       const allMonsters = await query<{ id: number; drop_table: any[] }>(`SELECT id, drop_table FROM monsters WHERE drop_table IS NOT NULL`);
       const validItems = await query<{ id: number }>(`SELECT id FROM items`);
@@ -772,9 +780,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[cleanup] drop_table error:', e);
     }
-  }, 10000); // 10초 후 실행 (마이그레이션 완료 대기)
+  }
   // 밸런스 v3: 몬스터 강화 + 치명타 소급 보정
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'balance_v3'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -803,9 +811,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] balance_v3 error:', e);
     }
-  })();
+  }
   // 장비 레벨제한 + 스탯격차 확대
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_level_req_v1'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -858,9 +866,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] equip_level_req_v1 error:', e);
     }
-  })();
+  }
   // 노드 치명타 너프 (3→1, 10→3)
-  (async () => {
+  {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'node_cri_nerf_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -900,15 +908,15 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migration] node_cri_nerf_v1 error:', e);
     }
-  })();
+  }
   // 강타 체력비례뎀 추가
-  (async () => {
+  {
     try {
       await query(`UPDATE skills SET effect_type = 'hp_pct_damage', effect_value = 10, description = 'ATK x150% + 적 HP 10% 추가 데미지' WHERE class_name = 'warrior' AND name = '강타' AND effect_type = 'damage'`);
     } catch (e) { console.error('[patch] 강타 error:', e); }
-  })();
+  }
   // 깨진 prefix_stats 데이터 정리
-  (async () => {
+  {
     try {
       // 문자열로 저장된 prefix_stats를 jsonb로 변환
       await query(`UPDATE character_inventory SET prefix_stats = '{}'::jsonb WHERE prefix_stats IS NULL`);
@@ -919,10 +927,9 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
     }
-  })();
-  // 기존 전투 세션 복구
-  restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
-});
+  }
+  console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
+}
 
 // 경매 만료 정산 (1분마다)
 setInterval(() => {
