@@ -4,15 +4,8 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { MonsterIcon } from '../components/ui/MonsterIcon';
 
-const GRADE_COLOR: Record<string, string> = {
-  common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030',
-};
-
-interface DropInfo {
-  name: string; grade: string; chance: number; minQty: number; maxQty: number;
-}
 interface MonsterInfo {
-  name: string; level: number; exp: number; gold: number; drops: DropInfo[];
+  name: string; level: number; exp: number; gold: number;
 }
 interface FieldData {
   id: number; name: string; requiredLevel: number; description: string;
