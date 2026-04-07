@@ -482,6 +482,65 @@ httpServer.listen(PORT, () => {
       console.error('[migration] armor_unify_v1 error:', e);
     }
   })();
+  // 현타/코피에 상급 용린세트 3옵 지급
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_armor_hyunta_copi'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+
+      const charNames = ['현타', '코피'];
+      const armorIds = [420, 421, 422]; // 상급 용린 투구/갑주/장화
+
+      const allPrefixes = await query<{ id: number; name: string; tier: number; stat_key: string; min_val: number; max_val: number }>(
+        'SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
+      );
+
+      for (const cname of charNames) {
+        const cr = await query<{ id: number }>(`SELECT id FROM characters WHERE name = $1`, [cname]);
+        if (cr.rowCount === 0) continue;
+        const cid = cr.rows[0].id;
+
+        for (const itemId of armorIds) {
+          // 3옵 접두사 생성
+          const prefixIds: number[] = [];
+          const bonusStats: Record<string, number> = {};
+          const usedKeys = new Set<string>();
+          for (let i = 0; i < 3; i++) {
+            const tRoll = Math.random() * 100;
+            let tier: number;
+            if (tRoll < 5) tier = 4;
+            else if (tRoll < 20) tier = 3;
+            else if (tRoll < 50) tier = 2;
+            else tier = 1;
+            const candidates = allPrefixes.rows.filter(p => p.tier === tier && !usedKeys.has(p.stat_key));
+            if (candidates.length === 0) continue;
+            const pf = candidates[Math.floor(Math.random() * candidates.length)];
+            const val = pf.min_val + Math.floor(Math.random() * (pf.max_val - pf.min_val + 1));
+            prefixIds.push(pf.id);
+            bonusStats[pf.stat_key] = (bonusStats[pf.stat_key] ?? 0) + val;
+            usedKeys.add(pf.stat_key);
+          }
+
+          // 빈 인벤토리 슬롯 찾기
+          const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [cid]);
+          const used = new Set(usedR.rows.map(r => r.slot_index));
+          let freeSlot = -1;
+          for (let i = 0; i < 60; i++) { if (!used.has(i)) { freeSlot = i; break; } }
+          if (freeSlot < 0) continue;
+
+          await query(
+            `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats) VALUES ($1, $2, $3, 1, $4, $5::jsonb)`,
+            [cid, itemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]
+          );
+        }
+        console.log(`[grant] ${cname}: 상급 용린세트 3옵 지급 완료`);
+      }
+
+      await query(`INSERT INTO _migrations (name) VALUES ('grant_armor_hyunta_copi')`);
+    } catch (e) {
+      console.error('[grant] armor error:', e);
+    }
+  })();
   // 강타 체력비례뎀 추가
   (async () => {
     try {
