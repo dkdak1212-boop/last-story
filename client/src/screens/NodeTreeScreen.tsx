@@ -1,52 +1,44 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { NodeDefinition, NodeTreeState } from '../types';
 
-const ZONE_LABELS: Record<string, string> = {
-  core: '노드 트리',
-  south: '기본', east: '공격', west: '유틸', center: '중앙',
-  north_warrior: '전사', north_mage: '마법사', north_cleric: '성직자', north_rogue: '도적',
-};
-
-const NODE_RADIUS: Record<string, number> = { small: 14, medium: 20, large: 28 };
+const NODE_RADIUS: Record<string, number> = { small: 16, medium: 22, large: 30 };
 const NODE_COLORS = {
   invested: '#daa520',
   available: '#4caf50',
   locked: '#555',
   border_invested: '#ffd700',
   border_available: '#81c784',
-  border_locked: '#333',
+  border_locked: '#444',
 };
-const TIER_GLOW: Record<string, string> = { small: '', medium: 'rgba(218,165,32,0.3)', large: 'rgba(255,60,60,0.5)' };
 
+const COL_W = 52;   // 같은 depth 내 노드 간 가로 간격
+const ROW_H = 72;   // depth 간 세로 간격
+const CANVAS_H = 800;
 
-// PoE 스타일: 중앙(depth 0)에서 방사형 확장
-function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
+// 트리 레이아웃: 부모→자식 위→아래, 같은 부모끼리 묶어 배치
+function computeTreeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
   const positions = new Map<number, { x: number; y: number }>();
   if (nodes.length === 0) return positions;
 
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-  // 각 노드의 depth 계산
+  // depth 계산
   const depths = new Map<number, number>();
   function getDepth(id: number, visited: Set<number> = new Set()): number {
     if (depths.has(id)) return depths.get(id)!;
     if (visited.has(id)) return 0;
     visited.add(id);
     const node = nodeMap.get(id);
-    if (!node || node.prerequisites.length === 0) {
-      depths.set(id, 0);
-      return 0;
-    }
-    const maxPreDepth = Math.max(...node.prerequisites.map(pid => getDepth(pid, visited)));
-    const d = maxPreDepth + 1;
+    if (!node || node.prerequisites.length === 0) { depths.set(id, 0); return 0; }
+    const d = Math.max(...node.prerequisites.filter(p => nodeMap.has(p)).map(p => getDepth(p, visited))) + 1;
     depths.set(id, d);
     return d;
   }
   for (const n of nodes) getDepth(n.id);
 
-  // depth별 그룹핑
+  // depth별 그룹
   const depthGroups = new Map<number, NodeDefinition[]>();
   for (const n of nodes) {
     const d = depths.get(n.id) || 0;
@@ -54,38 +46,78 @@ function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: num
     depthGroups.get(d)!.push(n);
   }
 
-  const maxDepth = Math.max(...depthGroups.keys());
-
-  // 방사형 배치: depth = 반지름 링
+  // 부모 기준 정렬: 같은 부모를 가진 노드끼리 인접하게
+  const maxDepth = depthGroups.size > 0 ? Math.max(...depthGroups.keys()) : 0;
   for (let d = 0; d <= maxDepth; d++) {
     const group = depthGroups.get(d) || [];
-    const tierOrder: Record<string, number> = { small: 0, medium: 1, large: 2 };
-    group.sort((a, b) => (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0) || a.id - b.id);
-
     if (d === 0) {
-      // 중앙 노드들: 작은 원형 배치
-      const r0 = group.length <= 1 ? 0 : 40 + group.length * 8;
-      for (let i = 0; i < group.length; i++) {
-        const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
-        positions.set(group[i].id, {
-          x: Math.cos(angle) * r0,
-          y: Math.sin(angle) * r0,
-        });
-      }
+      // 루트: tier 순 + ID 순
+      const tierOrd: Record<string, number> = { large: 0, medium: 1, small: 2 };
+      group.sort((a, b) => (tierOrd[a.tier] ?? 2) - (tierOrd[b.tier] ?? 2) || a.id - b.id);
     } else {
-      // 외곽 링: 반지름 증가
-      const radius = 100 + d * 75;
-      for (let i = 0; i < group.length; i++) {
-        const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
-        positions.set(group[i].id, {
-          x: Math.cos(angle) * radius,
-          y: Math.sin(angle) * radius,
-        });
+      // 부모의 x 위치 기준 정렬 (같은 부모끼리 묶임)
+      group.sort((a, b) => {
+        const pa = a.prerequisites[0] || 0;
+        const pb = b.prerequisites[0] || 0;
+        const pax = positions.get(pa)?.x ?? 0;
+        const pbx = positions.get(pb)?.x ?? 0;
+        return pax - pbx || a.id - b.id;
+      });
+    }
+
+    const totalW = (group.length - 1) * COL_W;
+    for (let i = 0; i < group.length; i++) {
+      positions.set(group[i].id, {
+        x: -totalW / 2 + i * COL_W,
+        y: d * ROW_H,
+      });
+    }
+  }
+
+  // 2차 보정: 자식 노드를 부모 아래로 당기기 (중심 정렬)
+  for (let d = 1; d <= maxDepth; d++) {
+    const group = depthGroups.get(d) || [];
+    // 부모별 자식 그룹핑
+    const parentGroups = new Map<number, NodeDefinition[]>();
+    for (const n of group) {
+      const parentId = n.prerequisites[0] || -1;
+      if (!parentGroups.has(parentId)) parentGroups.set(parentId, []);
+      parentGroups.get(parentId)!.push(n);
+    }
+    for (const [pid, children] of parentGroups) {
+      const parentPos = positions.get(pid);
+      if (!parentPos || children.length === 0) continue;
+      // 자식들의 현재 중심
+      const childXs = children.map(c => positions.get(c.id)!.x);
+      const childCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+      const shift = parentPos.x - childCenter;
+      // 적당히 당기기 (완전히 안 당기면 겹침 방지)
+      for (const c of children) {
+        const p = positions.get(c.id)!;
+        p.x += shift * 0.6;
       }
     }
   }
 
   return positions;
+}
+
+// 선행 경로 추적 (선택 노드 → 루트까지)
+function getPrereqChain(nodeId: number, nodeMap: Map<number, NodeDefinition>): Set<number> {
+  const chain = new Set<number>();
+  const queue = [nodeId];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (chain.has(id)) continue;
+    chain.add(id);
+    const node = nodeMap.get(id);
+    if (node) {
+      for (const pid of node.prerequisites) {
+        if (nodeMap.has(pid)) queue.push(pid);
+      }
+    }
+  }
+  return chain;
 }
 
 export function NodeTreeScreen() {
@@ -100,7 +132,6 @@ export function NodeTreeScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 뷰포트 드래그
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragRef = useRef({ dragging: false, startX: 0, startY: 0, startOx: 0, startOy: 0 });
 
@@ -111,28 +142,29 @@ export function NodeTreeScreen() {
   }, [active?.id]);
 
   useEffect(() => { fetchNodes(); }, [fetchNodes]);
-
-  // 존 변경 시 오프셋 리셋
   useEffect(() => { setOffset({ x: 0, y: 0 }); setSelected(null); }, [activeZone]);
 
   const invested = treeState ? new Set(treeState.investedNodeIds) : new Set<number>();
   const zones = treeState ? [...new Set(treeState.nodes.map(n => n.zone))] : [];
-  // 단일 존이면 존 탭 없이 모든 노드 표시
   const isSingleZone = zones.length <= 1;
   const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
-  const nodeMap = new Map(zoneNodes.map(n => [n.id, n]));
+  const nodeMap = useMemo(() => new Map(zoneNodes.map(n => [n.id, n])), [zoneNodes]);
 
-  // 선행순서 기반 자동 레이아웃
-  const layoutPositions = computeLayout(zoneNodes);
+  const layoutPositions = useMemo(() => computeTreeLayout(zoneNodes), [zoneNodes]);
+
+  // 선택 노드의 선행 경로
+  const highlightChain = useMemo(() => {
+    if (!selected) return new Set<number>();
+    return getPrereqChain(selected.id, nodeMap);
+  }, [selected, nodeMap]);
 
   function getNodePos(node: NodeDefinition) {
     const pos = layoutPositions.get(node.id) || { x: 0, y: 0 };
     const canvas = canvasRef.current;
-    const centerX = canvas ? canvas.width / 2 : 400;
-    const centerY = canvas ? canvas.height / 2 : 350;
+    const centerX = canvas ? canvas.width / 2 : 500;
     return {
       x: centerX + pos.x + offset.x,
-      y: centerY + pos.y + offset.y,
+      y: 60 + pos.y + offset.y,
     };
   }
 
@@ -160,12 +192,12 @@ export function NodeTreeScreen() {
     const container = containerRef.current;
     if (container) {
       canvas.width = container.clientWidth;
-      canvas.height = 700;
+      canvas.height = CANVAS_H;
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 연결선 그리기
+    // 연결선 그리기 (곡선)
     for (const node of zoneNodes) {
       const pos = getNodePos(node);
       for (const preId of node.prerequisites) {
@@ -174,26 +206,64 @@ export function NodeTreeScreen() {
         const prePos = getNodePos(preNode);
         const bothInvested = invested.has(node.id) && invested.has(preId);
         const oneAvailable = canInvest(node) && invested.has(preId);
+        const inChain = highlightChain.has(node.id) && highlightChain.has(preId);
+
         ctx.beginPath();
         ctx.moveTo(prePos.x, prePos.y);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.strokeStyle = bothInvested ? '#daa520' : oneAvailable ? '#4caf50' : '#333';
-        ctx.lineWidth = bothInvested ? 2.5 : 1.5;
+        // 베지어 곡선으로 부드러운 연결
+        const midY = (prePos.y + pos.y) / 2;
+        ctx.bezierCurveTo(prePos.x, midY, pos.x, midY, pos.x, pos.y);
+
+        if (inChain) {
+          ctx.strokeStyle = '#ff8800';
+          ctx.lineWidth = 3;
+          ctx.setLineDash([]);
+        } else if (bothInvested) {
+          ctx.strokeStyle = '#daa52088';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+        } else if (oneAvailable) {
+          ctx.strokeStyle = '#4caf5088';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 4]);
+        } else {
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 3]);
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
 
     // 노드 그리기
     for (const node of zoneNodes) {
       const pos = getNodePos(node);
-      const r = NODE_RADIUS[node.tier] || 14;
+      const r = NODE_RADIUS[node.tier] || 16;
       const status = nodeStatus(node);
+      const inChain = highlightChain.has(node.id);
+      const isSelected = selected?.id === node.id;
 
-      // 글로우
-      if (TIER_GLOW[node.tier]) {
+      // 선택/하이라이트 글로우
+      if (isSelected) {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r + 8, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,136,0,0.3)';
+        ctx.fill();
+      } else if (inChain) {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r + 5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,136,0,0.15)';
+        ctx.fill();
+      } else if (node.tier === 'large') {
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, r + 6, 0, Math.PI * 2);
-        ctx.fillStyle = TIER_GLOW[node.tier];
+        ctx.fillStyle = 'rgba(255,60,60,0.2)';
+        ctx.fill();
+      } else if (node.tier === 'medium') {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r + 4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(218,165,32,0.15)';
         ctx.fill();
       }
 
@@ -206,7 +276,8 @@ export function NodeTreeScreen() {
       // 테두리
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = status === 'invested' ? NODE_COLORS.border_invested :
+      ctx.strokeStyle = isSelected ? '#ff8800' :
+        status === 'invested' ? NODE_COLORS.border_invested :
         status === 'available' ? NODE_COLORS.border_available : NODE_COLORS.border_locked;
       ctx.lineWidth = status === 'invested' ? 3 : status === 'available' ? 2.5 : 1;
       ctx.stroke();
@@ -221,16 +292,27 @@ export function NodeTreeScreen() {
         ctx.globalAlpha = 1;
       }
 
-      // 텍스트 (코스트)
+      // 코스트 텍스트
       ctx.fillStyle = status === 'invested' ? '#fff' : status === 'available' ? '#cfc' : '#666';
-      ctx.font = `bold ${node.tier === 'large' ? 12 : node.tier === 'medium' ? 11 : 9}px sans-serif`;
+      ctx.font = `bold ${node.tier === 'large' ? 13 : node.tier === 'medium' ? 11 : 9}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(node.cost.toString(), pos.x, pos.y);
-    }
-  }, [zoneNodes, invested, offset, treeState, layoutPositions]);
 
-  // 캔버스 클릭 → 노드 찾기
+      // 노드 이름 (medium/large만, 또는 하이라이트/선택)
+      if (node.tier !== 'small' || inChain || isSelected) {
+        ctx.fillStyle = status === 'invested' ? '#daa520' : status === 'available' ? '#8f8' : '#666';
+        ctx.font = `${node.tier === 'large' ? 'bold 11' : '10'}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        // 이름 축약 (8자 초과 시)
+        let name = node.name;
+        if (name.length > 8) name = name.slice(0, 7) + '…';
+        ctx.fillText(name, pos.x, pos.y + r + 3);
+      }
+    }
+  }, [zoneNodes, invested, offset, treeState, layoutPositions, highlightChain, selected]);
+
   function handleCanvasClick(e: React.MouseEvent) {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -240,9 +322,8 @@ export function NodeTreeScreen() {
 
     for (const node of zoneNodes) {
       const pos = getNodePos(node);
-      const r = NODE_RADIUS[node.tier] || 14;
-      const dist = Math.sqrt((mx - pos.x) ** 2 + (my - pos.y) ** 2);
-      if (dist <= r + 4) {
+      const r = NODE_RADIUS[node.tier] || 16;
+      if (Math.sqrt((mx - pos.x) ** 2 + (my - pos.y) ** 2) <= r + 4) {
         setSelected(node);
         return;
       }
@@ -250,7 +331,6 @@ export function NodeTreeScreen() {
     setSelected(null);
   }
 
-  // 캔버스 호버 → 툴팁
   function handleCanvasMove(e: React.MouseEvent) {
     const canvas = canvasRef.current;
     if (!canvas || dragRef.current.dragging) { setTooltip(null); return; }
@@ -260,7 +340,7 @@ export function NodeTreeScreen() {
 
     for (const node of zoneNodes) {
       const pos = getNodePos(node);
-      const r = NODE_RADIUS[node.tier] || 14;
+      const r = NODE_RADIUS[node.tier] || 16;
       if (Math.sqrt((mx - pos.x) ** 2 + (my - pos.y) ** 2) <= r + 4) {
         setTooltip({ node, x: e.clientX, y: e.clientY });
         return;
@@ -269,7 +349,6 @@ export function NodeTreeScreen() {
     setTooltip(null);
   }
 
-  // 드래그
   function handleMouseDown(e: React.MouseEvent) {
     dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, startOx: offset.x, startOy: offset.y };
   }
@@ -302,7 +381,7 @@ export function NodeTreeScreen() {
   }
   async function resetZone() {
     if (!active || loading) return;
-    if (!confirm(`구역 리셋 (2,000G): ${ZONE_LABELS[activeZone]}`)) return;
+    if (!confirm(`구역 리셋 (2,000G)`)) return;
     setLoading(true);
     try { await api(`/characters/${active.id}/nodes/reset-zone`, { method: 'POST', body: JSON.stringify({ zone: activeZone }) }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); }
     catch (e: any) { setMsg(e?.message || '실패'); }
@@ -323,7 +402,6 @@ export function NodeTreeScreen() {
 
   return (
     <div>
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ color: 'var(--accent)' }}>노드 트리</h2>
         <div style={{ fontSize: 15, fontWeight: 700 }}>
@@ -332,7 +410,6 @@ export function NodeTreeScreen() {
         </div>
       </div>
 
-      {/* Zone tabs (다중 존일 때만 표시) */}
       {!isSingleZone && (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
           {zones.map(z => (
@@ -343,7 +420,7 @@ export function NodeTreeScreen() {
               border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
               fontWeight: activeZone === z ? 700 : 400,
             }}>
-              {ZONE_LABELS[z] || z}
+              {z}
             </button>
           ))}
         </div>
@@ -351,89 +428,99 @@ export function NodeTreeScreen() {
 
       {msg && <div style={{ color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>{msg}</div>}
 
-      {/* Canvas */}
       <div ref={containerRef} style={{
-        position: 'relative', border: '1px solid var(--border)', background: '#0d0d0d',
+        position: 'relative', border: '1px solid var(--border)', background: '#0a0a0a',
         marginBottom: 12, cursor: dragRef.current.dragging ? 'grabbing' : 'grab',
         overflow: 'hidden',
       }}>
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%', height: 700 }}
+          style={{ display: 'block', width: '100%', height: CANVAS_H }}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { handleMouseUp(); setTooltip(null); }}
         />
-        {/* 범례 */}
-        <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 12, fontSize: 11 }}>
+        <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 14, fontSize: 11 }}>
           <span style={{ color: NODE_COLORS.border_invested }}>● 투자됨</span>
           <span style={{ color: NODE_COLORS.border_available }}>● 투자 가능</span>
           <span style={{ color: NODE_COLORS.border_locked }}>● 잠김</span>
-          <span style={{ color: 'var(--text-dim)' }}>드래그로 이동</span>
+          <span style={{ color: '#ff8800' }}>● 선행 경로</span>
+          <span style={{ color: 'var(--text-dim)' }}>드래그 이동 · 클릭 선택</span>
         </div>
 
-        {/* 툴팁 */}
         {tooltip && (
           <div style={{
-            position: 'fixed', left: tooltip.x + 12, top: tooltip.y - 10,
-            padding: '8px 12px', background: 'rgba(0,0,0,0.9)', border: '1px solid var(--accent)',
-            fontSize: 12, pointerEvents: 'none', zIndex: 100, maxWidth: 250,
+            position: 'fixed', left: tooltip.x + 14, top: tooltip.y - 12,
+            padding: '10px 14px', background: 'rgba(0,0,0,0.95)', border: '1px solid var(--accent)',
+            fontSize: 12, pointerEvents: 'none', zIndex: 100, maxWidth: 280, borderRadius: 4,
           }}>
             <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
-              {tooltip.node.name} <span style={{ color: 'var(--text-dim)' }}>({tooltip.node.cost}pt {tierLabel(tooltip.node.tier)})</span>
+              {tooltip.node.name}
+              <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
+                {tooltip.node.cost}pt · {tierLabel(tooltip.node.tier)}
+              </span>
             </div>
-            <div style={{ color: '#ccc' }}>{tooltip.node.description}</div>
+            <div style={{ color: '#ccc', marginBottom: tooltip.node.prerequisites.length > 0 ? 6 : 0 }}>
+              {tooltip.node.description}
+            </div>
+            {tooltip.node.prerequisites.length > 0 && (
+              <div style={{ color: '#ff8800', fontSize: 11 }}>
+                선행: {tooltip.node.prerequisites.map(pid => {
+                  const pn = nodeMap.get(pid);
+                  return pn ? pn.name : `#${pid}`;
+                }).join(', ')}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Selected node detail */}
       {selected && (
         <div style={{
-          padding: 14, background: 'var(--bg-panel)', border: `1px solid ${
+          padding: 14, background: 'var(--bg-panel)', border: `2px solid ${
             nodeStatus(selected) === 'invested' ? 'var(--accent)' :
-            nodeStatus(selected) === 'available' ? 'var(--success)' : 'var(--border)'}`,
-          marginBottom: 12,
+            nodeStatus(selected) === 'available' ? 'var(--success)' : '#ff8800'}`,
+          marginBottom: 12, borderRadius: 6,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: nodeStatus(selected) === 'invested' ? 'var(--accent)' : '#fff' }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: nodeStatus(selected) === 'invested' ? 'var(--accent)' : '#fff' }}>
                 {selected.name}
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 2 }}>
                 {tierLabel(selected.tier)} · {selected.cost}pt · {selected.description}
               </div>
               {selected.prerequisites.length > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: '#ff8800', marginTop: 6 }}>
                   선행: {selected.prerequisites.map(pid => {
                     const pn = treeState.nodes.find(n => n.id === pid);
-                    return pn ? pn.name : `#${pid}`;
-                  }).join(', ')}
-                  {selected.prerequisites.every(pid => invested.has(pid))
-                    ? ' (충족)' : ' (미충족)'}
+                    const met = invested.has(pid);
+                    return <span key={pid} style={{ color: met ? 'var(--success)' : '#ff8800', marginRight: 8 }}>
+                      {pn ? pn.name : `#${pid}`} {met ? '✓' : '✗'}
+                    </span>;
+                  })}
                 </div>
               )}
             </div>
             <div>
               {nodeStatus(selected) === 'available' && (
                 <button onClick={() => invest(selected.id)} disabled={loading} style={{
-                  padding: '6px 16px', background: 'var(--success)', color: '#000', border: 'none', fontWeight: 700,
+                  padding: '8px 20px', background: 'var(--success)', color: '#000', border: 'none', fontWeight: 700, fontSize: 14,
                 }}>투자</button>
               )}
               {nodeStatus(selected) === 'invested' && (
-                <span style={{ color: 'var(--accent)', fontWeight: 700 }}>투자됨</span>
+                <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>투자됨 ✓</span>
               )}
               {nodeStatus(selected) === 'locked' && (
-                <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>선행 노드 필요</span>
+                <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>선행 노드 필요</span>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Reset buttons */}
       <div style={{ display: 'flex', gap: 8, padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
         <button onClick={resetPartial} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>부분 리셋 500G</button>
         <button onClick={resetZone} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>구역 리셋 2,000G</button>
