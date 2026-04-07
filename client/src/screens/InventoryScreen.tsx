@@ -10,10 +10,10 @@ const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
   ring: '반지', amulet: '목걸이',
 };
-const SLOT_ICON: Record<string, string> = {
-  weapon: '\u2694\uFE0F', helm: '\u{1FA96}', chest: '\u{1F6E1}\uFE0F', boots: '\u{1F462}',
-  ring: '\u{1F48D}', amulet: '\u{1F4FF}',
-};
+function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
+  return <img src={`/images/slots/${slot}.png`} alt={slot} width={size} height={size}
+    style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
+}
 
 export function InventoryScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -167,7 +167,7 @@ export function InventoryScreen() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ color: GRADE_COLOR[s.item.grade], fontSize: 13, fontWeight: 700 }}>
-                  {s.item.slot && <span style={{ marginRight: 4 }}>{SLOT_ICON[s.item.slot] || ''}</span>}
+                  {s.item.slot && <span style={{ marginRight: 4 }}><SlotIcon slot={s.item.slot} size={16} /></span>}
                   {s.item.name}
                   {s.enhanceLevel > 0 && (
                     <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{s.enhanceLevel}</span>
@@ -177,11 +177,14 @@ export function InventoryScreen() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 10, color: GRADE_COLOR[s.item.grade] }}>{GRADE_LABEL[s.item.grade]}</span>
                   {s.item.slot && (
-                    <span
+                    <img
+                      src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'}
+                      alt={locked ? '잠금' : '해제'}
                       onClick={(e) => toggleLock(s.slotIndex, e)}
-                      style={{ cursor: 'pointer', fontSize: 14, padding: '1px 4px', color: locked ? 'var(--danger)' : 'var(--text-dim)', userSelect: 'none' }}
+                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
+                      style={{ cursor: 'pointer', width: 16, height: 16, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5 }}
                       title={locked ? '잠금 해제' : '잠금'}
-                    >{locked ? '\u{1F512}' : '\u{1F513}'}</span>
+                    />
                   )}
                 </div>
               </div>
@@ -235,7 +238,6 @@ function EquipSlotCard({ slot, item, label, onUnequip, onToggleLock }: {
   onToggleLock: (e: React.MouseEvent) => void;
 }) {
   const locked = item?.locked ?? false;
-  const icon = SLOT_ICON[slot] || '';
   return (
     <div
       style={{
@@ -249,16 +251,19 @@ function EquipSlotCard({ slot, item, label, onUnequip, onToggleLock }: {
       onClick={() => item && !locked && onUnequip()}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700 }}>
-          <span style={{ fontSize: 16, marginRight: 4, verticalAlign: 'middle' }}>{icon}</span>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <SlotIcon slot={slot} size={18} />
           {label}
         </div>
         {item && (
-          <div
+          <img
+            src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'}
+            alt={locked ? '잠금' : '해제'}
             onClick={onToggleLock}
-            style={{ cursor: 'pointer', fontSize: 14, padding: '1px 4px', borderRadius: 3, color: locked ? 'var(--danger)' : 'var(--text-dim)', userSelect: 'none' }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            style={{ cursor: 'pointer', width: 16, height: 16, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5 }}
             title={locked ? '잠금 해제' : '잠금'}
-          >{locked ? '\u{1F512}' : '\u{1F513}'}</div>
+          />
         )}
       </div>
       {item ? (
@@ -273,7 +278,9 @@ function EquipSlotCard({ slot, item, label, onUnequip, onToggleLock }: {
           <PrefixDisplay prefixStats={item.prefixStats} />
         </>
       ) : (
-        <div style={{ color: 'var(--text-dim)', fontSize: 24, textAlign: 'center', marginTop: 12, opacity: 0.3 }}>{icon}</div>
+        <div style={{ textAlign: 'center', marginTop: 10, opacity: 0.2 }}>
+          <SlotIcon slot={slot} size={36} />
+        </div>
       )}
     </div>
   );
