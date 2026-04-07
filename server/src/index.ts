@@ -673,9 +673,6 @@ httpServer.listen(PORT, () => {
       }
 
       // 3) 전체 몬스터 드랍테이블 재설정
-      // 먼저 기존 드랍에서 삭제된 아이템 정리
-      const validItems = await query<{ id: number }>('SELECT id FROM items');
-      const validSet = new Set(validItems.rows.map(r => r.id));
 
       const monsters = await query<{ id: number; level: number; drop_table: any[] }>(
         'SELECT id, level, drop_table FROM monsters'
