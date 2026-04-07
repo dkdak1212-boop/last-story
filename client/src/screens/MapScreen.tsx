@@ -87,6 +87,20 @@ export function MapScreen() {
                       </div>
                     </div>
                   ))}
+                  <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+                    <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>드랍 확률</div>
+                    <div>
+                      <span style={{ color: '#9a8b75' }}>일반 50%</span>{' · '}
+                      <span style={{ color: '#5b8ecc' }}>매직 30%</span>{' · '}
+                      <span style={{ color: '#b060cc' }}>에픽 19%</span>{' · '}
+                      <span style={{ color: '#e08030' }}>전설 1%</span>
+                    </div>
+                    <div style={{ marginTop: 2 }}>
+                      무기 3% · 방어구 2% · 악세서리 1.5%
+                    </div>
+                    <div style={{ marginTop: 4, fontWeight: 700, color: 'var(--accent)' }}>접두사</div>
+                    <div>1옵 90% · 2옵 9% · 3옵 1%</div>
+                  </div>
                 </div>
               )}
             </div>
