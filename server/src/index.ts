@@ -368,6 +368,108 @@ httpServer.listen(PORT, () => {
       console.error('[migration] remove_mp_potions error:', e);
     }
   })();
+  // 방어구 통일화 마이그레이션
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'armor_unify_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] armor_unify_v1: 방어구 통일화...');
+
+      // 기존 방어구 ID 수집 (helm, chest, boots, legs)
+      const oldArmor = await query<{ id: number }>(`SELECT id FROM items WHERE slot IN ('helm','chest','boots','legs')`);
+      const oldIds = oldArmor.rows.map(r => r.id);
+
+      if (oldIds.length > 0) {
+        // 인벤토리/장착에서 기존 방어구 제거
+        await query(`DELETE FROM character_inventory WHERE item_id = ANY($1::int[])`, [oldIds]);
+        await query(`DELETE FROM character_equipped WHERE item_id = ANY($1::int[])`, [oldIds]);
+        // 기존 방어구 아이템 삭제
+        await query(`DELETE FROM items WHERE id = ANY($1::int[])`, [oldIds]);
+      }
+
+      // legs 슬롯 없앰 (투구/갑옷/신발만)
+      // 새 방어구 추가: 4단계 x 3부위 = 12개
+      // ID 400번대 사용
+
+      // ── Lv.1~20 초급 방어구 (common) ──
+      await query(`INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price) VALUES
+        (400, '초급 가죽 투구',   'armor','common','helm',  '{"vit":5,"dex":2}',           'Lv.1~20 공용 투구', 1, 50),
+        (401, '초급 가죽 갑옷',   'armor','common','chest', '{"vit":8,"str":3}',           'Lv.1~20 공용 갑옷', 1, 80),
+        (402, '초급 가죽 장화',   'armor','common','boots', '{"vit":4,"spd":10,"dex":2}',  'Lv.1~20 공용 장화', 1, 50)
+      `);
+
+      // ── Lv.21~40 중급 방어구 (rare) ──
+      await query(`INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price) VALUES
+        (410, '중급 철 투구',     'armor','rare','helm',  '{"vit":12,"dex":5,"str":3}',       'Lv.21~40 공용 투구', 1, 300),
+        (411, '중급 체인 갑옷',   'armor','rare','chest', '{"vit":18,"str":8,"dex":3}',       'Lv.21~40 공용 갑옷', 1, 500),
+        (412, '중급 철 장화',     'armor','rare','boots', '{"vit":10,"spd":20,"dex":5}',      'Lv.21~40 공용 장화', 1, 300)
+      `);
+
+      // ── Lv.41~60 상급 방어구 (epic) ──
+      await query(`INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price) VALUES
+        (420, '상급 용린 투구',   'armor','epic','helm',  '{"vit":22,"dex":10,"str":6,"cri":3}',   'Lv.41~60 공용 투구', 1, 1500),
+        (421, '상급 용린 갑주',   'armor','epic','chest', '{"vit":32,"str":14,"dex":6,"int":6}',   'Lv.41~60 공용 갑옷', 1, 2500),
+        (422, '상급 용린 장화',   'armor','epic','boots', '{"vit":18,"spd":35,"dex":10,"cri":2}',  'Lv.41~60 공용 장화', 1, 1500)
+      `);
+
+      // ── Lv.61~80 전설 방어구 (legendary) ──
+      await query(`INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price) VALUES
+        (430, '전설의 왕관',      'armor','legendary','helm',  '{"vit":35,"dex":16,"str":10,"int":10,"cri":5}',  'Lv.61~80 공용 투구', 1, 5000),
+        (431, '전설의 갑주',      'armor','legendary','chest', '{"vit":50,"str":22,"dex":10,"int":10,"cri":4}',  'Lv.61~80 공용 갑옷', 1, 8000),
+        (432, '전설의 장화',      'armor','legendary','boots', '{"vit":30,"spd":55,"dex":16,"cri":4}',           'Lv.61~80 공용 장화', 1, 5000)
+      `);
+
+      // ── 몬스터 드랍에 방어구 추가 (레벨 맞게, 1% 확률) ──
+      // Lv.1~20 몬스터 → 초급 방어구
+      const lv1to20 = [1,2,3,10,11,12,20,21];
+      for (const mid of lv1to20) {
+        await query(`UPDATE monsters SET drop_table = COALESCE(drop_table, '[]'::jsonb) || $1::jsonb WHERE id = $2`,
+          [JSON.stringify([
+            {itemId:400, chance:0.01, minQty:1, maxQty:1},
+            {itemId:401, chance:0.01, minQty:1, maxQty:1},
+            {itemId:402, chance:0.01, minQty:1, maxQty:1},
+          ]), mid]);
+      }
+
+      // Lv.21~40 몬스터 → 중급 방어구
+      const lv21to40 = [30,31,40,41,50,51,60,61,70,80,81,90,91];
+      for (const mid of lv21to40) {
+        await query(`UPDATE monsters SET drop_table = COALESCE(drop_table, '[]'::jsonb) || $1::jsonb WHERE id = $2`,
+          [JSON.stringify([
+            {itemId:410, chance:0.01, minQty:1, maxQty:1},
+            {itemId:411, chance:0.01, minQty:1, maxQty:1},
+            {itemId:412, chance:0.01, minQty:1, maxQty:1},
+          ]), mid]);
+      }
+
+      // Lv.41~60 몬스터 → 상급 방어구
+      const lv41to60 = [100,101,110,120,121,122,123,130];
+      for (const mid of lv41to60) {
+        await query(`UPDATE monsters SET drop_table = COALESCE(drop_table, '[]'::jsonb) || $1::jsonb WHERE id = $2`,
+          [JSON.stringify([
+            {itemId:420, chance:0.01, minQty:1, maxQty:1},
+            {itemId:421, chance:0.01, minQty:1, maxQty:1},
+            {itemId:422, chance:0.01, minQty:1, maxQty:1},
+          ]), mid]);
+      }
+
+      // Lv.61~80 몬스터 → 전설 방어구
+      const lv61to80 = [124,125,126,127,128,129,135];
+      for (const mid of lv61to80) {
+        await query(`UPDATE monsters SET drop_table = COALESCE(drop_table, '[]'::jsonb) || $1::jsonb WHERE id = $2`,
+          [JSON.stringify([
+            {itemId:430, chance:0.01, minQty:1, maxQty:1},
+            {itemId:431, chance:0.01, minQty:1, maxQty:1},
+            {itemId:432, chance:0.01, minQty:1, maxQty:1},
+          ]), mid]);
+      }
+
+      await query(`INSERT INTO _migrations (name) VALUES ('armor_unify_v1')`);
+      console.log('[migration] armor_unify_v1: 완료 (12 방어구 + 드랍 설정)');
+    } catch (e) {
+      console.error('[migration] armor_unify_v1 error:', e);
+    }
+  })();
   // 강타 체력비례뎀 추가
   (async () => {
     try {
