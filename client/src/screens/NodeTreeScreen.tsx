@@ -532,12 +532,14 @@ export function NodeTreeScreen() {
 
       {selected && (
         <div style={{
-          position: 'sticky', bottom: 0, zIndex: 50,
-          padding: 12, background: 'rgba(10,10,10,0.95)', backdropFilter: 'blur(4px)',
+          position: 'fixed', bottom: 50, left: 0, right: 0, zIndex: 110,
+          padding: 12, margin: '0 10px',
+          background: 'rgba(10,10,10,0.97)', backdropFilter: 'blur(6px)',
           border: `2px solid ${
             nodeStatus(selected) === 'invested' ? 'var(--accent)' :
             nodeStatus(selected) === 'available' ? 'var(--success)' : '#ff8800'}`,
-          borderRadius: '8px 8px 0 0',
+          borderRadius: 8,
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.6)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
