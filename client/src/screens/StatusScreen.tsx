@@ -110,18 +110,21 @@ export function StatusScreen() {
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
         <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
-          <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력에 영향 (공격력 = 힘 × 1.0)</span>
-          <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율과 명중률에 영향 (회피 = 민첩 × 0.4%, 명중 = 80 + 민첩 × 0.5%)</span>
-          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력, 마법 방어에 영향 (마공 = 지능 × 1.2)</span>
-          <span style={{ color: 'var(--text)' }}>체력</span><span>방어력과 HP에 영향 (방어 = 체력 × 0.8, HP +10/체력)</span>
-          <span style={{ color: 'var(--text)' }}>스피드</span><span>행동 속도에 영향 (높을수록 빠르게 공격)</span>
-          <span style={{ color: 'var(--text)' }}>치명타</span><span>치명타 확률 (발동 시 1.5배 데미지)</span>
+          <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력 결정 (ATK = 힘 x 1.0). 레벨업 시 직업별 자동 성장</span>
+          <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율 (민첩 x 0.4%) + 명중률 (80 + 민첩 x 0.5%). 도적 핵심 스탯</span>
+          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력 (지능 x 1.2) + 마법 방어 (지능 x 0.5). 마법사/성직자 핵심</span>
+          <span style={{ color: 'var(--text)' }}>체력</span><span>방어력 (체력 x 0.8) + 장비/노드 체력당 HP +10</span>
+          <span style={{ color: 'var(--text)' }}>스피드</span><span>게이지 충전 속도. 높을수록 먼저 행동 (도적 > 전사 > 마법사 > 성직자)</span>
+          <span style={{ color: 'var(--text)' }}>치명타</span><span>치명타 확률 (%). 발동 시 1.5배 데미지 (노드 crit_damage로 추가 증폭 가능)</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
-          <div>· 마법사, 사제, 드루이드는 스킬 데미지가 <span style={{ color: 'var(--text)' }}>지능(마법공격력)</span> 기반</div>
-          <div>· 전사, 검사, 궁수, 도적, 암살자는 스킬 데미지가 <span style={{ color: 'var(--text)' }}>힘(물리공격력)</span> 기반</div>
-          <div>· 회복 스킬은 모든 클래스가 <span style={{ color: 'var(--text)' }}>마법공격력</span> 기반으로 회복량 결정</div>
+          <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 힘(ATK) 기반, <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 지능(MATK) 기반으로 자동 판별</div>
+          <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK - 적 방어 x 0.5) x 스킬배율</span> ± 10% 랜덤</div>
+          <div>· 게이지 100%가 되면 행동. <span style={{ color: 'var(--text)' }}>수동 모드</span>에서 직접 스킬 선택 가능</div>
+          <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>로 패시브 효과 획득 (치명타 증폭, 흡혈, 도트 강화, 방어 관통 등)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span> 1~4등급으로 추가 스탯 부여 (4등급은 0.1% 확률)</div>
+          <div>· 레벨업 시 직업별로 주요 스탯이 <span style={{ color: 'var(--text)' }}>자동 성장</span> + HP +8 + 노드포인트 +2</div>
         </div>
       </div>
     </div>
