@@ -126,11 +126,23 @@ setIo(io);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
-  // 모든 마이그레이션을 순차 실행
-  runMigrations().then(() => {
-    console.log('[migrations] 전체 완료');
+  // 기존 마이그레이션 + 장비 개편을 순차 실행
+  (async () => {
+    try {
+      await runMigrations();
+      console.log('[migrations] 기존 마이그레이션 완료');
+    } catch (e) {
+      console.error('[migrations] runMigrations error (계속 진행):', e);
+    }
+    // 장비 개편은 항상 독립 실행 (이전 에러와 무관)
+    try {
+      await runEquipOverhaul();
+      console.log('[migrations] 장비 개편 완료');
+    } catch (e) {
+      console.error('[migrations] equip overhaul error:', e);
+    }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
-  }).catch(e => console.error('[migrations] fatal:', e));
+  })();
 });
 
 async function runMigrations() {
@@ -948,9 +960,14 @@ async function runMigrations() {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
     }
   }
+  console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
+}
+
+async function runEquipOverhaul() {
   // ═══════════════════════════════════════════════
-  // 장비 전면 개편 v1
+  // 장비 전면 개편 v3
   // ═══════════════════════════════════════════════
+  await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
   {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v3'`);
@@ -1212,8 +1229,6 @@ async function runMigrations() {
       console.error('[migration] equip_overhaul_v3 error:', e);
     }
   }
-
-  console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
 }
 
 // 경매 만료 정산 (1분마다)
