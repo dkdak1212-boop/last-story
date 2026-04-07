@@ -282,6 +282,24 @@ httpServer.listen(PORT, () => {
       console.error('[migration] retroactive_stat_growth error:', e);
     }
   })();
+  // MP 물약 제거 마이그레이션
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'remove_mp_potions'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] remove_mp_potions: MP 물약 삭제...');
+      // 상점에서 제거
+      await query(`DELETE FROM shop_entries WHERE item_id IN (101, 103, 105, 107)`);
+      // 인벤토리에서 제거
+      await query(`DELETE FROM character_inventory WHERE item_id IN (101, 103, 105, 107)`);
+      // 아이템 정의 삭제
+      await query(`DELETE FROM items WHERE id IN (101, 103, 105, 107)`);
+      await query(`INSERT INTO _migrations (name) VALUES ('remove_mp_potions')`);
+      console.log('[migration] remove_mp_potions: 완료');
+    } catch (e) {
+      console.error('[migration] remove_mp_potions error:', e);
+    }
+  })();
   // 기존 전투 세션 복구
   restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
 });
