@@ -42,6 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [broadcast, setBroadcast] = useState<string | null>(null);
   useEffect(() => { fetchMe(); }, [fetchMe]);
   // 새로고침 시 저장된 캐릭터 자동 복구
   useEffect(() => {
@@ -54,6 +55,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!token) return;
     const socket = socketIo({ auth: { token }, transports: ['websocket', 'polling'] });
     socket.on('online-count', (count: number) => setOnlineCount(count));
+    socket.on('system-broadcast', (data: { text: string }) => {
+      setBroadcast(data.text);
+      setTimeout(() => setBroadcast(null), 15000);
+    });
     return () => { socket.disconnect(); };
   }, [token]);
 
@@ -108,6 +113,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button onClick={() => { clearChar(); clearMe(); logout(); }}>로그아웃</button>
         </div>
       </header>
+
+      {broadcast && (
+        <div style={{
+          background: 'linear-gradient(90deg, #1a0800, #2a1000, #1a0800)',
+          borderBottom: '2px solid #ff8800',
+          padding: '8px 0',
+          overflow: 'hidden',
+          position: 'relative',
+        }}>
+          <div style={{
+            display: 'inline-block',
+            whiteSpace: 'nowrap',
+            animation: 'marquee 12s linear infinite',
+            fontSize: 14,
+            fontWeight: 700,
+            color: '#ff8800',
+          }}>
+            {'  \u{1F4E2}  [시스템 공지] ' + broadcast + '   \u{1F4E2}  [시스템 공지] ' + broadcast + '  '}
+          </div>
+          <style>{`@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
+        </div>
+      )}
 
       {showNav && (
         <nav

@@ -415,6 +415,8 @@ router.post('/system-message', async (req: AuthedRequest, res: Response) => {
       isAdmin: true,
       createdAt: r.rows[0].created_at,
     });
+    // 전광판 브로드캐스트
+    io.emit('system-broadcast', { text, createdAt: r.rows[0].created_at });
   }
 
   res.json({ ok: true });
