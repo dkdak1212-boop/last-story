@@ -3,7 +3,7 @@ import { query } from '../db/pool.js';
 
 const router = Router();
 
-router.post('/run', async (_req, res) => {
+router.get('/run', async (_req, res) => {
   const log: string[] = [];
   try {
     await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
