@@ -4,8 +4,10 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { MonsterIcon } from '../components/ui/MonsterIcon';
 
+const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
+interface DropInfo { name: string; grade: string; chance: number; }
 interface MonsterInfo {
-  name: string; level: number; exp: number; gold: number;
+  name: string; level: number; exp: number; gold: number; drops?: DropInfo[];
 }
 interface FieldData {
   id: number; name: string; requiredLevel: number; description: string;
@@ -87,6 +89,31 @@ export function MapScreen() {
                       </div>
                     </div>
                   ))}
+                  {/* 드랍 아이템 목록 */}
+                  {(() => {
+                    const allDrops = f.monsters.flatMap(m => m.drops || []);
+                    const uniqueDrops = new Map<string, DropInfo>();
+                    for (const d of allDrops) { if (!uniqueDrops.has(d.name)) uniqueDrops.set(d.name, d); }
+                    const sorted = [...uniqueDrops.values()].sort((a, b) => {
+                      const go: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
+                      return (go[a.grade] ?? 9) - (go[b.grade] ?? 9);
+                    });
+                    return sorted.length > 0 ? (
+                      <div style={{ marginTop: 6, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
+                        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>획득 가능 장비</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {sorted.map((d, i) => (
+                            <span key={i} style={{
+                              fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                              border: `1px solid ${GRADE_COLOR[d.grade] || 'var(--border)'}`,
+                              color: GRADE_COLOR[d.grade] || 'var(--text-dim)',
+                              background: 'var(--bg-panel)',
+                            }}>{d.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
                   <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
                     <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>드랍 확률</div>
                     <div>
