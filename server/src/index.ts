@@ -979,11 +979,12 @@ async function runEquipOverhaul() {
       } else {
         console.log('[migration] equip_overhaul_v3: 장비 전면 개편 시작...');
 
-        // 1) 모든 장비 아이템 완전 삭제 (이전 실패 잔해 포함)
+        // 1) 모든 장비 아이템 완전 삭제 (mailbox 참조 포함)
+        await query(`UPDATE mailbox SET item_id = NULL, item_quantity = 0 WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
+        await query(`UPDATE mailbox SET item_id = NULL, item_quantity = 0 WHERE item_id >= 1000`);
         await query(`DELETE FROM character_inventory WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
         await query(`DELETE FROM character_equipped WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
         await query(`DELETE FROM items WHERE slot IS NOT NULL`);
-        // ID 1000+ 잔해도 강제 삭제 (이전 실패 마이그레이션 대비)
         await query(`DELETE FROM character_inventory WHERE item_id >= 1000`);
         await query(`DELETE FROM character_equipped WHERE item_id >= 1000`);
         await query(`DELETE FROM items WHERE id >= 1000`);

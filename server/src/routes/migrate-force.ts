@@ -13,6 +13,9 @@ router.get('/run', async (_req, res) => {
     }
 
     log.push('1. 기존 장비 삭제');
+    // mailbox의 아이템 참조도 정리
+    await query(`UPDATE mailbox SET item_id = NULL, item_quantity = 0 WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
+    await query(`UPDATE mailbox SET item_id = NULL, item_quantity = 0 WHERE item_id >= 1000`);
     await query(`DELETE FROM character_inventory WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
     await query(`DELETE FROM character_equipped WHERE item_id IN (SELECT id FROM items WHERE slot IS NOT NULL)`);
     await query(`DELETE FROM items WHERE slot IS NOT NULL`);
