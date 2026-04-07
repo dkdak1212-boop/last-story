@@ -66,7 +66,6 @@ export function StatusScreen() {
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>전투 능력치</h3>
           <Row label="HP" value={`${status.hp} / ${status.effective.maxHp}`} />
-          <Row label="MP" value={`${status.mp} / ${status.effective.maxMp}`} />
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '10px 0' }} />
           <Row label="물리 공격" value={status.effective.atk} />
           <Row label="마법 공격" value={status.effective.matk} />
@@ -110,7 +109,7 @@ export function StatusScreen() {
         <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
           <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력에 영향 (공격력 = 힘 × 1.0)</span>
           <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율과 명중률에 영향 (회피 = 민첩 × 0.4%, 명중 = 80 + 민첩 × 0.5%)</span>
-          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력, 마법 방어, MP에 영향 (마공 = 지능 × 1.2, MP +4/지능)</span>
+          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력, 마법 방어에 영향 (마공 = 지능 × 1.2)</span>
           <span style={{ color: 'var(--text)' }}>체력</span><span>방어력과 HP에 영향 (방어 = 체력 × 0.8, HP +10/체력)</span>
           <span style={{ color: 'var(--text)' }}>스피드</span><span>행동 속도에 영향 (높을수록 빠르게 공격)</span>
           <span style={{ color: 'var(--text)' }}>치명타</span><span>치명타 확률 (발동 시 1.5배 데미지)</span>

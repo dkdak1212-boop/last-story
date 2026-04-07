@@ -66,7 +66,7 @@ export function SkillsScreen() {
               </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{s.description}</div>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
-                쿨다운 {s.cooldown}s · MP {s.mpCost}
+                쿨다운 {s.cooldown}s
               </div>
             </div>
             {s.learned && (

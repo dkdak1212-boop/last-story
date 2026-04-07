@@ -46,7 +46,6 @@ import { getIo } from '../ws/io.js';
 
 const GAUGE_MAX = 1000;
 const MAX_LOG = 30;
-const INPUT_TIMEOUT_MS = 3000;
 // 100ms 틱에서 speed를 이 비율로 충전 (0.1 = speed 300일 때 ~3.3초 행동주기)
 const GAUGE_FILL_RATE = 0.1;
 
@@ -760,22 +759,6 @@ async function combatTick(): Promise<void> {
             s.waitingSince = Date.now();
             s.playerGauge = GAUGE_MAX;
             s.dirty = true;
-          } else if (Date.now() - s.waitingSince > INPUT_TIMEOUT_MS) {
-            // 타임아웃 → 기본 공격
-            s.waitingInput = false;
-            s.playerGauge = 0;
-            s.actionCount++;
-            for (const [skId, cd] of s.skillCooldowns) {
-              if (cd > 0) s.skillCooldowns.set(skId, cd - 1);
-              if (cd <= 1) s.skillCooldowns.delete(skId);
-            }
-            const basic = s.skills.find(sk => sk.cooldown_actions === 0);
-            if (basic) await executeSkill(s, basic);
-            tickDownEffects(s, 'monster');
-            processDots(s, 'player');
-            s.dirty = true;
-            if (s.monsterHp <= 0) await handleMonsterDeath(s);
-            if (s.playerHp <= 0) { await handlePlayerDeath(s); continue; }
           }
         }
       }
