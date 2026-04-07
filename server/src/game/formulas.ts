@@ -14,11 +14,17 @@ export interface EffectiveStats extends Stats {
 // 장비 스탯 합산
 export function sumEquipmentStats(
   equippedItems: { stats: Partial<Stats> | null; prefixStats?: Record<string, number> | null }[]
-): Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number } {
-  const acc: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number } = {};
+): Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number; bonusAtk?: number; bonusMatk?: number; bonusDef?: number; bonusMdef?: number; bonusHp?: number } {
+  const acc: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number; bonusAtk?: number; bonusMatk?: number; bonusDef?: number; bonusMdef?: number; bonusHp?: number } = {};
   for (const it of equippedItems) {
     if (!it.stats) continue;
     for (const [k, v] of Object.entries(it.stats)) {
+      // 직접 스탯 (atk, matk, def, mdef, hp)은 별도 보너스로
+      if (k === 'atk') { acc.bonusAtk = (acc.bonusAtk ?? 0) + (v as number); continue; }
+      if (k === 'matk') { acc.bonusMatk = (acc.bonusMatk ?? 0) + (v as number); continue; }
+      if (k === 'def') { acc.bonusDef = (acc.bonusDef ?? 0) + (v as number); continue; }
+      if (k === 'mdef') { acc.bonusMdef = (acc.bonusMdef ?? 0) + (v as number); continue; }
+      if (k === 'hp') { acc.bonusHp = (acc.bonusHp ?? 0) + (v as number); continue; }
       acc[k as keyof Stats] = (acc[k as keyof Stats] ?? 0) + (v as number);
     }
     if (it.prefixStats) {
@@ -44,7 +50,7 @@ export function sumNodeStats(nodeEffects: { type: string; stat?: string; value: 
 export function computeEffective(
   base: Stats,
   baseMaxHp: number,
-  equipBonus: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number },
+  equipBonus: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number; bonusAtk?: number; bonusMatk?: number; bonusDef?: number; bonusMdef?: number; bonusHp?: number },
   nodeBonus: Partial<Stats> = {}
 ): EffectiveStats {
   const str = base.str + (equipBonus.str ?? 0) + (nodeBonus.str ?? 0);
@@ -55,12 +61,12 @@ export function computeEffective(
   const cri = base.cri + (equipBonus.cri ?? 0) + (nodeBonus.cri ?? 0);
 
   const equipVit = (equipBonus.vit ?? 0) + (nodeBonus.vit ?? 0);
-  const maxHp = baseMaxHp + equipVit * 10;
+  const maxHp = baseMaxHp + equipVit * 10 + (equipBonus.bonusHp ?? 0);
 
-  const atk = str * 1.0;
-  const matk = intl * 1.2;
-  const def = vit * 0.8;
-  const mdef = intl * 0.5;
+  const atk = str * 1.0 + (equipBonus.bonusAtk ?? 0);
+  const matk = intl * 1.2 + (equipBonus.bonusMatk ?? 0);
+  const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
+  const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);
   // 회피: DEX 계수 하향 + 상한 30%
   const dodgeRaw = dex * 0.2 + (equipBonus.bonusDodge ?? 0);
   const dodge = Math.min(30, dodgeRaw);

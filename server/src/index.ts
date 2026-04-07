@@ -928,6 +928,268 @@ async function runMigrations() {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
     }
   }
+  // ═══════════════════════════════════════════════
+  // 장비 전면 개편 v1
+  // ═══════════════════════════════════════════════
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) {
+        console.log('[migration] equip_overhaul_v1: 이미 적용됨');
+      } else {
+        console.log('[migration] equip_overhaul_v1: 장비 전면 개편 시작...');
+
+        // 1) 기존 장비 아이템 전부 삭제 (slot IS NOT NULL인 모든 아이템)
+        const oldEquip = await query<{ id: number }>(`SELECT id FROM items WHERE slot IS NOT NULL`);
+        const oldIds = oldEquip.rows.map(r => r.id);
+        if (oldIds.length > 0) {
+          await query(`DELETE FROM character_inventory WHERE item_id = ANY($1::int[])`, [oldIds]);
+          await query(`DELETE FROM character_equipped WHERE item_id = ANY($1::int[])`, [oldIds]);
+          await query(`DELETE FROM items WHERE id = ANY($1::int[])`, [oldIds]);
+          console.log(`  기존 장비 ${oldIds.length}개 삭제`);
+        }
+
+        // required_level 컬럼 보장
+        await query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS required_level INT NOT NULL DEFAULT 1`);
+
+        // 2) 신규 장비 생성
+        // 레벨대: 1~15, 16~30, 31~50, 51~70
+        // 등급 배율: common=1.0, rare=1.2, epic=1.4, legendary=2.0
+        const tiers = [
+          { lvl: 1,  label: '초급', maxLv: 15 },
+          { lvl: 16, label: '중급', maxLv: 30 },
+          { lvl: 31, label: '상급', maxLv: 50 },
+          { lvl: 51, label: '전설', maxLv: 70 },
+        ];
+        const grades = [
+          { g: 'common', mult: 1.0, label: '' },
+          { g: 'rare', mult: 1.2, label: '정예 ' },
+          { g: 'epic', mult: 1.4, label: '영웅 ' },
+          { g: 'legendary', mult: 2.0, label: '전설 ' },
+        ];
+
+        // 기본 스탯 (레벨대별 기준값)
+        const baseWeaponAtk = [15, 40, 80, 150];  // 물리/마법 공격
+        const baseArmorDef = [8, 22, 45, 85];      // 방어력
+        const baseArmorMdef = [5, 15, 30, 60];     // 마방
+        const baseArmorHp = [30, 80, 160, 300];    // HP
+        const baseAccAtk = [5, 14, 28, 55];        // 악세 공격
+        const baseAccHp = [15, 40, 80, 150];       // 악세 HP
+        const baseAccDef = [4, 11, 22, 42];        // 악세 방어
+
+        let itemId = 1000; // 새 ID 시작
+        const weaponIds: Record<string, Record<string, Record<string, number>>> = {}; // class -> tier -> grade -> id
+        const armorIds: Record<string, Record<string, Record<string, number>>> = {};  // slot -> tier -> grade -> id
+        const accIds: Record<string, Record<string, Record<string, number>>> = {};    // slot -> tier -> grade -> id
+
+        // ── 무기 (직업별) ──
+        const weaponClasses = [
+          { cls: 'warrior', name: '대검', atkType: 'atk' },
+          { cls: 'mage', name: '지팡이', atkType: 'matk' },
+          { cls: 'cleric', name: '홀', atkType: 'matk' },
+          { cls: 'rogue', name: '단검', atkType: 'atk' },
+        ];
+        for (let ti = 0; ti < tiers.length; ti++) {
+          const t = tiers[ti];
+          for (const g of grades) {
+            for (const wc of weaponClasses) {
+              const atk = Math.round(baseWeaponAtk[ti] * g.mult);
+              const stats: Record<string, number> = {};
+              stats[wc.atkType] = atk;
+              const fullName = `${g.label}${t.label} ${wc.name}`;
+              await query(
+                `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
+                 VALUES ($1, $2, 'weapon', $3, 'weapon', $4::jsonb, $5, 1, $6, $7)`,
+                [itemId, fullName, g.g, JSON.stringify(stats),
+                 `Lv.${t.lvl}~${t.maxLv} ${wc.cls} 전용`,
+                 Math.round(atk * 2), t.lvl]
+              );
+              if (!weaponIds[wc.cls]) weaponIds[wc.cls] = {};
+              if (!weaponIds[wc.cls][ti]) weaponIds[wc.cls][ti] = {};
+              weaponIds[wc.cls][ti][g.g] = itemId;
+              itemId++;
+            }
+          }
+        }
+        console.log(`  무기 ${itemId - 1000}개 생성`);
+
+        const armorStart = itemId;
+        // ── 방어구 (공용) ──
+        const armorSlots = [
+          { slot: 'helm', name: '투구', statFn: (ti: number, mult: number) => ({ def: Math.round(baseArmorDef[ti] * 0.6 * mult), mdef: Math.round(baseArmorMdef[ti] * 0.6 * mult) }) },
+          { slot: 'chest', name: '갑옷', statFn: (ti: number, mult: number) => ({ def: Math.round(baseArmorDef[ti] * mult), hp: Math.round(baseArmorHp[ti] * mult) }) },
+          { slot: 'boots', name: '장화', statFn: (ti: number, mult: number) => ({ mdef: Math.round(baseArmorMdef[ti] * mult), hp: Math.round(baseArmorHp[ti] * 0.6 * mult) }) },
+        ];
+        for (let ti = 0; ti < tiers.length; ti++) {
+          const t = tiers[ti];
+          for (const g of grades) {
+            for (const as of armorSlots) {
+              const stats = as.statFn(ti, g.mult);
+              const fullName = `${g.label}${t.label} ${as.name}`;
+              await query(
+                `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
+                 VALUES ($1, $2, 'armor', $3, $4, $5::jsonb, $6, 1, $7, $8)`,
+                [itemId, fullName, g.g, as.slot, JSON.stringify(stats),
+                 `Lv.${t.lvl}~${t.maxLv} 공용 ${as.name}`,
+                 Math.round(Object.values(stats).reduce((a, b) => a + b, 0)), t.lvl]
+              );
+              if (!armorIds[as.slot]) armorIds[as.slot] = {};
+              if (!armorIds[as.slot][ti]) armorIds[as.slot][ti] = {};
+              armorIds[as.slot][ti][g.g] = itemId;
+              itemId++;
+            }
+          }
+        }
+        console.log(`  방어구 ${itemId - armorStart}개 생성`);
+
+        const accStart = itemId;
+        // ── 악세서리 (공용) ──
+        const accSlots = [
+          { slot: 'ring', name: '반지', statFn: (ti: number, mult: number) => ({ atk: Math.round(baseAccAtk[ti] * mult), matk: Math.round(baseAccAtk[ti] * mult) }) },
+          { slot: 'amulet', name: '목걸이', statFn: (ti: number, mult: number) => ({ hp: Math.round(baseAccHp[ti] * mult), def: Math.round(baseAccDef[ti] * mult) }) },
+        ];
+        for (let ti = 0; ti < tiers.length; ti++) {
+          const t = tiers[ti];
+          for (const g of grades) {
+            for (const ac of accSlots) {
+              const stats = ac.statFn(ti, g.mult);
+              const fullName = `${g.label}${t.label} ${ac.name}`;
+              await query(
+                `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
+                 VALUES ($1, $2, 'accessory', $3, $4, $5::jsonb, $6, 1, $7, $8)`,
+                [itemId, fullName, g.g, ac.slot, JSON.stringify(stats),
+                 `Lv.${t.lvl}~${t.maxLv} 공용 ${ac.name}`,
+                 Math.round(Object.values(stats).reduce((a, b) => a + b, 0)), t.lvl]
+              );
+              if (!accIds[ac.slot]) accIds[ac.slot] = {};
+              if (!accIds[ac.slot][ti]) accIds[ac.slot][ti] = {};
+              accIds[ac.slot][ti][g.g] = itemId;
+              itemId++;
+            }
+          }
+        }
+        console.log(`  악세서리 ${itemId - accStart}개 생성`);
+
+        // 3) 몬스터 드랍 테이블 완전 리셋
+        await query(`UPDATE monsters SET drop_table = '[]'::jsonb`);
+        const monsters = await query<{ id: number; level: number }>('SELECT id, level FROM monsters');
+
+        // 포션
+        const potions = [
+          { minLv: 1, maxLv: 15, id: 100, chance: 0.3 },
+          { minLv: 16, maxLv: 30, id: 102, chance: 0.25 },
+          { minLv: 31, maxLv: 50, id: 104, chance: 0.2 },
+          { minLv: 51, maxLv: 999, id: 106, chance: 0.15 },
+        ];
+        const tierForLevel = (lv: number) => lv <= 15 ? 0 : lv <= 30 ? 1 : lv <= 50 ? 2 : 3;
+
+        for (const m of monsters.rows) {
+          const drops: any[] = [];
+          const ti = tierForLevel(m.level);
+
+          // 포션
+          const pot = potions.find(p => m.level >= p.minLv && m.level <= p.maxLv) || potions[3];
+          drops.push({ itemId: pot.id, chance: pot.chance, minQty: 1, maxQty: 2 });
+
+          // 무기 (4직업 각 common 2%, rare 0.8%, epic 0.3%, legendary 0.1%)
+          for (const wc of weaponClasses) {
+            drops.push({ itemId: weaponIds[wc.cls][ti]['common'], chance: 0.02, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['rare'], chance: 0.008, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['epic'], chance: 0.003, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['legendary'], chance: 0.001, minQty: 1, maxQty: 1 });
+          }
+          // 방어구 (common 1.5%, rare 0.6%, epic 0.2%, legendary 0.08%)
+          for (const as of armorSlots) {
+            drops.push({ itemId: armorIds[as.slot][ti]['common'], chance: 0.015, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['rare'], chance: 0.006, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['epic'], chance: 0.002, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['legendary'], chance: 0.0008, minQty: 1, maxQty: 1 });
+          }
+          // 악세서리 (common 1%, rare 0.4%, epic 0.15%, legendary 0.05%)
+          for (const ac of accSlots) {
+            drops.push({ itemId: accIds[ac.slot][ti]['common'], chance: 0.01, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['rare'], chance: 0.004, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['epic'], chance: 0.0015, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['legendary'], chance: 0.0005, minQty: 1, maxQty: 1 });
+          }
+
+          await query('UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2', [JSON.stringify(drops), m.id]);
+        }
+        console.log(`  드랍테이블: ${monsters.rowCount}마리 재설정`);
+
+        // 4) 모든 캐릭터에 레벨대 맞는 common 세트 2옵 + 무기 우편 지급
+        const allPrefixes = await query<{ id: number; tier: number; stat_key: string; min_val: number; max_val: number }>(
+          'SELECT id, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
+        );
+        function rollPrefixes2(count: number) {
+          const pIds: number[] = []; const bStats: Record<string, number> = {}; const used = new Set<string>();
+          for (let i = 0; i < count; i++) {
+            const tRoll = Math.random() * 100;
+            const tier = tRoll < 3 ? 3 : tRoll < 20 ? 2 : 1;
+            const cands = allPrefixes.rows.filter(p => p.tier === tier && !used.has(p.stat_key));
+            if (cands.length === 0) continue;
+            const pf = cands[Math.floor(Math.random() * cands.length)];
+            const val = pf.min_val + Math.floor(Math.random() * (pf.max_val - pf.min_val + 1));
+            pIds.push(pf.id); bStats[pf.stat_key] = (bStats[pf.stat_key] ?? 0) + val; used.add(pf.stat_key);
+          }
+          return { prefixIds: pIds, bonusStats: bStats };
+        }
+
+        const chars = await query<{ id: number; level: number; class_name: string }>('SELECT id, level, class_name FROM characters');
+        for (const c of chars.rows) {
+          const ti = tierForLevel(c.level);
+
+          // 무기 (직업에 맞는 common)
+          const weaponId = weaponIds[c.class_name]?.[ti]?.['common'];
+          if (weaponId) {
+            await query(`INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold) VALUES ($1, '장비 개편 보상', '레벨대 맞는 무기입니다.', $2, 1, 0)`,
+              [c.id, weaponId]);
+          }
+
+          // 방어구 3부위 (common)
+          for (const as of armorSlots) {
+            const aId = armorIds[as.slot]?.[ti]?.['common'];
+            if (!aId) continue;
+            const { prefixIds, bonusStats } = rollPrefixes2(2);
+            const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [c.id]);
+            const usedSet = new Set(usedR.rows.map(r => r.slot_index));
+            let freeSlot = -1;
+            for (let i = 0; i < 100; i++) { if (!usedSet.has(i)) { freeSlot = i; break; } }
+            if (freeSlot >= 0) {
+              await query(`INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats) VALUES ($1,$2,$3,1,$4,$5::jsonb)`,
+                [c.id, aId, freeSlot, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats)]);
+            }
+          }
+
+          // 악세서리 2부위 (common)
+          for (const ac of accSlots) {
+            const acId = accIds[ac.slot]?.[ti]?.['common'];
+            if (!acId) continue;
+            const { prefixIds, bonusStats } = rollPrefixes2(2);
+            const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [c.id]);
+            const usedSet = new Set(usedR.rows.map(r => r.slot_index));
+            let freeSlot = -1;
+            for (let i = 0; i < 100; i++) { if (!usedSet.has(i)) { freeSlot = i; break; } }
+            if (freeSlot >= 0) {
+              await query(`INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats) VALUES ($1,$2,$3,1,$4,$5::jsonb)`,
+                [c.id, acId, freeSlot, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats)]);
+            }
+          }
+        }
+        console.log(`  ${chars.rowCount}캐릭터 장비 지급 완료`);
+
+        // 삭제된 아이템 정리
+        await query(`DELETE FROM character_inventory WHERE item_id NOT IN (SELECT id FROM items)`);
+        await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('equip_overhaul_v1')`);
+        console.log('[migration] equip_overhaul_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[migration] equip_overhaul_v1 error:', e);
+    }
+  }
+
   console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
 }
 
