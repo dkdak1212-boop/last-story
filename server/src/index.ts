@@ -368,6 +368,12 @@ httpServer.listen(PORT, () => {
       console.error('[migration] remove_mp_potions error:', e);
     }
   })();
+  // 강타 체력비례뎀 추가
+  (async () => {
+    try {
+      await query(`UPDATE skills SET effect_type = 'hp_pct_damage', effect_value = 10, description = 'ATK x150% + 적 HP 10% 추가 데미지' WHERE class_name = 'warrior' AND name = '강타' AND effect_type = 'damage'`);
+    } catch (e) { console.error('[patch] 강타 error:', e); }
+  })();
   // 깨진 prefix_stats 데이터 정리
   (async () => {
     try {
