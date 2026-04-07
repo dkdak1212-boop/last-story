@@ -263,8 +263,7 @@ httpServer.listen(PORT, () => {
           cri: start.cri + growth.cri * levelsGained,
         };
 
-        // max_hp 보정: 기존 +5/lv → +8/lv, 차이분 추가
-        const oldHpGrowth = levelsGained * 5;
+        // max_hp 보정: +8/lv 기준으로 재계산
         const newHpGrowth = levelsGained * 8;
         const baseMaxHp = CLASS_START[c.class_name]?.str ? // just check class exists
           (c.class_name === 'warrior' ? 200 : c.class_name === 'cleric' ? 160 : c.class_name === 'rogue' ? 130 : 120) : 200;
