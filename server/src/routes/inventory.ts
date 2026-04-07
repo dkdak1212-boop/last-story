@@ -64,6 +64,17 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     return {};
   }
 
+  // 강화 배율 적용된 스탯 반환
+  function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number): Record<string, number> | null {
+    if (!baseStats) return null;
+    const mult = 1 + (enhanceLevel || 0) * 0.1;
+    const result: Record<string, number> = {};
+    for (const [k, v] of Object.entries(baseStats)) {
+      result[k] = Math.round((v as number) * mult);
+    }
+    return result;
+  }
+
   const inventory = invR.rows.map((r) => {
     const pIds = r.prefix_ids || [];
     const pName = buildPrefixName(pIds, prefixNames);
@@ -79,7 +90,9 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
         id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
         baseName: r.name,
         type: r.type, grade: r.grade, slot: r.slot,
-        stats: r.stats, description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
+        stats: enhancedStats(r.stats, r.enhance_level),
+        baseStats: r.stats,
+        description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
       },
     };
   });
@@ -106,7 +119,9 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
       baseName: r.name,
       type: r.type, grade: r.grade, slot: r.item_slot,
-      stats: r.stats, description: r.description, stackSize: 1, sellPrice: 0,
+      stats: enhancedStats(r.stats, r.enhance_level),
+      baseStats: r.stats,
+      description: r.description, stackSize: 1, sellPrice: 0,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
       prefixStats: safePrefixStats(r.prefix_stats),

@@ -42,15 +42,29 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     [cid]
   );
 
+  function enhancedStats(baseStats: Record<string, number> | null, enhLevel: number): Record<string, number> | null {
+    if (!baseStats) return null;
+    const mult = 1 + (enhLevel || 0) * 0.1;
+    const result: Record<string, number> = {};
+    for (const [k, v] of Object.entries(baseStats)) {
+      result[k] = Math.round((v as number) * mult);
+    }
+    return result;
+  }
+
   res.json({
     inventory: inv.rows.map(r => ({
       kind: 'inventory' as const, slotIndex: r.slot_index,
-      itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.slot, stats: r.stats,
+      itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.slot,
+      stats: enhancedStats(r.stats, r.enhance_level),
+      baseStats: r.stats,
       enhanceLevel: r.enhance_level,
     })),
     equipped: eq.rows.map(r => ({
       kind: 'equipped' as const, equipSlot: r.slot,
-      itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.item_slot, stats: r.stats,
+      itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.item_slot,
+      stats: enhancedStats(r.stats, r.enhance_level),
+      baseStats: r.stats,
       enhanceLevel: r.enhance_level,
     })),
   });
