@@ -744,8 +744,8 @@ httpServer.listen(PORT, () => {
       console.error('[migration] full_drop_setup_v1 error:', e);
     }
   })();
-  // 드랍테이블 강제 재정리 (삭제된 아이템 제거)
-  (async () => {
+  // 드랍테이블 강제 재정리 (삭제된 아이템 제거) — 다른 마이그레이션 완료 후 실행
+  setTimeout(async () => {
     try {
       const allMonsters = await query<{ id: number; drop_table: any[] }>(`SELECT id, drop_table FROM monsters WHERE drop_table IS NOT NULL`);
       const validItems = await query<{ id: number }>(`SELECT id FROM items`);
@@ -760,10 +760,13 @@ httpServer.listen(PORT, () => {
         }
       }
       if (fixed > 0) console.log(`[cleanup] 드랍테이블 정리: ${fixed}마리 몬스터`);
+      // 인벤토리/장착에서도 삭제된 아이템 정리
+      await query(`DELETE FROM character_inventory WHERE item_id NOT IN (SELECT id FROM items)`);
+      await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
     } catch (e) {
       console.error('[cleanup] drop_table error:', e);
     }
-  })();
+  }, 10000); // 10초 후 실행 (마이그레이션 완료 대기)
   // 강타 체력비례뎀 추가
   (async () => {
     try {
