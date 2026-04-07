@@ -205,6 +205,12 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
   return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
 }
 
+// 패시브 값 조회 (없으면 0)
+function getPassive(s: ActiveSession, key: string): number {
+  const p = s.passives.find(p => p.key === key);
+  return p ? p.value : 0;
+}
+
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster') {
   for (const eff of s.statusEffects) {
     if (eff.source === actor && eff.remainingActions > 0) {
@@ -222,14 +228,23 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     e.remainingActions > 0
   );
   for (const dot of dots) {
-    const dmg = Math.round(dot.value);
+    let dmg = Math.round(dot.value);
     if (dmg <= 0) continue;
     if (target === 'monster') {
+      // 패시브: dot_amp, poison_amp, bleed_amp, burn_amp, holy_dot_amp
+      const dotAmp = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
+        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp');
+      if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
       s.monsterHp -= dmg;
       addLog(s, `[도트] 몬스터에게 ${dmg} 데미지`);
     } else {
-      s.playerHp -= dmg;
-      addLog(s, `[도트] ${dmg} 데미지를 받았다`);
+      // 패시브: dot_resist (플레이어가 받는 도트 감소)
+      const resist = getPassive(s, 'dot_resist');
+      if (resist > 0) dmg = Math.round(dmg * (1 - resist / 100));
+      if (dmg > 0) {
+        s.playerHp -= dmg;
+        addLog(s, `[도트] ${dmg} 데미지를 받았다`);
+      }
     }
   }
 }
@@ -238,10 +253,16 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = s.playerStats.matk > s.playerStats.atk;
 
-  // 쿨다운 설정
+  // 쿨다운 설정 (패시브: cooldown_reduce)
   if (skill.cooldown_actions > 0) {
-    s.skillCooldowns.set(skill.id, skill.cooldown_actions);
+    const cdReduce = getPassive(s, 'cooldown_reduce');
+    const cd = Math.max(1, skill.cooldown_actions - Math.floor(cdReduce / 25)); // 25%마다 1턴 감소
+    s.skillCooldowns.set(skill.id, cd);
   }
+
+  // 패시브: spell_amp (마법 공격 증폭), armor_pierce (방어 무시)
+  const spellAmp = useMatk ? getPassive(s, 'spell_amp') : 0;
+  const armorPierce = getPassive(s, 'armor_pierce');
 
   switch (skill.effect_type) {
     case 'damage':
@@ -250,15 +271,49 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'crit_bonus':
     case 'hp_pct_damage': {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
-      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage, criBonus);
+      // armor_pierce 적용: 몬스터 방어력 감소 복사본
+      const defModStats = armorPierce > 0 ? {
+        ...s.monsterStats,
+        def: Math.round(s.monsterStats.def * (1 - armorPierce / 100)),
+        mdef: Math.round(s.monsterStats.mdef * (1 - armorPierce / 100)),
+      } : s.monsterStats;
+      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage, criBonus);
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
       } else {
-        s.monsterHp -= d.damage;
-        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
+        let dmg = d.damage;
+        // 패시브: spell_amp
+        if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+        // 패시브: crit_damage (치명타 추가 배율)
+        if (d.crit) {
+          const critDmgBonus = getPassive(s, 'crit_damage');
+          if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+        }
+        s.monsterHp -= dmg;
+        addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+
+        // 패시브: crit_lifesteal (치명타 시 흡혈)
+        if (d.crit) {
+          const critLifesteal = getPassive(s, 'crit_lifesteal');
+          if (critLifesteal > 0) {
+            const critHeal = Math.round(dmg * critLifesteal / 100);
+            s.playerHp = Math.min(s.playerMaxHp, s.playerHp + critHeal);
+            addLog(s, `치명 흡혈 HP +${critHeal}`);
+          }
+        }
+
+        // 패시브: bleed_on_hit (타격 시 출혈)
+        const bleedChance = getPassive(s, 'bleed_on_hit');
+        if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
+          const bleedDmg = Math.round(s.playerStats.atk * 0.15);
+          addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
+          addLog(s, `출혈 발동!`);
+        }
 
         if (skill.effect_type === 'lifesteal') {
-          const heal = Math.round(d.damage * skill.effect_value / 100);
+          let heal = Math.round(dmg * skill.effect_value / 100);
+          const lsAmp = getPassive(s, 'lifesteal_amp');
+          if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
           s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
           addLog(s, `[${skill.name}] HP +${heal} 흡혈`);
         }
@@ -267,9 +322,21 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           s.monsterHp -= extra;
           addLog(s, `[${skill.name}] 추가 고정 ${extra} 데미지`);
         }
+
+        // 패시브: extra_hit (추가 타격 확률)
+        const extraHit = getPassive(s, 'extra_hit');
+        if (extraHit > 0 && Math.random() * 100 < extraHit) {
+          const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult * 0.5, useMatk);
+          if (!d2.miss) {
+            s.monsterHp -= d2.damage;
+            addLog(s, `추가 타격! ${d2.damage}`);
+          }
+        }
       }
       if (skill.effect_type === 'self_damage_pct') {
-        const cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
+        let cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
+        const rageReduce = getPassive(s, 'rage_reduce');
+        if (rageReduce > 0) cost = Math.round(cost * (1 - rageReduce / 100));
         s.playerHp -= cost;
         addLog(s, `[${skill.name}] 자신 HP -${cost}`);
       }
@@ -340,6 +407,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       for (const p of poisons) {
         totalBurst += Math.round(p.value * skill.effect_value / 100);
       }
+      // 패시브: poison_burst_amp
+      const burstAmp = getPassive(s, 'poison_burst_amp');
+      if (burstAmp > 0) totalBurst = Math.round(totalBurst * (1 + burstAmp / 100));
       if (totalBurst > 0) {
         s.monsterHp -= totalBurst;
         addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지`);
@@ -384,8 +454,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
-        addEffect(s, { type: 'stun', value: 0, remainingActions: skill.effect_duration, source: 'player' });
-        addLog(s, `[${skill.name}] 스턴!`);
+        const stunExt = getPassive(s, 'stun_extend');
+        addEffect(s, { type: 'stun', value: 0, remainingActions: skill.effect_duration + stunExt, source: 'player' });
+        addLog(s, `[${skill.name}] 스턴 ${skill.effect_duration + stunExt}행동!`);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
@@ -393,8 +464,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'gauge_freeze': {
-      addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: skill.effect_duration, source: 'player' });
-      addLog(s, `[${skill.name}] 적 게이지 동결 ${skill.effect_duration}행동!`);
+      const freezeExt = getPassive(s, 'freeze_extend');
+      addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: skill.effect_duration + freezeExt, source: 'player' });
+      addLog(s, `[${skill.name}] 적 게이지 동결 ${skill.effect_duration + freezeExt}행동!`);
       break;
     }
 
@@ -431,7 +503,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield': {
-      const shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      const shieldAmp = getPassive(s, 'shield_amp');
+      if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
       addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
       break;
@@ -448,7 +522,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'heal_pct': {
-      const heal = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      let heal = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      const healAmp = getPassive(s, 'heal_amp');
+      if (healAmp > 0) heal = Math.round(heal * (1 + healAmp / 100));
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       addLog(s, `[${skill.name}] HP +${heal} 회복!`);
       break;
@@ -526,7 +602,14 @@ function monsterAction(s: ActiveSession): void {
     return;
   }
 
-  const d = calcDamage(s.monsterStats, s.playerStats, 1.0, false);
+  // 패시브: guard_instinct (HP 40% 이하 시 방어 증가)
+  let playerDefStats = s.playerStats;
+  const guardInstinct = getPassive(s, 'guard_instinct');
+  if (guardInstinct > 0 && s.playerHp / s.playerMaxHp < 0.4) {
+    playerDefStats = { ...s.playerStats, def: Math.round(s.playerStats.def * (1 + guardInstinct / 100)) };
+  }
+
+  const d = calcDamage(s.monsterStats, playerDefStats, 1.0, false);
 
   // 명중률 디버프
   const accDebuff = s.statusEffects.find(e => e.type === 'accuracy_debuff' && e.source === 'player');
@@ -574,10 +657,13 @@ function monsterAction(s: ActiveSession): void {
       addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
     }
 
-    // 반사
+    // 반사 (패시브: reflect_amp)
     const reflect = s.statusEffects.find(e => e.type === 'damage_reflect' && e.source === 'monster');
     if (reflect && d.damage > 0) {
-      const reflected = Math.round(d.damage * reflect.value / 100);
+      let reflectPct = reflect.value;
+      const reflectAmp = getPassive(s, 'reflect_amp');
+      if (reflectAmp > 0) reflectPct = Math.round(reflectPct * (1 + reflectAmp / 100));
+      const reflected = Math.round(d.damage * reflectPct / 100);
       s.monsterHp -= reflected;
       addLog(s, `반사! 몬스터에게 ${reflected} 데미지`);
     }
@@ -672,12 +758,26 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
-  // 부활 체크
+  // 부활 체크 (패시브: resurrect_amp 회복량 증가)
   const resurrect = s.statusEffects.find(e => e.type === 'resurrect' && e.source === 'monster');
   if (resurrect) {
-    s.playerHp = Math.round(s.playerMaxHp * resurrect.value / 100);
+    let healPct = resurrect.value;
+    const resAmp = getPassive(s, 'resurrect_amp');
+    if (resAmp > 0) healPct = Math.min(100, healPct + resAmp);
+    s.playerHp = Math.round(s.playerMaxHp * healPct / 100);
     s.statusEffects = s.statusEffects.filter(e => e !== resurrect);
     addLog(s, `부활의 기적! HP ${s.playerHp} 회복!`);
+    return;
+  }
+
+  // 패시브: undying_fury (HP 0 시 1회 자동 부활, 30% HP)
+  const undying = getPassive(s, 'undying_fury');
+  if (undying > 0 && !s.statusEffects.some(e => e.type === 'invincible' && e.id === 'undying_used')) {
+    s.playerHp = Math.round(s.playerMaxHp * undying / 100);
+    addEffect(s, { type: 'invincible', value: 0, remainingActions: 1, source: 'monster' });
+    // 사용 표시 (전투당 1회)
+    s.statusEffects.push({ id: 'undying_used', type: 'invincible', value: 0, remainingActions: 0, source: 'player' });
+    addLog(s, `불굴의 의지! HP ${s.playerHp} 부활 + 무적 1행동!`);
     return;
   }
 
@@ -846,6 +946,46 @@ export async function startCombatSession(characterId: number, fieldId: number): 
   const eff = await getEffectiveStats(char);
   const skills = await getCharSkills(characterId, char.class_name, char.level);
   const passives = await getNodePassives(characterId);
+
+  // 키스톤 패시브 적용: 전투 시작 시 스탯 수정
+  const pMap = new Map(passives.map(p => [p.key, p.value]));
+  // war_god: 공격력 +N%
+  if (pMap.has('war_god')) { eff.atk = Math.round(eff.atk * (1 + (pMap.get('war_god')! / 100))); }
+  // shadow_dance: 회피 +N
+  if (pMap.has('shadow_dance')) { eff.dodge += pMap.get('shadow_dance')!; }
+  // trickster: 치명타 +N
+  if (pMap.has('trickster')) { eff.cri += pMap.get('trickster')!; }
+  // iron_will: 방어 +N%
+  if (pMap.has('iron_will')) { eff.def = Math.round(eff.def * (1 + (pMap.get('iron_will')! / 100))); }
+  // mana_flow / mana_overload: 마법공격 +N%
+  const matkBonus = (pMap.get('mana_flow') || 0) + (pMap.get('mana_overload') || 0);
+  if (matkBonus > 0) { eff.matk = Math.round(eff.matk * (1 + matkBonus / 100)); }
+  // focus_mastery: 명중 +N
+  if (pMap.has('focus_mastery')) { eff.accuracy += pMap.get('focus_mastery')!; }
+  // berserker_heart: 공격 +N% 방어 -N%
+  if (pMap.has('berserker_heart')) {
+    const v = pMap.get('berserker_heart')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 - v / 200)); // 절반만 감소
+  }
+  // elemental_storm: 도트 데미지 대폭 증가 (dot_amp처럼 작동하지만 별도)
+  // time_lord: 스피드 +N%
+  if (pMap.has('time_lord')) { eff.spd = Math.round(eff.spd * (1 + (pMap.get('time_lord')! / 100))); }
+  // counter_incarnation: 반사 데미지 상시 적용
+  // sanctuary_guard: 최대HP +N%
+  if (pMap.has('sanctuary_guard')) {
+    const bonus = Math.round(char.max_hp * pMap.get('sanctuary_guard')! / 100);
+    eff.maxHp += bonus;
+  }
+  // balance_apostle: 모든 스탯 소폭 증가
+  if (pMap.has('balance_apostle')) {
+    const v = pMap.get('balance_apostle')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.matk = Math.round(eff.matk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 + v / 100));
+  }
+  // poison_lord: 독 도트 기본 적용 (전투 시작 시 독 연장)
+  // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동)
 
   const session: ActiveSession = {
     characterId,
