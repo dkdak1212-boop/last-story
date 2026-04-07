@@ -594,6 +594,26 @@ httpServer.listen(PORT, () => {
       console.error('[grant] mid armor all error:', e);
     }
   })();
+  // 드랍테이블 강제 재정리 (삭제된 아이템 제거)
+  (async () => {
+    try {
+      const allMonsters = await query<{ id: number; drop_table: any[] }>(`SELECT id, drop_table FROM monsters WHERE drop_table IS NOT NULL`);
+      const validItems = await query<{ id: number }>(`SELECT id FROM items`);
+      const validSet = new Set(validItems.rows.map(r => r.id));
+      let fixed = 0;
+      for (const m of allMonsters.rows) {
+        if (!Array.isArray(m.drop_table)) continue;
+        const cleaned = m.drop_table.filter((d: any) => validSet.has(d.itemId));
+        if (cleaned.length !== m.drop_table.length) {
+          await query(`UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2`, [JSON.stringify(cleaned), m.id]);
+          fixed++;
+        }
+      }
+      if (fixed > 0) console.log(`[cleanup] 드랍테이블 정리: ${fixed}마리 몬스터`);
+    } catch (e) {
+      console.error('[cleanup] drop_table error:', e);
+    }
+  })();
   // 강타 체력비례뎀 추가
   (async () => {
     try {
