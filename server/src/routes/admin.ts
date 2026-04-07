@@ -135,7 +135,8 @@ router.get('/users', async (req, res) => {
   let where = '';
   let params: unknown[] = [limit, offset];
   if (search) {
-    where = 'WHERE u.username ILIKE $3';
+    // 유저명 또는 캐릭터명으로 검색
+    where = 'WHERE (u.username ILIKE $3 OR u.id IN (SELECT user_id FROM characters WHERE name ILIKE $3))';
     params.push(`%${search}%`);
   }
 
@@ -149,7 +150,8 @@ router.get('/users', async (req, res) => {
     `SELECT u.id, u.username, u.is_admin, u.banned, u.ban_reason,
             u.created_at, u.last_login_at,
             (SELECT COUNT(*) FROM characters WHERE user_id = u.id)::int AS char_count,
-            (SELECT MAX(level) FROM characters WHERE user_id = u.id) AS max_level
+            (SELECT MAX(level) FROM characters WHERE user_id = u.id) AS max_level,
+            (SELECT string_agg(name || ' (Lv.' || level || ' ' || class_name || ')', ', ' ORDER BY level DESC) FROM characters WHERE user_id = u.id) AS char_names
      FROM users u ${where}
      ORDER BY u.created_at DESC
      LIMIT $1 OFFSET $2`,

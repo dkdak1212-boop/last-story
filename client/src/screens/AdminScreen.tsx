@@ -18,6 +18,7 @@ interface AdminFeedback {
 interface UserRow {
   id: number; username: string; is_admin: boolean; banned: boolean; ban_reason: string | null;
   created_at: string; last_login_at: string | null; char_count: number; max_level: number | null;
+  char_names: string | null;
 }
 interface CharSearchResult {
   id: number; name: string; class_name: string; level: number; exp: string;
@@ -44,8 +45,7 @@ const GRADE_COLOR: Record<string, string> = {
   common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030',
 };
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
-  assassin: '암살자', mage: '마법사', priest: '사제', druid: '드루이드',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
 };
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화', ring: '반지', amulet: '목걸이',
@@ -144,7 +144,7 @@ function UsersTab() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input placeholder="유저명 검색..." value={search}
+        <input placeholder="유저명 또는 캐릭터명 검색..." value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && load(1, search)}
           style={{ flex: 1, maxWidth: 300 }} />
@@ -163,8 +163,13 @@ function UsersTab() {
               <span style={{ fontWeight: 700, color: u.is_admin ? 'var(--success)' : 'var(--text)' }}>{u.username}</span>
               {u.is_admin && <span style={{ fontSize: 10, color: 'var(--success)', marginLeft: 6 }}>관리자</span>}
               {u.banned && <span style={{ fontSize: 10, color: 'var(--danger)', marginLeft: 6 }}>정지됨{u.ban_reason ? `: ${u.ban_reason}` : ''}</span>}
+              {u.char_names && (
+                <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
+                  {u.char_names}
+                </div>
+              )}
               <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
-                캐릭터 {u.char_count}개 · 최고 Lv.{u.max_level ?? 0} · 가입: {new Date(u.created_at).toLocaleDateString('ko-KR')}
+                가입: {new Date(u.created_at).toLocaleDateString('ko-KR')}
                 {u.last_login_at && ` · 마지막 접속: ${new Date(u.last_login_at).toLocaleDateString('ko-KR')}`}
               </div>
             </div>
