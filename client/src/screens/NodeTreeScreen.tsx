@@ -361,6 +361,42 @@ export function NodeTreeScreen() {
   }
   function handleMouseUp() { dragRef.current.dragging = false; }
 
+  // 터치 이벤트 (모바일 드래그 + 탭)
+  const touchStartRef = useRef({ x: 0, y: 0, moved: false });
+  function handleTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    dragRef.current = { dragging: true, startX: t.clientX, startY: t.clientY, startOx: offset.x, startOy: offset.y };
+    touchStartRef.current = { x: t.clientX, y: t.clientY, moved: false };
+  }
+  function handleTouchMove(e: React.TouchEvent) {
+    e.preventDefault();
+    const t = e.touches[0];
+    const dx = t.clientX - dragRef.current.startX;
+    const dy = t.clientY - dragRef.current.startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchStartRef.current.moved = true;
+    setOffset({ x: dragRef.current.startOx + dx, y: dragRef.current.startOy + dy });
+  }
+  function handleTouchEnd(e: React.TouchEvent) {
+    dragRef.current.dragging = false;
+    // 터치 탭 (드래그 안 했으면 노드 선택)
+    if (!touchStartRef.current.moved) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = touchStartRef.current.x - rect.left;
+      const my = touchStartRef.current.y - rect.top;
+      for (const node of zoneNodes) {
+        const pos = getNodePos(node);
+        const r = NODE_RADIUS[node.tier] || 16;
+        if (Math.sqrt((mx - pos.x) ** 2 + (my - pos.y) ** 2) <= r + 8) {
+          setSelected(node);
+          return;
+        }
+      }
+      setSelected(null);
+    }
+  }
+
   async function invest(nodeId: number) {
     if (!active || loading) return;
     setLoading(true); setMsg('');
@@ -435,12 +471,15 @@ export function NodeTreeScreen() {
       }}>
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%', height: 900 }}
+          style={{ display: 'block', width: '100%', height: 900, touchAction: 'none' }}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { handleMouseUp(); setTooltip(null); }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
         <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 14, fontSize: 11 }}>
           <span style={{ color: NODE_COLORS.border_invested }}>● 투자됨</span>
