@@ -40,6 +40,7 @@ import { setIo } from './ws/io.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
 import nodeRoutes from './routes/nodes.js';
 import { restoreCombatSessions } from './combat/engine.js';
+import migrateForceRoutes from './routes/migrate-force.js';
 import { query } from './db/pool.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -50,6 +51,8 @@ const PORT = Number(process.env.PORT || 4000);
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
+
+app.use('/api/migrate-force', migrateForceRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
