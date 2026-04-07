@@ -38,8 +38,8 @@ export function InventoryScreen() {
     setMsg('');
     try {
       await api(`/characters/${active.id}/equip`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
-      refresh();
-      refreshActive();
+      await refresh();
+      await refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
@@ -48,8 +48,8 @@ export function InventoryScreen() {
     setMsg('');
     try {
       await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) });
-      refresh();
-      refreshActive();
+      await refresh();
+      await refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
@@ -62,8 +62,8 @@ export function InventoryScreen() {
         `/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) }
       );
       setMsg(`${res.sold} ×${res.quantity} 판매 → +${res.gold}G`);
-      refresh();
-      refreshActive();
+      await refresh();
+      await refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
   }
 
