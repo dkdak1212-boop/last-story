@@ -38,7 +38,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const me = useMeStore((s) => s.me);
   const fetchMe = useMeStore((s) => s.fetch);
   const clearMe = useMeStore((s) => s.clear);
+  const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
   useEffect(() => { fetchMe(); }, [fetchMe]);
+  // 새로고침 시 저장된 캐릭터 자동 복구
+  useEffect(() => {
+    if (!active && localStorage.getItem('activeCharacterId')) {
+      fetchCharacters().catch(() => {});
+    }
+  }, []);
 
   const showNav = !!active && loc.pathname !== '/characters';
 

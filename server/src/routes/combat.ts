@@ -9,6 +9,8 @@ import {
   toggleAutoMode,
   manualSkillUse,
   getCombatSnapshot,
+  setAutoPotionConfig,
+  getAutoPotionConfig,
 } from '../combat/engine.js';
 
 const router = Router();
@@ -67,6 +69,28 @@ router.post('/:id/combat/use-skill', async (req: AuthedRequest, res: Response) =
 
   const ok = await manualSkillUse(id, Number(skillId));
   res.json({ ok });
+});
+
+// 자동 물약 설정
+router.post('/:id/combat/auto-potion', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const { enabled, threshold } = req.body;
+  const result = setAutoPotionConfig(id, !!enabled, Number(threshold) || 30);
+  if (!result) return res.status(400).json({ error: 'not in combat' });
+  res.json({ ok: true, ...result });
+});
+
+// 자동 물약 설정 조회
+router.get('/:id/combat/auto-potion', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const result = getAutoPotionConfig(id);
+  res.json(result || { enabled: true, threshold: 30 });
 });
 
 // 현재 전투 상태 조회 (폴백)

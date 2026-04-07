@@ -28,6 +28,18 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
     try {
       const chars = await api<Character[]>('/characters');
       set({ characters: chars, isLoading: false, initialized: true });
+
+      // 저장된 캐릭터 ID로 자동 복구
+      const savedId = localStorage.getItem('activeCharacterId');
+      if (savedId && !get().activeCharacter) {
+        const id = Number(savedId);
+        const found = chars.find(c => c.id === id);
+        if (found) {
+          try {
+            await get().selectCharacter(id);
+          } catch { /* ignore */ }
+        }
+      }
     } catch (e) {
       set({ isLoading: false, initialized: true });
       throw e;
@@ -39,6 +51,7 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
       method: 'POST',
     });
     const char = await api<Character>(`/characters/${id}`);
+    localStorage.setItem('activeCharacterId', String(id));
     set({ activeCharacter: char, pendingReport: report });
   },
 
@@ -65,5 +78,8 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
     set({ activeCharacter: char });
   },
 
-  clear: () => set({ characters: [], activeCharacter: null, pendingReport: null, initialized: false }),
+  clear: () => {
+    localStorage.removeItem('activeCharacterId');
+    set({ characters: [], activeCharacter: null, pendingReport: null, initialized: false });
+  },
 }));

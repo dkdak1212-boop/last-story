@@ -40,6 +40,7 @@ interface CombatSnapshot {
   skills: CombatSkillInfoLocal[];
   log: string[];
   potions?: { hpSmall: number; hpMid: number };
+  autoPotion: { enabled: boolean; threshold: number };
   serverTime: number;
 }
 import { getIo } from '../ws/io.js';
@@ -98,6 +99,8 @@ interface ActiveSession {
   autoMode: boolean;
   waitingInput: boolean;
   waitingSince: number;
+  autoPotionEnabled: boolean;
+  autoPotionThreshold: number; // HP% 이하일 때 물약 사용
   skillCooldowns: Map<number, number>;  // skillId → remaining actions
   statusEffects: StatusEffect[];
   actionCount: number;
@@ -464,9 +467,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
 // ── 자동 행동 AI ──
 async function autoAction(s: ActiveSession): Promise<void> {
-  // 1. HP 30% 이하 → 포션
-  const ps = { hpEnabled: true, hpThreshold: 30 };
-  if (ps.hpEnabled && s.playerHp / s.playerMaxHp * 100 < ps.hpThreshold) {
+  // 1. HP 임계값 이하 → 포션
+  if (s.autoPotionEnabled && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
     const pot = await getPotionInInventory(s.characterId, [102, 100]);
     if (pot) {
       const heal = pot.item_id === 102 ? 150 : 50;
@@ -809,6 +811,7 @@ function pushCombatState(s: ActiveSession, inCombat: boolean): void {
     })),
     log: s.log,
     potions: undefined, // lazy load
+    autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
     serverTime: Date.now(),
   };
 
@@ -851,6 +854,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     autoMode: true,
     waitingInput: false,
     waitingSince: 0,
+    autoPotionEnabled: true,
+    autoPotionThreshold: 30,
     skillCooldowns: new Map(),
     statusEffects: [],
     actionCount: 0,
@@ -900,6 +905,21 @@ export function toggleAutoMode(characterId: number): boolean {
   }
   s.dirty = true;
   return s.autoMode;
+}
+
+export function setAutoPotionConfig(characterId: number, enabled: boolean, threshold: number): { enabled: boolean; threshold: number } | null {
+  const s = activeSessions.get(characterId);
+  if (!s) return null;
+  s.autoPotionEnabled = enabled;
+  s.autoPotionThreshold = Math.max(5, Math.min(80, threshold));
+  s.dirty = true;
+  return { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold };
+}
+
+export function getAutoPotionConfig(characterId: number): { enabled: boolean; threshold: number } | null {
+  const s = activeSessions.get(characterId);
+  if (!s) return null;
+  return { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold };
 }
 
 export async function manualSkillUse(characterId: number, skillId: number): Promise<boolean> {
@@ -966,6 +986,7 @@ export function getCombatSnapshot(characterId: number): CombatSnapshot | null {
       usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
     })),
     log: s.log,
+    autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
     serverTime: Date.now(),
   };
 }

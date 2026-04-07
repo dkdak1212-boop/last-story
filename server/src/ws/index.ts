@@ -57,6 +57,16 @@ export function initWebSocket(httpServer: HttpServer) {
       const text = payload.text.trim();
       if (!text) return;
 
+      // 캐릭터명 조회
+      let displayName = socket.data.username;
+      if (payload.characterId) {
+        const cr = await query<{ name: string }>(
+          'SELECT name FROM characters WHERE id = $1 AND user_id = $2',
+          [payload.characterId, socket.data.userId]
+        );
+        if (cr.rows[0]) displayName = cr.rows[0].name;
+      }
+
       let scopeId: number | null = null;
       if (channel === 'guild') {
         if (!payload.characterId) return;
@@ -71,12 +81,12 @@ export function initWebSocket(httpServer: HttpServer) {
         const r = await query<{ id: number; created_at: string }>(
           `INSERT INTO chat_messages (channel, from_name, text, scope_id)
            VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-          [channel, socket.data.username, text, scopeId]
+          [channel, displayName, text, scopeId]
         );
         io.emit('chat', {
           id: r.rows[0].id,
           channel, scopeId,
-          from: socket.data.username,
+          from: displayName,
           text,
           isAdmin: socket.data.isAdmin ?? false,
           createdAt: r.rows[0].created_at,

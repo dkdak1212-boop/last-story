@@ -95,6 +95,25 @@ export function CombatScreen() {
     });
   }, [active]);
 
+  const [autoPotionEnabled, setAutoPotionEnabled] = useState(true);
+  const [autoPotionThreshold, setAutoPotionThreshold] = useState(30);
+
+  // autoPotion 상태 동기화
+  useEffect(() => {
+    if (state?.autoPotion) {
+      setAutoPotionEnabled(state.autoPotion.enabled);
+      setAutoPotionThreshold(state.autoPotion.threshold);
+    }
+  }, [state?.autoPotion?.enabled, state?.autoPotion?.threshold]);
+
+  const updateAutoPotion = useCallback(async (enabled: boolean, threshold: number) => {
+    if (!active) return;
+    await api(`/characters/${active.id}/combat/auto-potion`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled, threshold }),
+    });
+  }, [active]);
+
   async function leave() {
     if (!active) return;
     await api(`/characters/${active.id}/leave-field`, { method: 'POST' });
@@ -184,6 +203,43 @@ export function CombatScreen() {
         onUse={useSkill}
       />
 
+      {/* Auto potion settings */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', marginTop: 8,
+        background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12,
+      }}>
+        <span style={{ color: 'var(--accent)', fontWeight: 700 }}>자동 물약</span>
+        <button
+          onClick={() => {
+            const next = !autoPotionEnabled;
+            setAutoPotionEnabled(next);
+            updateAutoPotion(next, autoPotionThreshold);
+          }}
+          style={{
+            padding: '3px 10px', fontSize: 11, fontWeight: 700,
+            background: autoPotionEnabled ? 'var(--success)' : 'transparent',
+            color: autoPotionEnabled ? '#000' : 'var(--text-dim)',
+            border: `1px solid ${autoPotionEnabled ? 'var(--success)' : 'var(--border)'}`,
+          }}
+        >
+          {autoPotionEnabled ? 'ON' : 'OFF'}
+        </button>
+        <span style={{ color: 'var(--text-dim)' }}>HP</span>
+        <input
+          type="range" min={5} max={80} step={5}
+          value={autoPotionThreshold}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            setAutoPotionThreshold(v);
+          }}
+          onMouseUp={() => updateAutoPotion(autoPotionEnabled, autoPotionThreshold)}
+          onTouchEnd={() => updateAutoPotion(autoPotionEnabled, autoPotionThreshold)}
+          style={{ width: 100, accentColor: 'var(--accent)' }}
+        />
+        <span style={{ color: 'var(--accent)', fontWeight: 700, minWidth: 36 }}>{autoPotionThreshold}%</span>
+        <span style={{ color: 'var(--text-dim)' }}>이하 시 사용</span>
+      </div>
+
       {/* Combat log */}
       <div style={{
         padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)',
@@ -219,7 +275,7 @@ function GaugeBar({ percent, color, label, highlight }: {
     <div style={{ marginTop: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-dim)' }}>
         <span>{label}</span>
-        <span>{Math.round(percent * 10)}‰</span>
+        <span>{Math.round(percent)}%</span>
       </div>
       <div style={{
         height: 6, background: 'var(--bg)', border: '1px solid var(--border)',
@@ -271,53 +327,72 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
 
   return (
     <div style={{
-      display: 'flex', gap: 6, padding: 10,
-      background: 'var(--bg-panel)', border: '1px solid var(--border)',
-      opacity: canUse ? 1 : 0.6,
-      flexWrap: 'wrap',
+      padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)',
     }}>
-      {skills.map(sk => {
-        const onCooldown = sk.cooldownLeft > 0;
-        const usable = canUse && sk.usable && !onCooldown;
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>스킬</span>
+        {!autoMode && !waitingInput && (
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+            게이지 충전 중...
+          </span>
+        )}
+        {autoMode && (
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+            자동 전투 중
+          </span>
+        )}
+        {canUse && (
+          <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, animation: 'pulse 0.6s ease-in-out infinite alternate' }}>
+            스킬을 선택하세요!
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {skills.map(sk => {
+          const onCooldown = sk.cooldownLeft > 0;
+          const usable = canUse && sk.usable && !onCooldown;
+          const isBasic = sk.cooldownMax === 0;
 
-        return (
-          <button
-            key={sk.id}
-            onClick={() => usable && onUse(sk.id)}
-            disabled={!usable}
-            style={{
-              padding: '8px 12px', fontSize: 13, fontWeight: 700,
-              position: 'relative', minWidth: 80,
-              background: usable ? 'var(--accent)' : 'var(--bg)',
-              color: usable ? '#000' : 'var(--text-dim)',
-              border: `1px solid ${usable ? 'var(--accent)' : 'var(--border)'}`,
-              cursor: usable ? 'pointer' : 'default',
-              animation: canUse && sk.usable && !onCooldown ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',
-            }}
-          >
-            {sk.name}
-            {onCooldown && (
-              <span style={{
-                position: 'absolute', top: -6, right: -6,
-                background: 'var(--danger)', color: '#fff',
-                fontSize: 10, padding: '1px 4px', borderRadius: 3,
-              }}>
-                {sk.cooldownLeft}
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {!autoMode && !waitingInput && (
-        <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
-          게이지 충전 중...
-        </span>
-      )}
-      {autoMode && (
-        <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
-          자동 전투 중
-        </span>
-      )}
+          return (
+            <div
+              key={sk.id}
+              onClick={() => usable && onUse(sk.id)}
+              style={{
+                position: 'relative', minWidth: 90, padding: '10px 14px',
+                background: usable ? 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #000))' :
+                  onCooldown ? 'var(--bg)' : 'color-mix(in srgb, var(--bg-panel) 80%, var(--accent))',
+                color: usable ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${usable ? 'var(--accent)' : onCooldown ? 'var(--border)' : 'color-mix(in srgb, var(--accent) 40%, transparent)'}`,
+                borderRadius: 6,
+                cursor: usable ? 'pointer' : 'default',
+                opacity: onCooldown ? 0.5 : canUse ? 1 : 0.7,
+                transition: 'all 0.15s ease',
+                animation: usable ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: isBasic ? 0 : 4 }}>
+                {sk.name}
+              </div>
+              {!isBasic && (
+                <div style={{ fontSize: 10, color: usable ? 'rgba(0,0,0,0.6)' : 'var(--text-dim)' }}>
+                  {onCooldown ? `${sk.cooldownLeft}턴 남음` : `CD ${sk.cooldownMax}턴`}
+                </div>
+              )}
+              {onCooldown && (
+                <div style={{
+                  position: 'absolute', top: -8, right: -8,
+                  background: 'var(--danger)', color: '#fff',
+                  fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 10,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                }}>
+                  {sk.cooldownLeft}턴
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

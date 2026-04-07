@@ -164,6 +164,7 @@ export interface CombatSnapshot {
   skills: CombatSkillInfo[];
   log: string[];
   potions?: { hpSmall: number; hpMid: number };
+  autoPotion: { enabled: boolean; threshold: number };
   serverTime: number;
 }
 

@@ -79,51 +79,63 @@ export function InventoryScreen() {
       {msg && <div style={{ color: 'var(--danger)', marginBottom: 12, fontSize: 13 }}>{msg}</div>}
 
       <h3 style={{ marginBottom: 10, fontSize: 16 }}>장착</h3>
-      <div className="inventory-equipped-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
-        {(['weapon', 'helm', 'chest', 'boots', 'ring', 'amulet'] as const).map((s) => {
-          const it = equipped[s] as (typeof equipped)[typeof s] & { locked?: boolean } | undefined;
-          const locked = it?.locked ?? false;
-          return (
-            <div
-              key={s}
-              style={{
-                padding: 10, position: 'relative',
-                background: 'var(--bg-panel)',
-                border: `1px solid ${it ? GRADE_COLOR[it.grade] : 'var(--border)'}`,
-                minHeight: 110,
-                cursor: it && !locked ? 'pointer' : 'default',
-              }}
-              onClick={() => it && !locked && unequip(s)}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>{SLOT_LABEL[s]}</div>
-                {it && (
-                  <div
-                    onClick={(e) => toggleLockEquipped(s, e)}
-                    style={{ cursor: 'pointer', fontSize: 10, padding: '1px 4px', border: `1px solid ${locked ? 'var(--danger)' : 'var(--border)'}`, color: locked ? 'var(--danger)' : 'var(--text-dim)', userSelect: 'none' }}
-                  >{locked ? '잠금' : '해제'}</div>
-                )}
-              </div>
-              {it ? (
-                <>
-                  <div style={{ color: GRADE_COLOR[it.grade], fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-                    {it.name}
-                    {it.enhanceLevel && it.enhanceLevel > 0 && (
-                      <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{it.enhanceLevel}</span>
-                    )}
-                  </div>
-                  <ItemStatsBlock stats={it.stats} />
-                  <PrefixDisplay prefixStats={it.prefixStats} />
-                  {locked && (
-                    <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4 }}>잠김</div>
-                  )}
-                </>
-              ) : (
-                <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>비어있음</div>
-              )}
-            </div>
-          );
-        })}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 120px 1fr',
+        gridTemplateRows: 'auto auto auto',
+        gap: 8, marginBottom: 24, maxWidth: 700, margin: '0 auto 24px',
+      }}>
+        {/* 왼쪽: 무기(상), 반지(하) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <EquipSlotCard item={equipped.weapon} label={SLOT_LABEL.weapon}
+            onUnequip={() => unequip('weapon')} onToggleLock={(e) => toggleLockEquipped('weapon', e)} />
+          <EquipSlotCard item={equipped.ring} label={SLOT_LABEL.ring}
+            onUnequip={() => unequip('ring')} onToggleLock={(e) => toggleLockEquipped('ring', e)} />
+        </div>
+
+        {/* 중앙: 인체 실루엣 */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          position: 'relative', minHeight: 260,
+        }}>
+          {/* 머리 */}
+          <div style={{
+            width: 40, height: 40, borderRadius: '50%',
+            border: '2px solid var(--accent-dim)', background: 'var(--bg)',
+            marginBottom: 4,
+          }} />
+          {/* 목걸이 위치 표시 */}
+          <div style={{ width: 20, height: 6, background: 'var(--accent-dim)', borderRadius: 3, marginBottom: 2 }} />
+          {/* 몸통 */}
+          <div style={{
+            width: 50, height: 70, borderRadius: '8px 8px 4px 4px',
+            border: '2px solid var(--accent-dim)', background: 'var(--bg)',
+          }} />
+          {/* 다리 */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <div style={{ width: 18, height: 50, borderRadius: '0 0 6px 6px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+            <div style={{ width: 18, height: 50, borderRadius: '0 0 6px 6px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+          </div>
+          {/* 라벨 */}
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 8, textAlign: 'center' }}>
+            클릭하여 해제
+          </div>
+        </div>
+
+        {/* 오른쪽: 투구(상), 목걸이(하) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <EquipSlotCard item={equipped.helm} label={SLOT_LABEL.helm}
+            onUnequip={() => unequip('helm')} onToggleLock={(e) => toggleLockEquipped('helm', e)} />
+          <EquipSlotCard item={equipped.amulet} label={SLOT_LABEL.amulet}
+            onUnequip={() => unequip('amulet')} onToggleLock={(e) => toggleLockEquipped('amulet', e)} />
+        </div>
+
+        {/* 하단 행: 갑옷 + 장화 */}
+        <EquipSlotCard item={equipped.chest} label={SLOT_LABEL.chest}
+          onUnequip={() => unequip('chest')} onToggleLock={(e) => toggleLockEquipped('chest', e)} />
+        <div />
+        <EquipSlotCard item={equipped.boots} label={SLOT_LABEL.boots}
+          onUnequip={() => unequip('boots')} onToggleLock={(e) => toggleLockEquipped('boots', e)} />
       </div>
 
       <h3 style={{ marginBottom: 10, fontSize: 16 }}>가방 ({inv.length})</h3>
@@ -197,6 +209,53 @@ export function InventoryScreen() {
         })}
         {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>가방이 비어있다.</div>}
       </div>
+    </div>
+  );
+}
+
+function EquipSlotCard({ item, label, onUnequip, onToggleLock }: {
+  item: any;
+  label: string;
+  onUnequip: () => void;
+  onToggleLock: (e: React.MouseEvent) => void;
+}) {
+  const locked = item?.locked ?? false;
+  return (
+    <div
+      style={{
+        padding: 10, position: 'relative',
+        background: 'var(--bg-panel)',
+        border: `2px solid ${item ? (GRADE_COLOR as any)[item.grade] : 'var(--border)'}`,
+        borderRadius: 8, minHeight: 100,
+        cursor: item && !locked ? 'pointer' : 'default',
+        transition: 'border-color 0.2s',
+      }}
+      onClick={() => item && !locked && onUnequip()}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+        {item && (
+          <div
+            onClick={onToggleLock}
+            style={{ cursor: 'pointer', fontSize: 10, padding: '1px 4px', borderRadius: 3, border: `1px solid ${locked ? 'var(--danger)' : 'var(--border)'}`, color: locked ? 'var(--danger)' : 'var(--text-dim)', userSelect: 'none' }}
+          >{locked ? '잠금' : '해제'}</div>
+        )}
+      </div>
+      {item ? (
+        <>
+          <div style={{ color: (GRADE_COLOR as any)[item.grade], fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
+            {item.name}
+            {item.enhanceLevel && item.enhanceLevel > 0 && (
+              <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{item.enhanceLevel}</span>
+            )}
+          </div>
+          <ItemStatsBlock stats={item.stats} />
+          <PrefixDisplay prefixStats={item.prefixStats} />
+          {locked && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4 }}>잠김</div>}
+        </>
+      ) : (
+        <div style={{ color: 'var(--text-dim)', fontSize: 12, textAlign: 'center', marginTop: 16 }}>비어있음</div>
+      )}
     </div>
   );
 }
