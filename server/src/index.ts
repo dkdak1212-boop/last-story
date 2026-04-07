@@ -282,6 +282,33 @@ httpServer.listen(PORT, () => {
       console.error('[migration] retroactive_stat_growth error:', e);
     }
   })();
+  // 성직자 Lv.1 공격스킬 추가 마이그레이션
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'cleric_lv1_attack'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] cleric_lv1_attack: 성직자 스킬 재배치...');
+
+      // 기존 성직자 스킬 레벨 밀기: 30→35, 25→30, 20→25, 15→20, 10→15, 5→10, 1→5
+      // 역순으로 업데이트해야 충돌 방지
+      await query(`UPDATE skills SET required_level = 35 WHERE class_name = 'cleric' AND required_level = 30`);
+      await query(`UPDATE skills SET required_level = 30 WHERE class_name = 'cleric' AND required_level = 25`);
+      await query(`UPDATE skills SET required_level = 25 WHERE class_name = 'cleric' AND required_level = 20`);
+      await query(`UPDATE skills SET required_level = 20 WHERE class_name = 'cleric' AND required_level = 15`);
+      await query(`UPDATE skills SET required_level = 15 WHERE class_name = 'cleric' AND required_level = 10`);
+      await query(`UPDATE skills SET required_level = 10 WHERE class_name = 'cleric' AND required_level = 5`);
+      await query(`UPDATE skills SET required_level = 5  WHERE class_name = 'cleric' AND required_level = 1`);
+
+      // Lv.1 공격스킬 추가: 신성 타격 (기본기, 쿨다운 0)
+      await query(`INSERT INTO skills (class_name, name, description, required_level, damage_mult, kind, cooldown_actions, flat_damage, effect_type, effect_value, effect_duration)
+        VALUES ('cleric', '신성 타격', 'ATK x140%, 신성한 빛으로 타격', 1, 1.40, 'damage', 0, 0, 'damage', 0, 0)`);
+
+      await query(`INSERT INTO _migrations (name) VALUES ('cleric_lv1_attack')`);
+      console.log('[migration] cleric_lv1_attack: 완료');
+    } catch (e) {
+      console.error('[migration] cleric_lv1_attack error:', e);
+    }
+  })();
   // MP 물약 제거 마이그레이션
   (async () => {
     try {
