@@ -565,9 +565,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 async function autoAction(s: ActiveSession): Promise<void> {
   // 1. HP 임계값 이하 → 포션
   if (s.autoPotionEnabled && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
-    const pot = await getPotionInInventory(s.characterId, [102, 100]);
+    const potionHeals: Record<number, number> = { 106: 800, 104: 300, 102: 150, 100: 50 };
+    const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
     if (pot) {
-      const heal = pot.item_id === 102 ? 150 : 50;
+      const heal = potionHeals[pot.item_id] || 50;
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       await consumeOneFromSlot(pot.id);
       addLog(s, `체력 물약 사용 — HP +${heal}`);
