@@ -64,8 +64,8 @@ export async function addItemToInventory(
       const { prefixIds, bonusStats } = await generatePrefixes();
       await query(
         `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [characterId, itemId, slot, qty, prefixIds, JSON.stringify(bonusStats)]
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats)]
       );
       // 전설 등급 또는 3옵 → 드롭 로그 기록
       const itemInfo = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);
