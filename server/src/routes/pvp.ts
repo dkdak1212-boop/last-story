@@ -9,10 +9,11 @@ import { deliverToMailbox } from '../game/inventory.js';
 const router = Router();
 router.use(authRequired);
 
-const DAILY_ATTACK_LIMIT = 10;
-const COOLDOWN_MINUTES = 10;
-const WIN_GOLD = 100;
-const LOSS_GOLD = 10;
+const DAILY_ATTACK_LIMIT = 15;
+const COOLDOWN_MINUTES = 5;
+const WIN_GOLD = 500;
+const LOSS_GOLD = 50;
+const ELO_MATCH_RANGE = 400;
 
 async function ensureStats(characterId: number) {
   await query(
@@ -69,7 +70,7 @@ router.get('/opponents/:characterId', async (req: AuthedRequest, res: Response) 
     `SELECT ps.character_id, c.name, c.class_name, c.level, ps.elo,
             EXISTS(SELECT 1 FROM pvp_cooldowns WHERE attacker_id = $1 AND defender_id = ps.character_id AND expires_at > NOW()) AS on_cooldown
      FROM pvp_stats ps JOIN characters c ON c.id = ps.character_id
-     WHERE ps.character_id <> $1 AND ABS(ps.elo - $2) <= 200
+     WHERE ps.character_id <> $1 AND ABS(ps.elo - $2) <= ${ELO_MATCH_RANGE}
      ORDER BY ABS(ps.elo - $2) ASC LIMIT 20`,
     [cid, myElo]
   );

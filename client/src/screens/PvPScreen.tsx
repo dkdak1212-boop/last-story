@@ -9,9 +9,18 @@ interface BattleResult { winner: 'attacker' | 'defender'; log: string[]; eloChan
 interface HistoryRow { id: number; amAttacker: boolean; attackerName: string; defenderName: string; won: boolean; eloChange: number; log: string[]; createdAt: string }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
-  assassin: '암살자', mage: '마법사', priest: '사제', druid: '드루이드',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
 };
+
+function getEloGrade(elo: number): { name: string; color: string } {
+  if (elo >= 2000) return { name: '챌린저', color: '#ff4444' };
+  if (elo >= 1600) return { name: '다이아', color: '#44ddff' };
+  if (elo >= 1400) return { name: '플래티넘', color: '#22ccaa' };
+  if (elo >= 1200) return { name: '골드', color: '#ffcc00' };
+  if (elo >= 1000) return { name: '실버', color: '#aaaaaa' };
+  if (elo >= 800) return { name: '브론즈', color: '#cc8844' };
+  return { name: '아이언', color: '#666666' };
+}
 
 export function PvPScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -63,13 +72,17 @@ export function PvPScreen() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ color: 'var(--accent)' }}>PvP 아레나</h2>
-        {stats && (
-          <div style={{ display: 'flex', gap: 16, fontSize: 13 }}>
-            <div><span style={{ color: 'var(--text-dim)' }}>ELO</span> <b style={{ color: 'var(--accent)' }}>{stats.elo}</b></div>
-            <div><span style={{ color: 'var(--text-dim)' }}>전적</span> <b>{stats.wins}승 {stats.losses}패</b></div>
-            <div><span style={{ color: 'var(--text-dim)' }}>일일</span> <b>{stats.dailyAttacks}/{stats.dailyLimit}</b></div>
-          </div>
-        )}
+        {stats && (() => {
+          const grade = getEloGrade(stats.elo);
+          return (
+            <div style={{ display: 'flex', gap: 16, fontSize: 13, alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, color: grade.color, fontSize: 15 }}>{grade.name}</div>
+              <div><span style={{ color: 'var(--text-dim)' }}>ELO</span> <b style={{ color: 'var(--accent)' }}>{stats.elo}</b></div>
+              <div><span style={{ color: 'var(--text-dim)' }}>전적</span> <b>{stats.wins}승 {stats.losses}패</b></div>
+              <div><span style={{ color: 'var(--text-dim)' }}>일일</span> <b>{stats.dailyAttacks}/{stats.dailyLimit}</b></div>
+            </div>
+          );
+        })()}
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
@@ -113,7 +126,8 @@ export function PvPScreen() {
               <div style={{ flex: 1, fontWeight: 700 }}>{r.name}</div>
               <div style={{ width: 60, fontSize: 12, color: 'var(--text-dim)' }}>{CLASS_LABEL[r.className]}</div>
               <div style={{ width: 60, textAlign: 'right', fontSize: 13 }}>Lv.{r.level}</div>
-              <div style={{ width: 80, textAlign: 'right', color: 'var(--accent)' }}>ELO {r.elo}</div>
+              <div style={{ width: 50, textAlign: 'right', color: getEloGrade(r.elo).color, fontWeight: 700, fontSize: 11 }}>{getEloGrade(r.elo).name}</div>
+              <div style={{ width: 60, textAlign: 'right', color: 'var(--accent)' }}>{r.elo}</div>
               <div style={{ width: 80, textAlign: 'right', fontSize: 12, color: 'var(--text-dim)' }}>{r.wins}승{r.losses}패</div>
             </div>
           ))}
