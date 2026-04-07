@@ -1,15 +1,22 @@
-// 오프라인 진행 보상 통계 정산 — v0.9 게이지 기반
+// 오프라인 진행 보상 — 온라인 전투와 동일 구조 시뮬레이션
 import { query } from '../db/pool.js';
 import { applyExpGain } from '../game/leveling.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { loadCharacter, getEffectiveStats } from '../game/character.js';
+import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 
 const MAX_OFFLINE_SECONDS = 24 * 3600;
-const MIN_OFFLINE_SECONDS = 300; // 최소 5분 이상 오프라인이어야 보상
-const DEFAULT_EFFICIENCY = 0.4;   // 오프라인 효율 40% (기존 90%)
-const PREMIUM_EFFICIENCY = 0.6;   // 프리미엄 60% (기존 100%)
+const MIN_OFFLINE_SECONDS = 300; // 최소 5분
+const DEFAULT_EFFICIENCY = 0.9;
+const PREMIUM_EFFICIENCY = 1.0;
 const GAUGE_MAX = 1000;
-const OFFLINE_KILL_PENALTY = 1.8;  // 스킬 없이 기본공격만 → 킬타임 1.8배
+const GAUGE_FILL_RATE = 0.1; // 온라인 엔진과 동일 (100ms 틱)
+const TICK_SEC = 0.1;
+
+interface SkillDef {
+  id: number; name: string; damage_mult: number; cooldown_actions: number;
+  flat_damage: number; effect_type: string; effect_value: number;
+}
 
 interface OfflineReport {
   minutesAccounted: number;
@@ -37,7 +44,6 @@ export async function generateAndApplyOfflineReport(
     'SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]
   );
   if (activeSession.rowCount && activeSession.rowCount > 0) {
-    // last_online_at만 갱신하고 보상 없음
     await query('UPDATE characters SET last_online_at = NOW() WHERE id = $1', [characterId]);
     return null;
   }
@@ -45,7 +51,7 @@ export async function generateAndApplyOfflineReport(
   const lastOnline = new Date(char.last_online_at);
   const now = new Date();
   const elapsedSec = (now.getTime() - lastOnline.getTime()) / 1000;
-  if (elapsedSec < MIN_OFFLINE_SECONDS) return null; // 최소 5분
+  if (elapsedSec < MIN_OFFLINE_SECONDS) return null;
 
   const userR = await query<{ premium_until: string | null }>('SELECT premium_until FROM users WHERE id = $1', [char.user_id]);
   const isPremium = !!userR.rows[0]?.premium_until && new Date(userR.rows[0].premium_until) > now;
@@ -54,6 +60,7 @@ export async function generateAndApplyOfflineReport(
   const cappedSec = Math.min(elapsedSec, MAX_OFFLINE_SECONDS);
   const effectiveSec = cappedSec * efficiency;
 
+  // 필드 몬스터 풀
   const fr = await query<{ monster_pool: number[] }>('SELECT monster_pool FROM fields WHERE id = $1', [fieldId]);
   if (fr.rowCount === 0) return null;
   const pool = fr.rows[0].monster_pool;
@@ -67,28 +74,109 @@ export async function generateAndApplyOfflineReport(
   if (mr.rowCount === 0) return null;
   const monsters = mr.rows;
 
+  // 플레이어 스탯 + 스킬 (온라인과 동일)
   const pEff = await getEffectiveStats(char);
+  const skillsR = await query<SkillDef>(
+    `SELECT id, name, damage_mult, cooldown_actions, flat_damage, effect_type, effect_value
+     FROM skills WHERE class_name = $1 AND required_level <= $2
+     ORDER BY damage_mult DESC`,
+    [char.class_name, char.level]
+  );
+  const skills = skillsR.rows;
+  const useMatk = pEff.matk > pEff.atk;
 
-  // 게이지 기반 킬타임 계산
-  // 플레이어 행동 주기: GAUGE_MAX / playerSpeed 틱 × 0.1초
-  const playerActionInterval = (GAUGE_MAX / pEff.spd) * 0.1; // 초
-  const playerDamagePerAction = Math.max(1, pEff.atk - avg(monsters.map(m => m.stats.vit * 0.8)) * 0.5);
+  // 몬스터 평균 effective stats 계산 (온라인 엔진과 동일 공식)
+  const avgMonsterStats: EffectiveStats = {
+    str: avg(monsters.map(m => m.stats.str)),
+    dex: avg(monsters.map(m => m.stats.dex)),
+    int: avg(monsters.map(m => m.stats.int)),
+    vit: avg(monsters.map(m => m.stats.vit)),
+    spd: avg(monsters.map(m => m.stats.spd)),
+    cri: avg(monsters.map(m => m.stats.cri)),
+    maxHp: avg(monsters.map(m => m.max_hp)),
+    atk: avg(monsters.map(m => m.stats.str)),
+    matk: avg(monsters.map(m => m.stats.int * 1.2)),
+    def: avg(monsters.map(m => m.stats.vit * 0.8)),
+    mdef: avg(monsters.map(m => m.stats.int * 0.5)),
+    dodge: avg(monsters.map(m => m.stats.dex * 0.2)),
+    accuracy: avg(monsters.map(m => 80 + m.stats.dex * 0.3)),
+  };
+
+  // ── 전투 시뮬레이션 (온라인 autoAction과 동일 로직) ──
   const avgMonsterHp = avg(monsters.map(m => m.max_hp));
-  const actionsToKill = Math.max(1, avgMonsterHp / playerDamagePerAction);
-  const effectiveKillTime = actionsToKill * playerActionInterval * OFFLINE_KILL_PENALTY;
+  const avgMonsterSpd = Math.max(10, avg(monsters.map(m => m.stats.spd)));
 
-  // 위험도 체크: 몬스터 DPS vs 플레이어 HP
-  const avgMonsterSpd = avg(monsters.map(m => m.stats.spd));
-  const monsterActionInterval = (GAUGE_MAX / Math.max(10, avgMonsterSpd)) * 0.1;
-  const avgMonsterAtk = avg(monsters.map(m => m.stats.str));
-  const monsterDmgPerAction = Math.max(1, avgMonsterAtk - pEff.def * 0.5);
-  const monsterDps = monsterDmgPerAction / monsterActionInterval;
-  const playerDps = playerDamagePerAction / playerActionInterval;
-  const dangerous = playerDps * 2 < monsterDps;
+  // 한 마리 킬타임 시뮬레이션
+  let simMonsterHp = avgMonsterHp;
+  let simPlayerHp = pEff.maxHp;
+  let playerGauge = 0;
+  let monsterGauge = 0;
+  let simTime = 0;
+  let simActions = 0;
+  const cooldowns = new Map<number, number>();
 
-  let killCount = Math.floor(effectiveSec / effectiveKillTime);
-  if (dangerous) killCount = Math.min(killCount, 50);
+  while (simMonsterHp > 0 && simPlayerHp > 0 && simTime < 300) {
+    // 게이지 충전 (온라인 엔진과 동일)
+    playerGauge += pEff.spd * GAUGE_FILL_RATE;
+    monsterGauge += avgMonsterSpd * GAUGE_FILL_RATE;
+    simTime += TICK_SEC;
 
+    // 플레이어 행동
+    if (playerGauge >= GAUGE_MAX) {
+      playerGauge = 0;
+      simActions++;
+
+      // 쿨다운 감소
+      for (const [skId, cd] of cooldowns) {
+        if (cd <= 1) cooldowns.delete(skId);
+        else cooldowns.set(skId, cd - 1);
+      }
+
+      // autoAction 로직: 가장 강한 스킬 사용 (온라인과 동일)
+      let bestSkill = skills.find(sk => sk.cooldown_actions === 0); // 기본기 폴백
+      const nonBasic = skills.find(sk => {
+        if (sk.cooldown_actions === 0) return false;
+        const cd = cooldowns.get(sk.id);
+        return !cd || cd <= 0;
+      });
+      if (nonBasic) bestSkill = nonBasic;
+
+      if (bestSkill) {
+        // 데미지 계산 (온라인 calcDamage와 동일)
+        const d = calcDamage(pEff, avgMonsterStats, bestSkill.damage_mult, useMatk, bestSkill.flat_damage);
+        if (!d.miss) {
+          simMonsterHp -= d.damage;
+        }
+        // 쿨다운 설정
+        if (bestSkill.cooldown_actions > 0) {
+          cooldowns.set(bestSkill.id, bestSkill.cooldown_actions);
+        }
+      }
+    }
+
+    // 몬스터 행동
+    if (monsterGauge >= GAUGE_MAX) {
+      monsterGauge = 0;
+      const d = calcDamage(avgMonsterStats, pEff, 1.0, false);
+      if (!d.miss) {
+        simPlayerHp -= d.damage;
+      }
+    }
+  }
+
+  const killTimeSec = simTime;
+  const dangerous = simPlayerHp <= 0;
+
+  // 킬 수 계산
+  let killCount: number;
+  if (dangerous) {
+    // 플레이어가 죽으면 50마리 상한
+    killCount = Math.min(50, Math.floor(effectiveSec / Math.max(1, killTimeSec)));
+  } else {
+    killCount = Math.floor(effectiveSec / Math.max(0.5, killTimeSec));
+  }
+
+  // 보상 계산
   const avgExp = avg(monsters.map(m => m.exp_reward));
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
@@ -125,7 +213,7 @@ export async function generateAndApplyOfflineReport(
     }
   }
 
-  // 캐릭터 업데이트 — 스탯 성장 + 노드 포인트 + maxHp
+  // 캐릭터 업데이트
   if (levelUp.levelsGained > 0) {
     const g = levelUp.statGrowth;
     await query(
