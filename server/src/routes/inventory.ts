@@ -129,15 +129,19 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   );
   if (existing.rowCount && existing.rowCount > 0) {
     const ex = existing.rows[0];
-    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4 WHERE character_id = $5 AND slot_index = $6',
-      [ex.item_id, ex.enhance_level, ex.prefix_ids || '{}', JSON.stringify(ex.prefix_stats || {}), id, parsed.data.slotIndex]);
+    const exPrefixIds = ex.prefix_ids && ex.prefix_ids.length > 0 ? ex.prefix_ids : [];
+    const exPrefixStats = ex.prefix_stats || {};
+    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb WHERE character_id = $5 AND slot_index = $6',
+      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), id, parsed.data.slotIndex]);
     await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]);
   } else {
     await query('DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
       [id, parsed.data.slotIndex]);
   }
-  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, $4, $5, $6)',
-    [id, slot, item_id, enhance_level, prefix_ids || '{}', JSON.stringify(prefix_stats || {})]);
+  const equipPrefixIds = prefix_ids && prefix_ids.length > 0 ? prefix_ids : [];
+  const equipPrefixStats = prefix_stats || {};
+  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
+    [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats)]);
 
   await refreshCombatSessionStats(id);
   res.json({ ok: true });
@@ -170,8 +174,10 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   if (freeSlot < 0) return res.status(400).json({ error: 'inventory full' });
 
   const eqRow = eq.rows[0];
-  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, 1, $4, $5, $6)',
-    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, eqRow.prefix_ids || '{}', JSON.stringify(eqRow.prefix_stats || {})]);
+  const unequipPrefixIds = eqRow.prefix_ids && eqRow.prefix_ids.length > 0 ? eqRow.prefix_ids : [];
+  const unequipPrefixStats = eqRow.prefix_stats || {};
+  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb)',
+    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats)]);
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
   res.json({ ok: true });
