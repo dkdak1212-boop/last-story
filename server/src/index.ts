@@ -770,6 +770,92 @@ httpServer.listen(PORT, () => {
       console.error('[cleanup] drop_table error:', e);
     }
   }, 10000); // 10초 후 실행 (마이그레이션 완료 대기)
+  // 밸런스 v3: 몬스터 강화 + 치명타 소급 보정
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'balance_v3'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] balance_v3: 몬스터 HP/스탯 강화 + 치명타 보정...');
+
+      // 몬스터 HP x2, 공방 x1.5
+      await query(`UPDATE monsters SET max_hp = max_hp * 2`);
+      await query(`UPDATE monsters SET stats = jsonb_set(jsonb_set(
+        stats,
+        '{str}', (COALESCE((stats->>'str')::int,0) * 1.5)::int::text::jsonb),
+        '{vit}', (COALESCE((stats->>'vit')::int,0) * 1.5)::int::text::jsonb)`);
+
+      // 모든 캐릭터 치명타 스탯 보정 (성장치 하향 소급)
+      const CLASS_START: Record<string, number> = { warrior: 5, mage: 6, cleric: 4, rogue: 12 };
+      const CLASS_CRI_GROWTH: Record<string, number> = { warrior: 0.1, mage: 0.1, cleric: 0.1, rogue: 0.2 };
+      const chars = await query<{ id: number; level: number; class_name: string }>('SELECT id, level, class_name FROM characters');
+      for (const c of chars.rows) {
+        const startCri = CLASS_START[c.class_name] || 5;
+        const growth = CLASS_CRI_GROWTH[c.class_name] || 0.1;
+        const correctCri = Math.floor(startCri + growth * (c.level - 1));
+        await query(`UPDATE characters SET stats = jsonb_set(stats, '{cri}', $1::text::jsonb) WHERE id = $2`, [correctCri, c.id]);
+      }
+
+      await query(`INSERT INTO _migrations (name) VALUES ('balance_v3')`);
+      console.log('[migration] balance_v3: 완료');
+    } catch (e) {
+      console.error('[migration] balance_v3 error:', e);
+    }
+  })();
+  // 장비 레벨제한 + 스탯격차 확대
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_level_req_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] equip_level_req_v1: 장비 레벨제한 + 스탯 격차...');
+
+      // required_level 컬럼 추가
+      await query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS required_level INT NOT NULL DEFAULT 1`);
+
+      // 무기 레벨제한 설정
+      await query(`UPDATE items SET required_level = 1 WHERE id IN (1,2,3,4,5)`); // 초급 무기
+      await query(`UPDATE items SET required_level = 10 WHERE id IN (200,210,220)`); // common 무기
+      await query(`UPDATE items SET required_level = 20 WHERE id IN (201,202,211,212,221,222)`); // rare 무기
+      await query(`UPDATE items SET required_level = 35 WHERE id IN (203,204,205,213,214,215,223,224,225)`); // epic 무기
+      await query(`UPDATE items SET required_level = 50 WHERE id IN (206,207,216,217,226,227)`); // legendary 무기
+      await query(`UPDATE items SET required_level = 55 WHERE id IN (300,301,310,311,320,321)`); // Lv.50-70 epic
+      await query(`UPDATE items SET required_level = 65 WHERE id IN (302,303,312,313,322,323)`); // Lv.50-70 legendary
+
+      // 방어구 레벨제한
+      await query(`UPDATE items SET required_level = 1  WHERE id IN (400,401,402)`);
+      await query(`UPDATE items SET required_level = 21 WHERE id IN (410,411,412)`);
+      await query(`UPDATE items SET required_level = 41 WHERE id IN (420,421,422)`);
+      await query(`UPDATE items SET required_level = 61 WHERE id IN (430,431,432)`);
+
+      // 악세서리 레벨제한
+      await query(`UPDATE items SET required_level = 1  WHERE id IN (20,21)`);
+      await query(`UPDATE items SET required_level = 10 WHERE id IN (270,271,280,281)`); // common
+      await query(`UPDATE items SET required_level = 20 WHERE id IN (272,273,274,282,283)`); // rare
+      await query(`UPDATE items SET required_level = 35 WHERE id IN (275,276,277,284)`); // epic
+      await query(`UPDATE items SET required_level = 50 WHERE id IN (278,285)`); // legendary
+      await query(`UPDATE items SET required_level = 55 WHERE id IN (340,342)`); // Lv.50-70 epic
+      await query(`UPDATE items SET required_level = 65 WHERE id IN (341,343)`); // Lv.50-70 legendary
+
+      // 방어구 스탯 격차 확대 (상위 등급이 확실히 강하게)
+      // 초급 → 그대로
+      // 중급 x1.5
+      await query(`UPDATE items SET stats = '{"vit":18,"dex":8,"str":5}'::jsonb WHERE id = 410`);
+      await query(`UPDATE items SET stats = '{"vit":28,"str":12,"dex":5}'::jsonb WHERE id = 411`);
+      await query(`UPDATE items SET stats = '{"vit":15,"spd":30,"dex":8}'::jsonb WHERE id = 412`);
+      // 상급 x3
+      await query(`UPDATE items SET stats = '{"vit":40,"dex":18,"str":12,"cri":4}'::jsonb WHERE id = 420`);
+      await query(`UPDATE items SET stats = '{"vit":55,"str":24,"dex":10,"int":10}'::jsonb WHERE id = 421`);
+      await query(`UPDATE items SET stats = '{"vit":32,"spd":50,"dex":16,"cri":3}'::jsonb WHERE id = 422`);
+      // 전설 x5
+      await query(`UPDATE items SET stats = '{"vit":65,"dex":28,"str":18,"int":18,"cri":6}'::jsonb WHERE id = 430`);
+      await query(`UPDATE items SET stats = '{"vit":90,"str":38,"dex":18,"int":18,"cri":5}'::jsonb WHERE id = 431`);
+      await query(`UPDATE items SET stats = '{"vit":55,"spd":80,"dex":28,"cri":5}'::jsonb WHERE id = 432`);
+
+      await query(`INSERT INTO _migrations (name) VALUES ('equip_level_req_v1')`);
+      console.log('[migration] equip_level_req_v1: 완료');
+    } catch (e) {
+      console.error('[migration] equip_level_req_v1 error:', e);
+    }
+  })();
   // 강타 체력비례뎀 추가
   (async () => {
     try {

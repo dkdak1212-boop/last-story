@@ -50,7 +50,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   }>(
     `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
-            i.stats, i.description, i.stack_size, i.sell_price
+            i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
     [id]
@@ -67,7 +67,8 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   // 강화 배율 적용된 스탯 반환
   function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number): Record<string, number> | null {
     if (!baseStats) return null;
-    const mult = 1 + (enhanceLevel || 0) * 0.1;
+    const el = enhanceLevel || 0;
+    const mult = el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(baseStats)) {
       result[k] = Math.round((v as number) * mult);
@@ -93,6 +94,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
         stats: enhancedStats(r.stats, r.enhance_level),
         baseStats: r.stats,
         description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
+        requiredLevel: (r as any).required_level || 1,
       },
     };
   });
@@ -142,15 +144,16 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   // 슬롯에서 아이템 찾기
-  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean }>(
-    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number }>(
+    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked, COALESCE(i.required_level, 1) AS required_level FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.slot_index = $2`,
     [id, parsed.data.slotIndex]
   );
   if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
   if (invR.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
-  const { item_id, slot, enhance_level, prefix_ids, prefix_stats } = invR.rows[0];
+  const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level } = invR.rows[0];
   if (!slot) return res.status(400).json({ error: 'not equippable' });
+  if (char.level < required_level) return res.status(400).json({ error: `Lv.${required_level} 이상만 장착 가능` });
 
   // 해제 먼저 (인벤토리로 돌려보내기)
   const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(

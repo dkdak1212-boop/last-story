@@ -67,8 +67,8 @@ export function computeEffective(
   // 명중: 상한 100%
   const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
   const accuracy = Math.min(100, accuracyRaw);
-  // 치명타: 상한 75%
-  const criCapped = Math.min(75, cri);
+  // 치명타 확률: 상한 40% (어렵게 올리는 스탯)
+  const criCapped = Math.min(40, cri);
 
   return { str, dex, int: intl, vit, spd, cri: criCapped, maxHp, atk, matk, def, mdef, dodge, accuracy };
 }
@@ -96,9 +96,9 @@ export function calcDamage(
   let base = rawAtk - defVal * 0.5;
   base = Math.max(1, base);
   base = base * skillMult + flatDamage;
-  // 치명타
+  // 치명타 (확률 어렵게, 데미지 강하게)
   const crit = Math.random() * 100 < (attacker.cri + criBonus);
-  if (crit) base *= 1.5;
+  if (crit) base *= 2.0;
   // ±10% 랜덤
   base *= 0.9 + Math.random() * 0.2;
   return { damage: Math.round(Math.max(1, base)), crit, miss: false };
