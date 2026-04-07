@@ -39,6 +39,9 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // 삭제된 아이템 참조 정리
+  await query(`DELETE FROM character_inventory WHERE character_id = $1 AND item_id NOT IN (SELECT id FROM items)`, [id]);
+
   const invR = await query<{
     slot_index: number; quantity: number; enhance_level: number;
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
@@ -53,6 +56,14 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     [id]
   );
   const prefixNames = await getPrefixNames();
+
+  function safePrefixStats(raw: unknown): Record<string, number> {
+    if (!raw) return {};
+    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
+    if (typeof raw === 'object') return raw as Record<string, number>;
+    return {};
+  }
+
   const inventory = invR.rows.map((r) => {
     const pIds = r.prefix_ids || [];
     const pName = buildPrefixName(pIds, prefixNames);
@@ -61,7 +72,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       quantity: r.quantity,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: r.prefix_stats || {},
+      prefixStats: safePrefixStats(r.prefix_stats),
       prefixName: pName,
       locked: r.locked,
       item: {
@@ -84,6 +95,9 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
   );
+  // 장착 중 삭제된 아이템 정리
+  await query(`DELETE FROM character_equipped WHERE character_id = $1 AND item_id NOT IN (SELECT id FROM items)`, [id]);
+
   const equipped: Record<string, unknown> = {};
   for (const r of eqR.rows) {
     const pIds = r.prefix_ids || [];
@@ -95,7 +109,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       stats: r.stats, description: r.description, stackSize: 1, sellPrice: 0,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: r.prefix_stats || {},
+      prefixStats: safePrefixStats(r.prefix_stats),
       locked: r.locked,
     };
   }

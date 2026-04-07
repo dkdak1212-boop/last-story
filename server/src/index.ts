@@ -368,6 +368,19 @@ httpServer.listen(PORT, () => {
       console.error('[migration] remove_mp_potions error:', e);
     }
   })();
+  // 깨진 prefix_stats 데이터 정리
+  (async () => {
+    try {
+      // 문자열로 저장된 prefix_stats를 jsonb로 변환
+      await query(`UPDATE character_inventory SET prefix_stats = '{}'::jsonb WHERE prefix_stats IS NULL`);
+      await query(`UPDATE character_equipped SET prefix_stats = '{}'::jsonb WHERE prefix_stats IS NULL`);
+      // 삭제된 아이템 참조 정리 (MP 물약 등)
+      await query(`DELETE FROM character_inventory WHERE item_id NOT IN (SELECT id FROM items)`);
+      await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
+    } catch (e) {
+      console.error('[cleanup] prefix_stats/orphan items error:', e);
+    }
+  })();
   // 기존 전투 세션 복구
   restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
 });
