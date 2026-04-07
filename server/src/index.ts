@@ -464,8 +464,20 @@ httpServer.listen(PORT, () => {
           ]), mid]);
       }
 
+      // 몬스터 드랍테이블에서 삭제된 아이템 제거
+      const allMonsters = await query<{ id: number; drop_table: any[] }>(`SELECT id, drop_table FROM monsters WHERE drop_table IS NOT NULL`);
+      const validItems = await query<{ id: number }>(`SELECT id FROM items`);
+      const validSet = new Set(validItems.rows.map(r => r.id));
+      for (const m of allMonsters.rows) {
+        if (!Array.isArray(m.drop_table)) continue;
+        const cleaned = m.drop_table.filter((d: any) => validSet.has(d.itemId));
+        if (cleaned.length !== m.drop_table.length) {
+          await query(`UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2`, [JSON.stringify(cleaned), m.id]);
+        }
+      }
+
       await query(`INSERT INTO _migrations (name) VALUES ('armor_unify_v1')`);
-      console.log('[migration] armor_unify_v1: 완료 (12 방어구 + 드랍 설정)');
+      console.log('[migration] armor_unify_v1: 완료 (12 방어구 + 드랍 정리)');
     } catch (e) {
       console.error('[migration] armor_unify_v1 error:', e);
     }
