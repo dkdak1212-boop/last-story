@@ -121,19 +121,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           padding: '6px 0',
           overflow: 'hidden',
           position: 'relative',
+          width: '100%',
         }}>
           <div style={{
             display: 'inline-block',
             whiteSpace: 'nowrap',
-            animation: 'marquee-scroll 8s linear infinite',
+            animation: 'marquee-scroll 10s linear infinite',
             fontSize: 14,
             fontWeight: 700,
             color: '#ff8800',
-            paddingLeft: '100%',
           }}>
             {'\u{1F4E2} [시스템 공지] ' + broadcast}
           </div>
-          <style>{`@keyframes marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }`}</style>
+          <style>{`@keyframes marquee-scroll { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }`}</style>
         </div>
       )}
 
