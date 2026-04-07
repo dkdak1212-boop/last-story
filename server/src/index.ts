@@ -1226,3 +1226,4 @@ setInterval(() => {
   checkAndSpawnWorldEvent(io).catch((e) => console.error('[world-event] spawn error', e));
   checkExpiredWorldEvents(io).catch((e) => console.error('[world-event] expire error', e));
 }, 60_000);
+// cache-bust 1775586457
