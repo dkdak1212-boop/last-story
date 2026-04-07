@@ -27,17 +27,31 @@ export function SkillsScreen() {
     refresh();
   }, [active]);
 
+  const [msg, setMsg] = useState('');
+
   async function toggleAuto(skillId: number) {
     if (!active) return;
-    await api(`/characters/${active.id}/skills/${skillId}/toggle-auto`, { method: 'POST' });
-    refresh();
+    setMsg('');
+    try {
+      await api(`/characters/${active.id}/skills/${skillId}/toggle-auto`, { method: 'POST' });
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '최대 6개까지 설정 가능');
+    }
   }
 
   const className = active?.className || 'warrior';
+  const autoCount = skills.filter(s => s.learned && s.autoUse).length;
 
   return (
     <div>
-      <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>스킬</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ color: 'var(--accent)' }}>스킬</h2>
+        <div style={{ fontSize: 13, color: autoCount >= 6 ? 'var(--danger)' : 'var(--text-dim)' }}>
+          전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 6 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/6
+        </div>
+      </div>
+      {msg && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 10 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {skills.map((s) => (
           <div

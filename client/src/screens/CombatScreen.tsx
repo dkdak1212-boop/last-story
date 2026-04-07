@@ -385,6 +385,24 @@ const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string 
   '맹독 강화':     { icon: '☣', color: '#22cc22', glow: '#44ff22' },
   '그림자 연격':   { icon: '🌑', color: '#8844aa', glow: '#aa66cc' },
   '사신의 낫':     { icon: '💀', color: '#aa00aa', glow: '#cc22cc' },
+  // 추가 스킬
+  '대지 분쇄':     { icon: '🌍', color: '#cc6600', glow: '#ee8800' },
+  '전쟁의 함성':   { icon: '📯', color: '#ff4444', glow: '#ff6666' },
+  '참수':          { icon: '🪓', color: '#dd0000', glow: '#ff2222' },
+  '최후의 일격':   { icon: '💥', color: '#ff0000', glow: '#ff4400' },
+  '연쇄 번개':     { icon: '⚡', color: '#ffdd00', glow: '#ffee44' },
+  '절대 영도':     { icon: '🧊', color: '#00aaff', glow: '#44ccff' },
+  '운석 폭격':     { icon: '☄', color: '#ff2200', glow: '#ff4422' },
+  '차원 붕괴':     { icon: '🌀', color: '#8800ff', glow: '#aa22ff' },
+  '신성 타격':     { icon: '✨', color: '#ffdd00', glow: '#ffee44' },
+  '정화의 빛':     { icon: '💛', color: '#44ff44', glow: '#88ff88' },
+  '신성 폭발':     { icon: '💫', color: '#ffaa00', glow: '#ffcc44' },
+  '천상의 방벽':   { icon: '🛡', color: '#44ddff', glow: '#88eeff' },
+  '심판의 날':     { icon: '⚡', color: '#ffff00', glow: '#ffff88' },
+  '암살':          { icon: '🗡', color: '#ff0044', glow: '#ff2266' },
+  '독안개':        { icon: '🌫', color: '#44aa44', glow: '#66cc66' },
+  '그림자 폭풍':   { icon: '🌑', color: '#6622aa', glow: '#8844cc' },
+  '사신의 포옹':   { icon: '💀', color: '#cc0088', glow: '#ee22aa' },
 };
 
 function SkillBar({ skills, waitingInput, autoMode, onUse }: {

@@ -51,12 +51,29 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
   })));
 });
 
-// 자동사용 토글
+// 자동사용 토글 (최대 6개 제한)
 router.post('/:id/skills/:skillId/toggle-auto', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const skillId = Number(req.params.skillId);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 현재 상태 확인
+  const cur = await query<{ auto_use: boolean }>(
+    'SELECT auto_use FROM character_skills WHERE character_id = $1 AND skill_id = $2', [id, skillId]
+  );
+  if (cur.rowCount === 0) return res.status(404).json({ error: 'skill not found' });
+
+  const isOn = cur.rows[0].auto_use;
+  if (!isOn) {
+    // ON으로 전환 시 6개 제한 체크
+    const countR = await query<{ cnt: string }>(
+      'SELECT COUNT(*)::text AS cnt FROM character_skills WHERE character_id = $1 AND auto_use = TRUE', [id]
+    );
+    if (Number(countR.rows[0].cnt) >= 6) {
+      return res.status(400).json({ error: '자동 스킬은 최대 6개까지 설정 가능합니다.' });
+    }
+  }
 
   await query(
     `UPDATE character_skills SET auto_use = NOT auto_use

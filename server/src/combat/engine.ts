@@ -144,22 +144,39 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   return mr.rows[0] || null;
 }
 
+const MAX_COMBAT_SKILLS = 6;
+
 async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
+  // 자동 학습 (신규 스킬)
+  const newSkills = await query<{ id: number }>(
+    `SELECT s.id FROM skills s
+     WHERE s.class_name = $1 AND s.required_level <= $2
+       AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
+    [className, level, characterId]
+  );
+  for (const sk of newSkills.rows) {
+    // 현재 auto_use ON 개수 체크 후 6개 미만이면 ON
+    const countR = await query<{ cnt: string }>(
+      'SELECT COUNT(*)::text AS cnt FROM character_skills WHERE character_id = $1 AND auto_use = TRUE', [characterId]
+    );
+    const autoOn = Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+    await query(
+      'INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [characterId, sk.id, autoOn]
+    );
+  }
+
+  // 전투에 가져갈 스킬: auto_use=true인 것만, 최대 6개
   const r = await query<SkillDef>(
     `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
             s.effect_type, s.effect_value, s.effect_duration, s.required_level
      FROM skills s
-     WHERE s.class_name = $1 AND s.required_level <= $2
-     ORDER BY s.required_level ASC`,
-    [className, level]
+     JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
+     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE
+     ORDER BY s.required_level ASC
+     LIMIT $4`,
+    [className, level, characterId, MAX_COMBAT_SKILLS]
   );
-  // 자동 학습
-  for (const sk of r.rows) {
-    await query(
-      'INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, TRUE) ON CONFLICT DO NOTHING',
-      [characterId, sk.id]
-    );
-  }
   return r.rows;
 }
 
