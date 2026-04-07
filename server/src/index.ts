@@ -933,11 +933,11 @@ async function runMigrations() {
   // ═══════════════════════════════════════════════
   {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v1'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v2'`);
       if (applied.rowCount && applied.rowCount > 0) {
-        console.log('[migration] equip_overhaul_v1: 이미 적용됨');
+        console.log('[migration] equip_overhaul_v2: 이미 적용됨');
       } else {
-        console.log('[migration] equip_overhaul_v1: 장비 전면 개편 시작...');
+        console.log('[migration] equip_overhaul_v2: 장비 전면 개편 시작...');
 
         // 1) 기존 장비 아이템 전부 삭제 (slot IS NOT NULL인 모든 아이템)
         const oldEquip = await query<{ id: number }>(`SELECT id FROM items WHERE slot IS NOT NULL`);
@@ -1182,11 +1182,11 @@ async function runMigrations() {
         await query(`DELETE FROM character_inventory WHERE item_id NOT IN (SELECT id FROM items)`);
         await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
 
-        await query(`INSERT INTO _migrations (name) VALUES ('equip_overhaul_v1')`);
-        console.log('[migration] equip_overhaul_v1: 완료');
+        await query(`INSERT INTO _migrations (name) VALUES ('equip_overhaul_v2')`);
+        console.log('[migration] equip_overhaul_v2: 완료');
       }
     } catch (e) {
-      console.error('[migration] equip_overhaul_v1 error:', e);
+      console.error('[migration] equip_overhaul_v2 error:', e);
     }
   }
 

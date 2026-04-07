@@ -180,7 +180,7 @@ router.get('/characters/search', async (req, res) => {
   if (!search) return res.json({ characters: [] });
 
   const r = await query(
-    `SELECT c.id, c.name, c.class_name, c.level, c.exp, c.gold, c.hp, c.mp, c.max_hp, c.max_mp,
+    `SELECT c.id, c.name, c.class_name, c.level, c.exp, c.gold, c.hp, c.max_hp,
             c.stats, c.location, c.last_online_at, c.created_at,
             u.username, u.id AS user_id
      FROM characters c JOIN users u ON u.id = c.user_id

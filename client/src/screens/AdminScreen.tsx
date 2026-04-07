@@ -22,7 +22,7 @@ interface UserRow {
 }
 interface CharSearchResult {
   id: number; name: string; class_name: string; level: number; exp: string;
-  gold: string; hp: number; mp: number; max_hp: number; max_mp: number;
+  gold: string; hp: number; max_hp: number;
   stats: Record<string, number>; location: string;
   last_online_at: string; created_at: string; username: string; user_id: number;
 }
@@ -260,7 +260,6 @@ function CharDetailView({ detail }: { detail: CharDetail }) {
           <InfoRow label="레벨" value={c.level} />
           <InfoRow label="골드" value={Number(c.gold).toLocaleString() + 'G'} />
           <InfoRow label="HP" value={`${c.hp}/${c.max_hp}`} />
-          <InfoRow label="MP" value={`${c.mp}/${c.max_mp}`} />
           <InfoRow label="위치" value={c.location} />
           <InfoRow label="마지막 접속" value={new Date(c.last_online_at).toLocaleString('ko-KR')} />
         </div>

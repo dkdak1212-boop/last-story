@@ -21,8 +21,8 @@ function buildPrefixName(prefixIds: number[], names: Map<number, string>): strin
 async function refreshCombatSessionStats(characterId: number) {
   const sess = await query('SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]);
   if (sess.rowCount === 0) return;
-  const char = await query<{ id: number; user_id: number; name: string; class_name: string; level: number; exp: number; gold: number; hp: number; mp: number; max_hp: number; max_mp: number; stats: unknown; location: string; last_online_at: string; potion_settings: unknown; inventory_slots_bonus: number; exp_boost_until: string | null }>(
-    `SELECT id, user_id, name, class_name, level, exp, gold, hp, mp, max_hp, max_mp, stats, location, last_online_at, potion_settings, inventory_slots_bonus, exp_boost_until FROM characters WHERE id = $1`,
+  const char = await query<{ id: number; user_id: number; name: string; class_name: string; level: number; exp: number; gold: number; hp: number; max_hp: number; stats: unknown; location: string; last_online_at: string; potion_settings: unknown; inventory_slots_bonus: number; exp_boost_until: string | null }>(
+    `SELECT id, user_id, name, class_name, level, exp, gold, hp, max_hp, stats, location, last_online_at, potion_settings, inventory_slots_bonus, exp_boost_until FROM characters WHERE id = $1`,
     [characterId]
   );
   if (char.rowCount === 0) return;
