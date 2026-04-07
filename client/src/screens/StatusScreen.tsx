@@ -7,16 +7,16 @@ import type { Stats, ClassName } from '../types';
 
 interface CharStatus {
   level: number; exp: number; expToNext: number; expPercent: number;
-  gold: number; hp: number; mp: number; className: string;
-  baseStats: Stats; baseMaxHp: number; baseMaxMp: number;
+  gold: number; hp: number; className: string;
+  baseStats: Stats; baseMaxHp: number;
   equipBonus: Partial<Stats>;
-  effective: Stats & { maxHp: number; maxMp: number; atk: number; matk: number; def: number; mdef: number; dodge: number; accuracy: number; tickMs: number };
+  nodeBonus: Partial<Stats>;
+  effective: Stats & { maxHp: number; atk: number; matk: number; def: number; mdef: number; dodge: number; accuracy: number };
   guildBuff: { name: string; pct: number } | null;
 }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
-  assassin: '암살자', mage: '마법사', priest: '사제', druid: '드루이드',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
 };
 
 const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
@@ -73,23 +73,26 @@ export function StatusScreen() {
           <Row label="마법 방어" value={status.effective.mdef} />
           <Row label="회피율" value={`${status.effective.dodge}%`} />
           <Row label="명중률" value={`${status.effective.accuracy}%`} />
-          <Row label="행동 주기" value={`${(status.effective.tickMs / 1000).toFixed(2)}초`} />
+          <Row label="스피드" value={status.effective.spd} />
+          <Row label="치명타" value={`${status.effective.cri}%`} />
         </div>
 
-        {/* 기본 + 장비 + 합계 스탯 */}
+        {/* 기본 + 장비 + 노드 + 합계 스탯 */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>스탯 분해</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 60px', gap: 4, fontSize: 12, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 55px 55px 55px 60px', gap: 4, fontSize: 12, alignItems: 'center' }}>
             <div style={{ color: 'var(--text-dim)' }}></div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>기본</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>장비</div>
+            <div style={{ color: '#8b8bef', textAlign: 'right' }}>노드</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>합계</div>
             {STAT_ORDER.map((k) => {
               const base = status.baseStats[k] || 0;
               const eq = (status.equipBonus[k] || 0) as number;
+              const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
               return (
-                <ContinuedRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} total={total} />
+                <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total} />
               );
             })}
           </div>
@@ -134,13 +137,16 @@ function Row({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function ContinuedRow({ label, base, eq, total }: { label: string; base: number; eq: number; total: number }) {
+function StatRow({ label, base, eq, node, total }: { label: string; base: number; eq: number; node: number; total: number }) {
   return (
     <>
       <div style={{ color: 'var(--text)' }}>{label}</div>
       <div style={{ textAlign: 'right' }}>{base}</div>
       <div style={{ textAlign: 'right', color: eq > 0 ? 'var(--success)' : 'var(--text-dim)' }}>
         {eq > 0 ? `+${eq}` : '-'}
+      </div>
+      <div style={{ textAlign: 'right', color: node > 0 ? '#8b8bef' : 'var(--text-dim)' }}>
+        {node > 0 ? `+${node}` : '-'}
       </div>
       <div style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{total}</div>
     </>

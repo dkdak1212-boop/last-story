@@ -1,8 +1,8 @@
 import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned, getEquippedItems, getEffectiveStats } from '../game/character.js';
-import { sumEquipmentStats } from '../game/formulas.js';
+import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects } from '../game/character.js';
+import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
 
 const router = Router();
@@ -16,6 +16,8 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
 
   const equipped = await getEquippedItems(cid);
   const equipBonus = sumEquipmentStats(equipped);
+  const nodeEffects = await getNodeEffects(cid);
+  const nodeBonus = sumNodeStats(nodeEffects);
   const effective = await getEffectiveStats(char);
 
   const gr = await query<{ name: string; stat_buff_pct: number }>(
@@ -38,6 +40,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     baseStats: char.stats,
     baseMaxHp: char.max_hp,
     equipBonus,
+    nodeBonus,
     effective: {
       str: effective.str, dex: effective.dex, int: effective.int,
       vit: effective.vit, spd: effective.spd, cri: effective.cri,
