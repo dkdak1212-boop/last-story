@@ -18,8 +18,10 @@ export function CombatScreen() {
   const token = useAuthStore((s) => s.token);
   const [state, setState] = useState<CombatSnapshot | null>(null);
   const [damageFlash, setDamageFlash] = useState<number | null>(null);
+  const [skillFlash, setSkillFlash] = useState<{ icon: string; color: string } | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const prevMonsterHp = useRef<number>(0);
+  const prevLogLen = useRef<number>(0);
 
   // WebSocket 연결
   useEffect(() => {
@@ -41,6 +43,24 @@ export function CombatScreen() {
           setTimeout(() => setDamageFlash(null), 500);
         }
         if (snapshot.monster) prevMonsterHp.current = snapshot.monster.hp;
+
+        // 스킬 사용 이펙트 감지
+        if (snapshot.log.length > prevLogLen.current) {
+          const newLines = snapshot.log.slice(prevLogLen.current);
+          for (const line of newLines) {
+            const match = line.match(/\[(.+?)\]/);
+            if (match) {
+              const fx = SKILL_EFFECTS[match[1]];
+              if (fx) {
+                setSkillFlash({ icon: fx.icon, color: fx.glow });
+                setTimeout(() => setSkillFlash(null), 600);
+                break;
+              }
+            }
+          }
+        }
+        prevLogLen.current = snapshot.log.length;
+
         return snapshot;
       });
     });
@@ -187,6 +207,20 @@ export function CombatScreen() {
                     }}
                   >-{damageFlash}</motion.div>
                 )}
+                {skillFlash && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 2 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.5 }}
+                    transition={{ duration: 0.4 }}
+                    style={{
+                      position: 'absolute', top: '50%', left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      fontSize: 48, pointerEvents: 'none',
+                      filter: `drop-shadow(0 0 12px ${skillFlash.color})`,
+                    }}
+                  >{skillFlash.icon}</motion.div>
+                )}
               </AnimatePresence>
             </>
           ) : (
@@ -317,6 +351,42 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   );
 }
 
+// 스킬별 이펙트 매핑 (아이콘 + 색상)
+const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string }> = {
+  // 전사
+  '강타':         { icon: '⚔', color: '#e04040', glow: '#ff4444' },
+  '분노의 일격':   { icon: '💢', color: '#ff2020', glow: '#ff0000' },
+  '철벽':         { icon: '🛡', color: '#4488cc', glow: '#4488ff' },
+  '흡혈 참격':     { icon: '🩸', color: '#cc2244', glow: '#ff2266' },
+  '반격의 의지':   { icon: '↩', color: '#ff8800', glow: '#ffaa00' },
+  '무쌍난무':      { icon: '⚡', color: '#ff4400', glow: '#ff6600' },
+  '불굴':         { icon: '✦', color: '#ffcc00', glow: '#ffee00' },
+  // 마법사
+  '화염구':       { icon: '🔥', color: '#ff6600', glow: '#ff8800' },
+  '냉기 창':      { icon: '❄', color: '#44bbff', glow: '#66ddff' },
+  '게이지 폭발':   { icon: '💥', color: '#ff44ff', glow: '#ff66ff' },
+  '번개 사슬':     { icon: '⚡', color: '#ffee00', glow: '#ffff44' },
+  '빙결 감옥':     { icon: '🧊', color: '#00ccff', glow: '#44eeff' },
+  '유성 낙하':     { icon: '☄', color: '#ff4400', glow: '#ff6622' },
+  '마력 과부하':   { icon: '🌀', color: '#aa44ff', glow: '#cc66ff' },
+  // 성직자
+  '신성 방벽':     { icon: '✝', color: '#ffdd44', glow: '#ffee66' },
+  '심판의 철퇴':   { icon: '🔨', color: '#ffffff', glow: '#ffffaa' },
+  '치유의 빛':     { icon: '💚', color: '#44dd44', glow: '#66ff66' },
+  '신성 화염':     { icon: '🕯', color: '#ffcc00', glow: '#ffdd44' },
+  '신의 가호':     { icon: '🌟', color: '#ffee88', glow: '#ffffaa' },
+  '천벌':         { icon: '⚡', color: '#ffffff', glow: '#ffffcc' },
+  '부활의 기적':   { icon: '♱', color: '#44ff88', glow: '#66ffaa' },
+  // 도적
+  '급소 찌르기':   { icon: '🗡', color: '#cc44cc', glow: '#ee66ee' },
+  '독 투척':       { icon: '☠', color: '#44cc44', glow: '#66ee44' },
+  '백스텝':       { icon: '💨', color: '#88ccff', glow: '#aaeeff' },
+  '연막탄':       { icon: '🌫', color: '#888888', glow: '#aaaaaa' },
+  '맹독 강화':     { icon: '☣', color: '#22cc22', glow: '#44ff22' },
+  '그림자 연격':   { icon: '🌑', color: '#8844aa', glow: '#aa66cc' },
+  '사신의 낫':     { icon: '💀', color: '#aa00aa', glow: '#cc22cc' },
+};
+
 function SkillBar({ skills, waitingInput, autoMode, onUse }: {
   skills: CombatSkillInfo[];
   waitingInput: boolean;
@@ -352,30 +422,39 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
           const onCooldown = sk.cooldownLeft > 0;
           const usable = canUse && sk.usable && !onCooldown;
           const isBasic = sk.cooldownMax === 0;
+          const fx = SKILL_EFFECTS[sk.name] || { icon: '⚔', color: 'var(--accent)', glow: 'var(--accent)' };
 
           return (
             <div
               key={sk.id}
               onClick={() => usable && onUse(sk.id)}
               style={{
-                position: 'relative', minWidth: 90, padding: '10px 14px',
-                background: usable ? 'linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #000))' :
-                  onCooldown ? 'var(--bg)' : 'color-mix(in srgb, var(--bg-panel) 80%, var(--accent))',
-                color: usable ? '#000' : 'var(--text-dim)',
-                border: `1px solid ${usable ? 'var(--accent)' : onCooldown ? 'var(--border)' : 'color-mix(in srgb, var(--accent) 40%, transparent)'}`,
+                position: 'relative', minWidth: 100, padding: '10px 14px',
+                background: usable
+                  ? `linear-gradient(135deg, ${fx.color}cc, ${fx.color}88)`
+                  : onCooldown ? 'var(--bg)' : `linear-gradient(135deg, var(--bg-panel), ${fx.color}22)`,
+                color: usable ? '#fff' : 'var(--text-dim)',
+                border: `1px solid ${usable ? fx.color : onCooldown ? 'var(--border)' : `${fx.color}44`}`,
                 borderRadius: 6,
                 cursor: usable ? 'pointer' : 'default',
                 opacity: onCooldown ? 0.5 : canUse ? 1 : 0.7,
                 transition: 'all 0.15s ease',
                 animation: usable ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',
                 textAlign: 'center',
+                boxShadow: usable ? `0 0 12px ${fx.glow}88, inset 0 0 8px ${fx.glow}44` : 'none',
               }}
             >
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: isBasic ? 0 : 4 }}>
+              <div style={{ fontSize: 18, lineHeight: 1, marginBottom: 4 }}>
+                {fx.icon}
+              </div>
+              <div style={{
+                fontSize: 12, fontWeight: 700, marginBottom: isBasic ? 0 : 3,
+                textShadow: usable ? `0 0 6px ${fx.glow}` : 'none',
+              }}>
                 {sk.name}
               </div>
               {!isBasic && (
-                <div style={{ fontSize: 10, color: usable ? 'rgba(0,0,0,0.6)' : 'var(--text-dim)' }}>
+                <div style={{ fontSize: 10, color: usable ? 'rgba(255,255,255,0.7)' : 'var(--text-dim)' }}>
                   {onCooldown ? `${sk.cooldownLeft}턴 남음` : `CD ${sk.cooldownMax}턴`}
                 </div>
               )}

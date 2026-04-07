@@ -85,12 +85,12 @@ export function InventoryScreen() {
         gridTemplateRows: 'auto auto auto',
         gap: 8, marginBottom: 24, maxWidth: 700, margin: '0 auto 24px',
       }}>
-        {/* 왼쪽: 무기(상), 반지(하) */}
+        {/* 왼쪽: 무기(상), 갑옷(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <EquipSlotCard item={equipped.weapon} label={SLOT_LABEL.weapon}
-            onUnequip={() => unequip('weapon')} onToggleLock={(e) => toggleLockEquipped('weapon', e)} />
-          <EquipSlotCard item={equipped.ring} label={SLOT_LABEL.ring}
-            onUnequip={() => unequip('ring')} onToggleLock={(e) => toggleLockEquipped('ring', e)} />
+            onUnequip={() => unequip('weapon')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('weapon', e); }} />
+          <EquipSlotCard item={equipped.chest} label={SLOT_LABEL.chest}
+            onUnequip={() => unequip('chest')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('chest', e); }} />
         </div>
 
         {/* 중앙: 인체 실루엣 */}
@@ -125,17 +125,21 @@ export function InventoryScreen() {
         {/* 오른쪽: 투구(상), 목걸이(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <EquipSlotCard item={equipped.helm} label={SLOT_LABEL.helm}
-            onUnequip={() => unequip('helm')} onToggleLock={(e) => toggleLockEquipped('helm', e)} />
+            onUnequip={() => unequip('helm')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('helm', e); }} />
           <EquipSlotCard item={equipped.amulet} label={SLOT_LABEL.amulet}
-            onUnequip={() => unequip('amulet')} onToggleLock={(e) => toggleLockEquipped('amulet', e)} />
+            onUnequip={() => unequip('amulet')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('amulet', e); }} />
         </div>
 
-        {/* 하단 행: 갑옷 + 장화 */}
-        <EquipSlotCard item={equipped.chest} label={SLOT_LABEL.chest}
-          onUnequip={() => unequip('chest')} onToggleLock={(e) => toggleLockEquipped('chest', e)} />
+        {/* 하단 행: 반지 + 장화 */}
+        <div>
+          <EquipSlotCard item={equipped.ring} label={SLOT_LABEL.ring}
+            onUnequip={() => unequip('ring')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('ring', e); }} />
+        </div>
         <div />
-        <EquipSlotCard item={equipped.boots} label={SLOT_LABEL.boots}
-          onUnequip={() => unequip('boots')} onToggleLock={(e) => toggleLockEquipped('boots', e)} />
+        <div>
+          <EquipSlotCard item={equipped.boots} label={SLOT_LABEL.boots}
+            onUnequip={() => unequip('boots')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('boots', e); }} />
+        </div>
       </div>
 
       <h3 style={{ marginBottom: 10, fontSize: 16 }}>가방 ({inv.length})</h3>
