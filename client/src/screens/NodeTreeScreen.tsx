@@ -376,7 +376,7 @@ export function NodeTreeScreen() {
     if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchStartRef.current.moved = true;
     setOffset({ x: dragRef.current.startOx + dx, y: dragRef.current.startOy + dy });
   }
-  function handleTouchEnd(e: React.TouchEvent) {
+  function handleTouchEnd(_e: React.TouchEvent) {
     dragRef.current.dragging = false;
     // 터치 탭 (드래그 안 했으면 노드 선택)
     if (!touchStartRef.current.moved) {
