@@ -5,9 +5,11 @@ import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { loadCharacter, getEffectiveStats } from '../game/character.js';
 
 const MAX_OFFLINE_SECONDS = 24 * 3600;
-const DEFAULT_EFFICIENCY = 0.9;
-const PREMIUM_EFFICIENCY = 1.0;
+const MIN_OFFLINE_SECONDS = 300; // 최소 5분 이상 오프라인이어야 보상
+const DEFAULT_EFFICIENCY = 0.4;   // 오프라인 효율 40% (기존 90%)
+const PREMIUM_EFFICIENCY = 0.6;   // 프리미엄 60% (기존 100%)
 const GAUGE_MAX = 1000;
+const OFFLINE_KILL_PENALTY = 1.8;  // 스킬 없이 기본공격만 → 킬타임 1.8배
 
 interface OfflineReport {
   minutesAccounted: number;
@@ -30,10 +32,20 @@ export async function generateAndApplyOfflineReport(
   const fieldId = parseInt(char.location.slice(6), 10);
   if (Number.isNaN(fieldId)) return null;
 
+  // 전투 세션이 활성이면 온라인 전투 중 → 방치보상 없음
+  const activeSession = await query(
+    'SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]
+  );
+  if (activeSession.rowCount && activeSession.rowCount > 0) {
+    // last_online_at만 갱신하고 보상 없음
+    await query('UPDATE characters SET last_online_at = NOW() WHERE id = $1', [characterId]);
+    return null;
+  }
+
   const lastOnline = new Date(char.last_online_at);
   const now = new Date();
   const elapsedSec = (now.getTime() - lastOnline.getTime()) / 1000;
-  if (elapsedSec < 60) return null;
+  if (elapsedSec < MIN_OFFLINE_SECONDS) return null; // 최소 5분
 
   const userR = await query<{ premium_until: string | null }>('SELECT premium_until FROM users WHERE id = $1', [char.user_id]);
   const isPremium = !!userR.rows[0]?.premium_until && new Date(userR.rows[0].premium_until) > now;
@@ -63,7 +75,7 @@ export async function generateAndApplyOfflineReport(
   const playerDamagePerAction = Math.max(1, pEff.atk - avg(monsters.map(m => m.stats.vit * 0.8)) * 0.5);
   const avgMonsterHp = avg(monsters.map(m => m.max_hp));
   const actionsToKill = Math.max(1, avgMonsterHp / playerDamagePerAction);
-  const effectiveKillTime = actionsToKill * playerActionInterval;
+  const effectiveKillTime = actionsToKill * playerActionInterval * OFFLINE_KILL_PENALTY;
 
   // 위험도 체크: 몬스터 DPS vs 플레이어 HP
   const avgMonsterSpd = avg(monsters.map(m => m.stats.spd));
