@@ -859,36 +859,40 @@ httpServer.listen(PORT, () => {
   // 노드 치명타 너프 (3→1, 10→3)
   (async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'node_cri_nerf_v1'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'node_cri_nerf_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
       console.log('[migration] node_cri_nerf_v1...');
 
-      // cri stat: 3→1
-      await query(`UPDATE node_definitions SET effects = (
-        SELECT jsonb_agg(
-          CASE WHEN e->>'type' = 'stat' AND e->>'stat' = 'cri' AND (e->>'value')::int = 3
-            THEN jsonb_set(e, '{value}', '1')
-          WHEN e->>'type' = 'stat' AND e->>'stat' = 'cri' AND (e->>'value')::int = 10
-            THEN jsonb_set(e, '{value}', '3')
-          ELSE e END
-        ) FROM jsonb_array_elements(effects) e
-      ) WHERE effects::text LIKE '%"cri"%'`);
-
-      // crit_damage passive: 10→3
-      await query(`UPDATE node_definitions SET effects = (
-        SELECT jsonb_agg(
-          CASE WHEN e->>'key' = 'crit_damage' AND (e->>'value')::int = 10
-            THEN jsonb_set(e, '{value}', '3')
-          ELSE e END
-        ) FROM jsonb_array_elements(effects) e
-      ) WHERE effects::text LIKE '%crit_damage%'`);
-
+      // 노드 하나씩 직접 수정
+      const nodes = await query<{ id: number; effects: any[] }>(`SELECT id, effects FROM node_definitions WHERE effects::text LIKE '%cri%' OR effects::text LIKE '%crit_damage%'`);
+      let fixed = 0;
+      for (const n of nodes.rows) {
+        if (!Array.isArray(n.effects)) continue;
+        let changed = false;
+        const newEffects = n.effects.map((e: any) => {
+          // cri stat: 3→1, 10→3
+          if (e.type === 'stat' && e.stat === 'cri') {
+            if (e.value >= 10) { changed = true; return { ...e, value: 3 }; }
+            if (e.value >= 3) { changed = true; return { ...e, value: 1 }; }
+          }
+          // crit_damage: 10→3
+          if (e.type === 'passive' && e.key === 'crit_damage' && e.value >= 10) {
+            changed = true; return { ...e, value: 3 };
+          }
+          return e;
+        });
+        if (changed) {
+          await query(`UPDATE node_definitions SET effects = $1::jsonb WHERE id = $2`, [JSON.stringify(newEffects), n.id]);
+          fixed++;
+        }
+      }
       // description 업데이트
-      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 확률 +3%', '치명타 확률 +1%') WHERE description LIKE '%치명타 확률 +3%'`);
-      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 확률 +10%', '치명타 확률 +3%') WHERE description LIKE '%치명타 확률 +10%'`);
-      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 데미지 +10%', '치명타 데미지 +3%') WHERE description LIKE '%치명타 데미지 +10%'`);
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '+3%', '+1%') WHERE description LIKE '%치명타 확률 +3%'`);
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '+10%', '+3%') WHERE description LIKE '%치명타 확률 +10%'`);
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '데미지 +10%', '데미지 +3%') WHERE description LIKE '%치명타 데미지 +10%'`);
+      console.log(`  치명타 노드 ${fixed}개 너프 완료`);
 
-      await query(`INSERT INTO _migrations (name) VALUES ('node_cri_nerf_v1')`);
+      await query(`INSERT INTO _migrations (name) VALUES ('node_cri_nerf_v2')`);
       console.log('[migration] node_cri_nerf_v1: 완료');
     } catch (e) {
       console.error('[migration] node_cri_nerf_v1 error:', e);
