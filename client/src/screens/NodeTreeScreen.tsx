@@ -13,9 +13,9 @@ const NODE_COLORS = {
   border_locked: '#444',
 };
 
-const COL_W = 72;   // 같은 depth 내 노드 간 가로 간격
-const ROW_H = 90;   // depth 간 세로 간격
-const CANVAS_H = 900;
+const COL_W = 90;   // 같은 depth 내 노드 간 가로 간격
+const ROW_H = 110;  // depth 간 세로 간격
+const CANVAS_H = 1100;
 
 // 트리 레이아웃: 부모→자식 위→아래, 같은 부모끼리 묶어 배치
 function computeTreeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
@@ -488,7 +488,7 @@ export function NodeTreeScreen() {
       }}>
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%', height: 900, touchAction: 'none' }}
+          style={{ display: 'block', width: '100%', height: 1100, touchAction: 'none' }}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
