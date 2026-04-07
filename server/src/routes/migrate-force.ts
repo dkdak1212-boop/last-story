@@ -3,6 +3,60 @@ import { query } from '../db/pool.js';
 
 const router = Router();
 
+// 특정 캐릭터에 장비 지급
+router.get('/grant', async (req, res) => {
+  try {
+    const charName = (req.query.name as string) || '';
+    const itemId = Number(req.query.itemId) || 0;
+    if (!charName || !itemId) return res.json({ error: 'name, itemId 필요' });
+
+    const cr = await query<{ id: number }>('SELECT id FROM characters WHERE name = $1', [charName]);
+    if (cr.rowCount === 0) return res.json({ error: '캐릭터 없음' });
+    const cid = cr.rows[0].id;
+
+    // 4등급 3옵 접두사
+    const allPrefixes = await query<{ id: number; tier: number; stat_key: string; min_val: number; max_val: number }>(
+      'SELECT id, tier, stat_key, min_val, max_val FROM item_prefixes WHERE tier = 4 ORDER BY id'
+    );
+    const prefixIds: number[] = [];
+    const bonusStats: Record<string, number> = {};
+    const usedKeys = new Set<string>();
+    const rows = allPrefixes.rows.sort(() => Math.random() - 0.5);
+    for (let i = 0; i < 3 && i < rows.length; i++) {
+      const pf = rows.find(p => !usedKeys.has(p.stat_key));
+      if (!pf) break;
+      const val = pf.min_val + Math.floor(Math.random() * (pf.max_val - pf.min_val + 1));
+      prefixIds.push(pf.id);
+      bonusStats[pf.stat_key] = (bonusStats[pf.stat_key] ?? 0) + val;
+      usedKeys.add(pf.stat_key);
+    }
+
+    const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [cid]);
+    const usedSet = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < 100; i++) { if (!usedSet.has(i)) { freeSlot = i; break; } }
+    if (freeSlot < 0) return res.json({ error: '인벤 가득' });
+
+    await query(`INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats) VALUES ($1,$2,$3,1,$4,$5::jsonb)`,
+      [cid, itemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]);
+
+    const itemInfo = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [itemId]);
+    res.json({ status: 'success', character: charName, item: itemInfo.rows[0]?.name, prefixIds, bonusStats });
+  } catch (e: any) {
+    res.json({ error: e.message });
+  }
+});
+
+// 아이템 목록 조회
+router.get('/items', async (_req, res) => {
+  try {
+    const r = await query('SELECT id, name, slot, grade FROM items WHERE slot IS NOT NULL ORDER BY id');
+    res.json(r.rows);
+  } catch (e: any) {
+    res.json({ error: e.message });
+  }
+});
+
 router.get('/run', async (_req, res) => {
   const log: string[] = [];
   try {
