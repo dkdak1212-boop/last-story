@@ -601,8 +601,8 @@ httpServer.listen(PORT, () => {
       console.error('[grant] mid armor all error:', e);
     }
   })();
-  // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅
-  (async () => {
+  // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅 (15초 딜레이로 다른 마이그레이션 완료 후 실행)
+  setTimeout(async () => {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v3'`);
       if (applied.rowCount && applied.rowCount > 0) return;
@@ -744,9 +744,9 @@ httpServer.listen(PORT, () => {
       await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v3')`);
       console.log('[migration] full_drop_setup_v3: 완료');
     } catch (e) {
-      console.error('[migration] full_drop_setup_v1 error:', e);
+      console.error('[migration] full_drop_setup_v3 error:', e);
     }
-  })();
+  }, 15000); // 15초 딜레이
   // 드랍테이블 강제 재정리 (삭제된 아이템 제거) — 다른 마이그레이션 완료 후 실행
   setTimeout(async () => {
     try {
