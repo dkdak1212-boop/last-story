@@ -64,8 +64,8 @@ export function CombatScreen() {
     if (!state?.inCombat) return;
     const interval = setInterval(() => {
       setLocalGauges(_prev => ({
-        player: state.waitingInput ? 1000 : Math.min(1000, (state.player.gauge || 0) + (state.player.speed || 0) * 0.1),
-        monster: Math.min(1000, (state.monster?.gauge || 0) + (state.monster?.speed || 0) * 0.1),
+        player: state.waitingInput ? 1000 : Math.min(1000, (state.player.gauge || 0) + (state.player.speed || 0) * 0.01),
+        monster: Math.min(1000, (state.monster?.gauge || 0) + (state.monster?.speed || 0) * 0.01),
       }));
     }, 100);
     return () => clearInterval(interval);

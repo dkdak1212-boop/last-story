@@ -46,6 +46,19 @@ export function InventoryScreen() {
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
+  async function sell(slotIndex: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!active) return;
+    setMsg('');
+    try {
+      const res = await api<{ sold: string; quantity: number; gold: number }>(
+        `/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) }
+      );
+      setMsg(`${res.sold} ×${res.quantity} 판매 → +${res.gold}G`);
+      refresh();
+    } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
+  }
+
   async function toggleLock(slotIndex: number, e: React.MouseEvent) {
     e.stopPropagation();
     if (!active) return;
@@ -161,6 +174,20 @@ export function InventoryScreen() {
               </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>
                 {s.item.description}
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                {s.item.sellPrice > 0 && !locked && (
+                  <button
+                    onClick={(e) => sell(s.slotIndex, e)}
+                    style={{
+                      padding: '3px 8px', fontSize: 11,
+                      background: 'transparent', color: '#e0a040',
+                      border: '1px solid #e0a040', cursor: 'pointer',
+                    }}
+                  >
+                    판매 {s.item.sellPrice}G
+                  </button>
+                )}
               </div>
               {locked && (
                 <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4 }}>잠김 — 장착/해제/판매 불가</div>

@@ -47,6 +47,8 @@ import { getIo } from '../ws/io.js';
 const GAUGE_MAX = 1000;
 const MAX_LOG = 30;
 const INPUT_TIMEOUT_MS = 3000;
+// 100ms 틱에서 speed를 이 비율로 충전 (0.1 = speed 300일 때 ~3.3초 행동주기)
+const GAUGE_FILL_RATE = 0.1;
 
 // ── 타입 ──
 
@@ -702,14 +704,14 @@ async function combatTick(): Promise<void> {
       effectivePlayerSpeed = Math.max(10, effectivePlayerSpeed);
       effectiveMonsterSpeed = Math.max(10, effectiveMonsterSpeed);
 
-      // 게이지 충전
+      // 게이지 충전 (GAUGE_FILL_RATE로 스케일링)
       if (!s.waitingInput) {
-        s.playerGauge += effectivePlayerSpeed;
+        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE;
       }
 
       // 몬스터 게이지 동결 체크
       if (!hasEffect(s, 'player', 'gauge_freeze') && !hasEffect(s, 'player', 'stun')) {
-        s.monsterGauge += effectiveMonsterSpeed;
+        s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE;
       }
 
       // 몬스터 행동

@@ -209,4 +209,41 @@ router.post('/:id/lock-equipped', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true });
 });
 
+// 아이템 판매
+router.post('/:id/sell', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ slotIndex: z.number().int(), quantity: z.number().int().min(1).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { slotIndex, quantity: sellQty } = parsed.data;
+
+  const invR = await query<{ id: number; item_id: number; quantity: number; locked: boolean }>(
+    'SELECT id, item_id, quantity, locked FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
+    [id, slotIndex]
+  );
+  if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  const slot = invR.rows[0];
+  if (slot.locked) return res.status(400).json({ error: '잠긴 아이템은 판매할 수 없습니다.' });
+
+  const itemR = await query<{ sell_price: number; name: string }>('SELECT sell_price, name FROM items WHERE id = $1', [slot.item_id]);
+  if (itemR.rowCount === 0) return res.status(404).json({ error: 'item def not found' });
+  const { sell_price, name } = itemR.rows[0];
+  if (sell_price <= 0) return res.status(400).json({ error: '판매할 수 없는 아이템입니다.' });
+
+  const qty = Math.min(sellQty || slot.quantity, slot.quantity);
+  const gold = sell_price * qty;
+
+  if (qty >= slot.quantity) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
+  } else {
+    await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [qty, slot.id]);
+  }
+  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, id]);
+
+  res.json({ ok: true, sold: name, quantity: qty, gold });
+});
+
 export default router;
