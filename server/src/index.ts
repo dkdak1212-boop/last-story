@@ -856,6 +856,44 @@ httpServer.listen(PORT, () => {
       console.error('[migration] equip_level_req_v1 error:', e);
     }
   })();
+  // 노드 치명타 너프 (3→1, 10→3)
+  (async () => {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'node_cri_nerf_v1'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+      console.log('[migration] node_cri_nerf_v1...');
+
+      // cri stat: 3→1
+      await query(`UPDATE node_definitions SET effects = (
+        SELECT jsonb_agg(
+          CASE WHEN e->>'type' = 'stat' AND e->>'stat' = 'cri' AND (e->>'value')::int = 3
+            THEN jsonb_set(e, '{value}', '1')
+          WHEN e->>'type' = 'stat' AND e->>'stat' = 'cri' AND (e->>'value')::int = 10
+            THEN jsonb_set(e, '{value}', '3')
+          ELSE e END
+        ) FROM jsonb_array_elements(effects) e
+      ) WHERE effects::text LIKE '%"cri"%'`);
+
+      // crit_damage passive: 10→3
+      await query(`UPDATE node_definitions SET effects = (
+        SELECT jsonb_agg(
+          CASE WHEN e->>'key' = 'crit_damage' AND (e->>'value')::int = 10
+            THEN jsonb_set(e, '{value}', '3')
+          ELSE e END
+        ) FROM jsonb_array_elements(effects) e
+      ) WHERE effects::text LIKE '%crit_damage%'`);
+
+      // description 업데이트
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 확률 +3%', '치명타 확률 +1%') WHERE description LIKE '%치명타 확률 +3%'`);
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 확률 +10%', '치명타 확률 +3%') WHERE description LIKE '%치명타 확률 +10%'`);
+      await query(`UPDATE node_definitions SET description = REPLACE(description, '치명타 데미지 +10%', '치명타 데미지 +3%') WHERE description LIKE '%치명타 데미지 +10%'`);
+
+      await query(`INSERT INTO _migrations (name) VALUES ('node_cri_nerf_v1')`);
+      console.log('[migration] node_cri_nerf_v1: 완료');
+    } catch (e) {
+      console.error('[migration] node_cri_nerf_v1 error:', e);
+    }
+  })();
   // 강타 체력비례뎀 추가
   (async () => {
     try {
