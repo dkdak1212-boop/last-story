@@ -361,41 +361,58 @@ export function NodeTreeScreen() {
   }
   function handleMouseUp() { dragRef.current.dragging = false; }
 
-  // 터치 이벤트 (모바일 드래그 + 탭)
+  // 터치 이벤트 (모바일 드래그 + 탭) — native listener로 preventDefault 보장
   const touchStartRef = useRef({ x: 0, y: 0, moved: false });
-  function handleTouchStart(e: React.TouchEvent) {
-    const t = e.touches[0];
-    dragRef.current = { dragging: true, startX: t.clientX, startY: t.clientY, startOx: offset.x, startOy: offset.y };
-    touchStartRef.current = { x: t.clientX, y: t.clientY, moved: false };
-  }
-  function handleTouchMove(e: React.TouchEvent) {
-    e.preventDefault();
-    const t = e.touches[0];
-    const dx = t.clientX - dragRef.current.startX;
-    const dy = t.clientY - dragRef.current.startY;
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchStartRef.current.moved = true;
-    setOffset({ x: dragRef.current.startOx + dx, y: dragRef.current.startOy + dy });
-  }
-  function handleTouchEnd(_e: React.TouchEvent) {
-    dragRef.current.dragging = false;
-    // 터치 탭 (드래그 안 했으면 노드 선택)
-    if (!touchStartRef.current.moved) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const mx = touchStartRef.current.x - rect.left;
-      const my = touchStartRef.current.y - rect.top;
-      for (const node of zoneNodes) {
-        const pos = getNodePos(node);
-        const r = NODE_RADIUS[node.tier] || 16;
-        if (Math.sqrt((mx - pos.x) ** 2 + (my - pos.y) ** 2) <= r + 8) {
-          setSelected(node);
-          return;
-        }
-      }
-      setSelected(null);
+  const offsetRef = useRef(offset);
+  offsetRef.current = offset;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    function onTouchStart(e: TouchEvent) {
+      const t = e.touches[0];
+      dragRef.current = { dragging: true, startX: t.clientX, startY: t.clientY, startOx: offsetRef.current.x, startOy: offsetRef.current.y };
+      touchStartRef.current = { x: t.clientX, y: t.clientY, moved: false };
     }
-  }
+    function onTouchMove(e: TouchEvent) {
+      e.preventDefault(); // native에서 확실히 차단
+      e.stopPropagation();
+      const t = e.touches[0];
+      const dx = t.clientX - dragRef.current.startX;
+      const dy = t.clientY - dragRef.current.startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchStartRef.current.moved = true;
+      setOffset({ x: dragRef.current.startOx + dx, y: dragRef.current.startOy + dy });
+    }
+    function onTouchEnd() {
+      dragRef.current.dragging = false;
+      if (!touchStartRef.current.moved && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = touchStartRef.current.x - rect.left;
+        const my = touchStartRef.current.y - rect.top;
+        for (const node of zoneNodes) {
+          const pos = layoutPositions.get(node.id) || { x: 0, y: 0 };
+          const cx = (canvas!.width / 2) + pos.x + offsetRef.current.x;
+          const cy = 60 + pos.y + offsetRef.current.y;
+          const r = NODE_RADIUS[node.tier] || 16;
+          if (Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2) <= r + 10) {
+            setSelected(node);
+            return;
+          }
+        }
+        setSelected(null);
+      }
+    }
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [zoneNodes, layoutPositions]);
 
   async function invest(nodeId: number) {
     if (!active || loading) return;
@@ -477,9 +494,6 @@ export function NodeTreeScreen() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={() => { handleMouseUp(); setTooltip(null); }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
         />
         <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', gap: 14, fontSize: 11 }}>
           <span style={{ color: NODE_COLORS.border_invested }}>● 투자됨</span>
