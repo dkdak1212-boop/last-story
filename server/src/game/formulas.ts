@@ -61,10 +61,16 @@ export function computeEffective(
   const matk = intl * 1.2;
   const def = vit * 0.8;
   const mdef = intl * 0.5;
-  const dodge = dex * 0.4 + (equipBonus.bonusDodge ?? 0);
-  const accuracy = 80 + dex * 0.5 + (equipBonus.bonusAccuracy ?? 0);
+  // 회피: DEX 계수 하향 + 상한 30%
+  const dodgeRaw = dex * 0.2 + (equipBonus.bonusDodge ?? 0);
+  const dodge = Math.min(30, dodgeRaw);
+  // 명중: 상한 100%
+  const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
+  const accuracy = Math.min(100, accuracyRaw);
+  // 치명타: 상한 75%
+  const criCapped = Math.min(75, cri);
 
-  return { str, dex, int: intl, vit, spd, cri, maxHp, atk, matk, def, mdef, dodge, accuracy };
+  return { str, dex, int: intl, vit, spd, cri: criCapped, maxHp, atk, matk, def, mdef, dodge, accuracy };
 }
 
 export interface DamageResult {

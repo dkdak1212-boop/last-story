@@ -225,61 +225,57 @@ httpServer.listen(PORT, () => {
       console.error('[migration] prefix_buff_v1 error:', e);
     }
   })();
-  // 기존 캐릭터 레벨업 스탯 소급 적용
+  // 기존 캐릭터 레벨업 스탯 소급 적용 (밸런스 v2)
   (async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'retroactive_stat_growth'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'stat_rebalance_v2'`);
       if (applied.rowCount && applied.rowCount > 0) return;
-      console.log('[migration] retroactive_stat_growth: 기존 캐릭터 스탯 보정...');
+      console.log('[migration] stat_rebalance_v2: 전체 캐릭터 스탯 밸런스 재조정...');
 
-      const CLASS_START: Record<string, { str: number; dex: number; int: number; vit: number; spd: number; cri: number }> = {
-        warrior: { str: 15, dex: 8,  int: 4,  vit: 14, spd: 300, cri: 5  },
-        mage:    { str: 4,  dex: 7,  int: 16, vit: 8,  spd: 250, cri: 6  },
-        cleric:  { str: 8,  dex: 6,  int: 14, vit: 12, spd: 200, cri: 4  },
-        rogue:   { str: 10, dex: 14, int: 5,  vit: 8,  spd: 400, cri: 12 },
+      const CLASS_START: Record<string, { str: number; dex: number; int: number; vit: number; spd: number; cri: number; maxHp: number }> = {
+        warrior: { str: 15, dex: 8,  int: 4,  vit: 14, spd: 300, cri: 5, maxHp: 200  },
+        mage:    { str: 4,  dex: 7,  int: 16, vit: 8,  spd: 250, cri: 6, maxHp: 120  },
+        cleric:  { str: 8,  dex: 6,  int: 14, vit: 12, spd: 200, cri: 4, maxHp: 160  },
+        rogue:   { str: 10, dex: 14, int: 5,  vit: 8,  spd: 400, cri: 12, maxHp: 130 },
       };
+      // 밸런스 v2 성장치 (하향)
       const CLASS_GROWTH: Record<string, { str: number; dex: number; int: number; vit: number; spd: number; cri: number }> = {
-        warrior: { str: 3, dex: 1, int: 0, vit: 2, spd: 5, cri: 1 },
-        mage:    { str: 0, dex: 1, int: 3, vit: 1, spd: 4, cri: 1 },
-        cleric:  { str: 1, dex: 1, int: 2, vit: 2, spd: 3, cri: 1 },
-        rogue:   { str: 2, dex: 3, int: 0, vit: 1, spd: 6, cri: 2 },
+        warrior: { str: 2, dex: 0.5, int: 0, vit: 1.5, spd: 2, cri: 0.3 },
+        mage:    { str: 0, dex: 0.5, int: 2, vit: 0.5, spd: 1.5, cri: 0.3 },
+        cleric:  { str: 0.5, dex: 0.5, int: 1.5, vit: 1, spd: 1, cri: 0.2 },
+        rogue:   { str: 1, dex: 1.5, int: 0, vit: 0.5, spd: 3, cri: 0.5 },
       };
 
-      const chars = await query<{ id: number; level: number; class_name: string; max_hp: number }>(
-        'SELECT id, level, class_name, max_hp FROM characters WHERE level > 1'
+      const chars = await query<{ id: number; level: number; class_name: string }>(
+        'SELECT id, level, class_name FROM characters'
       );
 
       for (const c of chars.rows) {
         const start = CLASS_START[c.class_name] || CLASS_START.warrior;
         const growth = CLASS_GROWTH[c.class_name] || CLASS_GROWTH.warrior;
-        const levelsGained = c.level - 1;
+        const lv = c.level - 1;
 
         const newStats = {
-          str: start.str + growth.str * levelsGained,
-          dex: start.dex + growth.dex * levelsGained,
-          int: start.int + growth.int * levelsGained,
-          vit: start.vit + growth.vit * levelsGained,
-          spd: start.spd + growth.spd * levelsGained,
-          cri: start.cri + growth.cri * levelsGained,
+          str: Math.floor(start.str + growth.str * lv),
+          dex: Math.floor(start.dex + growth.dex * lv),
+          int: Math.floor(start.int + growth.int * lv),
+          vit: Math.floor(start.vit + growth.vit * lv),
+          spd: Math.floor(start.spd + growth.spd * lv),
+          cri: Math.floor(start.cri + growth.cri * lv),
         };
-
-        // max_hp 보정: +8/lv 기준으로 재계산
-        const newHpGrowth = levelsGained * 8;
-        const baseMaxHp = CLASS_START[c.class_name]?.str ? // just check class exists
-          (c.class_name === 'warrior' ? 200 : c.class_name === 'cleric' ? 160 : c.class_name === 'rogue' ? 130 : 120) : 200;
-        const correctMaxHp = baseMaxHp + newHpGrowth;
+        const correctMaxHp = start.maxHp + lv * 8;
 
         await query(
           `UPDATE characters SET stats = $1, max_hp = $2, hp = LEAST(hp, $2) WHERE id = $3`,
           [JSON.stringify(newStats), correctMaxHp, c.id]
         );
-        console.log(`  [${c.id}] ${c.class_name} Lv.${c.level}: stats 보정 완료`);
       }
 
-      await query(`INSERT INTO _migrations (name) VALUES ('retroactive_stat_growth')`);
-      console.log(`[migration] retroactive_stat_growth: ${chars.rowCount}캐릭터 보정 완료`);
+      await query(`DELETE FROM _migrations WHERE name = 'retroactive_stat_growth'`);
+      await query(`INSERT INTO _migrations (name) VALUES ('stat_rebalance_v2') ON CONFLICT DO NOTHING`);
+      console.log(`[migration] stat_rebalance_v2: ${chars.rowCount}캐릭터 보정 완료`);
     } catch (e) {
-      console.error('[migration] retroactive_stat_growth error:', e);
+      console.error('[migration] stat_rebalance_v2 error:', e);
     }
   })();
   // 성직자 Lv.1 공격스킬 추가 마이그레이션
