@@ -57,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     socket.on('online-count', (count: number) => setOnlineCount(count));
     socket.on('system-broadcast', (data: { text: string }) => {
       setBroadcast(data.text);
-      setTimeout(() => setBroadcast(null), 15000);
+      setTimeout(() => setBroadcast(null), 60000);
     });
     return () => { socket.disconnect(); };
   }, [token]);
@@ -118,21 +118,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div style={{
           background: 'linear-gradient(90deg, #1a0800, #2a1000, #1a0800)',
           borderBottom: '2px solid #ff8800',
-          padding: '8px 0',
+          padding: '6px 0',
           overflow: 'hidden',
           position: 'relative',
         }}>
           <div style={{
             display: 'inline-block',
             whiteSpace: 'nowrap',
-            animation: 'marquee 12s linear infinite',
+            animation: 'marquee-scroll 8s linear infinite',
             fontSize: 14,
             fontWeight: 700,
             color: '#ff8800',
+            paddingLeft: '100%',
           }}>
-            {'  \u{1F4E2}  [시스템 공지] ' + broadcast + '   \u{1F4E2}  [시스템 공지] ' + broadcast + '  '}
+            {'\u{1F4E2} [시스템 공지] ' + broadcast}
           </div>
-          <style>{`@keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
+          <style>{`@keyframes marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }`}</style>
         </div>
       )}
 
