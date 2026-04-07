@@ -285,15 +285,16 @@ async function distributeRewards(eventId: number) {
   for (let i = 0; i < participants.rows.length; i++) {
     const p = participants.rows[i];
     const rank = i + 1;
-    const pct = (rank / total) * 100;
+    // 상위 몇 %인지 (1등=0%, 꼴등=100%)
+    const topPct = total <= 1 ? 0 : ((rank - 1) / (total - 1)) * 100;
 
-    // 매칭 티어 찾기
-    let matched = tiers[tiers.length - 1];
+    // 매칭 티어 찾기: rank 기반 우선, 그 다음 pct 기반
+    let matched = tiers[tiers.length - 1]; // 폴백: 마지막 티어 (C등급)
     for (const t of tiers) {
       if (t.minRank != null && t.maxRank != null && rank >= t.minRank && rank <= t.maxRank) {
         matched = t; break;
       }
-      if (t.minPct != null && t.maxPct != null && pct > t.minPct && pct <= t.maxPct) {
+      if (t.minPct != null && t.maxPct != null && topPct >= t.minPct && topPct < t.maxPct) {
         matched = t; break;
       }
     }
