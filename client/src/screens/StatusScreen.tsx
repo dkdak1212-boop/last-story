@@ -115,7 +115,7 @@ export function StatusScreen() {
           <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력 (지능 x 1.2) + 마법 방어 (지능 x 0.5). 마법사/성직자 핵심</span>
           <span style={{ color: 'var(--text)' }}>체력</span><span>방어력 (체력 x 0.8) + 장비/노드 체력당 HP +10</span>
           <span style={{ color: 'var(--text)' }}>스피드</span><span>{'게이지 충전 속도. 높을수록 먼저 행동 (도적 > 전사 > 마법사 > 성직자)'}</span>
-          <span style={{ color: 'var(--text)' }}>치명타</span><span>{'치명타 확률 (상한 40%). 발동 시 2배 데미지. 올리기 어려운 핵심 스탯'}</span>
+          <span style={{ color: 'var(--text)' }}>치명타</span><span>{'치명타 확률 (상한 100%). 발동 시 2배 데미지. 노드/장비로 쌓아올리는 핵심 스탯'}</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>

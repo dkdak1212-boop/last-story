@@ -67,8 +67,8 @@ export function computeEffective(
   // 명중: 상한 100%
   const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
   const accuracy = Math.min(100, accuracyRaw);
-  // 치명타 확률: 상한 40% (어렵게 올리는 스탯)
-  const criCapped = Math.min(40, cri);
+  // 치명타 확률: 상한 100% (노드/장비로 쌓아올리는 스탯)
+  const criCapped = Math.min(100, cri);
 
   return { str, dex, int: intl, vit, spd, cri: criCapped, maxHp, atk, matk, def, mdef, dodge, accuracy };
 }
