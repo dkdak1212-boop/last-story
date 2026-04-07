@@ -124,9 +124,13 @@ router.get('/run', async (_req, res) => {
       const d:any[]=[];const ti=tfl(m.level);
       const p=pots.find(p=>m.level>=p.mn&&m.level<=p.mx)||pots[3];
       d.push({itemId:p.id,chance:p.c,minQty:1,maxQty:2});
-      for(const wc of wClasses){d.push({itemId:wIds[wc.cls][ti].common,chance:0.02,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].rare,chance:0.008,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].epic,chance:0.003,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].legendary,chance:0.001,minQty:1,maxQty:1});}
-      for(const a of aSlots){d.push({itemId:aIds[a.sl][ti].common,chance:0.015,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].rare,chance:0.006,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].epic,chance:0.002,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].legendary,chance:0.0008,minQty:1,maxQty:1});}
-      for(const ac of acSlots){d.push({itemId:acIds[ac.sl][ti].common,chance:0.01,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].rare,chance:0.004,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].epic,chance:0.0015,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].legendary,chance:0.0005,minQty:1,maxQty:1});}
+      // 등급 비율: 일반50% 매직30% 에픽19% 전설1%
+      const wBase=0.03; // 무기 전체 3%
+      for(const wc of wClasses){d.push({itemId:wIds[wc.cls][ti].common,chance:wBase*0.50,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].rare,chance:wBase*0.30,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].epic,chance:wBase*0.19,minQty:1,maxQty:1});d.push({itemId:wIds[wc.cls][ti].legendary,chance:wBase*0.01,minQty:1,maxQty:1});}
+      const aBase=0.02; // 방어구 전체 2%
+      for(const a of aSlots){d.push({itemId:aIds[a.sl][ti].common,chance:aBase*0.50,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].rare,chance:aBase*0.30,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].epic,chance:aBase*0.19,minQty:1,maxQty:1});d.push({itemId:aIds[a.sl][ti].legendary,chance:aBase*0.01,minQty:1,maxQty:1});}
+      const acBase=0.015; // 악세 전체 1.5%
+      for(const ac of acSlots){d.push({itemId:acIds[ac.sl][ti].common,chance:acBase*0.50,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].rare,chance:acBase*0.30,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].epic,chance:acBase*0.19,minQty:1,maxQty:1});d.push({itemId:acIds[ac.sl][ti].legendary,chance:acBase*0.01,minQty:1,maxQty:1});}
       await query('UPDATE monsters SET drop_table=$1::jsonb WHERE id=$2',[JSON.stringify(d),m.id]);
     }
     log.push(`  ${ms.rowCount}마리`);

@@ -1140,26 +1140,27 @@ async function runEquipOverhaul() {
           const pot = potions.find(p => m.level >= p.minLv && m.level <= p.maxLv) || potions[3];
           drops.push({ itemId: pot.id, chance: pot.chance, minQty: 1, maxQty: 2 });
 
-          // 무기 (4직업 각 common 2%, rare 0.8%, epic 0.3%, legendary 0.1%)
+          // 등급 비율: 일반50% 매직30% 에픽19% 전설1%
+          const wBase = 0.03; // 무기 전체 3%
           for (const wc of weaponClasses) {
-            drops.push({ itemId: weaponIds[wc.cls][ti]['common'], chance: 0.02, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: weaponIds[wc.cls][ti]['rare'], chance: 0.008, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: weaponIds[wc.cls][ti]['epic'], chance: 0.003, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: weaponIds[wc.cls][ti]['legendary'], chance: 0.001, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['common'], chance: wBase*0.50, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['rare'], chance: wBase*0.30, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['epic'], chance: wBase*0.19, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: weaponIds[wc.cls][ti]['legendary'], chance: wBase*0.01, minQty: 1, maxQty: 1 });
           }
-          // 방어구 (common 1.5%, rare 0.6%, epic 0.2%, legendary 0.08%)
+          const aBase = 0.02; // 방어구 전체 2%
           for (const as of armorSlots) {
-            drops.push({ itemId: armorIds[as.slot][ti]['common'], chance: 0.015, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: armorIds[as.slot][ti]['rare'], chance: 0.006, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: armorIds[as.slot][ti]['epic'], chance: 0.002, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: armorIds[as.slot][ti]['legendary'], chance: 0.0008, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['common'], chance: aBase*0.50, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['rare'], chance: aBase*0.30, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['epic'], chance: aBase*0.19, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: armorIds[as.slot][ti]['legendary'], chance: aBase*0.01, minQty: 1, maxQty: 1 });
           }
-          // 악세서리 (common 1%, rare 0.4%, epic 0.15%, legendary 0.05%)
+          const acBase = 0.015; // 악세 전체 1.5%
           for (const ac of accSlots) {
-            drops.push({ itemId: accIds[ac.slot][ti]['common'], chance: 0.01, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: accIds[ac.slot][ti]['rare'], chance: 0.004, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: accIds[ac.slot][ti]['epic'], chance: 0.0015, minQty: 1, maxQty: 1 });
-            drops.push({ itemId: accIds[ac.slot][ti]['legendary'], chance: 0.0005, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['common'], chance: acBase*0.50, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['rare'], chance: acBase*0.30, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['epic'], chance: acBase*0.19, minQty: 1, maxQty: 1 });
+            drops.push({ itemId: accIds[ac.slot][ti]['legendary'], chance: acBase*0.01, minQty: 1, maxQty: 1 });
           }
 
           await query('UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2', [JSON.stringify(drops), m.id]);
