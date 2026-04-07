@@ -4,12 +4,8 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { MonsterIcon } from '../components/ui/MonsterIcon';
 
-const GRADE_COLOR: Record<string, string> = {
-  common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030',
-};
-interface DropInfo { name: string; grade: string; chance: number; minQty: number; maxQty: number; }
 interface MonsterInfo {
-  name: string; level: number; exp: number; gold: number; drops: DropInfo[];
+  name: string; level: number; exp: number; gold: number;
 }
 interface FieldData {
   id: number; name: string; requiredLevel: number; description: string;
@@ -82,26 +78,13 @@ export function MapScreen() {
                       padding: '10px 0',
                       borderBottom: mi < f.monsters.length - 1 ? '1px solid var(--border)' : 'none',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: m.drops?.length > 0 ? 6 : 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <MonsterIcon name={m.name} size={24} />
                         <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{m.name}</span>
                         <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>Lv.{m.level}</span>
                         <span style={{ fontSize: 11, color: 'var(--success)' }}>+{m.exp}exp</span>
                         <span style={{ fontSize: 11, color: '#e0a040' }}>+{m.gold}G</span>
                       </div>
-                      {m.drops?.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginLeft: 32 }}>
-                          {m.drops.map((d, di) => (
-                            <span key={di} style={{
-                              fontSize: 10, padding: '1px 6px',
-                              background: 'var(--bg)', border: `1px solid ${GRADE_COLOR[d.grade] || 'var(--border)'}`,
-                              borderRadius: 3, color: GRADE_COLOR[d.grade] || 'var(--text-dim)',
-                            }}>
-                              {d.name} <span style={{ color: 'var(--text-dim)' }}>{d.chance}%</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
