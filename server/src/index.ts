@@ -604,11 +604,14 @@ httpServer.listen(PORT, () => {
   // 방어구 재지급 + 전체 몬스터 드랍테이블 세팅
   (async () => {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v2'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'full_drop_setup_v3'`);
       if (applied.rowCount && applied.rowCount > 0) return;
-      // 아이템 400 존재 확인
+      // 방어구 아이템 존재 확인 (armor_unify_v1 완료 여부)
       const check = await query(`SELECT 1 FROM items WHERE id = 400`);
-      if (!check.rowCount) return;
+      if (!check.rowCount) {
+        console.log('[migration] full_drop_setup_v3: 방어구 미생성 — 스킵');
+        return;
+      }
 
       console.log('[migration] full_drop_setup_v1: 방어구 재지급 + 드랍테이블 세팅...');
 
@@ -738,8 +741,8 @@ httpServer.listen(PORT, () => {
       }
       console.log(`  드랍테이블: ${monsters.rowCount}마리 몬스터 재설정`);
 
-      await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v2')`);
-      console.log('[migration] full_drop_setup_v2: 완료');
+      await query(`INSERT INTO _migrations (name) VALUES ('full_drop_setup_v3')`);
+      console.log('[migration] full_drop_setup_v3: 완료');
     } catch (e) {
       console.error('[migration] full_drop_setup_v1 error:', e);
     }
