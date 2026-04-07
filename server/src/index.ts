@@ -109,66 +109,83 @@ httpServer.listen(PORT, () => {
   // 노드트리 존 통합 마이그레이션 (017)
   (async () => {
     try {
-      const check = await query<{ zone: string }>('SELECT DISTINCT zone FROM node_definitions LIMIT 10');
-      const zones = check.rows.map(r => r.zone);
-      if (zones.length > 1 || (zones.length === 1 && zones[0] !== 'core')) {
-        console.log('[migration] 017: 노드 존 통합 실행...');
-        await query('UPDATE node_definitions SET zone = $1', ['core']);
-        // 선행조건 재설정
-        await query('UPDATE node_definitions SET prerequisites = $1', ['{}']);
-        // 중앙 소형 노드 (기본 * 이름)
-        const centerSmalls = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'small' AND name LIKE '기본 %' ORDER BY id`);
-        const cs = centerSmalls.rows.map(r => r.id);
-        // 중앙 소형 2개씩 체인
-        for (let i = 1; i < cs.length; i += 2) {
-          await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[cs[i-1]], cs[i]]);
+      // 이미 적용됐는지 체크 (migration_applied 플래그)
+      await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'node_merge_v2'`);
+      if (applied.rowCount && applied.rowCount > 0) return;
+
+      console.log('[migration] node_merge_v2: 노드 존 통합 + 선행조건 재설정...');
+
+      // 1) 모든 존을 core로, 선행조건 초기화
+      await query(`UPDATE node_definitions SET zone = 'core', prerequisites = '{}'`);
+
+      // 2) 전체 노드를 ID순으로 가져오기
+      const allNodes = await query<{ id: number; tier: string; name: string }>(
+        `SELECT id, tier, name FROM node_definitions ORDER BY id`
+      );
+      const nodes = allNodes.rows;
+      const smalls = nodes.filter(n => n.tier === 'small');
+      const mediums = nodes.filter(n => n.tier === 'medium');
+      const larges = nodes.filter(n => n.tier === 'large');
+
+      // 3) 진입점: 소형 노드 중 첫 6개 = 중앙 허브 (선행 없음, cost=1)
+      const HUB_COUNT = 6;
+      const hubs = smalls.slice(0, HUB_COUNT);
+
+      // 4) 나머지 소형 노드: 3개씩 브랜치로, 각 브랜치는 허브 하나에서 뻗어나감 (cost=1)
+      const branchSmalls = smalls.slice(HUB_COUNT);
+      const BRANCH_SIZE = 3;
+      for (let i = 0; i < branchSmalls.length; i++) {
+        const branchIdx = Math.floor(i / BRANCH_SIZE);
+        const posInBranch = i % BRANCH_SIZE;
+        if (posInBranch === 0) {
+          // 브랜치 첫 노드 → 허브 노드 선행
+          const hubIdx = branchIdx % HUB_COUNT;
+          await query('UPDATE node_definitions SET prerequisites = $1, cost = 1 WHERE id = $2',
+            [[hubs[hubIdx].id], branchSmalls[i].id]);
+        } else {
+          // 브랜치 내 체인
+          await query('UPDATE node_definitions SET prerequisites = $1, cost = 1 WHERE id = $2',
+            [[branchSmalls[i - 1].id], branchSmalls[i].id]);
         }
-        // 중앙 중형 (만능 * 이름)
-        const centerMediums = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'medium' AND name LIKE '만능 %' ORDER BY id`);
-        const cm = centerMediums.rows.map(r => r.id);
-        for (let i = 0; i < cm.length && i * 2 + 1 < cs.length; i++) {
-          await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[cs[i*2], cs[i*2+1]], cm[i]]);
-        }
-        // 중앙 대형 (특수 이름)
-        const centerLarges = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'large' AND (name LIKE '광전사%' OR name LIKE '철의%' OR name LIKE '마력%' OR name LIKE '극한 집중%') ORDER BY id`);
-        const cl = centerLarges.rows.map(r => r.id);
-        for (let i = 0; i < cl.length && i * 2 + 1 < cm.length; i++) {
-          await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[cm[i*2], cm[i*2+1]], cl[i]]);
-        }
-        // 비중앙 소형 → 중앙 소형 연결 (6개 그룹)
-        const otherSmalls = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'small' AND name NOT LIKE '기본 %' ORDER BY id`);
-        const os = otherSmalls.rows.map(r => r.id);
-        for (let i = 0; i < os.length; i++) {
-          if (i % 6 === 0) {
-            const parentIdx = Math.floor(i / 6) % cs.length;
-            await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[cs[parentIdx]], os[i]]);
-          } else {
-            await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[os[i-1]], os[i]]);
-          }
-        }
-        // 비중앙 중형 → 소형 6개 그룹 마지막 선행
-        const otherMediums = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'medium' AND name NOT LIKE '만능 %' ORDER BY id`);
-        const om = otherMediums.rows.map(r => r.id);
-        for (let i = 0; i < om.length; i++) {
-          const lastSmallIdx = (i + 1) * 6 - 1;
-          if (lastSmallIdx < os.length) {
-            await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[os[lastSmallIdx]], om[i]]);
-          } else if (i > 0) {
-            await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[om[i-1]], om[i]]);
-          }
-        }
-        // 비중앙 대형 → 중형 2개 선행
-        const otherLarges = await query<{ id: number }>(`SELECT id FROM node_definitions WHERE tier = 'large' AND NOT (name LIKE '광전사%' OR name LIKE '철의%' OR name LIKE '마력%' OR name LIKE '극한 집중%') ORDER BY id`);
-        const ol = otherLarges.rows.map(r => r.id);
-        for (let i = 0; i < ol.length; i++) {
-          const m1 = om[Math.min(i*2, om.length-1)];
-          const m2 = om[Math.min(i*2+1, om.length-1)];
-          await query('UPDATE node_definitions SET prerequisites = $1 WHERE id = $2', [[m1, m2], ol[i]]);
-        }
-        console.log('[migration] 017: 완료');
       }
+
+      // 허브 노드 cost=1
+      for (const h of hubs) {
+        await query('UPDATE node_definitions SET cost = 1 WHERE id = $1', [h.id]);
+      }
+
+      // 5) 중형 노드: 소형 브랜치 끝에서 연결 (cost=2)
+      for (let i = 0; i < mediums.length; i++) {
+        // 각 중형은 소형 브랜치의 마지막 노드를 선행으로
+        const branchEnd = Math.min((i + 1) * BRANCH_SIZE - 1, branchSmalls.length - 1);
+        if (branchEnd >= 0 && branchEnd < branchSmalls.length) {
+          await query('UPDATE node_definitions SET prerequisites = $1, cost = 2 WHERE id = $2',
+            [[branchSmalls[branchEnd].id], mediums[i].id]);
+        } else if (i > 0) {
+          // 소형 브랜치 부족하면 이전 중형 선행
+          await query('UPDATE node_definitions SET prerequisites = $1, cost = 2 WHERE id = $2',
+            [[mediums[i - 1].id], mediums[i].id]);
+        } else {
+          // 최소한 허브 하나 선행
+          await query('UPDATE node_definitions SET prerequisites = $1, cost = 2 WHERE id = $2',
+            [[hubs[0].id], mediums[i].id]);
+        }
+      }
+
+      // 6) 대형(키스톤) 노드: 중형 2개 선행 (cost=4)
+      for (let i = 0; i < larges.length; i++) {
+        const m1 = mediums[Math.min(i * 2, mediums.length - 1)];
+        const m2 = mediums[Math.min(i * 2 + 1, mediums.length - 1)];
+        const prereqs = m1.id === m2.id ? [m1.id] : [m1.id, m2.id];
+        await query('UPDATE node_definitions SET prerequisites = $1, cost = 4 WHERE id = $2',
+          [prereqs, larges[i].id]);
+      }
+
+      await query(`INSERT INTO _migrations (name) VALUES ('node_merge_v2')`);
+      console.log(`[migration] node_merge_v2: 완료 (${smalls.length} small, ${mediums.length} medium, ${larges.length} large)`);
     } catch (e) {
-      console.error('[migration] 017 error:', e);
+      console.error('[migration] node_merge_v2 error:', e);
     }
   })();
   // 기존 전투 세션 복구
