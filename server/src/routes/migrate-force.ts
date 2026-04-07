@@ -7,10 +7,8 @@ router.get('/run', async (_req, res) => {
   const log: string[] = [];
   try {
     await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
-    const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'equip_overhaul_v3'`);
-    if (applied.rowCount && applied.rowCount > 0) {
-      return res.json({ status: 'already applied', log: ['equip_overhaul_v3 이미 적용됨'] });
-    }
+    // 이전 기록 삭제하고 무조건 재실행
+    await query(`DELETE FROM _migrations WHERE name LIKE 'equip_overhaul%'`);
 
     log.push('1. 기존 장비 삭제');
     // 모든 외래키 참조 정리 (mailbox, auctions, quests 등)
