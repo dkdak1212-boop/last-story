@@ -35,7 +35,6 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
   },
 
   selectCharacter: async (id) => {
-    // 오프라인 정산 먼저
     const { report } = await api<{ report: OfflineReport | null }>(`/characters/${id}/resume`, {
       method: 'POST',
     });

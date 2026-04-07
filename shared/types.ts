@@ -1,14 +1,6 @@
 // 클라이언트·서버 공유 타입
 
-export type ClassName =
-  | 'warrior'
-  | 'swordsman'
-  | 'archer'
-  | 'rogue'
-  | 'assassin'
-  | 'mage'
-  | 'priest'
-  | 'druid';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue';
 
 export type ItemGrade = 'common' | 'rare' | 'epic' | 'legendary';
 
@@ -19,17 +11,15 @@ export type EquipSlot = 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet
 export interface Stats {
   str: number;  // 힘 — 물리 공격력
   dex: number;  // 민첩 — 회피·명중
-  int: number;  // 지능 — 마법 공격력·MP
+  int: number;  // 지능 — 마법 공격력
   vit: number;  // 체력 — HP
-  spd: number;  // 스피드 — 틱 주기
+  spd: number;  // 스피드 — 게이지 충전량
   cri: number;  // 크리 확률(%)
 }
 
 export interface PotionSettings {
   hpEnabled: boolean;
   hpThreshold: number;  // 0~100
-  mpEnabled: boolean;
-  mpThreshold: number;
 }
 
 export interface Character {
@@ -41,9 +31,8 @@ export interface Character {
   exp: number;
   gold: number;
   hp: number;
-  mp: number;
   maxHp: number;
-  maxMp: number;
+  nodePoints: number;
   stats: Stats;
   location: string;          // 'village' | 'field:<id>'
   lastOnlineAt: string;      // ISO timestamp
@@ -139,9 +128,87 @@ export interface WorldEventStatus {
   leaderboard?: { rank: number; characterName: string; className: string; damage: number }[];
 }
 
+// ── 전투 관련 타입 ──
+
+export interface StatusEffect {
+  id: string;               // 고유 식별자
+  type: 'dot' | 'shield' | 'speed_mod' | 'stun' | 'gauge_freeze' |
+        'damage_reflect' | 'damage_reduce' | 'accuracy_debuff' |
+        'invincible' | 'resurrect' | 'poison';
+  value: number;
+  remainingActions: number;
+  source: 'player' | 'monster';
+}
+
+export interface CombatSnapshot {
+  inCombat: boolean;
+  fieldName?: string;
+  autoMode: boolean;
+  waitingInput: boolean;
+  player: {
+    hp: number;
+    maxHp: number;
+    gauge: number;
+    speed: number;
+    effects: StatusEffect[];
+  };
+  monster?: {
+    name: string;
+    hp: number;
+    maxHp: number;
+    level: number;
+    gauge: number;
+    speed: number;
+    effects: StatusEffect[];
+  };
+  skills: CombatSkillInfo[];
+  log: string[];
+  potions?: { hpSmall: number; hpMid: number };
+  serverTime: number;
+}
+
+export interface CombatSkillInfo {
+  id: number;
+  name: string;
+  cooldownMax: number;
+  cooldownLeft: number;  // 남은 행동 횟수
+  usable: boolean;
+}
+
+// ── 노드 관련 타입 ──
+
+export interface NodeDefinition {
+  id: number;
+  name: string;
+  description: string;
+  zone: string;
+  tier: 'small' | 'medium' | 'large';
+  cost: number;
+  classExclusive: ClassName | null;
+  effects: NodeEffect[];
+  prerequisites: number[];
+  positionX: number;
+  positionY: number;
+}
+
+export interface NodeEffect {
+  type: 'stat' | 'passive';
+  stat?: string;      // for stat type: 'str', 'dex', etc.
+  key?: string;       // for passive type: 'bleed_on_hit', etc.
+  value: number;
+}
+
+export interface NodeTreeState {
+  availablePoints: number;
+  totalPoints: number;
+  investedNodeIds: number[];
+  nodes: NodeDefinition[];
+}
+
 // WebSocket 메시지
 export type WSMessage =
-  | { type: 'chat'; channel: 'global' | 'party' | 'guild' | 'trade'; from: string; text: string }
+  | { type: 'chat'; channel: 'global' | 'guild' | 'trade'; from: string; text: string }
+  | { type: 'combat_update'; data: CombatSnapshot }
   | { type: 'combat_log'; text: string }
   | { type: 'loot_overflow'; count: number }
   | { type: 'announcement'; title: string; body: string }

@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'http';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/pool.js';
+import { toggleAutoMode, manualSkillUse } from '../combat/engine.js';
 
 const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
@@ -17,7 +18,6 @@ export function initWebSocket(httpServer: HttpServer) {
       const payload = jwt.verify(token, SECRET) as { userId: number; username: string };
       socket.data.userId = payload.userId;
       socket.data.username = payload.username;
-      // admin 여부 조회
       query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [payload.userId])
         .then(r => { socket.data.isAdmin = r.rows[0]?.is_admin ?? false; })
         .catch(() => { socket.data.isAdmin = false; });
@@ -30,29 +30,41 @@ export function initWebSocket(httpServer: HttpServer) {
   io.on('connection', (socket) => {
     console.log(`[ws] connected: ${socket.data.username}`);
 
+    // 전투 채널 구독
+    socket.on('combat:subscribe', (characterId: number) => {
+      socket.join(`combat:${characterId}`);
+    });
+
+    socket.on('combat:unsubscribe', (characterId: number) => {
+      socket.leave(`combat:${characterId}`);
+    });
+
+    // 전투 자동/수동 토글
+    socket.on('combat:toggle-auto', (characterId: number) => {
+      const autoMode = toggleAutoMode(characterId);
+      socket.emit('combat:auto-mode', { characterId, autoMode });
+    });
+
+    // 전투 수동 스킬 사용
+    socket.on('combat:use-skill', async (data: { characterId: number; skillId: number }) => {
+      await manualSkillUse(data.characterId, data.skillId);
+    });
+
+    // 채팅
     socket.on('chat', async (payload: { channel: string; text: string; characterId?: number }) => {
       if (!payload?.text || payload.text.length > 200) return;
-      const channel = ['global', 'trade', 'guild', 'party'].includes(payload.channel) ? payload.channel : 'global';
+      const channel = ['global', 'trade', 'guild'].includes(payload.channel) ? payload.channel : 'global';
       const text = payload.text.trim();
       if (!text) return;
 
       let scopeId: number | null = null;
-      // 길드/파티 채널은 캐릭터의 소속 범위 필요
-      if (channel === 'guild' || channel === 'party') {
+      if (channel === 'guild') {
         if (!payload.characterId) return;
-        if (channel === 'guild') {
-          const gr = await query<{ guild_id: number }>(
-            'SELECT guild_id FROM guild_members WHERE character_id = $1', [payload.characterId]
-          );
-          if (gr.rowCount === 0) return;
-          scopeId = gr.rows[0].guild_id;
-        } else {
-          const pr = await query<{ party_id: number }>(
-            'SELECT party_id FROM party_members WHERE character_id = $1', [payload.characterId]
-          );
-          if (pr.rowCount === 0) return;
-          scopeId = pr.rows[0].party_id;
-        }
+        const gr = await query<{ guild_id: number }>(
+          'SELECT guild_id FROM guild_members WHERE character_id = $1', [payload.characterId]
+        );
+        if (gr.rowCount === 0) return;
+        scopeId = gr.rows[0].guild_id;
       }
 
       try {
@@ -78,6 +90,15 @@ export function initWebSocket(httpServer: HttpServer) {
       console.log(`[ws] disconnected: ${socket.data.username}`);
     });
   });
+
+  // combat engine에서 emit할 때 room 기반으로 보내도록 오버라이드
+  const origEmit = io.emit.bind(io);
+  io.emit = ((event: string, ...args: any[]) => {
+    if (event.startsWith('combat:')) {
+      return io.to(event).emit(event, ...args);
+    }
+    return origEmit(event, ...args);
+  }) as any;
 
   return io;
 }

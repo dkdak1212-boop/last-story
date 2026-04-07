@@ -1,12 +1,10 @@
 import { query } from '../db/pool.js';
-import { computeEffective, sumEquipmentStats, type EffectiveStats } from './formulas.js';
+import { computeEffective, sumEquipmentStats, sumNodeStats, type EffectiveStats } from './formulas.js';
 import type { Stats } from './classes.js';
 
 export interface PotionSettings {
   hpEnabled: boolean;
   hpThreshold: number;  // 0~100
-  mpEnabled: boolean;
-  mpThreshold: number;
 }
 
 export interface CharacterRow {
@@ -18,9 +16,8 @@ export interface CharacterRow {
   exp: number;
   gold: number;
   hp: number;
-  mp: number;
   max_hp: number;
-  max_mp: number;
+  node_points: number;
   stats: Stats;
   location: string;
   last_online_at: string;
@@ -31,15 +28,14 @@ export interface CharacterRow {
 
 export async function loadCharacter(id: number): Promise<CharacterRow | null> {
   const r = await query<CharacterRow>(
-    `SELECT id, user_id, name, class_name, level, exp, gold, hp, mp, max_hp, max_mp,
-            stats, location, last_online_at, potion_settings,
+    `SELECT id, user_id, name, class_name, level, exp, gold, hp, max_hp,
+            node_points, stats, location, last_online_at, potion_settings,
             inventory_slots_bonus, exp_boost_until
      FROM characters WHERE id = $1`,
     [id]
   );
   const row = r.rows[0];
   if (!row) return null;
-  // BIGINT는 pg에서 문자열로 반환됨 → Number로 변환
   row.exp = Number(row.exp);
   row.gold = Number(row.gold);
   return row;
@@ -58,7 +54,6 @@ export async function getEquippedItems(characterId: number) {
      WHERE ce.character_id = $1`,
     [characterId]
   );
-  // 강화 레벨 적용 + 접두사 보너스 합산
   return r.rows.map(row => {
     const result: Partial<Stats> = {};
     if (row.stats) {
@@ -67,7 +62,6 @@ export async function getEquippedItems(characterId: number) {
         result[k as keyof Stats] = Math.round((v as number) * mult);
       }
     }
-    // 접두사 보너스 (str, dex, int, vit, spd, cri는 직접 합산)
     if (row.prefix_stats) {
       for (const [k, v] of Object.entries(row.prefix_stats)) {
         if (['str', 'dex', 'int', 'vit', 'spd', 'cri'].includes(k)) {
@@ -79,8 +73,34 @@ export async function getEquippedItems(characterId: number) {
   });
 }
 
+export async function getNodeEffects(characterId: number) {
+  const r = await query<{ effects: { type: string; stat?: string; key?: string; value: number }[] }>(
+    `SELECT nd.effects FROM character_nodes cn
+     JOIN node_definitions nd ON nd.id = cn.node_id
+     WHERE cn.character_id = $1`,
+    [characterId]
+  );
+  const allEffects: { type: string; stat?: string; key?: string; value: number }[] = [];
+  for (const row of r.rows) {
+    if (Array.isArray(row.effects)) {
+      allEffects.push(...row.effects);
+    }
+  }
+  return allEffects;
+}
+
 export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveStats> {
   const equipped = await getEquippedItems(char.id);
   const bonus = sumEquipmentStats(equipped);
-  return computeEffective(char.stats, char.max_hp, char.max_mp, bonus);
+  const nodeEffects = await getNodeEffects(char.id);
+  const nodeBonus = sumNodeStats(nodeEffects);
+  return computeEffective(char.stats, char.max_hp, bonus, nodeBonus);
+}
+
+// 노드의 패시브 효과 목록 (전투 엔진에서 사용)
+export async function getNodePassives(characterId: number): Promise<{ key: string; value: number }[]> {
+  const effects = await getNodeEffects(characterId);
+  return effects
+    .filter(e => e.type === 'passive' && e.key)
+    .map(e => ({ key: e.key!, value: e.value }));
 }

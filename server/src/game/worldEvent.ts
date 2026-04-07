@@ -2,7 +2,7 @@ import { query } from '../db/pool.js';
 import { loadCharacter, getEffectiveStats } from './character.js';
 import { addItemToInventory, deliverToMailbox } from './inventory.js';
 import { applyExpGain } from './leveling.js';
-import type { CharacterRow } from './character.js';
+// CharacterRow type used inline below
 import type { Server } from 'socket.io';
 
 const ATTACK_COOLDOWN_MS = 300_000; // 5분
@@ -52,52 +52,58 @@ export async function attackBoss(characterId: number) {
 
   // 5분간 전투 시뮬레이션
   const eff = await getEffectiveStats(char);
-  const mageClass = ['mage', 'priest', 'druid'].includes(char.class_name);
+  const mageClass = ['mage', 'cleric'].includes(char.class_name);
   const rawDmg = mageClass ? eff.matk : eff.atk;
 
-  // 보유 스킬 로드
-  const skillsR = await query<{ name: string; damage_mult: number; cooldown_sec: number; mp_cost: number }>(
-    `SELECT s.name, s.damage_mult, s.cooldown_sec, s.mp_cost FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+  // 보유 스킬 로드 — v0.9: 쿨타임=행동횟수, MP 없음
+  const skillsR = await query<{ name: string; damage_mult: number; cooldown_actions: number; flat_damage: number }>(
+    `SELECT s.name, s.damage_mult, s.cooldown_actions, s.flat_damage FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
      WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2 AND s.kind = 'damage'
      ORDER BY s.damage_mult DESC`,
     [characterId, char.level]
   );
   const skills = skillsR.rows;
 
-  // 시뮬레이션: 틱 단위로 5분간 공격
-  const tickSec = eff.tickMs / 1000;
-  const totalTicks = Math.floor(SIMULATION_SECONDS / tickSec);
+  // 게이지 기반 시뮬레이션: 5분간
+  const GAUGE_MAX = 1000;
+  const totalSimTicks = SIMULATION_SECONDS * 10; // 100ms 틱 = 10 per sec
   let totalDamage = 0;
   let critCount = 0;
   let skillUseCount = 0;
-  let mp = char.mp;
-  const maxMp = eff.maxMp;
-  const cooldowns: Record<string, number> = {}; // 스킬명 → 남은 쿨다운(초)
+  let gauge = 0;
+  let actionCount = 0;
+  const cooldowns: Map<string, number> = new Map(); // 스킬명 → 남은 행동 수
   const skillLog: { name: string; damage: number; crit: boolean }[] = [];
 
-  for (let t = 0; t < totalTicks; t++) {
-    const now = t * tickSec;
-    let used = false;
+  for (let t = 0; t < totalSimTicks; t++) {
+    gauge += eff.spd;
+    if (gauge < GAUGE_MAX) continue;
 
-    // 스킬 시도
+    gauge = 0;
+    actionCount++;
+
+    // 쿨다운 감소
+    for (const [skName, cd] of cooldowns) {
+      if (cd > 0) cooldowns.set(skName, cd - 1);
+      if (cd <= 1) cooldowns.delete(skName);
+    }
+
+    let used = false;
     for (const sk of skills) {
-      const cdEnd = cooldowns[sk.name] ?? 0;
-      if (now < cdEnd) continue;
-      if (mp < sk.mp_cost) continue;
+      const cd = cooldowns.get(sk.name) ?? 0;
+      if (cd > 0) continue;
 
       const isCrit = Math.random() * 100 < eff.cri;
-      let dmg = Math.round(rawDmg * sk.damage_mult * (0.9 + Math.random() * 0.2));
+      let dmg = Math.round(rawDmg * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
       if (isCrit) { dmg = Math.round(dmg * 1.5); critCount++; }
       totalDamage += dmg;
-      mp -= sk.mp_cost;
-      cooldowns[sk.name] = now + sk.cooldown_sec;
+      if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
       skillUseCount++;
       if (skillLog.length < 10) skillLog.push({ name: sk.name, damage: dmg, crit: isCrit });
       used = true;
       break;
     }
 
-    // 기본 공격 (스킬 못 썼을 때)
     if (!used) {
       const isCrit = Math.random() * 100 < eff.cri;
       let dmg = Math.round(rawDmg * (0.9 + Math.random() * 0.2));
@@ -105,9 +111,6 @@ export async function attackBoss(characterId: number) {
       totalDamage += dmg;
       if (skillLog.length < 10) skillLog.push({ name: '기본 공격', damage: dmg, crit: isCrit });
     }
-
-    // MP 자연 회복 (틱당 1%)
-    mp = Math.min(maxMp, mp + Math.round(maxMp * 0.01));
   }
 
   const damage = totalDamage;
@@ -147,7 +150,7 @@ export async function attackBoss(characterId: number) {
 
   return {
     damage,
-    totalTicks,
+    totalTicks: actionCount,
     skillUseCount,
     critCount,
     skillLog,
@@ -341,27 +344,18 @@ async function distributeRewards(eventId: number) {
     }
     // 경험치 지급
     if (rw.exp) {
-      const charR = await query<CharacterRow>(
-        'SELECT class_name, level, exp FROM characters WHERE id = $1', [p.character_id]
+      const charR = await query<{ level: number; exp: string }>(
+        'SELECT level, exp FROM characters WHERE id = $1', [p.character_id]
       );
       if (charR.rows[0]) {
         const cr = charR.rows[0];
-        const result = applyExpGain(cr.class_name, cr.level, Number(cr.exp), rw.exp);
+        const result = applyExpGain(cr.level, Number(cr.exp), rw.exp);
         await query(
           `UPDATE characters SET level = $1, exp = $2,
-           stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(stats,
-             '{str}', to_jsonb((stats->>'str')::numeric + $4)),
-             '{dex}', to_jsonb((stats->>'dex')::numeric + $5)),
-             '{int}', to_jsonb((stats->>'int')::numeric + $6)),
-             '{vit}', to_jsonb((stats->>'vit')::numeric + $7)),
-             '{spd}', to_jsonb((stats->>'spd')::numeric + $8)),
-             '{cri}', to_jsonb((stats->>'cri')::numeric + $9)),
-           max_hp = max_hp + $10, max_mp = max_mp + $11
-           WHERE id = $3`,
-          [result.newLevel, result.newExp, p.character_id,
-           result.statGains.str, result.statGains.dex, result.statGains.int,
-           result.statGains.vit, result.statGains.spd, result.statGains.cri,
-           result.statGains.hp, result.statGains.mp]
+           max_hp = max_hp + $3, node_points = node_points + $4
+           WHERE id = $5`,
+          [result.newLevel, result.newExp,
+           result.hpGained, result.nodePointsGained, p.character_id]
         );
       }
     }

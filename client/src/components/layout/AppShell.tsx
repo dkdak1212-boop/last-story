@@ -16,6 +16,7 @@ const NAV = [
   { to: '/world-event', label: '월드이벤트' },
   { to: '/inventory', label: '인벤토리' },
   { to: '/skills', label: '스킬' },
+  { to: '/nodes', label: '노드 트리' },
   { to: '/shop', label: '상점' },
   { to: '/enhance', label: '강화' },
   { to: '/quests', label: '퀘스트' },
@@ -69,8 +70,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>{active.name}</span>
             <span style={{ color: 'var(--text-dim)' }}>Lv.{active.level}</span>
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
-            <span style={{ color: '#5b8ecc', fontWeight: 700 }}>MP {active.mp}/{active.maxMp}</span>
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
+            <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {(active as any).nodePoints ?? 0}</span>
           </div>
         )}
         <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
@@ -124,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 20, gap: 14,
           opacity: 0.7,
         }}>
-          {['warrior', 'swordsman', 'archer', 'rogue', 'assassin', 'mage', 'priest', 'druid'].map((c) => (
+          {['warrior', 'mage', 'cleric', 'rogue'].map((c) => (
             <img key={c} src={`/images/classes/${c}.png`} alt={c} width={32} height={32}
               style={{ imageRendering: 'pixelated', opacity: 0.8 }} />
           ))}

@@ -25,11 +25,12 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
   }
 
   const r = await query<{
-    id: number; name: string; description: string; cooldown_sec: number;
-    mp_cost: number; required_level: number; auto_use: boolean | null;
+    id: number; name: string; description: string; cooldown_actions: number;
+    damage_mult: number; flat_damage: number; effect_type: string;
+    required_level: number; auto_use: boolean | null;
   }>(
-    `SELECT s.id, s.name, s.description, s.cooldown_sec, s.mp_cost, s.required_level,
-            cs.auto_use
+    `SELECT s.id, s.name, s.description, s.cooldown_actions, s.damage_mult, s.flat_damage,
+            s.effect_type, s.required_level, cs.auto_use
      FROM skills s
      LEFT JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $1
      WHERE s.class_name = $2 ORDER BY s.required_level ASC`,
@@ -40,8 +41,10 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
     id: row.id,
     name: row.name,
     description: row.description,
-    cooldown: Number(row.cooldown_sec),
-    mpCost: row.mp_cost,
+    cooldown: row.cooldown_actions,
+    damageMult: Number(row.damage_mult),
+    flatDamage: row.flat_damage,
+    effectType: row.effect_type,
     requiredLevel: row.required_level,
     learned: char.level >= row.required_level,
     autoUse: row.auto_use ?? false,

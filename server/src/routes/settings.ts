@@ -10,8 +10,6 @@ router.use(authRequired);
 const schema = z.object({
   hpEnabled: z.boolean(),
   hpThreshold: z.number().int().min(0).max(100),
-  mpEnabled: z.boolean(),
-  mpThreshold: z.number().int().min(0).max(100),
 });
 
 router.post('/:id/potion-settings', async (req: AuthedRequest, res: Response) => {

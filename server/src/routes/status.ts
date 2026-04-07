@@ -18,7 +18,6 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   const equipBonus = sumEquipmentStats(equipped);
   const effective = await getEffectiveStats(char);
 
-  // 길드 버프
   const gr = await query<{ name: string; stat_buff_pct: number }>(
     `SELECT g.name, g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
     [cid]
@@ -34,23 +33,21 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     expPercent: Math.round((char.exp / expNeed) * 100),
     gold: char.gold,
     hp: char.hp,
-    mp: char.mp,
+    nodePoints: char.node_points,
     className: char.class_name,
     baseStats: char.stats,
     baseMaxHp: char.max_hp,
-    baseMaxMp: char.max_mp,
     equipBonus,
     effective: {
       str: effective.str, dex: effective.dex, int: effective.int,
       vit: effective.vit, spd: effective.spd, cri: effective.cri,
-      maxHp: effective.maxHp, maxMp: effective.maxMp,
+      maxHp: effective.maxHp,
       atk: Math.round(effective.atk),
       matk: Math.round(effective.matk),
       def: Math.round(effective.def),
       mdef: Math.round(effective.mdef),
       dodge: Math.round(effective.dodge * 10) / 10,
       accuracy: Math.round(effective.accuracy * 10) / 10,
-      tickMs: Math.round(effective.tickMs),
     },
     guildBuff: guildBuff ? { name: guildBuff.name, pct: guildBuff.stat_buff_pct } : null,
   });

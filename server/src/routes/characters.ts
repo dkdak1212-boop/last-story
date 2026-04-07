@@ -9,14 +9,14 @@ router.use(authRequired);
 
 const createSchema = z.object({
   name: z.string().min(2).max(12),
-  className: z.enum(['warrior', 'swordsman', 'archer', 'rogue', 'assassin', 'mage', 'priest', 'druid']),
+  className: z.enum(['warrior', 'mage', 'cleric', 'rogue']),
 });
 
 // 목록
 router.get('/', async (req: AuthedRequest, res: Response) => {
   const r = await query(
     `SELECT id, name, class_name AS "className", level, exp, gold,
-            hp, mp, max_hp AS "maxHp", max_mp AS "maxMp",
+            hp, max_hp AS "maxHp", node_points AS "nodePoints",
             stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
             user_id AS "userId", potion_settings AS "potionSettings"
      FROM characters WHERE user_id = $1 ORDER BY id`,
@@ -30,7 +30,7 @@ router.get('/:id', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const r = await query(
     `SELECT id, name, class_name AS "className", level, exp, gold,
-            hp, mp, max_hp AS "maxHp", max_mp AS "maxMp",
+            hp, max_hp AS "maxHp", node_points AS "nodePoints",
             stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
             user_id AS "userId", potion_settings AS "potionSettings"
      FROM characters WHERE id = $1 AND user_id = $2`,
@@ -47,20 +47,19 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   const { name, className } = parsed.data;
 
-  // 이름 중복
   const dup = await query('SELECT 1 FROM characters WHERE name = $1', [name]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(409).json({ error: 'name taken' });
 
   const start = getStartingStats(className);
   const r = await query(
     `INSERT INTO characters
-       (user_id, name, class_name, level, exp, gold, hp, mp, max_hp, max_mp, stats, location, last_online_at)
-     VALUES ($1, $2, $3, 1, 0, 100, $4, $5, $4, $5, $6, 'village', NOW())
+       (user_id, name, class_name, level, exp, gold, hp, max_hp, node_points, stats, location, last_online_at)
+     VALUES ($1, $2, $3, 1, 0, 100, $4, $4, 0, $5, 'village', NOW())
      RETURNING id, name, class_name AS "className", level, exp, gold,
-               hp, mp, max_hp AS "maxHp", max_mp AS "maxMp",
+               hp, max_hp AS "maxHp", node_points AS "nodePoints",
                stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
                user_id AS "userId"`,
-    [req.userId, name, className, start.maxHp, start.maxMp, start.stats]
+    [req.userId, name, className, start.maxHp, start.stats]
   );
   res.json(r.rows[0]);
 });

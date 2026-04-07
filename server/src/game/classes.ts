@@ -1,8 +1,6 @@
-// 클래스별 시작 스탯 (docs/balance.md 참조)
+// 4직업 시작 스탯 — v0.9
 
-export type ClassName =
-  | 'warrior' | 'swordsman' | 'archer' | 'rogue'
-  | 'assassin' | 'mage' | 'priest' | 'druid';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue';
 
 export interface Stats {
   str: number;
@@ -16,18 +14,30 @@ export interface Stats {
 interface ClassStart {
   stats: Stats;
   maxHp: number;
-  maxMp: number;
+  description: string;
 }
 
 export const CLASS_START: Record<ClassName, ClassStart> = {
-  warrior:   { stats: { str: 14, dex: 8,  int: 4,  vit: 16, spd: 90,  cri: 5  }, maxHp: 160, maxMp: 40  },
-  swordsman: { stats: { str: 13, dex: 11, int: 5,  vit: 12, spd: 110, cri: 8  }, maxHp: 130, maxMp: 50  },
-  archer:    { stats: { str: 10, dex: 15, int: 6,  vit: 10, spd: 120, cri: 12 }, maxHp: 110, maxMp: 60  },
-  rogue:     { stats: { str: 9,  dex: 16, int: 7,  vit: 9,  spd: 140, cri: 14 }, maxHp: 100, maxMp: 60  },
-  assassin:  { stats: { str: 12, dex: 14, int: 6,  vit: 8,  spd: 135, cri: 18 }, maxHp: 95,  maxMp: 55  },
-  mage:      { stats: { str: 4,  dex: 7,  int: 18, vit: 8,  spd: 100, cri: 6  }, maxHp: 85,  maxMp: 120 },
-  priest:    { stats: { str: 6,  dex: 8,  int: 15, vit: 11, spd: 95,  cri: 5  }, maxHp: 110, maxMp: 110 },
-  druid:     { stats: { str: 8,  dex: 10, int: 13, vit: 12, spd: 105, cri: 7  }, maxHp: 120, maxMp: 100 },
+  warrior: {
+    stats: { str: 15, dex: 8,  int: 4,  vit: 14, spd: 300, cri: 5  },
+    maxHp: 200,
+    description: '압도적 물리, 흡혈 지속전투',
+  },
+  mage: {
+    stats: { str: 4,  dex: 7,  int: 16, vit: 8,  spd: 250, cri: 6  },
+    maxHp: 120,
+    description: '원소 파괴 + 게이지 조작 제어',
+  },
+  cleric: {
+    stats: { str: 8,  dex: 6,  int: 14, vit: 12, spd: 200, cri: 4  },
+    maxHp: 160,
+    description: '보조/공격 양면, 신성 실드와 심판',
+  },
+  rogue: {
+    stats: { str: 10, dex: 14, int: 5,  vit: 8,  spd: 400, cri: 12 },
+    maxHp: 130,
+    description: '스피드와 제어, 독 스택 연속행동',
+  },
 };
 
 export function getStartingStats(className: ClassName) {

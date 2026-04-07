@@ -21,7 +21,7 @@ import rankingRoutes from './routes/ranking.js';
 import chatRoutes from './routes/chat.js';
 import settingsRoutes from './routes/settings.js';
 import guildsRoutes from './routes/guilds.js';
-import partyRoutes from './routes/party.js';
+// party removed in v0.9
 import marketplaceRoutes, { settleExpiredAuctions } from './routes/marketplace.js';
 import pvpRoutes from './routes/pvp.js';
 import premiumRoutes from './routes/premium.js';
@@ -38,6 +38,8 @@ import dropLogRoutes from './routes/dropLog.js';
 import { initWebSocket } from './ws/index.js';
 import { setIo } from './ws/io.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
+import nodeRoutes from './routes/nodes.js';
+import { restoreCombatSessions } from './combat/engine.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
 console.log('[env] PORT =', process.env.PORT);
@@ -63,7 +65,7 @@ app.use('/api/characters', mailboxRoutes);
 app.use('/api/characters', questsRoutes);
 app.use('/api/characters', settingsRoutes);
 app.use('/api/guilds', guildsRoutes);
-app.use('/api/party', partyRoutes);
+// party removed in v0.9
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/pvp', pvpRoutes);
 app.use('/api/premium', premiumRoutes);
@@ -81,6 +83,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/world-event', worldEventRoutes);
 app.use('/api/prefixes', prefixRoutes);
 app.use('/api/drop-log', dropLogRoutes);
+app.use('/api/characters', nodeRoutes);
 
 // 프로덕션: 빌드된 클라이언트 정적 파일 서빙
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +105,8 @@ setIo(io);
 
 httpServer.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
+  // 기존 전투 세션 복구
+  restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
 });
 
 // 경매 만료 정산 (1분마다)

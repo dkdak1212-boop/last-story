@@ -16,7 +16,7 @@ const MailboxScreen = lazy(() => import('./screens/MailboxScreen').then((m) => (
 const RankingScreen = lazy(() => import('./screens/RankingScreen').then((m) => ({ default: m.RankingScreen })));
 const QuestScreen = lazy(() => import('./screens/QuestScreen').then((m) => ({ default: m.QuestScreen })));
 const GuildScreen = lazy(() => import('./screens/GuildScreen').then((m) => ({ default: m.GuildScreen })));
-const PartyScreen = lazy(() => import('./screens/PartyScreen').then((m) => ({ default: m.PartyScreen })));
+const NodeTreeScreen = lazy(() => import('./screens/NodeTreeScreen').then((m) => ({ default: m.NodeTreeScreen })));
 const MarketplaceScreen = lazy(() => import('./screens/MarketplaceScreen').then((m) => ({ default: m.MarketplaceScreen })));
 const PvPScreen = lazy(() => import('./screens/PvPScreen').then((m) => ({ default: m.PvPScreen })));
 const PremiumShopScreen = lazy(() => import('./screens/PremiumShopScreen').then((m) => ({ default: m.PremiumShopScreen })));
@@ -57,7 +57,7 @@ export default function App() {
                     <Route path="/ranking" element={<RankingScreen />} />
                     <Route path="/quests" element={<QuestScreen />} />
                     <Route path="/guild" element={<GuildScreen />} />
-                    <Route path="/party" element={<PartyScreen />} />
+                    <Route path="/nodes" element={<NodeTreeScreen />} />
                     <Route path="/marketplace" element={<MarketplaceScreen />} />
                     <Route path="/pvp" element={<PvPScreen />} />
                     <Route path="/premium" element={<PremiumShopScreen />} />

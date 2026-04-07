@@ -5,14 +5,10 @@ import { ClassIcon } from '../components/ui/ClassIcon';
 import type { ClassName } from '../types';
 
 const CLASSES: { name: ClassName; label: string; desc: string }[] = [
-  { name: 'warrior', label: '전사', desc: '근접 탱커 · 피격 시 강해지는 광전사' },
-  { name: 'swordsman', label: '검사', desc: '근접 딜러 · 균형형 콤보' },
-  { name: 'archer', label: '궁수', desc: '원거리 물리 · 치명타 특화' },
-  { name: 'rogue', label: '도적', desc: '근접 기동 · 회피·크리' },
-  { name: 'assassin', label: '암살자', desc: '근접 버스트 · 유리대포' },
-  { name: 'mage', label: '마법사', desc: '원거리 마법 · 광역기' },
-  { name: 'priest', label: '사제', desc: '힐러/서포터 · 회복·버프' },
-  { name: 'druid', label: '드루이드', desc: '자연계 하이브리드' },
+  { name: 'warrior', label: '전사', desc: '압도적 물리, 흡혈 지속전투' },
+  { name: 'mage', label: '마법사', desc: '원소 파괴 + 게이지 조작 제어' },
+  { name: 'cleric', label: '성직자', desc: '보조/공격 양면, 신성 실드와 심판' },
+  { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
 ];
 
 export function CharacterSelectScreen() {

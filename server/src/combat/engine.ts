@@ -1,27 +1,56 @@
-// 전투 틱 처리 엔진
+// v0.9 게이지 기반 전투 엔진
 import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
-import { loadCharacter, getEffectiveStats } from '../game/character.js';
+import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { trackMonsterKill } from '../routes/quests.js';
 import type { Stats } from '../game/classes.js';
+// StatusEffect and CombatSnapshot types defined locally to avoid import path issues
 
-interface SessionRow {
-  character_id: number;
-  field_id: number;
-  monster_id: number | null;
-  monster_hp: number;
-  monster_max_hp: number;
-  monster_stats: EffectiveStats | Record<string, unknown>;
-  player_hp: number;
-  player_mp: number;
-  player_stats: EffectiveStats | Record<string, unknown>;
-  skill_cooldowns: Record<string, string>;
-  log: string[];
-  next_player_action_at: string;
-  next_monster_action_at: string;
+interface StatusEffect {
+  id: string;
+  type: string;
+  value: number;
+  remainingActions: number;
+  source: 'player' | 'monster';
 }
+
+interface CombatSkillInfoLocal {
+  id: number;
+  name: string;
+  cooldownMax: number;
+  cooldownLeft: number;
+  usable: boolean;
+}
+
+interface CombatSnapshot {
+  inCombat: boolean;
+  fieldName?: string;
+  autoMode: boolean;
+  waitingInput: boolean;
+  player: {
+    hp: number; maxHp: number; gauge: number; speed: number;
+    effects: StatusEffect[];
+  };
+  monster?: {
+    name: string; hp: number; maxHp: number; level: number;
+    gauge: number; speed: number; effects: StatusEffect[];
+  };
+  skills: CombatSkillInfoLocal[];
+  log: string[];
+  potions?: { hpSmall: number; hpMid: number };
+  serverTime: number;
+}
+import { getIo } from '../ws/io.js';
+
+const GAUGE_MAX = 1000;
+const MAX_LOG = 30;
+const INPUT_TIMEOUT_MS = 3000;
+
+// ── 타입 ──
+
+// SessionRow removed — in-memory only now
 
 interface MonsterDef {
   id: number;
@@ -37,15 +66,66 @@ interface MonsterDef {
 interface SkillDef {
   id: number;
   name: string;
-  cooldown_sec: number;
-  mp_cost: number;
   damage_mult: number;
   kind: string;
-  target: string;
+  cooldown_actions: number;
+  flat_damage: number;
+  effect_type: string;
+  effect_value: number;
+  effect_duration: number;
   required_level: number;
 }
 
-const MAX_LOG = 50;
+// ── 활성 세션 관리 (인메모리) ──
+
+interface ActiveSession {
+  characterId: number;
+  fieldId: number;
+  monsterId: number | null;
+  monsterName: string;
+  monsterLevel: number;
+  monsterHp: number;
+  monsterMaxHp: number;
+  monsterSpeed: number;
+  monsterGauge: number;
+  monsterStats: EffectiveStats;
+  playerHp: number;
+  playerMaxHp: number;
+  playerGauge: number;
+  playerSpeed: number;
+  playerStats: EffectiveStats;
+  autoMode: boolean;
+  waitingInput: boolean;
+  waitingSince: number;
+  skillCooldowns: Map<number, number>;  // skillId → remaining actions
+  statusEffects: StatusEffect[];
+  actionCount: number;
+  log: string[];
+  skills: SkillDef[];
+  passives: { key: string; value: number }[];
+  fieldName: string;
+  dirty: boolean;
+  userId: number;
+}
+
+const activeSessions = new Map<number, ActiveSession>();
+let combatInterval: ReturnType<typeof setInterval> | null = null;
+
+// ── 헬퍼 ──
+
+function monsterToEffective(m: MonsterDef): EffectiveStats {
+  const s = m.stats;
+  return {
+    str: s.str, dex: s.dex, int: s.int, vit: s.vit, spd: s.spd, cri: s.cri,
+    maxHp: m.max_hp,
+    atk: s.str * 1.0,
+    matk: s.int * 1.2,
+    def: s.vit * 0.8,
+    mdef: s.int * 0.5,
+    dodge: s.dex * 0.4,
+    accuracy: 80 + s.dex * 0.5,
+  };
+}
 
 async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   const fr = await query<{ monster_pool: number[] }>('SELECT monster_pool FROM fields WHERE id = $1', [fieldId]);
@@ -55,37 +135,42 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   const mid = pool[Math.floor(Math.random() * pool.length)];
   const mr = await query<MonsterDef>(
     `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table
-     FROM monsters WHERE id = $1`,
-    [mid]
+     FROM monsters WHERE id = $1`, [mid]
   );
   return mr.rows[0] || null;
 }
 
-function monsterToEffective(m: MonsterDef): EffectiveStats {
-  const s = m.stats;
-  return {
-    str: s.str, dex: s.dex, int: s.int, vit: s.vit, spd: s.spd, cri: s.cri,
-    maxHp: m.max_hp, maxMp: 0,
-    atk: s.str * 1.0,
-    matk: s.int * 1.2,
-    def: s.vit * 0.8,
-    mdef: s.int * 0.5,
-    dodge: s.dex * 0.4,
-    accuracy: 80 + s.dex * 0.5,
-    tickMs: Math.max(500, Math.min(5000, 2000 / (s.spd / 100))),
-  };
-}
-
-async function getAutoSkills(characterId: number, level: number): Promise<SkillDef[]> {
+async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
   const r = await query<SkillDef>(
-    `SELECT s.id, s.name, s.cooldown_sec, s.mp_cost, s.damage_mult, s.kind, s.target, s.required_level
-     FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
-     ORDER BY s.damage_mult DESC`,
-    [characterId, level]
+    `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
+            s.effect_type, s.effect_value, s.effect_duration, s.required_level
+     FROM skills s
+     WHERE s.class_name = $1 AND s.required_level <= $2
+     ORDER BY s.required_level ASC`,
+    [className, level]
   );
+  // 자동 학습
+  for (const sk of r.rows) {
+    await query(
+      'INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, TRUE) ON CONFLICT DO NOTHING',
+      [characterId, sk.id]
+    );
+  }
   return r.rows;
 }
+
+function rollDrops(m: MonsterDef): { itemId: number; qty: number }[] {
+  const drops: { itemId: number; qty: number }[] = [];
+  for (const d of m.drop_table || []) {
+    if (Math.random() < d.chance) {
+      const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
+      if (qty > 0) drops.push({ itemId: d.itemId, qty });
+    }
+  }
+  return drops;
+}
+
+// countPotions removed — potions handled inline
 
 async function getPotionInInventory(characterId: number, itemIds: number[]) {
   const r = await query<{ id: number; item_id: number; quantity: number }>(
@@ -102,341 +187,829 @@ async function consumeOneFromSlot(slotId: number) {
   await query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [slotId]);
 }
 
-function rollDrops(m: MonsterDef): { itemId: number; qty: number }[] {
-  const drops: { itemId: number; qty: number }[] = [];
-  for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance) {
-      const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
-      if (qty > 0) drops.push({ itemId: d.itemId, qty });
+function addLog(s: ActiveSession, msg: string) {
+  s.log.push(msg);
+  if (s.log.length > MAX_LOG) s.log.shift();
+  s.dirty = true;
+}
+
+function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
+  s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
+}
+
+function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string): boolean {
+  return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
+}
+
+function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster') {
+  for (const eff of s.statusEffects) {
+    if (eff.source === actor && eff.remainingActions > 0) {
+      eff.remainingActions--;
     }
   }
-  return drops;
+  s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
 }
 
-async function spawnMonster(characterId: number, fieldId: number, now: Date) {
-  const m = await pickRandomMonster(fieldId);
-  if (!m) return null;
-  const monsterStats = monsterToEffective(m);
-  await query(
-    `UPDATE combat_sessions
-     SET monster_id=$1, monster_hp=$2, monster_max_hp=$2, monster_stats=$3,
-         next_monster_action_at=$4, updated_at=$5
-     WHERE character_id=$6`,
-    [m.id, m.max_hp, monsterStats, new Date(now.getTime() + monsterStats.tickMs).toISOString(), now.toISOString(), characterId]
+// ── 도트 데미지 처리 ──
+function processDots(s: ActiveSession, target: 'player' | 'monster') {
+  const dots = s.statusEffects.filter(e =>
+    (e.type === 'dot' || e.type === 'poison') &&
+    ((target === 'monster' && e.source === 'player') || (target === 'player' && e.source === 'monster')) &&
+    e.remainingActions > 0
   );
-  return { monster: m, stats: monsterStats };
-}
-
-export interface CombatState {
-  inCombat: boolean;
-  fieldName?: string;
-  player: { hp: number; maxHp: number; mp: number; maxMp: number };
-  monster?: { name: string; hp: number; maxHp: number; level: number };
-  log: string[];
-  now?: number;
-  nextPlayerAt?: number;
-  nextMonsterAt?: number;
-  playerTickMs?: number;
-  monsterTickMs?: number;
-  potions?: { hpSmall: number; hpMid: number; mpSmall: number; mpMid: number };
-}
-
-async function countPotions(characterId: number) {
-  const r = await query<{ item_id: number; total: string }>(
-    `SELECT item_id, SUM(quantity)::text AS total FROM character_inventory
-     WHERE character_id = $1 AND item_id IN (100,101,102,103) GROUP BY item_id`,
-    [characterId]
-  );
-  const counts = { hpSmall: 0, hpMid: 0, mpSmall: 0, mpMid: 0 };
-  for (const row of r.rows) {
-    const n = Number(row.total);
-    if (row.item_id === 100) counts.hpSmall = n;
-    else if (row.item_id === 102) counts.hpMid = n;
-    else if (row.item_id === 101) counts.mpSmall = n;
-    else if (row.item_id === 103) counts.mpMid = n;
+  for (const dot of dots) {
+    const dmg = Math.round(dot.value);
+    if (dmg <= 0) continue;
+    if (target === 'monster') {
+      s.monsterHp -= dmg;
+      addLog(s, `[도트] 몬스터에게 ${dmg} 데미지`);
+    } else {
+      s.playerHp -= dmg;
+      addLog(s, `[도트] ${dmg} 데미지를 받았다`);
+    }
   }
-  return counts;
 }
 
-export async function processCombatTick(characterId: number): Promise<CombatState> {
+// ── 스킬 실행 ──
+async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
+  const useMatk = s.playerStats.matk > s.playerStats.atk;
+
+  // 쿨다운 설정
+  if (skill.cooldown_actions > 0) {
+    s.skillCooldowns.set(skill.id, skill.cooldown_actions);
+  }
+
+  switch (skill.effect_type) {
+    case 'damage':
+    case 'self_damage_pct':
+    case 'lifesteal':
+    case 'crit_bonus':
+    case 'hp_pct_damage': {
+      const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage, criBonus);
+      if (d.miss) {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      } else {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
+
+        if (skill.effect_type === 'lifesteal') {
+          const heal = Math.round(d.damage * skill.effect_value / 100);
+          s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+          addLog(s, `[${skill.name}] HP +${heal} 흡혈`);
+        }
+        if (skill.effect_type === 'hp_pct_damage') {
+          const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
+          s.monsterHp -= extra;
+          addLog(s, `[${skill.name}] 추가 고정 ${extra} 데미지`);
+        }
+      }
+      if (skill.effect_type === 'self_damage_pct') {
+        const cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
+        s.playerHp -= cost;
+        addLog(s, `[${skill.name}] 자신 HP -${cost}`);
+      }
+      break;
+    }
+
+    case 'multi_hit': {
+      const hits = Math.round(skill.effect_value);
+      for (let i = 0; i < hits; i++) {
+        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+        if (d.miss) {
+          addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
+        } else {
+          s.monsterHp -= d.damage;
+          addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}${d.crit ? '!' : ''}`);
+        }
+      }
+      break;
+    }
+
+    case 'multi_hit_poison': {
+      const hits = Math.round(skill.effect_value);
+      const dotDmg = Math.round(s.playerStats.atk * 0.2);
+      for (let i = 0; i < hits; i++) {
+        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
+        if (!d.miss) {
+          s.monsterHp -= d.damage;
+          addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}`);
+          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player' });
+        }
+      }
+      break;
+    }
+
+    case 'dot': {
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        const dotDmg = Math.round(s.playerStats.atk * 0.3);
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
+        addLog(s, `[${skill.name}] 도트 ${skill.effect_duration}행동`);
+      } else {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      }
+      break;
+    }
+
+    case 'poison': {
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] ${d.damage} 데미지`);
+      }
+      const dotDmg = Math.round(s.playerStats.atk * 0.25);
+      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
+      // 스피드 감소
+      if (skill.effect_value > 0) {
+        addEffect(s, { type: 'speed_mod', value: -skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+        addLog(s, `[${skill.name}] 독 + 스피드 감소`);
+      }
+      break;
+    }
+
+    case 'poison_burst': {
+      const poisons = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player');
+      let totalBurst = 0;
+      for (const p of poisons) {
+        totalBurst += Math.round(p.value * skill.effect_value / 100);
+      }
+      if (totalBurst > 0) {
+        s.monsterHp -= totalBurst;
+        addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지`);
+        s.statusEffects = s.statusEffects.filter(e => !(e.type === 'poison' && e.source === 'player'));
+      } else {
+        addLog(s, `[${skill.name}] 독이 없어 효과 없음`);
+      }
+      break;
+    }
+
+    case 'speed_mod':
+    case 'self_speed_mod': {
+      if (skill.damage_mult > 0) {
+        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+        if (!d.miss) {
+          s.monsterHp -= d.damage;
+          addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        }
+      }
+      if (skill.effect_type === 'speed_mod') {
+        addEffect(s, { type: 'speed_mod', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+        addLog(s, `[${skill.name}] 적 스피드 ${skill.effect_value}% ${skill.effect_duration}행동`);
+      } else {
+        addEffect(s, { type: 'speed_mod', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // affects player
+        addLog(s, `[${skill.name}] 자신 스피드 ${skill.effect_value}% ${skill.effect_duration}행동`);
+      }
+      break;
+    }
+
+    case 'gauge_reset': {
+      s.monsterGauge = 0;
+      addLog(s, `[${skill.name}] 적 게이지 리셋!`);
+      if (Math.random() * 100 < skill.effect_value) {
+        addEffect(s, { type: 'stun', value: 0, remainingActions: 1, source: 'player' });
+        addLog(s, `[${skill.name}] 조작불능!`);
+      }
+      break;
+    }
+
+    case 'stun': {
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        addEffect(s, { type: 'stun', value: 0, remainingActions: skill.effect_duration, source: 'player' });
+        addLog(s, `[${skill.name}] 스턴!`);
+      } else {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      }
+      break;
+    }
+
+    case 'gauge_freeze': {
+      addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: skill.effect_duration, source: 'player' });
+      addLog(s, `[${skill.name}] 적 게이지 동결 ${skill.effect_duration}행동!`);
+      break;
+    }
+
+    case 'gauge_fill': {
+      s.playerGauge = GAUGE_MAX;
+      addLog(s, `[${skill.name}] 게이지 충전! 연속행동!`);
+      break;
+    }
+
+    case 'accuracy_debuff': {
+      s.monsterGauge = Math.round(s.monsterGauge * 0.5);
+      addEffect(s, { type: 'accuracy_debuff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+      addLog(s, `[${skill.name}] 적 게이지 50% 감소, 명중률 감소!`);
+      break;
+    }
+
+    case 'damage_reduce': {
+      addEffect(s, { type: 'damage_reduce', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // protects player
+      addLog(s, `[${skill.name}] 받는 데미지 ${skill.effect_value}% 감소!`);
+      break;
+    }
+
+    case 'damage_reflect': {
+      addEffect(s, { type: 'damage_reflect', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 데미지 ${skill.effect_value}% 반사!`);
+      break;
+    }
+
+    case 'invincible': {
+      s.playerHp = Math.max(1, s.playerHp);
+      addEffect(s, { type: 'invincible', value: 0, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 무적 ${skill.effect_duration}행동!`);
+      break;
+    }
+
+    case 'shield': {
+      const shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
+      break;
+    }
+
+    case 'shield_break': {
+      s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] 실드 파괴 + ${d.damage} 데미지${d.crit ? '!' : ''}`);
+      }
+      break;
+    }
+
+    case 'heal_pct': {
+      const heal = Math.round(s.playerMaxHp * skill.effect_value / 100);
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      addLog(s, `[${skill.name}] HP +${heal} 회복!`);
+      break;
+    }
+
+    case 'resurrect': {
+      addEffect(s, { type: 'resurrect', value: skill.effect_value, remainingActions: 999, source: 'monster' });
+      addLog(s, `[${skill.name}] 부활 준비!`);
+      break;
+    }
+
+    default:
+      addLog(s, `[${skill.name}] 사용!`);
+  }
+}
+
+// ── 자동 행동 AI ──
+async function autoAction(s: ActiveSession): Promise<void> {
+  // 1. HP 30% 이하 → 포션
+  const ps = { hpEnabled: true, hpThreshold: 30 };
+  if (ps.hpEnabled && s.playerHp / s.playerMaxHp * 100 < ps.hpThreshold) {
+    const pot = await getPotionInInventory(s.characterId, [102, 100]);
+    if (pot) {
+      const heal = pot.item_id === 102 ? 150 : 50;
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      await consumeOneFromSlot(pot.id);
+      addLog(s, `체력 물약 사용 — HP +${heal}`);
+      return;
+    }
+    // 성직자 치유
+    const healSkill = s.skills.find(sk => sk.effect_type === 'heal_pct' && !s.skillCooldowns.has(sk.id));
+    if (healSkill) {
+      await executeSkill(s, healSkill);
+      return;
+    }
+  }
+
+  // 2. 가장 강한 스킬
+  const available = s.skills
+    .filter(sk => {
+      if (sk.cooldown_actions === 0) return true; // 기본기
+      const cd = s.skillCooldowns.get(sk.id);
+      return !cd || cd <= 0;
+    })
+    .sort((a, b) => b.damage_mult - a.damage_mult);
+
+  // 기본기가 아닌 스킬 우선
+  const nonBasic = available.find(sk => sk.cooldown_actions > 0);
+  if (nonBasic) {
+    await executeSkill(s, nonBasic);
+    return;
+  }
+
+  // 3. 기본 공격 (첫 번째 스킬 = 기본기)
+  const basic = available[0];
+  if (basic) {
+    await executeSkill(s, basic);
+    return;
+  }
+
+  // fallback
+  const d = calcDamage(s.playerStats, s.monsterStats, 1.0, false);
+  if (d.miss) addLog(s, '기본 공격 빗나감!');
+  else {
+    s.monsterHp -= d.damage;
+    addLog(s, `${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
+  }
+}
+
+// ── 몬스터 행동 ──
+function monsterAction(s: ActiveSession): void {
+  // 스턴 체크
+  if (hasEffect(s, 'player', 'stun')) {
+    addLog(s, '몬스터가 기절 상태!');
+    tickDownEffects(s, 'player'); // monster's debuffs from player
+    return;
+  }
+
+  const d = calcDamage(s.monsterStats, s.playerStats, 1.0, false);
+
+  // 명중률 디버프
+  const accDebuff = s.statusEffects.find(e => e.type === 'accuracy_debuff' && e.source === 'player');
+  if (accDebuff && Math.random() * 100 < accDebuff.value) {
+    addLog(s, '몬스터 공격 빗나감! (연막)');
+    tickDownEffects(s, 'player');
+    return;
+  }
+
+  if (d.miss) {
+    addLog(s, '몬스터 공격 빗나감!');
+  } else {
+    let dmg = d.damage;
+
+    // 무적 체크
+    if (hasEffect(s, 'monster', 'invincible')) {
+      addLog(s, `무적! 데미지 무효화`);
+      tickDownEffects(s, 'player');
+      return;
+    }
+
+    // 실드 체크
+    const shield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster');
+    if (shield && shield.value > 0) {
+      if (shield.value >= dmg) {
+        shield.value -= dmg;
+        addLog(s, `실드가 ${dmg} 흡수 (잔여: ${shield.value})`);
+        dmg = 0;
+      } else {
+        dmg -= shield.value;
+        addLog(s, `실드 파괴! 잔여 ${dmg} 데미지`);
+        shield.value = 0;
+        shield.remainingActions = 0;
+      }
+    }
+
+    // 데미지 감소
+    const reduce = s.statusEffects.find(e => e.type === 'damage_reduce' && e.source === 'monster');
+    if (reduce && dmg > 0) {
+      dmg = Math.round(dmg * (1 - reduce.value / 100));
+    }
+
+    if (dmg > 0) {
+      s.playerHp -= dmg;
+      addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+    }
+
+    // 반사
+    const reflect = s.statusEffects.find(e => e.type === 'damage_reflect' && e.source === 'monster');
+    if (reflect && d.damage > 0) {
+      const reflected = Math.round(d.damage * reflect.value / 100);
+      s.monsterHp -= reflected;
+      addLog(s, `반사! 몬스터에게 ${reflected} 데미지`);
+    }
+  }
+
+  tickDownEffects(s, 'player');
+}
+
+// ── 몬스터 처치 ──
+async function handleMonsterDeath(s: ActiveSession): Promise<void> {
+  const mr = await query<MonsterDef>(
+    'SELECT id, name, level, max_hp, exp_reward, gold_reward, drop_table, stats FROM monsters WHERE id = $1',
+    [s.monsterId]
+  );
+  const m = mr.rows[0];
+  if (!m) return;
+
+  addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${m.gold_reward}G`);
+
+  const char = await loadCharacter(s.characterId);
+  if (!char) return;
+
+  const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
+  const boostedExp = boostActive ? Math.floor(m.exp_reward * 1.5) : m.exp_reward;
+  const result = applyExpGain(char.level, char.exp, boostedExp);
+
+  if (result.levelsGained > 0) {
+    addLog(s, `레벨업! Lv.${result.newLevel}`);
+    await query(
+      `UPDATE characters SET level=$1, exp=$2, gold=gold+$3,
+              max_hp=max_hp+$4, hp=max_hp+$4, node_points=node_points+$5
+       WHERE id=$6`,
+      [result.newLevel, result.newExp, m.gold_reward,
+       result.hpGained, result.nodePointsGained, s.characterId]
+    );
+    s.playerMaxHp += result.hpGained;
+    s.playerHp = s.playerMaxHp;
+    s.playerStats = await getEffectiveStats({ ...char, level: result.newLevel, max_hp: s.playerMaxHp } as any);
+    s.playerSpeed = s.playerStats.spd;
+    // 새 스킬 학습
+    s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
+  } else {
+    await query('UPDATE characters SET exp=$1, gold=gold+$2 WHERE id=$3',
+      [result.newExp, m.gold_reward, s.characterId]);
+  }
+
+  await trackMonsterKill(s.characterId, s.monsterId!);
+
+  const drops = rollDrops(m);
+  for (const drop of drops) {
+    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
+    if (overflow > 0) {
+      await deliverToMailbox(s.characterId, '가방 초과분', '가방이 가득 차서 우편으로 배송되었습니다.', drop.itemId, overflow);
+    }
+    addLog(s, '아이템 획득!');
+  }
+
+  // 다음 몬스터 스폰
+  await spawnMonsterForSession(s);
+}
+
+async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
+  const m = await pickRandomMonster(s.fieldId);
+  if (!m) {
+    s.monsterId = null;
+    return;
+  }
+  s.monsterId = m.id;
+  s.monsterName = m.name;
+  s.monsterLevel = m.level;
+  s.monsterHp = m.max_hp;
+  s.monsterMaxHp = m.max_hp;
+  s.monsterStats = monsterToEffective(m);
+  s.monsterSpeed = s.monsterStats.spd;
+  s.monsterGauge = 0;
+  // 몬스터 관련 디버프 초기화
+  s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
+  addLog(s, `${m.name}이(가) 나타났다!`);
+}
+
+// ── 플레이어 사망 ──
+async function handlePlayerDeath(s: ActiveSession): Promise<void> {
+  // 부활 체크
+  const resurrect = s.statusEffects.find(e => e.type === 'resurrect' && e.source === 'monster');
+  if (resurrect) {
+    s.playerHp = Math.round(s.playerMaxHp * resurrect.value / 100);
+    s.statusEffects = s.statusEffects.filter(e => e !== resurrect);
+    addLog(s, `부활의 기적! HP ${s.playerHp} 회복!`);
+    return;
+  }
+
+  addLog(s, '쓰러졌다... 마을로 돌아간다.');
+  s.playerHp = Math.round(s.playerMaxHp * 0.25);
+  await query(
+    'UPDATE characters SET hp=$1, location=$2, last_online_at=NOW() WHERE id=$3',
+    [s.playerHp, 'village', s.characterId]
+  );
+  await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
+
+  // 최종 상태 push
+  pushCombatState(s, false);
+  activeSessions.delete(s.characterId);
+}
+
+// ── 메인 틱 루프 ──
+async function combatTick(): Promise<void> {
+  for (const [charId, s] of activeSessions) {
+    try {
+      if (!s.monsterId) continue;
+
+      // 스피드 수정 적용
+      let effectivePlayerSpeed = s.playerSpeed;
+      let effectiveMonsterSpeed = s.monsterSpeed;
+      for (const eff of s.statusEffects) {
+        if (eff.type === 'speed_mod') {
+          if (eff.source === 'player') {
+            // player가 건 디버프 → 몬스터 스피드 감소
+            effectiveMonsterSpeed = Math.round(effectiveMonsterSpeed * (1 + eff.value / 100));
+          } else {
+            // monster source → 플레이어 스피드 감소 (self_speed_mod)
+            effectivePlayerSpeed = Math.round(effectivePlayerSpeed * (1 + eff.value / 100));
+          }
+        }
+      }
+      effectivePlayerSpeed = Math.max(10, effectivePlayerSpeed);
+      effectiveMonsterSpeed = Math.max(10, effectiveMonsterSpeed);
+
+      // 게이지 충전
+      if (!s.waitingInput) {
+        s.playerGauge += effectivePlayerSpeed;
+      }
+
+      // 몬스터 게이지 동결 체크
+      if (!hasEffect(s, 'player', 'gauge_freeze') && !hasEffect(s, 'player', 'stun')) {
+        s.monsterGauge += effectiveMonsterSpeed;
+      }
+
+      // 몬스터 행동
+      if (s.monsterGauge >= GAUGE_MAX) {
+        monsterAction(s);
+        s.monsterGauge = 0;
+        processDots(s, 'monster');
+        s.dirty = true;
+
+        if (s.playerHp <= 0) {
+          await handlePlayerDeath(s);
+          continue;
+        }
+      }
+
+      // 플레이어 행동
+      if (s.playerGauge >= GAUGE_MAX) {
+        if (s.autoMode) {
+          s.playerGauge = 0;
+          s.actionCount++;
+
+          // 쿨다운 감소
+          for (const [skId, cd] of s.skillCooldowns) {
+            if (cd > 0) s.skillCooldowns.set(skId, cd - 1);
+            if (cd <= 1) s.skillCooldowns.delete(skId);
+          }
+
+          await autoAction(s);
+          tickDownEffects(s, 'monster');
+          processDots(s, 'player');
+          s.dirty = true;
+
+          // 몬스터 처치 체크
+          if (s.monsterHp <= 0) {
+            await handleMonsterDeath(s);
+          }
+          // 플레이어 사망 체크
+          if (s.playerHp <= 0) {
+            await handlePlayerDeath(s);
+            continue;
+          }
+        } else {
+          // 수동 모드: 입력 대기
+          if (!s.waitingInput) {
+            s.waitingInput = true;
+            s.waitingSince = Date.now();
+            s.playerGauge = GAUGE_MAX;
+            s.dirty = true;
+          } else if (Date.now() - s.waitingSince > INPUT_TIMEOUT_MS) {
+            // 타임아웃 → 기본 공격
+            s.waitingInput = false;
+            s.playerGauge = 0;
+            s.actionCount++;
+            for (const [skId, cd] of s.skillCooldowns) {
+              if (cd > 0) s.skillCooldowns.set(skId, cd - 1);
+              if (cd <= 1) s.skillCooldowns.delete(skId);
+            }
+            const basic = s.skills.find(sk => sk.cooldown_actions === 0);
+            if (basic) await executeSkill(s, basic);
+            tickDownEffects(s, 'monster');
+            processDots(s, 'player');
+            s.dirty = true;
+            if (s.monsterHp <= 0) await handleMonsterDeath(s);
+            if (s.playerHp <= 0) { await handlePlayerDeath(s); continue; }
+          }
+        }
+      }
+
+      // 상태 push (dirty일 때만)
+      if (s.dirty) {
+        pushCombatState(s, true);
+        s.dirty = false;
+      }
+    } catch (err) {
+      console.error(`[combat] tick error for char ${charId}:`, err);
+    }
+  }
+}
+
+// ── WebSocket Push ──
+function pushCombatState(s: ActiveSession, inCombat: boolean): void {
+  const io = getIo();
+  if (!io) return;
+
+  const snapshot: CombatSnapshot = {
+    inCombat,
+    fieldName: s.fieldName,
+    autoMode: s.autoMode,
+    waitingInput: s.waitingInput,
+    player: {
+      hp: Math.max(0, s.playerHp),
+      maxHp: s.playerMaxHp,
+      gauge: Math.min(GAUGE_MAX, s.playerGauge),
+      speed: s.playerSpeed,
+      effects: s.statusEffects.filter(e => e.source === 'monster'),
+    },
+    monster: s.monsterId ? {
+      name: s.monsterName,
+      hp: Math.max(0, s.monsterHp),
+      maxHp: s.monsterMaxHp,
+      level: s.monsterLevel,
+      gauge: Math.min(GAUGE_MAX, s.monsterGauge),
+      speed: s.monsterSpeed,
+      effects: s.statusEffects.filter(e => e.source === 'player'),
+    } : undefined,
+    skills: s.skills.map(sk => ({
+      id: sk.id,
+      name: sk.name,
+      cooldownMax: sk.cooldown_actions,
+      cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
+      usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
+    })),
+    log: s.log,
+    potions: undefined, // lazy load
+    serverTime: Date.now(),
+  };
+
+  // 해당 유저의 소켓에만 emit
+  io.emit(`combat:${s.characterId}`, snapshot);
+}
+
+// ── 공개 API ──
+
+export async function startCombatSession(characterId: number, fieldId: number): Promise<void> {
+  // 기존 세션 정리
+  activeSessions.delete(characterId);
+
   const char = await loadCharacter(characterId);
   if (!char) throw new Error('character not found');
 
-  if (!char.location.startsWith('field:')) {
-    return {
-      inCombat: false,
-      player: { hp: char.hp, maxHp: char.max_hp, mp: char.mp, maxMp: char.max_mp },
-      log: [],
-    };
-  }
+  const fr = await query<{ name: string }>('SELECT name FROM fields WHERE id = $1', [fieldId]);
+  const fieldName = fr.rows[0]?.name || '알 수 없는 필드';
 
-  // 세션 로드
-  const sr = await query<SessionRow>('SELECT * FROM combat_sessions WHERE character_id = $1', [characterId]);
-  if (sr.rowCount === 0) {
-    return {
-      inCombat: false,
-      player: { hp: char.hp, maxHp: char.max_hp, mp: char.mp, maxMp: char.max_mp },
-      log: [],
-    };
-  }
-  const session = sr.rows[0];
-  const fr = await query<{ name: string }>('SELECT name FROM fields WHERE id = $1', [session.field_id]);
-  const fieldName = fr.rows[0]?.name;
+  const eff = await getEffectiveStats(char);
+  const skills = await getCharSkills(characterId, char.class_name, char.level);
+  const passives = await getNodePassives(characterId);
 
-  const now = new Date();
-  let pStats = session.player_stats as EffectiveStats;
-  // 빈 경우(오래된 세션) 재계산
-  if (!pStats.atk) pStats = await getEffectiveStats(char);
+  const session: ActiveSession = {
+    characterId,
+    fieldId,
+    monsterId: null,
+    monsterName: '',
+    monsterLevel: 0,
+    monsterHp: 0,
+    monsterMaxHp: 0,
+    monsterSpeed: 100,
+    monsterGauge: 0,
+    monsterStats: { str: 0, dex: 0, int: 0, vit: 0, spd: 100, cri: 0, maxHp: 0, atk: 0, matk: 0, def: 0, mdef: 0, dodge: 0, accuracy: 80 },
+    playerHp: char.hp,
+    playerMaxHp: char.max_hp,
+    playerGauge: 0,
+    playerSpeed: eff.spd,
+    playerStats: eff,
+    autoMode: true,
+    waitingInput: false,
+    waitingSince: 0,
+    skillCooldowns: new Map(),
+    statusEffects: [],
+    actionCount: 0,
+    log: [],
+    skills,
+    passives,
+    fieldName,
+    dirty: true,
+    userId: char.user_id,
+  };
 
-  let mStats = session.monster_stats as EffectiveStats;
-  let playerHp = session.player_hp;
-  let playerMp = session.player_mp;
-  let monsterHp = session.monster_hp;
-  let currentMonsterId = session.monster_id;
-  let currentMonsterMaxHp = session.monster_max_hp;
-  const log = [...session.log];
-  const cooldowns: Record<string, string> = session.skill_cooldowns || {};
-  let nextPlayerAt = new Date(session.next_player_action_at);
-  let nextMonsterAt = new Date(session.next_monster_action_at);
-
-  // 적 없으면 스폰
-  if (!session.monster_id || monsterHp <= 0) {
-    const spawn = await spawnMonster(characterId, session.field_id, now);
-    if (!spawn) {
-      return {
-        inCombat: true, fieldName,
-        player: { hp: playerHp, maxHp: char.max_hp, mp: playerMp, maxMp: char.max_mp },
-        log,
-      };
-    }
-    mStats = spawn.stats;
-    monsterHp = spawn.monster.max_hp;
-    currentMonsterId = spawn.monster.id;
-    currentMonsterMaxHp = spawn.monster.max_hp;
-    nextMonsterAt = new Date(now.getTime() + spawn.stats.tickMs);
-    log.push(`${spawn.monster.name}이(가) 나타났다!`);
-  }
-
-  const MAX_ITERATIONS = 30;
-  let iter = 0;
-
-  // 플레이어/몬스터 행동 루프
-  while (iter++ < MAX_ITERATIONS) {
-    const pReady = nextPlayerAt.getTime() <= now.getTime();
-    const mReady = nextMonsterAt.getTime() <= now.getTime();
-    if (!pReady && !mReady) break;
-
-    // 이른 쪽 먼저
-    const playerFirst = pReady && (!mReady || nextPlayerAt.getTime() <= nextMonsterAt.getTime());
-
-    if (playerFirst) {
-      // === 플레이어 행동 ===
-      let actionTaken = false;
-
-      // 1. 자동 포션 (캐릭터 설정값 기반)
-      const ps = char.potion_settings || { hpEnabled: true, hpThreshold: 40, mpEnabled: true, mpThreshold: 30 };
-      if (ps.hpEnabled && playerHp / char.max_hp * 100 < ps.hpThreshold) {
-        const pot = await getPotionInInventory(characterId, [102, 100]); // 중급 우선
-        if (pot) {
-          const heal = pot.item_id === 102 ? 150 : 50;
-          playerHp = Math.min(char.max_hp, playerHp + heal);
-          await consumeOneFromSlot(pot.id);
-          log.push(`체력 물약 사용 — HP +${heal}`);
-          actionTaken = true;
-        }
-      }
-      if (!actionTaken && ps.mpEnabled && playerMp / char.max_mp * 100 < ps.mpThreshold) {
-        const pot = await getPotionInInventory(characterId, [103, 101]);
-        if (pot) {
-          const heal = pot.item_id === 103 ? 100 : 30;
-          playerMp = Math.min(char.max_mp, playerMp + heal);
-          await consumeOneFromSlot(pot.id);
-          log.push(`마나 물약 사용 — MP +${heal}`);
-          actionTaken = true;
-        }
-      }
-
-      // 2. 자동 스킬
-      if (!actionTaken) {
-        const skills = await getAutoSkills(characterId, char.level);
-        for (const sk of skills) {
-          const cdEnd = cooldowns[sk.id];
-          if (cdEnd && new Date(cdEnd).getTime() > now.getTime()) continue;
-          if (playerMp < sk.mp_cost) continue;
-          if (sk.kind !== 'damage' && sk.kind !== 'heal') continue; // v0.1 지원 범위
-
-          if (sk.kind === 'heal') {
-            const heal = Math.round(pStats.matk * sk.damage_mult);
-            playerHp = Math.min(char.max_hp, playerHp + heal);
-            log.push(`[${sk.name}] 자신 HP +${heal}`);
-          } else {
-            const mageClass = ['mage', 'priest', 'druid'].includes(char.class_name);
-            const d = calcDamage(pStats, mStats, sk.damage_mult, mageClass);
-            if (d.miss) log.push(`[${sk.name}] 빗나감!`);
-            else {
-              monsterHp -= d.damage;
-              log.push(`[${sk.name}] ${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
-            }
-          }
-          playerMp -= sk.mp_cost;
-          cooldowns[sk.id] = new Date(now.getTime() + sk.cooldown_sec * 1000).toISOString();
-          actionTaken = true;
-          break;
-        }
-      }
-
-      // 3. 기본 공격
-      if (!actionTaken) {
-        const d = calcDamage(pStats, mStats, 1.0, false);
-        if (d.miss) log.push('기본 공격 빗나감!');
-        else {
-          monsterHp -= d.damage;
-          log.push(`${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
-        }
-      }
-
-      nextPlayerAt = new Date(nextPlayerAt.getTime() + pStats.tickMs);
-
-      // 몬스터 처치
-      if (monsterHp <= 0) {
-        const mr = await query<{ name: string; exp_reward: number; gold_reward: number; drop_table: { itemId: number; chance: number; minQty: number; maxQty: number }[] }>(
-          'SELECT name, exp_reward, gold_reward, drop_table FROM monsters WHERE id = $1',
-          [currentMonsterId]
-        );
-        const m = mr.rows[0];
-        log.push(`${m.name}을(를) 처치! +${m.exp_reward} exp, +${m.gold_reward}G`);
-
-        // 경험치/골드 (부스터 적용)
-        const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-        const boostedExp = boostActive ? Math.floor(m.exp_reward * 1.5) : m.exp_reward;
-        const result = applyExpGain(char.class_name, char.level, char.exp, boostedExp);
-        if (result.levelsGained > 0) {
-          log.push(`레벨업! Lv.${result.newLevel}`);
-          await query(
-            `UPDATE characters
-             SET level=$1, exp=$2, gold=gold+$3,
-                 stats=jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(stats,
-                   '{str}', to_jsonb((stats->>'str')::numeric + $4)),
-                   '{dex}', to_jsonb((stats->>'dex')::numeric + $5)),
-                   '{int}', to_jsonb((stats->>'int')::numeric + $6)),
-                   '{vit}', to_jsonb((stats->>'vit')::numeric + $7)),
-                   '{spd}', to_jsonb((stats->>'spd')::numeric + $8)),
-                   '{cri}', to_jsonb((stats->>'cri')::numeric + $9)),
-                 max_hp=max_hp+$10, max_mp=max_mp+$11,
-                 hp=max_hp+$10, mp=max_mp+$11
-             WHERE id=$12`,
-            [result.newLevel, result.newExp, m.gold_reward,
-             result.statGains.str, result.statGains.dex, result.statGains.int,
-             result.statGains.vit, result.statGains.spd, result.statGains.cri,
-             result.statGains.hp, result.statGains.mp, characterId]
-          );
-          char.level = result.newLevel;
-          char.exp = result.newExp;
-          char.max_hp += result.statGains.hp;
-          char.max_mp += result.statGains.mp;
-          playerHp = char.max_hp;
-          playerMp = char.max_mp;
-          // 스탯 변화로 인한 유효스탯 재계산
-          pStats = await getEffectiveStats(char);
-        } else {
-          await query('UPDATE characters SET exp=$1, gold=gold+$2 WHERE id=$3',
-            [result.newExp, m.gold_reward, characterId]);
-          char.exp = result.newExp;
-        }
-
-        // 퀘스트 진행
-        await trackMonsterKill(characterId, currentMonsterId!);
-
-        // 드랍
-        const drops = rollDrops({ ...m, id: currentMonsterId!, level: 0, max_hp: 0, stats: { str: 0, dex: 0, int: 0, vit: 0, spd: 0, cri: 0 } });
-        for (const drop of drops) {
-          const { overflow } = await addItemToInventory(characterId, drop.itemId, drop.qty);
-          if (overflow > 0) {
-            await deliverToMailbox(characterId, '가방 초과분', '가방이 가득 차서 우편으로 배송되었습니다.', drop.itemId, overflow);
-          }
-          log.push(`아이템 획득!`);
-        }
-
-        // 다음 몬스터 스폰
-        const spawn = await spawnMonster(characterId, session.field_id, now);
-        if (spawn) {
-          mStats = spawn.stats;
-          monsterHp = spawn.monster.max_hp;
-          currentMonsterId = spawn.monster.id;
-          currentMonsterMaxHp = spawn.monster.max_hp;
-          nextMonsterAt = new Date(now.getTime() + spawn.stats.tickMs);
-          log.push(`${spawn.monster.name}이(가) 나타났다!`);
-        } else {
-          currentMonsterId = null;
-          currentMonsterMaxHp = 0;
-        }
-      }
-    } else {
-      // === 몬스터 행동 ===
-      const d = calcDamage(mStats, pStats, 1.0, false);
-      if (d.miss) log.push('몬스터 공격 빗나감!');
-      else {
-        playerHp -= d.damage;
-        log.push(`몬스터가 ${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
-      }
-      nextMonsterAt = new Date(nextMonsterAt.getTime() + mStats.tickMs);
-
-      if (playerHp <= 0) {
-        log.push('쓰러졌다... 마을로 돌아간다.');
-        // 사망 페널티 없음 · HP/MP 50% 회복
-        playerHp = Math.floor(char.max_hp * 0.5);
-        playerMp = Math.floor(char.max_mp * 0.5);
-        await query(
-          'UPDATE characters SET hp=$1, mp=$2, location=$3, last_online_at=NOW() WHERE id=$4',
-          [playerHp, playerMp, 'village', characterId]
-        );
-        await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
-        return {
-          inCombat: false,
-          fieldName,
-          player: { hp: playerHp, maxHp: char.max_hp, mp: playerMp, maxMp: char.max_mp },
-          log: log.slice(-MAX_LOG),
-        };
-      }
-    }
-  }
-
-  // 세션 저장
-  const trimmedLog = log.slice(-MAX_LOG);
+  // DB 세션
+  await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
   await query(
-    `UPDATE combat_sessions
-     SET monster_id=$1, monster_hp=$2, monster_max_hp=$3, monster_stats=$4,
-         player_hp=$5, player_mp=$6, player_stats=$7,
-         skill_cooldowns=$8, log=$9, next_player_action_at=$10, next_monster_action_at=$11, updated_at=$12
-     WHERE character_id=$13`,
-    [currentMonsterId, monsterHp, currentMonsterMaxHp, mStats, playerHp, playerMp, pStats, cooldowns, JSON.stringify(trimmedLog),
-     nextPlayerAt.toISOString(), nextMonsterAt.toISOString(), now.toISOString(), characterId]
+    `INSERT INTO combat_sessions
+     (character_id, field_id, player_hp, player_gauge, player_speed, auto_mode)
+     VALUES ($1, $2, $3, 0, $4, TRUE)`,
+    [characterId, fieldId, char.hp, eff.spd]
   );
-  await query('UPDATE characters SET hp=$1, mp=$2, last_online_at=NOW() WHERE id=$3',
-    [playerHp, playerMp, characterId]);
+  await query('UPDATE characters SET location = $1, last_online_at = NOW() WHERE id = $2',
+    [`field:${fieldId}`, characterId]);
 
-  const monsterInfo = currentMonsterId
-    ? (await query<{ name: string; level: number }>('SELECT name, level FROM monsters WHERE id=$1', [currentMonsterId])).rows[0]
-    : undefined;
+  await spawnMonsterForSession(session);
+  activeSessions.set(characterId, session);
 
-  const potions = await countPotions(characterId);
+  // 전투 루프 시작 (아직 안 돌고 있으면)
+  ensureCombatLoop();
+}
+
+export async function stopCombatSession(characterId: number): Promise<void> {
+  const s = activeSessions.get(characterId);
+  if (s) {
+    // 현재 HP 저장
+    await query('UPDATE characters SET hp=$1, location=$2, last_online_at=NOW() WHERE id=$3',
+      [Math.max(1, s.playerHp), 'village', characterId]);
+  }
+  await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
+  activeSessions.delete(characterId);
+}
+
+export function toggleAutoMode(characterId: number): boolean {
+  const s = activeSessions.get(characterId);
+  if (!s) return true;
+  s.autoMode = !s.autoMode;
+  if (s.autoMode) {
+    s.waitingInput = false;
+  }
+  s.dirty = true;
+  return s.autoMode;
+}
+
+export async function manualSkillUse(characterId: number, skillId: number): Promise<boolean> {
+  const s = activeSessions.get(characterId);
+  if (!s || !s.waitingInput) return false;
+
+  const skill = s.skills.find(sk => sk.id === skillId);
+  if (!skill) return false;
+
+  const cd = s.skillCooldowns.get(skillId);
+  if (cd && cd > 0) return false;
+
+  s.waitingInput = false;
+  s.playerGauge = 0;
+  s.actionCount++;
+
+  // 쿨다운 감소
+  for (const [skId, cdVal] of s.skillCooldowns) {
+    if (cdVal > 0) s.skillCooldowns.set(skId, cdVal - 1);
+    if (cdVal <= 1) s.skillCooldowns.delete(skId);
+  }
+
+  await executeSkill(s, skill);
+  tickDownEffects(s, 'monster');
+  processDots(s, 'player');
+  s.dirty = true;
+
+  if (s.monsterHp <= 0) await handleMonsterDeath(s);
+  if (s.playerHp <= 0) await handlePlayerDeath(s);
+
+  return true;
+}
+
+export function getCombatSnapshot(characterId: number): CombatSnapshot | null {
+  const s = activeSessions.get(characterId);
+  if (!s) return null;
 
   return {
     inCombat: true,
-    fieldName,
-    player: { hp: playerHp, maxHp: char.max_hp, mp: playerMp, maxMp: char.max_mp },
-    monster: monsterInfo ? {
-      name: monsterInfo.name,
-      hp: Math.max(0, monsterHp),
-      maxHp: currentMonsterMaxHp,
-      level: monsterInfo.level,
+    fieldName: s.fieldName,
+    autoMode: s.autoMode,
+    waitingInput: s.waitingInput,
+    player: {
+      hp: Math.max(0, s.playerHp),
+      maxHp: s.playerMaxHp,
+      gauge: Math.min(GAUGE_MAX, s.playerGauge),
+      speed: s.playerSpeed,
+      effects: s.statusEffects.filter(e => e.source === 'monster'),
+    },
+    monster: s.monsterId ? {
+      name: s.monsterName,
+      hp: Math.max(0, s.monsterHp),
+      maxHp: s.monsterMaxHp,
+      level: s.monsterLevel,
+      gauge: Math.min(GAUGE_MAX, s.monsterGauge),
+      speed: s.monsterSpeed,
+      effects: s.statusEffects.filter(e => e.source === 'player'),
     } : undefined,
-    log: trimmedLog,
-    now: now.getTime(),
-    nextPlayerAt: nextPlayerAt.getTime(),
-    nextMonsterAt: nextMonsterAt.getTime(),
-    playerTickMs: Math.round(pStats.tickMs),
-    monsterTickMs: Math.round(mStats.tickMs),
-    potions,
+    skills: s.skills.map(sk => ({
+      id: sk.id,
+      name: sk.name,
+      cooldownMax: sk.cooldown_actions,
+      cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
+      usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
+    })),
+    log: s.log,
+    serverTime: Date.now(),
   };
+}
+
+export function isInCombat(characterId: number): boolean {
+  return activeSessions.has(characterId);
+}
+
+function ensureCombatLoop() {
+  if (combatInterval) return;
+  combatInterval = setInterval(() => {
+    combatTick().catch(err => console.error('[combat] loop error:', err));
+  }, 100); // 100ms 틱
+  console.log('[combat] engine started (100ms tick)');
+}
+
+// 서버 시작 시 기존 DB 세션 복구
+export async function restoreCombatSessions(): Promise<void> {
+  const r = await query<{ character_id: number; field_id: number; player_hp: number; player_speed: number; auto_mode: boolean }>(
+    'SELECT character_id, field_id, player_hp, player_speed, auto_mode FROM combat_sessions'
+  );
+  for (const row of r.rows) {
+    try {
+      await startCombatSession(row.character_id, row.field_id);
+    } catch (e) {
+      console.error(`[combat] restore failed for char ${row.character_id}:`, e);
+    }
+  }
+  if (r.rowCount && r.rowCount > 0) {
+    console.log(`[combat] restored ${r.rowCount} sessions`);
+  }
 }
