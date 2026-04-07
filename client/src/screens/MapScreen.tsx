@@ -85,31 +85,13 @@ export function MapScreen() {
                       padding: '10px 0',
                       borderBottom: mi < f.monsters.length - 1 ? '1px solid var(--border)' : 'none',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <MonsterIcon name={m.name} size={24} />
                         <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{m.name}</span>
                         <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>Lv.{m.level}</span>
                         <span style={{ fontSize: 11, color: 'var(--success)' }}>+{m.exp}exp</span>
                         <span style={{ fontSize: 11, color: '#e0a040' }}>+{m.gold}G</span>
                       </div>
-                      {m.drops.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginLeft: 32 }}>
-                          {m.drops.map((d, di) => (
-                            <span key={di} style={{
-                              fontSize: 11, padding: '2px 8px',
-                              background: 'var(--bg)', border: `1px solid ${GRADE_COLOR[d.grade] || 'var(--border)'}`,
-                              borderRadius: 4, color: GRADE_COLOR[d.grade] || 'var(--text-dim)',
-                            }}>
-                              {d.name}
-                              {d.maxQty > 1 && ` x${d.minQty}-${d.maxQty}`}
-                              <span style={{ color: 'var(--text-dim)', marginLeft: 4 }}>{d.chance}%</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {m.drops.length === 0 && (
-                        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 32 }}>드랍 없음</div>
-                      )}
                     </div>
                   ))}
                 </div>
