@@ -284,4 +284,40 @@ router.post('/:id/sell', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, sold: name, quantity: qty, gold });
 });
 
+// 등급별 일괄 판매
+router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ grade: z.enum(['common', 'rare', 'epic', 'legendary']) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { grade } = parsed.data;
+
+  // 해당 등급 + 잠금 안 된 아이템 조회
+  const items = await query<{ id: number; quantity: number; sell_price: number; name: string }>(
+    `SELECT ci.id, ci.quantity, i.sell_price, i.name
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.grade = $2 AND ci.locked = FALSE AND i.sell_price > 0`,
+    [id, grade]
+  );
+
+  if (items.rowCount === 0) return res.status(400).json({ error: '판매할 아이템이 없습니다.' });
+
+  let totalGold = 0;
+  let totalCount = 0;
+
+  for (const item of items.rows) {
+    totalGold += item.sell_price * item.quantity;
+    totalCount += item.quantity;
+    await query('DELETE FROM character_inventory WHERE id = $1', [item.id]);
+  }
+
+  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [totalGold, id]);
+
+  const GRADE_LABEL: Record<string, string> = { common: '일반', rare: '매직', epic: '에픽', legendary: '전설' };
+  res.json({ ok: true, grade: GRADE_LABEL[grade], count: totalCount, gold: totalGold });
+});
+
 export default router;

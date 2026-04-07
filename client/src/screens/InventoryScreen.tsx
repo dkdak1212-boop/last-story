@@ -150,7 +150,35 @@ export function InventoryScreen() {
         </div>
       </div>
 
-      <h3 style={{ marginBottom: 10, fontSize: 16 }}>가방 ({inv.length})</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/100)</h3>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {(['common', 'rare', 'epic', 'legendary'] as const).map(g => {
+            const label: Record<string, string> = { common: '일반', rare: '매직', epic: '에픽', legendary: '전설' };
+            const color: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
+            return (
+              <button key={g} onClick={async () => {
+                if (!active) return;
+                if (!confirm(`${label[g]} 등급 아이템을 일괄 판매합니다. (잠금 제외)`)) return;
+                setMsg('');
+                try {
+                  const res = await api<{ grade: string; count: number; gold: number }>(
+                    `/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({ grade: g }) }
+                  );
+                  setMsg(`${res.grade} ${res.count}개 판매 → +${res.gold.toLocaleString()}G`);
+                  await refresh();
+                  await refreshActive();
+                } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
+              }} style={{
+                fontSize: 11, padding: '3px 8px', background: 'transparent',
+                color: color[g], border: `1px solid ${color[g]}`, cursor: 'pointer',
+              }}>
+                {label[g]} 일괄판매
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="inventory-bag-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
         {inv.map((s) => {
           const locked = (s as unknown as { locked?: boolean }).locked ?? false;
