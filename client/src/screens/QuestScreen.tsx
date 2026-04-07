@@ -11,10 +11,15 @@ interface QuestRow {
   locked: boolean;
 }
 
+const GRADE_COLORS: Record<string, string> = {
+  common: '#aaa', rare: '#4488ff', epic: '#aa44ff', legendary: '#ff8800',
+};
+
 export function QuestScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [quests, setQuests] = useState<QuestRow[]>([]);
+  const [rewardMsg, setRewardMsg] = useState<{ item: string; grade: string } | null>(null);
 
   async function refresh() {
     if (!active) return;
@@ -30,7 +35,9 @@ export function QuestScreen() {
   }
   async function claim(qid: number) {
     if (!active) return;
-    await api(`/characters/${active.id}/quests/${qid}/claim`, { method: 'POST' });
+    const res = await api<{ rewardItem: string; rewardGrade: string }>(`/characters/${active.id}/quests/${qid}/claim`, { method: 'POST' });
+    setRewardMsg({ item: res.rewardItem, grade: res.rewardGrade });
+    setTimeout(() => setRewardMsg(null), 5000);
     await refresh();
     await refreshActive();
   }
@@ -38,6 +45,16 @@ export function QuestScreen() {
   return (
     <div>
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>퀘스트</h2>
+      {rewardMsg && (
+        <div style={{
+          padding: 12, marginBottom: 12, background: 'var(--bg-panel)',
+          border: `2px solid ${GRADE_COLORS[rewardMsg.grade] || 'var(--accent)'}`,
+          textAlign: 'center', fontSize: 15, fontWeight: 700,
+          color: GRADE_COLORS[rewardMsg.grade] || 'var(--accent)',
+        }}>
+          랜덤 박스 개봉! → {rewardMsg.item}
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {quests.map((q) => (
           <div key={q.id} style={{
@@ -55,9 +72,8 @@ export function QuestScreen() {
                 <div style={{ marginTop: 8, fontSize: 13 }}>
                   {q.targetName}: <b>{q.progress}/{q.targetCount}</b>
                 </div>
-                <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-dim)' }}>
-                  보상: +{q.rewardExp}exp, +{q.rewardGold}G
-                  {q.rewardItemId && ` + 아이템×${q.rewardItemQty}`}
+                <div style={{ marginTop: 4, fontSize: 12, color: '#e0a040' }}>
+                  보상: 랜덤 박스 (일반~전설)
                 </div>
                 {q.locked && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 4 }}>Lv.{q.requiredLevel} 필요</div>}
               </div>

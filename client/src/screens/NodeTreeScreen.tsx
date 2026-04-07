@@ -4,6 +4,7 @@ import { useCharacterStore } from '../stores/characterStore';
 import type { NodeDefinition, NodeTreeState } from '../types';
 
 const ZONE_LABELS: Record<string, string> = {
+  core: '노드 트리',
   south: '기본', east: '공격', west: '유틸', center: '중앙',
   north_warrior: '전사', north_mage: '마법사', north_cleric: '성직자', north_rogue: '도적',
 };
@@ -19,18 +20,15 @@ const NODE_COLORS = {
 };
 const TIER_GLOW: Record<string, string> = { small: '', medium: 'rgba(218,165,32,0.3)', large: 'rgba(255,60,60,0.5)' };
 
-const CELL_X = 80;
-const CELL_Y = 70;
-const PADDING = 80;
 
-// 선행순서 기반 자동 레이아웃 계산
+// PoE 스타일: 중앙(depth 0)에서 방사형 확장
 function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
   const positions = new Map<number, { x: number; y: number }>();
   if (nodes.length === 0) return positions;
 
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-  // 각 노드의 depth 계산 (선행 없는 노드 = 0)
+  // 각 노드의 depth 계산
   const depths = new Map<number, number>();
   function getDepth(id: number, visited: Set<number> = new Set()): number {
     if (depths.has(id)) return depths.get(id)!;
@@ -48,7 +46,7 @@ function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: num
   }
   for (const n of nodes) getDepth(n.id);
 
-  // depth별 노드 그룹핑
+  // depth별 그룹핑
   const depthGroups = new Map<number, NodeDefinition[]>();
   for (const n of nodes) {
     const d = depths.get(n.id) || 0;
@@ -56,22 +54,34 @@ function computeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: num
     depthGroups.get(d)!.push(n);
   }
 
-  // 각 depth의 노드를 가로로 배치
   const maxDepth = Math.max(...depthGroups.keys());
+
+  // 방사형 배치: depth = 반지름 링
   for (let d = 0; d <= maxDepth; d++) {
     const group = depthGroups.get(d) || [];
-    // 같은 depth에서 tier별 정렬 (small → medium → large)
     const tierOrder: Record<string, number> = { small: 0, medium: 1, large: 2 };
     group.sort((a, b) => (tierOrder[a.tier] || 0) - (tierOrder[b.tier] || 0) || a.id - b.id);
 
-    const totalWidth = (group.length - 1) * CELL_X;
-    const startX = -totalWidth / 2;
-
-    for (let i = 0; i < group.length; i++) {
-      positions.set(group[i].id, {
-        x: startX + i * CELL_X,
-        y: d * CELL_Y,
-      });
+    if (d === 0) {
+      // 중앙 노드들: 작은 원형 배치
+      const r0 = group.length <= 1 ? 0 : 40 + group.length * 8;
+      for (let i = 0; i < group.length; i++) {
+        const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
+        positions.set(group[i].id, {
+          x: Math.cos(angle) * r0,
+          y: Math.sin(angle) * r0,
+        });
+      }
+    } else {
+      // 외곽 링: 반지름 증가
+      const radius = 100 + d * 75;
+      for (let i = 0; i < group.length; i++) {
+        const angle = (2 * Math.PI * i) / group.length - Math.PI / 2;
+        positions.set(group[i].id, {
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+        });
+      }
     }
   }
 
@@ -82,7 +92,7 @@ export function NodeTreeScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [treeState, setTreeState] = useState<NodeTreeState | null>(null);
-  const [activeZone, setActiveZone] = useState('south');
+  const [activeZone, setActiveZone] = useState('core');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [selected, setSelected] = useState<NodeDefinition | null>(null);
@@ -107,7 +117,9 @@ export function NodeTreeScreen() {
 
   const invested = treeState ? new Set(treeState.investedNodeIds) : new Set<number>();
   const zones = treeState ? [...new Set(treeState.nodes.map(n => n.zone))] : [];
-  const zoneNodes = treeState ? treeState.nodes.filter(n => n.zone === activeZone) : [];
+  // 단일 존이면 존 탭 없이 모든 노드 표시
+  const isSingleZone = zones.length <= 1;
+  const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
   const nodeMap = new Map(zoneNodes.map(n => [n.id, n]));
 
   // 선행순서 기반 자동 레이아웃
@@ -117,9 +129,10 @@ export function NodeTreeScreen() {
     const pos = layoutPositions.get(node.id) || { x: 0, y: 0 };
     const canvas = canvasRef.current;
     const centerX = canvas ? canvas.width / 2 : 400;
+    const centerY = canvas ? canvas.height / 2 : 350;
     return {
       x: centerX + pos.x + offset.x,
-      y: pos.y + PADDING + offset.y,
+      y: centerY + pos.y + offset.y,
     };
   }
 
@@ -147,7 +160,7 @@ export function NodeTreeScreen() {
     const container = containerRef.current;
     if (container) {
       canvas.width = container.clientWidth;
-      canvas.height = 500;
+      canvas.height = 700;
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -319,20 +332,22 @@ export function NodeTreeScreen() {
         </div>
       </div>
 
-      {/* Zone tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
-        {zones.map(z => (
-          <button key={z} onClick={() => setActiveZone(z)} style={{
-            padding: '5px 12px', fontSize: 12,
-            background: activeZone === z ? 'var(--accent)' : 'var(--bg-panel)',
-            color: activeZone === z ? '#000' : 'var(--text-dim)',
-            border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
-            fontWeight: activeZone === z ? 700 : 400,
-          }}>
-            {ZONE_LABELS[z] || z}
-          </button>
-        ))}
-      </div>
+      {/* Zone tabs (다중 존일 때만 표시) */}
+      {!isSingleZone && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+          {zones.map(z => (
+            <button key={z} onClick={() => setActiveZone(z)} style={{
+              padding: '5px 12px', fontSize: 12,
+              background: activeZone === z ? 'var(--accent)' : 'var(--bg-panel)',
+              color: activeZone === z ? '#000' : 'var(--text-dim)',
+              border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
+              fontWeight: activeZone === z ? 700 : 400,
+            }}>
+              {ZONE_LABELS[z] || z}
+            </button>
+          ))}
+        </div>
+      )}
 
       {msg && <div style={{ color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>{msg}</div>}
 
@@ -344,7 +359,7 @@ export function NodeTreeScreen() {
       }}>
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%', height: 500 }}
+          style={{ display: 'block', width: '100%', height: 700 }}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}

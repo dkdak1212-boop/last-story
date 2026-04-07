@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { addItemToInventory } from '../game/inventory.js';
+import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 
 const router = Router();
 router.use(authRequired);
@@ -84,25 +84,37 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
   if (!cq.rows[0].completed) return res.status(400).json({ error: 'not completed' });
   if (cq.rows[0].claimed) return res.status(400).json({ error: 'already claimed' });
 
-  const qr = await query<{ reward_exp: number; reward_gold: number; reward_item_id: number | null; reward_item_qty: number | null }>(
-    'SELECT reward_exp, reward_gold, reward_item_id, reward_item_qty FROM quests WHERE id = $1',
-    [questId]
-  );
-  const q = qr.rows[0];
+  // 랜덤 박스 보상 (일반70%/희귀20%/영웅8%/전설2%)
+  const gradeRoll = Math.random() * 100;
+  let boxGrade: string;
+  if (gradeRoll < 2) boxGrade = 'legendary';
+  else if (gradeRoll < 10) boxGrade = 'epic';
+  else if (gradeRoll < 30) boxGrade = 'rare';
+  else boxGrade = 'common';
 
-  await query(
-    'UPDATE characters SET exp = exp + $1, gold = gold + $2 WHERE id = $3',
-    [q.reward_exp, q.reward_gold, id]
+  const boxItems = await query<{ id: number; name: string; grade: string }>(
+    `SELECT id, name, grade FROM items WHERE grade = $1 AND type != 'material' ORDER BY RANDOM() LIMIT 1`,
+    [boxGrade]
   );
-  if (q.reward_item_id && q.reward_item_qty) {
-    await addItemToInventory(id, q.reward_item_id, q.reward_item_qty);
+
+  let rewardItemName = '(없음)';
+  let rewardGrade = boxGrade;
+  if (boxItems.rows[0]) {
+    const item = boxItems.rows[0];
+    rewardItemName = item.name;
+    rewardGrade = item.grade;
+    const { overflow } = await addItemToInventory(id, item.id, 1);
+    if (overflow > 0) {
+      await deliverToMailbox(id, '퀘스트 보상', `랜덤 박스: ${item.name} — 가방 초과로 우편 발송`, item.id, 1);
+    }
   }
+
   await query(
     'UPDATE character_quests SET claimed = TRUE WHERE character_id = $1 AND quest_id = $2',
     [id, questId]
   );
 
-  res.json({ ok: true, rewardExp: q.reward_exp, rewardGold: q.reward_gold });
+  res.json({ ok: true, rewardItem: rewardItemName, rewardGrade });
 });
 
 // 몬스터 처치 시 퀘스트 진행 (내부용)
