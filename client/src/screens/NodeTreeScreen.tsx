@@ -13,9 +13,9 @@ const NODE_COLORS = {
   border_locked: '#444',
 };
 
-const COL_W = 90;   // 같은 depth 내 노드 간 가로 간격
-const ROW_H = 110;  // depth 간 세로 간격
-const CANVAS_H = 1100;
+const MIN_GAP = 55;  // 노드 간 최소 간격 (반지름 고려)
+const ROW_H = 110;   // depth 간 세로 간격
+const CANVAS_H = 1200;
 
 // 트리 레이아웃: 부모→자식 위→아래, 같은 부모끼리 묶어 배치
 function computeTreeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y: number }> {
@@ -65,19 +65,20 @@ function computeTreeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y:
       });
     }
 
-    const totalW = (group.length - 1) * COL_W;
+    // 동적 간격: 노드 수에 따라 간격 조절, 최소 MIN_GAP 보장
+    const gap = Math.max(MIN_GAP, 120 - group.length * 0.5);
+    const totalW = (group.length - 1) * gap;
     for (let i = 0; i < group.length; i++) {
       positions.set(group[i].id, {
-        x: -totalW / 2 + i * COL_W,
+        x: -totalW / 2 + i * gap,
         y: d * ROW_H,
       });
     }
   }
 
-  // 2차 보정: 자식 노드를 부모 아래로 당기기 (중심 정렬)
+  // 2차 보정: 자식 노드를 부모 아래로 당기기
   for (let d = 1; d <= maxDepth; d++) {
     const group = depthGroups.get(d) || [];
-    // 부모별 자식 그룹핑
     const parentGroups = new Map<number, NodeDefinition[]>();
     for (const n of group) {
       const parentId = n.prerequisites[0] || -1;
@@ -87,14 +88,28 @@ function computeTreeLayout(nodes: NodeDefinition[]): Map<number, { x: number; y:
     for (const [pid, children] of parentGroups) {
       const parentPos = positions.get(pid);
       if (!parentPos || children.length === 0) continue;
-      // 자식들의 현재 중심
       const childXs = children.map(c => positions.get(c.id)!.x);
       const childCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
       const shift = parentPos.x - childCenter;
-      // 적당히 당기기 (완전히 안 당기면 겹침 방지)
       for (const c of children) {
         const p = positions.get(c.id)!;
-        p.x += shift * 0.6;
+        p.x += shift * 0.5;
+      }
+    }
+  }
+
+  // 3차 보정: 같은 depth 내 충돌 해소 (겹치는 노드 밀어내기)
+  for (let d = 0; d <= maxDepth; d++) {
+    const group = depthGroups.get(d) || [];
+    const sorted = group.slice().sort((a, b) => (positions.get(a.id)?.x ?? 0) - (positions.get(b.id)?.x ?? 0));
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = positions.get(sorted[i - 1].id)!;
+      const cur = positions.get(sorted[i].id)!;
+      const minDist = MIN_GAP;
+      if (cur.x - prev.x < minDist) {
+        const push = minDist - (cur.x - prev.x);
+        cur.x += push / 2;
+        prev.x -= push / 2;
       }
     }
   }
@@ -488,7 +503,7 @@ export function NodeTreeScreen() {
       }}>
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%', height: 1100, touchAction: 'none' }}
+          style={{ display: 'block', width: '100%', height: 1200, touchAction: 'none' }}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
