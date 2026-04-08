@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useCharacterStore } from '../stores/characterStore';
 import { api } from '../api/client';
 
@@ -26,6 +26,12 @@ export function VillageScreen() {
   const refresh = useCharacterStore((s) => s.refreshActive);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [dropLog, setDropLog] = useState<DropLog[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [bgmVolume, setBgmVolume] = useState(() => {
+    const saved = localStorage.getItem('bgmVolume');
+    return saved ? Number(saved) : 0.3;
+  });
 
   useEffect(() => {
     refresh();
@@ -33,8 +39,67 @@ export function VillageScreen() {
     api<DropLog[]>('/drop-log').then(setDropLog).catch(() => {});
   }, [refresh]);
 
+  // BGM 초기화
+  useEffect(() => {
+    if (!audioRef.current) {
+      const audio = new Audio('/bgm.mp3');
+      audio.loop = true;
+      audio.volume = bgmVolume;
+      audioRef.current = audio;
+      // 자동 재생 시도 (브라우저 정책상 실패 가능)
+      audio.play().then(() => setBgmPlaying(true)).catch(() => {});
+    }
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = bgmVolume;
+      localStorage.setItem('bgmVolume', String(bgmVolume));
+    }
+  }, [bgmVolume]);
+
+  function toggleBgm() {
+    if (!audioRef.current) return;
+    if (bgmPlaying) {
+      audioRef.current.pause();
+      setBgmPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setBgmPlaying(true)).catch(() => {});
+    }
+  }
+
   return (
     <div>
+      {/* BGM 컨트롤 */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', marginBottom: 16,
+        background: 'linear-gradient(135deg, rgba(201,162,77,0.06) 0%, rgba(201,162,77,0.02) 100%)',
+        border: '1px solid var(--accent-dim)', borderRadius: 6,
+      }}>
+        <button onClick={toggleBgm} style={{
+          width: 32, height: 32, borderRadius: '50%', fontSize: 16,
+          background: bgmPlaying ? 'var(--accent)' : 'transparent',
+          color: bgmPlaying ? '#000' : 'var(--accent)',
+          border: '2px solid var(--accent)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {bgmPlaying ? '\u23F8' : '\u25B6'}
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 700 }}>BGM</span>
+        <input
+          type="range" min={0} max={100} step={1}
+          value={Math.round(bgmVolume * 100)}
+          onChange={e => setBgmVolume(Number(e.target.value) / 100)}
+          style={{ width: 100, accentColor: 'var(--accent)' }}
+        />
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', minWidth: 30 }}>{Math.round(bgmVolume * 100)}%</span>
+      </div>
       {/* 공지 */}
       {announcements.length > 0 && (
         <div style={{
