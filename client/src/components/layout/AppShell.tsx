@@ -77,15 +77,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           display: 'flex',
           alignItems: 'center',
           gap: 24,
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
+        {/* 도트 몬스터 배경 */}
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+          gap: 18, padding: '0 12px', opacity: 0.06, pointerEvents: 'none',
+          overflow: 'hidden',
+        }}>
+          {['dragon', 'phoenix', 'lich', 'titan', 'hydra', 'griffon', 'knight', 'demon', 'guardian', 'manticore', 'boss_dark', 'frost_giant', 'wyvern', 'naga', 'shadow'].map(m => (
+            <img key={m} src={`/images/monsters/${m}.png`} alt="" width={48} height={48}
+              style={{ imageRendering: 'pixelated', flexShrink: 0 }} />
+          ))}
+        </div>
         <Link to="/village" className="app-title" style={{
           fontSize: 26, fontWeight: 900, color: 'var(--accent)',
           fontFamily: '"Georgia", "Palatino", serif',
-          letterSpacing: 2, textShadow: '0 1px 4px rgba(0,0,0,0.4)',
-          textDecoration: 'none',
+          letterSpacing: 3, textShadow: '0 2px 8px rgba(0,0,0,0.6), 0 0 20px rgba(201,162,77,0.3)',
+          textDecoration: 'none', position: 'relative', zIndex: 1,
         }}>
-          마지막이야기
+          The Last Story
         </Link>
         {active && (
           <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
