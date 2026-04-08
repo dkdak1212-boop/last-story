@@ -21,9 +21,23 @@ const CLASS_LABEL: Record<string, string> = {
 
 const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
+// 전투 능력치 클릭 설명
+const COMBAT_STAT_DESC: Record<string, string> = {
+  'HP': '캐릭터의 생명력. 0이 되면 사망하여 HP 25% 회복 후 마을 귀환.',
+  '물리 공격': '물리 데미지 = 힘(STR) × 1.0 + 장비 ATK 보너스. 전사/도적이 사용.',
+  '마법 공격': '마법 데미지 = 지능(INT) × 1.2 + 장비 MATK 보너스. 마법사/성직자가 사용.',
+  '방어력': '물리 피해 감소 = 체력(VIT) × 0.8 + 장비 DEF. 데미지 계산: ATK - 방어 × 0.5',
+  '마법 방어': '마법 피해 감소 = 지능(INT) × 0.5 + 장비 MDEF. 데미지 계산: MATK - 마방 × 0.5',
+  '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 30%.',
+  '명중률': '공격이 적중할 확률. 기본 80% + 민첩(DEX) × 0.3 + 장비. 상한 100%.',
+  '스피드': '게이지 충전 속도. 높을수록 빠르게 행동. 게이지 MAX=1000, 매 틱 SPD × 0.2 충전.',
+  '치명타': '크리티컬 발동 확률. 발동 시 데미지 2배. 상한 100%. 노드/장비로 상승.',
+};
+
 export function StatusScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const [status, setStatus] = useState<CharStatus | null>(null);
+  const [tooltip, setTooltip] = useState<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -62,22 +76,30 @@ export function StatusScreen() {
       </div>
 
       <div className="status-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        {/* HP/MP + 유효 전투 능력치 */}
+        {/* 전투 능력치 (클릭 시 설명) */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-          <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>전투 능력치</h3>
-          <Row label="HP" value={`${status.hp} / ${status.effective.maxHp}`} />
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '10px 0' }} />
-          <Row label="물리 공격" value={status.effective.atk} />
-          <Row label="마법 공격" value={status.effective.matk} />
-          <Row label="방어력" value={status.effective.def} />
-          <Row label="마법 방어" value={status.effective.mdef} />
-          <Row label="회피율" value={`${status.effective.dodge}%`} />
-          <Row label="명중률" value={`${status.effective.accuracy}%`} />
-          <Row label="스피드" value={status.effective.spd} />
-          <Row label="치명타" value={`${status.effective.cri}%`} />
+          <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>전투 능력치 <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>클릭 시 설명</span></h3>
+          <CombatRow label="HP" value={`${status.hp} / ${status.effective.maxHp}`} onClick={() => setTooltip(tooltip === 'HP' ? null : 'HP')} active={tooltip === 'HP'} />
+          {tooltip === 'HP' && <Desc text={COMBAT_STAT_DESC['HP']} />}
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+          {[
+            { label: '물리 공격', value: status.effective.atk },
+            { label: '마법 공격', value: status.effective.matk },
+            { label: '방어력', value: status.effective.def },
+            { label: '마법 방어', value: status.effective.mdef },
+            { label: '회피율', value: `${status.effective.dodge}%` },
+            { label: '명중률', value: `${status.effective.accuracy}%` },
+            { label: '스피드', value: status.effective.spd },
+            { label: '치명타', value: `${status.effective.cri}%` },
+          ].map(s => (
+            <div key={s.label}>
+              <CombatRow label={s.label} value={s.value} onClick={() => setTooltip(tooltip === s.label ? null : s.label)} active={tooltip === s.label} />
+              {tooltip === s.label && <Desc text={COMBAT_STAT_DESC[s.label]} />}
+            </div>
+          ))}
         </div>
 
-        {/* 기본 + 장비 + 노드 + 합계 스탯 */}
+        {/* 스탯 분해 */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>스탯 분해</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 55px 55px 55px 60px', gap: 4, fontSize: 12, alignItems: 'center' }}>
@@ -110,32 +132,54 @@ export function StatusScreen() {
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
         <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
-          <span style={{ color: 'var(--text)' }}>힘</span><span>물리 공격력 결정 (ATK = 힘 x 1.0). 레벨업 시 직업별 자동 성장</span>
-          <span style={{ color: 'var(--text)' }}>민첩</span><span>회피율 (민첩 x 0.4%) + 명중률 (80 + 민첩 x 0.5%). 도적 핵심 스탯</span>
-          <span style={{ color: 'var(--text)' }}>지능</span><span>마법 공격력 (지능 x 1.2) + 마법 방어 (지능 x 0.5). 마법사/성직자 핵심</span>
-          <span style={{ color: 'var(--text)' }}>체력</span><span>방어력 (체력 x 0.8) + 장비/노드 체력당 HP +10</span>
-          <span style={{ color: 'var(--text)' }}>스피드</span><span>{'게이지 충전 속도. 높을수록 먼저 행동 (도적 > 전사 > 마법사 > 성직자)'}</span>
-          <span style={{ color: 'var(--text)' }}>치명타</span><span>{'치명타 확률 (상한 100%). 발동 시 2배 데미지. 노드/장비로 쌓아올리는 핵심 스탯'}</span>
+          <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.0. 전사(+2/Lv), 도적(+1/Lv) 핵심 스탯</span>
+          <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 30%) | 명중률 = 80% + 민첩 × 0.3% (상한 100%). 도적(+1.5/Lv)</span>
+          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 | 마법 방어 = 지능 × 0.5. 마법사(+2/Lv), 성직자(+1.5/Lv)</span>
+          <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 | 장비/노드 체력 1당 HP +10. 전사(+1.5/Lv)</span>
+          <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도. 매 100ms마다 SPD × 0.2 충전 → MAX 1000 시 행동. 도적(+3/Lv) {'>'} 전사(+2/Lv)</span>
+          <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률% (상한 100%). 발동 시 데미지 2배. 도적(+0.2/Lv), 나머지(+0.1/Lv)</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
-          <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 힘(ATK) 기반, <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 지능(MATK) 기반으로 자동 판별</div>
-          <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK - 적 방어 x 0.5) x 스킬배율</span> ± 10% 랜덤</div>
-          <div>· 게이지 100%가 되면 행동. <span style={{ color: 'var(--text)' }}>수동 모드</span>에서 직접 스킬 선택 가능</div>
-          <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>로 패시브 효과 획득 (치명타 증폭, 흡혈, 도트 강화, 방어 관통 등)</div>
-          <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span> 1~4등급으로 추가 스탯 부여 (4등급은 0.1% 확률)</div>
-          <div>· 레벨업 시 직업별로 주요 스탯이 <span style={{ color: 'var(--text)' }}>자동 성장</span> + HP +8 + 노드포인트 +2</div>
+          <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 ATK(물리), <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 MATK(마법) 고정 사용</div>
+          <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK or MATK) - (DEF or MDEF × 0.5)</span> × 스킬배율 + 고정피해 ± 10%</div>
+          <div>· 게이지 MAX=1000 도달 시 행동. <span style={{ color: 'var(--text)' }}>SPD 300 → 약 1.7초</span>, SPD 400 → 약 1.25초</div>
+          <div>· <span style={{ color: 'var(--text)' }}>수동 모드</span>: 게이지 충전 후 3초 내 스킬 미선택 시 자동 행동</div>
+          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +8, 노드포인트 +2, 직업별 스탯 자동 성장</div>
+          <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span>: 기본 스탯 + 특수 효과 (약화/저주/흡혈/확산/재생/황금/경험/날카로움)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>접두사 강화</span>: 장비 강화당 접두사 수치 +8% 스케일링</div>
+          <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>: 302개 노드 (5구역), 상위 노드 클릭 시 하위 자동 습득</div>
+          <div>· <span style={{ color: 'var(--text)' }}>강화</span>: +1~3(100%) +4~6(80%) +7~9(50%) +10~12(30%/파괴10%) ~ +19~20(5%/파괴40%)</div>
         </div>
       </div>
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: string | number }) {
+function CombatRow({ label, value, onClick, active }: { label: string; value: string | number; onClick: () => void; active: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
-      <span style={{ color: 'var(--text-dim)' }}>{label}</span>
+    <div
+      onClick={onClick}
+      style={{
+        display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 6px', cursor: 'pointer',
+        background: active ? 'rgba(201,162,77,0.08)' : 'transparent',
+        borderRadius: 4, transition: 'background 0.15s',
+      }}
+    >
+      <span style={{ color: active ? 'var(--accent)' : 'var(--text-dim)' }}>{label}</span>
       <span style={{ fontWeight: 700 }}>{value}</span>
+    </div>
+  );
+}
+
+function Desc({ text }: { text: string }) {
+  return (
+    <div style={{
+      padding: '6px 10px', marginBottom: 4, fontSize: 11, lineHeight: 1.5,
+      color: '#ccc', background: 'rgba(201,162,77,0.06)',
+      borderLeft: '3px solid var(--accent)', borderRadius: '0 4px 4px 0',
+    }}>
+      {text}
     </div>
   );
 }
