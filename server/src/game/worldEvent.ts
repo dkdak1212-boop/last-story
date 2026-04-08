@@ -2,9 +2,10 @@ import { query } from '../db/pool.js';
 import { loadCharacter, getEffectiveStats } from './character.js';
 import { addItemToInventory, deliverToMailbox } from './inventory.js';
 import { applyExpGain } from './leveling.js';
+import { startRaidSession, endAllRaidSessions, isInCombat } from '../combat/engine.js';
 import type { Server } from 'socket.io';
 
-const ATTACK_COOLDOWN_MS = 3_000; // 3초 쿨다운
+const RAID_REJOIN_COOLDOWN_MS = 60_000; // 사망 후 1분 쿨타임
 
 // 페이즈 정의: HP% 기준
 const PHASES = [
@@ -96,139 +97,45 @@ async function updatePhaseAndPattern(eventId: number, currentHp: number, maxHp: 
   }
 }
 
-// ─── 공격 ───
-export async function attackBoss(characterId: number, io?: Server) {
+// ─── 레이드 참여 (자동전투 시작) ───
+export async function joinRaid(characterId: number) {
   const event = await getActiveEvent();
-  if (!event) return { error: '진행 중인 월드 이벤트가 없습니다.' };
+  if (!event) return { error: '진행 중인 레이드가 없습니다.' };
   if (event.current_hp <= 0) return { error: '보스가 이미 쓰러졌습니다.' };
 
   const char = await loadCharacter(characterId);
   if (!char) return { error: '캐릭터를 찾을 수 없습니다.' };
   if (char.level < event.min_level) return { error: `Lv.${event.min_level} 이상만 참여 가능합니다.` };
 
-  // 페이즈 전환 무적 (2초)
-  const phaseElapsed = Date.now() - new Date(event.phase_changed_at).getTime();
-  if (phaseElapsed < 2000) {
-    return { error: '페이즈 전환 중... 잠시 후 공격하세요.', cooldownMs: 2000 - phaseElapsed };
-  }
+  // 이미 전투 중이면 거부
+  if (isInCombat(characterId)) return { error: '이미 전투 중입니다. 먼저 전투를 종료하세요.' };
 
-  // 쿨다운 체크
+  // 사망 후 1분 쿨타임 체크
   const existing = await query<{ last_attack_at: string }>(
     `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
     [event.id, characterId]
   );
   if (existing.rows[0]) {
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-    if (elapsed < ATTACK_COOLDOWN_MS) {
-      return { error: '쿨다운 중입니다.', cooldownMs: ATTACK_COOLDOWN_MS - elapsed };
+    if (elapsed < RAID_REJOIN_COOLDOWN_MS) {
+      const remain = Math.ceil((RAID_REJOIN_COOLDOWN_MS - elapsed) / 1000);
+      return { error: `재참여 대기 중 (${remain}초)`, cooldownMs: RAID_REJOIN_COOLDOWN_MS - elapsed };
     }
   }
 
-  // 스탯 계산
-  const eff = await getEffectiveStats(char);
-  const mageClass = ['mage', 'cleric'].includes(char.class_name);
-  const rawDmg = mageClass ? eff.matk : eff.atk;
-
-  // 스킬 1개 사용 (가장 강한 데미지 스킬)
-  const skillR = await query<{ name: string; damage_mult: number; flat_damage: number }>(
-    `SELECT s.name, s.damage_mult, s.flat_damage FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2 AND s.kind = 'damage'
-     ORDER BY s.damage_mult DESC LIMIT 1`,
-    [characterId, char.level]
-  );
-  const skill = skillR.rows[0];
-
-  const isCrit = Math.random() * 100 < eff.cri;
-  let baseDmg: number;
-  let skillName: string;
-  if (skill) {
-    baseDmg = Math.round(rawDmg * skill.damage_mult * (0.9 + Math.random() * 0.2)) + (skill.flat_damage || 0);
-    skillName = skill.name;
-  } else {
-    baseDmg = Math.round(rawDmg * (0.9 + Math.random() * 0.2));
-    skillName = '기본 공격';
-  }
-  if (isCrit) baseDmg = Math.round(baseDmg * 2.0);
-
-  // 패턴 효과 적용
-  const pattern = event.phase_pattern || 'normal';
-  const effect = PATTERN_EFFECTS[pattern] || PATTERN_EFFECTS.normal;
-  const finalDmg = Math.round(baseDmg * effect.dmgMult);
-
-  // 분노 패턴: 반격 데미지 (캐릭터 HP 감소)
-  let counterDmg = 0;
-  if (effect.counterPct > 0) {
-    counterDmg = Math.round(char.max_hp * effect.counterPct / 100);
-    const newHp = Math.max(1, char.hp - counterDmg);
-    await query('UPDATE characters SET hp = $1 WHERE id = $2', [newHp, characterId]);
-  }
-
-  // 전체 공격 패턴: 참가자 HP 10% 감소 (공격한 사람만)
-  let aoeDmg = 0;
-  if (pattern === 'aoe') {
-    aoeDmg = Math.round(char.max_hp * 0.1);
-    const newHp = Math.max(1, char.hp - aoeDmg);
-    await query('UPDATE characters SET hp = $1 WHERE id = $2', [newHp, characterId]);
-  }
-
-  // HP 원자적 감소
-  const upd = await query<{ current_hp: number }>(
-    `UPDATE world_event_active SET current_hp = GREATEST(0, current_hp - $1) WHERE id = $2 AND status = 'active' RETURNING current_hp`,
-    [finalDmg, event.id]
-  );
-  if (upd.rowCount === 0) return { error: '이벤트가 종료되었습니다.' };
-  const newHp = upd.rows[0].current_hp;
-
-  // 참여자 업서트
-  await query(
-    `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
-     VALUES ($1, $2, $3, 1, NOW())
-     ON CONFLICT (event_id, character_id) DO UPDATE
-     SET total_damage = world_event_participants.total_damage + $3,
-         attack_count = world_event_participants.attack_count + 1,
-         last_attack_at = NOW()`,
-    [event.id, characterId, finalDmg]
-  );
-
-  // 참여 보상: 0.5% 확률로 특별 아이템
-  let participationReward: string | null = null;
-  if (Math.random() < 0.005) {
-    const itemName = await grantRandomAccessory(characterId, 2);
-    participationReward = itemName;
-    await deliverToMailbox(characterId, '레이드 참여 행운 보상!', `행운의 보상: ${itemName}`, 0, 0, 0);
-  }
-
-  // 페이즈/패턴 업데이트
-  await updatePhaseAndPattern(event.id, newHp, event.max_hp, event.phase_changed_at, io, event.name);
-
-  // 내 순위
-  const myRow = await query<{ total_damage: number; attack_count: number; rank: number }>(
-    `SELECT total_damage, attack_count,
-            (SELECT COUNT(*) + 1 FROM world_event_participants p2
-             WHERE p2.event_id = $1 AND p2.total_damage > p.total_damage)::int AS rank
-     FROM world_event_participants p
-     WHERE event_id = $1 AND character_id = $2`,
-    [event.id, characterId]
-  );
-  const my = myRow.rows[0];
-
-  return {
-    damage: finalDmg,
-    skillName,
-    crit: isCrit,
-    counterDmg,
-    aoeDmg,
-    pattern,
-    patternLabel: effect.label,
-    phase: newHp / event.max_hp > 0.6 ? 1 : newHp / event.max_hp > 0.3 ? 2 : 3,
-    currentHp: newHp,
-    maxHp: event.max_hp,
-    myDamage: my?.total_damage ?? finalDmg,
-    myRank: my?.rank ?? 1,
-    myAttackCount: my?.attack_count ?? 1,
-    defeated: newHp <= 0,
-    participationReward,
+  // 보스 스탯 (레벨 기반 간단 생성)
+  const bossStats = {
+    str: event.level * 3,
+    dex: event.level * 2,
+    int: event.level * 3,
+    vit: event.level * 4,
+    spd: 300 + event.level * 5,
+    cri: 5 + Math.floor(event.level / 20),
   };
+
+  await startRaidSession(characterId, event.id, event.name, event.level, event.max_hp, bossStats);
+
+  return { ok: true, message: `${event.name} 레이드 참여!` };
 }
 
 // ─── 리더보드 ───
@@ -363,6 +270,8 @@ export async function finishEvent(eventId: number, status: 'defeated' | 'expired
   const boss = await query<{ name: string }>(
     `SELECT b.name FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id WHERE e.id = $1`, [eventId]
   );
+  // 모든 레이드 전투 세션 종료
+  endAllRaidSessions(eventId);
   if (status === 'defeated') await distributeRewards(eventId);
   if (io) io.emit('world_event', { type: 'world_event_end', bossName: boss.rows[0]?.name ?? '???', result: status });
 }

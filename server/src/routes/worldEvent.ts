@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { getActiveEvent, attackBoss, getLeaderboard } from '../game/worldEvent.js';
+import { getActiveEvent, joinRaid, getLeaderboard } from '../game/worldEvent.js';
 import { loadCharacterOwned } from '../game/character.js';
+import { stopCombatSession } from '../combat/engine.js';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   }
 
   const leaderboard = await getLeaderboard(event.id);
+  const hpPct = event.max_hp > 0 ? event.current_hp / event.max_hp : 0;
 
   res.json({
     active: true,
@@ -43,6 +45,8 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
     maxHp: event.max_hp,
     startedAt: event.started_at,
     endsAt: event.ends_at,
+    phase: hpPct > 0.6 ? 1 : hpPct > 0.3 ? 2 : 3,
+    pattern: event.phase_pattern,
     myDamage,
     myRank,
     myAttackCount,
@@ -50,30 +54,29 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   });
 });
 
-// POST /api/world-event/attack
-router.post('/attack', authRequired, async (req: AuthedRequest, res) => {
+// POST /api/world-event/join — 레이드 자동전투 참여
+router.post('/join', authRequired, async (req: AuthedRequest, res) => {
   const { characterId } = req.body as { characterId: number };
   if (!characterId) return res.status(400).json({ error: 'characterId required' });
 
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(403).json({ error: 'not your character' });
 
-  const { getIo } = await import('../ws/io.js');
-  const result = await attackBoss(characterId, getIo() ?? undefined);
-  if ('error' in result) {
-    return res.status(400).json(result);
-  }
-
-  // 보스 처치 시 자동 종료
-  if (result.defeated) {
-    const event = await getActiveEvent();
-    if (event) {
-      // finishEvent는 비동기로 처리 (io 없이 — 스케줄러가 곧 감지)
-      // 실제로는 이 시점에 io에 접근할 수 없으므로 스케줄러가 처리
-    }
-  }
-
+  const result = await joinRaid(characterId);
+  if ('error' in result) return res.status(400).json(result);
   res.json(result);
+});
+
+// POST /api/world-event/leave — 레이드 퇴장
+router.post('/leave', authRequired, async (req: AuthedRequest, res) => {
+  const { characterId } = req.body as { characterId: number };
+  if (!characterId) return res.status(400).json({ error: 'characterId required' });
+
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(403).json({ error: 'not your character' });
+
+  await stopCombatSession(characterId);
+  res.json({ ok: true });
 });
 
 // GET /api/world-event/leaderboard
