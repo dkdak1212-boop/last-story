@@ -170,8 +170,32 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
   await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [sellerGet, au.seller_id]);
   await deliverToMailbox(au.seller_id, '판매 정산', `수수료 ${Math.round(FEE_PCT*100)}% 차감 후 ${sellerGet}G 수령.`, 0, 0);
 
-  // 아이템 우편 지급
-  await deliverToMailbox(parsed.data.characterId, '경매 즉시구매', '경매에서 구매한 아이템입니다.', au.item_id, au.item_quantity);
+  // 아이템 지급 (강화/접두사 보존)
+  const auctionDetail = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null; prefix_ids: number[] | null }>(
+    'SELECT enhance_level, prefix_stats FROM auctions WHERE id = $1', [auctionId]
+  );
+  const ad = auctionDetail.rows[0];
+  const enhLv = ad?.enhance_level || 0;
+  const pStats = ad?.prefix_stats || {};
+
+  // 빈 인벤 슬롯 찾기
+  const usedR = await query<{ slot_index: number }>(
+    'SELECT slot_index FROM character_inventory WHERE character_id = $1', [parsed.data.characterId]
+  );
+  const usedSlots = new Set(usedR.rows.map(r => r.slot_index));
+  let freeSlot = -1;
+  for (let i = 0; i < 300; i++) if (!usedSlots.has(i)) { freeSlot = i; break; }
+
+  if (freeSlot >= 0) {
+    await query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_stats)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, JSON.stringify(pStats)]
+    );
+  } else {
+    // 인벤 풀 → 우편 (접두사는 유실되지만 아이템은 보존)
+    await deliverToMailbox(parsed.data.characterId, '경매 즉시구매', '가방이 가득 차서 우편 발송 (접두사 유실 가능)', au.item_id, au.item_quantity);
+  }
 
   await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [auctionId]);
   res.json({ ok: true });
