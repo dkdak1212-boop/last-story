@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, InventorySlot, Stats } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, ItemStatsInline } from '../components/ui/ItemStats';
+import { GRADE_COLOR, GRADE_LABEL } from '../components/ui/ItemStats';
+
+const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명', atk: '공격', matk: '마공', def: '방어', mdef: '마방', hp: 'HP' };
 
 interface Auction {
   id: number; itemId: number; itemQuantity: number;
@@ -10,6 +12,7 @@ interface Auction {
   currentBid: number | null; endsAt: string; sellerName: string;
   itemName: string; itemGrade: ItemGrade; itemType: string; itemSlot: string | null;
   itemStats: Partial<Stats> | null; itemDescription: string;
+  enhanceLevel?: number; prefixStats?: Record<string, number> | null;
   settled?: boolean; cancelled?: boolean;
 }
 
@@ -129,23 +132,49 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
   const cur = a.currentBid ?? a.startPrice;
   const timeLeft = Math.max(0, new Date(a.endsAt).getTime() - Date.now());
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
+  const el = a.enhanceLevel || 0;
+
+  // 강화 적용된 스탯 계산
+  const enhancedStats = a.itemStats ? (() => {
+    const mult = el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+    const result: Record<string, number> = {};
+    for (const [k, v] of Object.entries(a.itemStats!)) result[k] = Math.round((v as number) * mult);
+    return result;
+  })() : null;
+
   return (
     <div style={{ padding: 12, background: 'var(--bg-panel)', border: `1px solid ${GRADE_COLOR[a.itemGrade]}` }}>
       <div className="auction-row-inner" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div>
             <span style={{ color: GRADE_COLOR[a.itemGrade], fontWeight: 700 }}>{a.itemName}</span>
+            {el > 0 && <span style={{ color: 'var(--accent)', fontWeight: 700, marginLeft: 4 }}>+{el}</span>}
             {a.itemQuantity > 1 && <span style={{ marginLeft: 6, color: 'var(--text-dim)', fontSize: 12 }}>×{a.itemQuantity}</span>}
             <span style={{ marginLeft: 8, fontSize: 10, color: GRADE_COLOR[a.itemGrade] }}>[{GRADE_LABEL[a.itemGrade]}]</span>
           </div>
-          {a.itemStats && <div style={{ marginTop: 2 }}><ItemStatsInline stats={a.itemStats} /></div>}
+          {/* 기본 스탯 (강화 적용) */}
+          {enhancedStats && (
+            <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text-dim)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {Object.entries(enhancedStats).map(([k, v]) => (
+                <span key={k} style={{ color: '#aac8a0' }}>{STAT_LABEL[k] || k} +{v}</span>
+              ))}
+            </div>
+          )}
+          {/* 접두사 부가 능력치 */}
+          {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
+            <div style={{ marginTop: 2, fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {Object.entries(a.prefixStats).map(([k, v]) => (
+                <span key={k} style={{ color: '#66ccff', fontWeight: 700 }}>{STAT_LABEL[k] || k} +{v}</span>
+              ))}
+            </div>
+          )}
           {a.itemDescription && <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>{a.itemDescription}</div>}
           <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 4 }}>
             판매자: {a.sellerName} · {h}시간 {m}분 남음
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ color: 'var(--accent)' }}>{cur.toLocaleString()}G</div>
+          <div style={{ color: 'var(--accent)', fontWeight: 700 }}>{cur.toLocaleString()}G</div>
           {a.buyoutPrice && <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>즉구: {a.buyoutPrice.toLocaleString()}G</div>}
         </div>
         <div className="auction-actions" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
