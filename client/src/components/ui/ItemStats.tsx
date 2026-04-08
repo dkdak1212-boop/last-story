@@ -40,6 +40,17 @@ export const STAT_LABEL: Record<string, string> = {
 
 const STAT_ORDER: string[] = ['atk', 'matk', 'def', 'mdef', 'hp', 'str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
+// % 단위 접두사
+const PCT_STATS = new Set(['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct', 'cri']);
+// 특수: lifesteal_pct는 값/10 → % (5→0.5%)
+const LIFESTEAL_KEY = 'lifesteal_pct';
+
+export function formatPrefixValue(key: string, value: number): string {
+  if (key === LIFESTEAL_KEY) return `+${(value / 10).toFixed(1)}%`;
+  if (PCT_STATS.has(key)) return `+${value}%`;
+  return `+${value}`;
+}
+
 // 스탯 jsonb → 라인 배열
 export function formatStats(stats: Record<string, number> | null | undefined): string[] {
   if (!stats) return [];
