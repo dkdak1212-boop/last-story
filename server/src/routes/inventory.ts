@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned, getEffectiveStats } from '../game/character.js';
+import { loadCharacterOwned, loadCharacter, getEffectiveStats } from '../game/character.js';
 
 // 접두사 ID → 이름 매핑 (캐시)
 let prefixNameCache: Map<number, string> | null = null;
@@ -19,15 +19,16 @@ function buildPrefixName(prefixIds: number[], names: Map<number, string>): strin
 
 // 전투 세션의 player_stats 갱신 (장비 변경 시)
 async function refreshCombatSessionStats(characterId: number) {
-  const sess = await query('SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]);
-  if (sess.rowCount === 0) return;
-  const char = await query<{ id: number; user_id: number; name: string; class_name: string; level: number; exp: number; gold: number; hp: number; max_hp: number; stats: unknown; location: string; last_online_at: string; potion_settings: unknown; inventory_slots_bonus: number; exp_boost_until: string | null }>(
-    `SELECT id, user_id, name, class_name, level, exp, gold, hp, max_hp, stats, location, last_online_at, potion_settings, inventory_slots_bonus, exp_boost_until FROM characters WHERE id = $1`,
-    [characterId]
-  );
-  if (char.rowCount === 0) return;
-  const eff = await getEffectiveStats(char.rows[0] as never);
-  await query('UPDATE combat_sessions SET player_stats = $1 WHERE character_id = $2', [eff, characterId]);
+  try {
+    const sess = await query('SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]);
+    if (sess.rowCount === 0) return;
+    const char = await loadCharacter(characterId);
+    if (!char) return;
+    const eff = await getEffectiveStats(char);
+    await query('UPDATE combat_sessions SET player_stats = $1 WHERE character_id = $2', [JSON.stringify(eff), characterId]);
+  } catch (e) {
+    console.error('[refreshCombatSessionStats]', e);
+  }
 }
 
 const router = Router();
