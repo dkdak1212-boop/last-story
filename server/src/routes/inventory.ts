@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, loadCharacter, getEffectiveStats } from '../game/character.js';
+import { refreshSessionStats } from '../combat/engine.js';
 
 // 접두사 ID → 이름 매핑 (캐시)
 let prefixNameCache: Map<number, string> | null = null;
@@ -26,6 +27,8 @@ async function refreshCombatSessionStats(characterId: number) {
     if (!char) return;
     const eff = await getEffectiveStats(char);
     await query('UPDATE combat_sessions SET player_stats = $1 WHERE character_id = $2', [JSON.stringify(eff), characterId]);
+    // 인메모리 세션도 갱신
+    await refreshSessionStats(characterId);
   } catch (e) {
     console.error('[refreshCombatSessionStats]', e);
   }

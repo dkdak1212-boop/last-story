@@ -776,11 +776,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
        result.hpGained, result.nodePointsGained, s.characterId,
        g.str, g.dex, g.int, g.vit, g.spd, g.cri]
     );
-    s.playerMaxHp += result.hpGained;
-    s.playerHp = s.playerMaxHp;
-    // 스탯 반영된 캐릭터 다시 로드
+    // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
     const updatedChar = await loadCharacter(s.characterId);
-    s.playerStats = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: s.playerMaxHp } as any);
+    s.playerStats = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);
+    s.playerMaxHp = s.playerStats.maxHp;
+    s.playerHp = s.playerMaxHp; // 레벨업 시 풀회복
     s.playerSpeed = s.playerStats.spd;
     // 새 스킬 학습
     s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
@@ -1110,8 +1110,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     monsterSpeed: 100,
     monsterGauge: 0,
     monsterStats: { str: 0, dex: 0, int: 0, vit: 0, spd: 100, cri: 0, maxHp: 0, atk: 0, matk: 0, def: 0, mdef: 0, dodge: 0, accuracy: 80 },
-    playerHp: char.hp,
-    playerMaxHp: char.max_hp,
+    playerHp: Math.min(char.hp, eff.maxHp),
+    playerMaxHp: eff.maxHp,
     playerGauge: 0,
     playerSpeed: eff.spd,
     playerStats: eff,
@@ -1272,6 +1272,20 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
 
 export function isInCombat(characterId: number): boolean {
   return activeSessions.has(characterId);
+}
+
+// 장비 변경 시 인메모리 세션 스탯 갱신
+export async function refreshSessionStats(characterId: number): Promise<void> {
+  const s = activeSessions.get(characterId);
+  if (!s) return;
+  const char = await loadCharacter(characterId);
+  if (!char) return;
+  const eff = await getEffectiveStats(char);
+  s.playerStats = eff;
+  s.playerMaxHp = eff.maxHp;
+  s.playerSpeed = eff.spd;
+  s.equipPrefixes = await loadEquipPrefixes(characterId);
+  s.dirty = true;
 }
 
 export function getCombatHp(characterId: number): number | null {
