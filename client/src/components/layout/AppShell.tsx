@@ -203,20 +203,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div style={{ display: 'flex', flex: 1 }}>
         {/* 왼쪽 사이드 장식 */}
         <aside className="app-side-decor" style={{
-          width: 60, flexShrink: 0,
-          background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 40%)',
+          width: 28, flexShrink: 0,
           borderRight: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 20, gap: 14,
-          opacity: 0.7,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 30%)',
         }}>
-          {['warrior', 'mage', 'cleric', 'rogue'].map((c) => (
-            <img key={c} src={`/images/classes/${c}.png`} alt={c} width={32} height={32}
-              style={{ imageRendering: 'pixelated', opacity: 0.8 }} />
-          ))}
-          <div style={{
-            width: 2, flex: 1, marginTop: 8,
-            background: 'linear-gradient(180deg, var(--accent-dim) 0%, transparent 100%)',
-          }} />
+          <div style={{ width: 1, height: 20 }} />
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', opacity: 0.5 }} />
+          <div style={{ width: 1, flex: 1, background: 'linear-gradient(180deg, var(--accent-dim) 0%, transparent 60%)' }} />
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', opacity: 0.2, marginBottom: 20 }} />
         </aside>
 
         {/* 메인 콘텐츠 */}
@@ -229,20 +224,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* 오른쪽 사이드 장식 */}
         <aside className="app-side-decor" style={{
-          width: 60, flexShrink: 0,
-          background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 40%)',
+          width: 28, flexShrink: 0,
           borderLeft: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 20, gap: 14,
-          opacity: 0.7,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          background: 'linear-gradient(180deg, var(--bg-panel) 0%, transparent 30%)',
         }}>
-          {['dragon', 'titan', 'hydra', 'griffon', 'lich', 'phoenix', 'manticore', 'boss_dark'].map((m) => (
-            <img key={m} src={`/images/monsters/${m}.png`} alt={m} width={32} height={32}
-              style={{ imageRendering: 'pixelated', opacity: 0.8 }} />
-          ))}
-          <div style={{
-            width: 2, flex: 1, marginTop: 8,
-            background: 'linear-gradient(180deg, var(--accent-dim) 0%, transparent 100%)',
-          }} />
+          <div style={{ width: 1, height: 20 }} />
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', opacity: 0.5 }} />
+          <div style={{ width: 1, flex: 1, background: 'linear-gradient(180deg, var(--accent-dim) 0%, transparent 60%)' }} />
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', opacity: 0.2, marginBottom: 20 }} />
         </aside>
       </div>
       {showNav && <ChatPanel />}
