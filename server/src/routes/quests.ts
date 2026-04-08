@@ -13,6 +13,14 @@ router.get('/:id/quests', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // 일일 리셋: 어제 이전에 수령 완료된 퀘스트 삭제 (매일 재도전 가능)
+  await query(
+    `DELETE FROM character_quests
+     WHERE character_id = $1 AND claimed = TRUE
+       AND accepted_at < DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Seoul')`,
+    [id]
+  );
+
   const r = await query<{
     id: number; name: string; description: string; required_level: number;
     target_kind: string; target_id: number; target_count: number;
