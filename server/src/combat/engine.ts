@@ -50,8 +50,8 @@ import { getIo } from '../ws/io.js';
 
 const GAUGE_MAX = 1000;
 const MAX_LOG = 30;
-// 100ms 틱에서 speed를 이 비율로 충전 (0.1 = speed 300일 때 ~3.3초 행동주기)
-const GAUGE_FILL_RATE = 0.1;
+// 100ms 틱에서 speed를 이 비율로 충전 (0.2 = speed 300일 때 ~1.7초 행동주기)
+const GAUGE_FILL_RATE = 0.2;
 
 // ── 타입 ──
 
