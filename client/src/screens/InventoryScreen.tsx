@@ -22,6 +22,7 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
+  const [sortMode, setSortMode] = useState<'latest' | 'level' | 'enhance'>('latest');
 
   async function refresh() {
     if (!active) return;
@@ -172,7 +173,21 @@ export function InventoryScreen() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-        <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/300)</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/300)</h3>
+          <div style={{ display: 'flex', gap: 3 }}>
+            {([['latest', '최신순'], ['level', '레벨순'], ['enhance', '강화순']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setSortMode(key)}
+                style={{
+                  fontSize: 10, padding: '2px 8px',
+                  background: sortMode === key ? 'var(--accent)' : 'transparent',
+                  color: sortMode === key ? '#000' : 'var(--text-dim)',
+                  border: `1px solid ${sortMode === key ? 'var(--accent)' : 'var(--border)'}`,
+                  cursor: 'pointer', fontWeight: sortMode === key ? 700 : 400,
+                }}>{label}</button>
+            ))}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* 자동분해 토글 */}
           <button
@@ -213,7 +228,11 @@ export function InventoryScreen() {
         </div>
       </div>
       <div className="inventory-bag-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
-        {inv.map((s) => {
+        {[...inv].sort((a, b) => {
+          if (sortMode === 'enhance') return (b.enhanceLevel || 0) - (a.enhanceLevel || 0);
+          if (sortMode === 'level') return ((b.item as any).requiredLevel || 0) - ((a.item as any).requiredLevel || 0);
+          return b.slotIndex - a.slotIndex; // latest = 높은 슬롯이 최신
+        }).map((s) => {
           const locked = (s as unknown as { locked?: boolean }).locked ?? false;
           const isEquipment = !!s.item.slot;
           const isConsumable = (s.item as any).type === 'consumable';
