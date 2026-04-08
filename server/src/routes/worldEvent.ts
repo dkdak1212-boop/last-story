@@ -58,7 +58,8 @@ router.post('/attack', authRequired, async (req: AuthedRequest, res) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(403).json({ error: 'not your character' });
 
-  const result = await attackBoss(characterId);
+  const { getIo } = await import('../ws/io.js');
+  const result = await attackBoss(characterId, getIo() ?? undefined);
   if ('error' in result) {
     return res.status(400).json(result);
   }
