@@ -85,6 +85,7 @@ interface SkillDef {
 
 interface ActiveSession {
   characterId: number;
+  className: string;
   fieldId: number;
   monsterId: number | null;
   monsterName: string;
@@ -293,8 +294,11 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 }
 
 // ── 스킬 실행 ──
+// 마법 클래스: matk 사용 고정
+const MATK_CLASSES = new Set(['mage', 'cleric']);
+
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
-  const useMatk = s.playerStats.matk > s.playerStats.atk;
+  const useMatk = MATK_CLASSES.has(s.className);
 
   // 쿨다운 설정 (패시브: cooldown_reduce)
   if (skill.cooldown_actions > 0) {
@@ -641,7 +645,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
   }
 
   // fallback
-  const d = calcDamage(s.playerStats, s.monsterStats, 1.0, false);
+  const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
   if (d.miss) addLog(s, '기본 공격 빗나감!');
   else {
     s.monsterHp -= d.damage;
@@ -1096,6 +1100,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
 
   const session: ActiveSession = {
     characterId,
+    className: char.class_name,
     fieldId,
     monsterId: null,
     monsterName: '',
