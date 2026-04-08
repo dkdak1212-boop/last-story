@@ -158,12 +158,22 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
               ))}
             </div>
           )}
-          {/* 접두사 부가 능력치 */}
+          {/* 접두사 효과 */}
           {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
-            <div style={{ marginTop: 2, fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {Object.entries(a.prefixStats).map(([k, v]) => (
-                <span key={k} style={{ color: '#66ccff', fontWeight: 700 }}>{STAT_LABEL[k] || k} {formatPrefixValue(k, v)}</span>
-              ))}
+            <div style={{ marginTop: 2, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {Object.entries(a.prefixStats).map(([k, v]) => {
+                const special = ['def_reduce_pct','slow_pct','dot_amp_pct','hp_regen','lifesteal_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
+                const fmts: Record<string, (v: number) => string> = {
+                  str: v => `힘 +${v}`, dex: v => `민첩 +${v}`, int: v => `지능 +${v}`, vit: v => `체력 +${v}`,
+                  spd: v => `속도 +${v}`, cri: v => `치명타 +${v}%`, accuracy: v => `명중 +${v}`, dodge: v => `회피 +${v}`,
+                  def_reduce_pct: v => `몬스터 방어력 ${v}% 감소`, slow_pct: v => `몬스터 속도 ${v}% 감소`,
+                  dot_amp_pct: v => `도트 데미지 ${v}% 증가`, hp_regen: v => `틱당 HP ${v} 회복`,
+                  lifesteal_pct: v => `데미지 흡혈 ${(v/10).toFixed(1)}%`, gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
+                  exp_bonus_pct: v => `경험치 획득 ${v}% 증가`, crit_dmg_pct: v => `크리 데미지 ${v}% 증가`,
+                };
+                const text = fmts[k] ? fmts[k](v) : `${STAT_LABEL[k]||k} +${v}`;
+                return <span key={k} style={{ color: special ? '#66ccff' : '#e0a040', fontWeight: 600 }}>{special ? '◆ ' : ''}{text}</span>;
+              })}
             </div>
           )}
           {a.itemDescription && <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>{a.itemDescription}</div>}
