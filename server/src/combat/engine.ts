@@ -183,13 +183,14 @@ async function getCharSkills(characterId: number, className: string, level: numb
   return r.rows;
 }
 
-// 온라인 드랍률 보너스 +50%
+// 드롭률 배율: 기본 x0.1 (대폭 하향), 온라인 보너스 +50%
+const DROP_RATE_MULT = 0.1;
 const ONLINE_DROP_BONUS = 1.5;
 
 function rollDrops(m: MonsterDef): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance * ONLINE_DROP_BONUS) {
+    if (Math.random() < d.chance * DROP_RATE_MULT * ONLINE_DROP_BONUS) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
