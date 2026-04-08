@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, InventorySlot, Stats } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL, formatPrefixValue } from '../components/ui/ItemStats';
+import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
 
 interface Auction {
   id: number; itemId: number; itemQuantity: number;
