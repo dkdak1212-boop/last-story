@@ -39,6 +39,7 @@ const FeedbackScreen = lazyRetry(() => import('./screens/FeedbackScreen').then((
 const AdminScreen = lazyRetry(() => import('./screens/AdminScreen').then((m) => ({ default: m.AdminScreen })));
 const StatusScreen = lazyRetry(() => import('./screens/StatusScreen').then((m) => ({ default: m.StatusScreen })));
 const EnhanceScreen = lazyRetry(() => import('./screens/EnhanceScreen').then((m) => ({ default: m.EnhanceScreen })));
+const CraftScreen = lazyRetry(() => import('./screens/CraftScreen').then((m) => ({ default: m.CraftScreen })));
 const WorldEventScreen = lazyRetry(() => import('./screens/WorldEventScreen').then((m) => ({ default: m.WorldEventScreen })));
 
 // 에러 바운더리: 렌더 에러 시 검은화면 대신 복구 UI
@@ -102,6 +103,7 @@ export default function App() {
                       <Route path="/admin" element={<AdminScreen />} />
                       <Route path="/status" element={<StatusScreen />} />
                       <Route path="/enhance" element={<EnhanceScreen />} />
+                      <Route path="/craft" element={<CraftScreen />} />
                       <Route path="/world-event" element={<WorldEventScreen />} />
                     </Routes>
                   </AppShell>

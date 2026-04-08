@@ -99,12 +99,50 @@ export async function getNodeEffects(characterId: number) {
   return allEffects;
 }
 
+// 세트 효과 계산
+async function getSetBonus(characterId: number): Promise<Partial<Stats>> {
+  // 장착 중인 아이템의 set_id 조회
+  const r = await query<{ set_id: number | null }>(
+    `SELECT i.set_id FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1 AND i.set_id IS NOT NULL`,
+    [characterId]
+  );
+  // set_id별 개수
+  const counts = new Map<number, number>();
+  for (const row of r.rows) {
+    if (row.set_id) counts.set(row.set_id, (counts.get(row.set_id) || 0) + 1);
+  }
+  const totalBonus: Partial<Stats> = {};
+  for (const [setId, count] of counts) {
+    const setR = await query<{ set_bonus_2: Record<string, number>; set_bonus_4: Record<string, number>; set_bonus_6: Record<string, number> }>(
+      'SELECT set_bonus_2, set_bonus_4, set_bonus_6 FROM item_sets WHERE id = $1', [setId]
+    );
+    if (setR.rowCount === 0) continue;
+    const s = setR.rows[0];
+    const bonuses: Record<string, number>[] = [];
+    if (count >= 2) bonuses.push(s.set_bonus_2);
+    if (count >= 4) bonuses.push(s.set_bonus_4);
+    if (count >= 6) bonuses.push(s.set_bonus_6);
+    for (const b of bonuses) {
+      for (const [k, v] of Object.entries(b)) {
+        totalBonus[k as keyof Stats] = (totalBonus[k as keyof Stats] ?? 0) + (v as number);
+      }
+    }
+  }
+  return totalBonus;
+}
+
 export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveStats> {
   const equipped = await getEquippedItems(char.id);
   const bonus = sumEquipmentStats(equipped);
   const nodeEffects = await getNodeEffects(char.id);
   const nodeBonus = sumNodeStats(nodeEffects);
-  return computeEffective(char.stats, char.max_hp, bonus, nodeBonus);
+  const setBonus = await getSetBonus(char.id);
+  // 세트 보너스를 노드 보너스에 합산
+  const combinedNodeBonus: Partial<Stats> = { ...nodeBonus };
+  for (const [k, v] of Object.entries(setBonus)) {
+    combinedNodeBonus[k as keyof Stats] = (combinedNodeBonus[k as keyof Stats] ?? 0) + (v as number);
+  }
+  return computeEffective(char.stats, char.max_hp, bonus, combinedNodeBonus);
 }
 
 // 노드의 패시브 효과 목록 (전투 엔진에서 사용)

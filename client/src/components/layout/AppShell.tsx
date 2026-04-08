@@ -20,6 +20,7 @@ const NAV = [
   { to: '/nodes', label: '노드 트리' },
   { to: '/shop', label: '상점' },
   { to: '/enhance', label: '강화' },
+  { to: '/craft', label: '제작' },
   { to: '/quests', label: '퀘스트' },
   { to: '/marketplace', label: '경매소' },
   { to: '/world-event', label: '월드이벤트' },

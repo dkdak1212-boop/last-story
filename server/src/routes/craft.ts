@@ -1,0 +1,169 @@
+import { Router, type Response } from 'express';
+import { z } from 'zod';
+import { query } from '../db/pool.js';
+import { authRequired, type AuthedRequest } from '../middleware/auth.js';
+import { loadCharacterOwned } from '../game/character.js';
+import { addItemToInventory } from '../game/inventory.js';
+import { generatePrefixes } from '../game/prefix.js';
+
+const router = Router();
+router.use(authRequired);
+
+// 레시피 목록
+router.get('/recipes', async (_req, res) => {
+  const r = await query<{
+    id: number; name: string; material_item_id: number; material_qty: number;
+    result_type: string; result_item_ids: number[]; set_id: number | null;
+    material_name: string; material_grade: string;
+    set_name: string | null; set_description: string | null;
+  }>(
+    `SELECT cr.id, cr.name, cr.material_item_id, cr.material_qty,
+            cr.result_type, cr.result_item_ids, cr.set_id,
+            i.name AS material_name, i.grade AS material_grade,
+            s.name AS set_name, s.description AS set_description
+     FROM craft_recipes cr
+     JOIN items i ON i.id = cr.material_item_id
+     LEFT JOIN item_sets s ON s.id = cr.set_id
+     ORDER BY cr.set_id, cr.id`
+  );
+
+  // 결과 아이템 이름 조회
+  const allResultIds = [...new Set(r.rows.flatMap(row => row.result_item_ids))];
+  const itemsR = allResultIds.length > 0
+    ? await query<{ id: number; name: string; grade: string; slot: string | null }>(
+        `SELECT id, name, grade, slot FROM items WHERE id = ANY($1)`, [allResultIds]
+      )
+    : { rows: [] };
+  const itemMap = new Map(itemsR.rows.map(i => [i.id, i]));
+
+  res.json(r.rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    materialItemId: row.material_item_id,
+    materialName: row.material_name,
+    materialGrade: row.material_grade,
+    materialQty: row.material_qty,
+    resultType: row.result_type,
+    resultItems: row.result_item_ids.map(id => itemMap.get(id)).filter(Boolean),
+    setId: row.set_id,
+    setName: row.set_name,
+    setDescription: row.set_description,
+  })));
+});
+
+// 세트 정보
+router.get('/sets', async (_req, res) => {
+  const r = await query(
+    `SELECT id, name, boss_name, set_bonus_2, set_bonus_4, set_bonus_6, description FROM item_sets ORDER BY id`
+  );
+  res.json(r.rows.map(row => ({
+    id: (row as any).id, name: (row as any).name, bossName: (row as any).boss_name,
+    bonus2: (row as any).set_bonus_2, bonus4: (row as any).set_bonus_4, bonus6: (row as any).set_bonus_6,
+    description: (row as any).description,
+  })));
+});
+
+// 제작 실행
+router.post('/craft', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterId: z.number().int().positive(),
+    recipeId: z.number().int().positive(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { characterId, recipeId } = parsed.data;
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 레시피 조회
+  const recipeR = await query<{
+    material_item_id: number; material_qty: number; result_item_ids: number[];
+  }>('SELECT material_item_id, material_qty, result_item_ids FROM craft_recipes WHERE id = $1', [recipeId]);
+  if (recipeR.rowCount === 0) return res.status(404).json({ error: 'recipe not found' });
+  const recipe = recipeR.rows[0];
+
+  // 재료 보유 확인
+  const matR = await query<{ total: string }>(
+    `SELECT COALESCE(SUM(quantity), 0)::text AS total FROM character_inventory ci
+     WHERE ci.character_id = $1 AND ci.item_id = $2`,
+    [characterId, recipe.material_item_id]
+  );
+  const have = Number(matR.rows[0].total);
+  if (have < recipe.material_qty) {
+    return res.status(400).json({ error: `재료 부족 (보유: ${have}개, 필요: ${recipe.material_qty}개)` });
+  }
+
+  // 재료 차감
+  let remaining = recipe.material_qty;
+  const slots = await query<{ id: number; quantity: number }>(
+    `SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = $2 ORDER BY slot_index`,
+    [characterId, recipe.material_item_id]
+  );
+  for (const slot of slots.rows) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, slot.quantity);
+    if (take >= slot.quantity) {
+      await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
+    } else {
+      await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, slot.id]);
+    }
+    remaining -= take;
+  }
+
+  // 랜덤 결과 아이템 선택
+  const resultItemId = recipe.result_item_ids[Math.floor(Math.random() * recipe.result_item_ids.length)];
+
+  // 3옵 접두사 강제 생성
+  const { prefixIds, bonusStats } = await generate3Prefixes();
+
+  // 인벤토리에 추가 (접두사 포함)
+  const usedR = await query<{ slot_index: number }>(
+    'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+  );
+  const used = new Set(usedR.rows.map(r => r.slot_index));
+  let freeSlot = -1;
+  for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
+  if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
+
+  await query(
+    `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
+     VALUES ($1, $2, $3, 1, $4, $5::jsonb)`,
+    [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]
+  );
+
+  const itemNameR = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [resultItemId]);
+  const itemName = itemNameR.rows[0]?.name ?? '???';
+
+  res.json({ ok: true, itemName, prefixCount: prefixIds.length, message: `${itemName} 제작 성공! (3옵 부여)` });
+});
+
+// 3옵 접두사 강제 생성
+async function generate3Prefixes(): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
+  const prefixes = await query<{ id: number; tier: number; stat_key: string; min_val: number; max_val: number }>(
+    'SELECT id, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
+  );
+
+  const prefixIds: number[] = [];
+  const bonusStats: Record<string, number> = {};
+  const usedKeys = new Set<string>();
+
+  for (let i = 0; i < 3; i++) {
+    // 티어: 2~4 (세트 아이템은 최소 2티어 보장)
+    const roll = Math.random() * 100;
+    const tier = roll < 1 ? 4 : roll < 15 ? 3 : 2;
+
+    const candidates = prefixes.rows.filter(p => p.tier === tier && !usedKeys.has(p.stat_key));
+    if (candidates.length === 0) continue;
+
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    const value = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+
+    prefixIds.push(picked.id);
+    bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;
+    usedKeys.add(picked.stat_key);
+  }
+
+  return { prefixIds, bonusStats };
+}
+
+export default router;
