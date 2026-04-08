@@ -418,6 +418,23 @@ const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string 
   '독안개':        { icon: '🌫', color: '#44aa44', glow: '#66cc66' },
   '그림자 폭풍':   { icon: '🌑', color: '#6622aa', glow: '#8844cc' },
   '사신의 포옹':   { icon: '💀', color: '#cc0088', glow: '#ee22aa' },
+  // 신규 Lv.60~75
+  '전장의 포효':   { icon: '📯', color: '#ff6644', glow: '#ff8866' },
+  '갑옷 분쇄':     { icon: '🔨', color: '#cc6600', glow: '#ee8822' },
+  '지옥의 칼날':   { icon: '🔥', color: '#ff2200', glow: '#ff4422' },
+  '대지의 심판':   { icon: '⚡', color: '#ff4400', glow: '#ff6622' },
+  '마력 집중':     { icon: '🌀', color: '#8866ff', glow: '#aa88ff' },
+  '시간 왜곡':     { icon: '🕐', color: '#44aaff', glow: '#66ccff' },
+  '태양의 불꽃':   { icon: '☀', color: '#ffaa00', glow: '#ffcc44' },
+  '별의 종말':     { icon: '🌟', color: '#cc44ff', glow: '#ee66ff' },
+  '신의 축복':     { icon: '✝', color: '#ffee44', glow: '#ffff88' },
+  '신성 사슬':     { icon: '⛓', color: '#ffcc00', glow: '#ffee44' },
+  '빛의 심판':     { icon: '💫', color: '#ffffff', glow: '#ffffcc' },
+  '천상의 낙인':   { icon: '🔱', color: '#ffdd44', glow: '#ffee88' },
+  '그림자 은신':   { icon: '💨', color: '#6644aa', glow: '#8866cc' },
+  '맹독의 안개':   { icon: '☣', color: '#44aa22', glow: '#66cc44' },
+  '심장 관통':     { icon: '🗡', color: '#ff2266', glow: '#ff4488' },
+  '죽음의 무도':   { icon: '💀', color: '#aa22cc', glow: '#cc44ee' },
 };
 
 // 스킬 설명 (툴팁용)
@@ -450,6 +467,23 @@ const SKILL_DESCRIPTIONS: Record<string, string> = {
   '맹독 강화': '독 피해 강화 + 독 부여',
   '그림자 연격': '다중 타격 + 흡혈',
   '사신의 낫': '적 HP 비례 대미지',
+  // 신규
+  '전장의 포효': '속도 40% 증가 (3행동)',
+  '갑옷 분쇄': '적 속도 50% 감소 (3행동)',
+  '지옥의 칼날': '4.5배 공격 + 60% 흡혈',
+  '대지의 심판': '5배 공격 + HP 15% 비례 피해',
+  '마력 집중': '속도 50% 증가 (3행동)',
+  '시간 왜곡': '적 게이지 동결 (3행동)',
+  '태양의 불꽃': '4배 마법 + 강력 도트',
+  '별의 종말': '5.5배 마법 (자기 속도 -30%)',
+  '신의 축복': '피해 40% 감소 (3행동)',
+  '신성 사슬': '적 기절 (2행동)',
+  '빛의 심판': '3.5배 신성 + 도트',
+  '천상의 낙인': '4.5배 + 반사 100% (3행동)',
+  '그림자 은신': '게이지 즉시 충전',
+  '맹독의 안개': '적 명중 50% 감소 + 독',
+  '심장 관통': '3.5배 + 크리 40% 보너스',
+  '죽음의 무도': '1.8배 x 6연타 + 독',
 };
 
 function SkillBar({ skills, waitingInput, autoMode, onUse }: {
