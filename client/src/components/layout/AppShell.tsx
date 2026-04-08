@@ -94,6 +94,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
             <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {(active as any).nodePoints ?? 0}</span>
+            {active.location?.startsWith('field:') ? (
+              <span style={{
+                color: '#ff6b6b', fontWeight: 700, fontSize: 13,
+                animation: 'blink-status 1s ease-in-out infinite',
+              }}>
+                사냥 중
+              </span>
+            ) : (
+              <span style={{
+                color: 'var(--text-dim)', fontWeight: 700, fontSize: 13,
+                animation: 'blink-status 2s ease-in-out infinite',
+              }}>
+                대기 중
+              </span>
+            )}
           </div>
         )}
         <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -138,7 +153,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           }}>
             {'\u{1F4E2} [시스템 공지] ' + broadcast}
           </div>
-          <style>{`@keyframes marquee-scroll { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }`}</style>
+          <style>{`@keyframes marquee-scroll { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } }
+@keyframes blink-status { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
         </div>
       )}
 
