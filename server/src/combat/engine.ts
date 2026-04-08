@@ -110,6 +110,7 @@ interface ActiveSession {
   log: string[];
   skills: SkillDef[];
   passives: { key: string; value: number }[];
+  equipPrefixes: Record<string, number>; // 장비 접두사 합산 (def_reduce_pct, slow_pct, etc.)
   fieldName: string;
   dirty: boolean;
   userId: number;
@@ -145,6 +146,24 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
      FROM monsters WHERE id = $1`, [mid]
   );
   return mr.rows[0] || null;
+}
+
+// 장비 접두사 특수 효과 합산 로드
+async function loadEquipPrefixes(characterId: number): Promise<Record<string, number>> {
+  const r = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
+    `SELECT ce.enhance_level, ce.prefix_stats FROM character_equipped ce WHERE ce.character_id = $1`,
+    [characterId]
+  );
+  const totals: Record<string, number> = {};
+  for (const row of r.rows) {
+    if (!row.prefix_stats) continue;
+    const el = row.enhance_level || 0;
+    const mult = 1 + el * 0.08;
+    for (const [k, v] of Object.entries(row.prefix_stats)) {
+      totals[k] = (totals[k] || 0) + Math.round((v as number) * mult);
+    }
+  }
+  return totals;
 }
 
 const MAX_COMBAT_SKILLS = 6;
@@ -257,7 +276,7 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     if (target === 'monster') {
       // 패시브: dot_amp, poison_amp, bleed_amp, burn_amp, holy_dot_amp
       const dotAmp = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
-        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp');
+        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp') + (s.equipPrefixes.dot_amp_pct || 0);
       if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
       s.monsterHp -= dmg;
       addLog(s, `[도트] 몬스터에게 ${dmg} 데미지`);
@@ -287,6 +306,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 패시브: spell_amp (마법 공격 증폭), armor_pierce (방어 무시)
   const spellAmp = useMatk ? getPassive(s, 'spell_amp') : 0;
   const armorPierce = getPassive(s, 'armor_pierce');
+  // 접두사: 약화(def_reduce_pct)
+  const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
 
   switch (skill.effect_type) {
     case 'damage':
@@ -296,10 +317,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'hp_pct_damage': {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
-      const defModStats = armorPierce > 0 ? {
+      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+      const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
-        def: Math.round(s.monsterStats.def * (1 - armorPierce / 100)),
-        mdef: Math.round(s.monsterStats.mdef * (1 - armorPierce / 100)),
+        def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
+        mdef: Math.round(s.monsterStats.mdef * (1 - totalDefReduce / 100)),
       } : s.monsterStats;
       const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage, criBonus);
       if (d.miss) {
@@ -308,13 +330,22 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         let dmg = d.damage;
         // 패시브: spell_amp
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
-        // 패시브: crit_damage (치명타 추가 배율)
+        // 패시브: crit_damage (치명타 추가 배율) + 접두사: 날카로움(crit_dmg_pct)
         if (d.crit) {
-          const critDmgBonus = getPassive(s, 'crit_damage');
+          const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
         }
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+
+        // 접두사: 흡혈귀(lifesteal_pct)
+        const prefixLifesteal = s.equipPrefixes.lifesteal_pct || 0;
+        if (prefixLifesteal > 0 && dmg > 0) {
+          const heal = Math.round(dmg * prefixLifesteal / 1000); // 값이 5~20 → 0.5%~2.0%
+          if (heal > 0) {
+            s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+          }
+        }
 
         // 패시브: crit_lifesteal (치명타 시 흡혈)
         if (d.crit) {
@@ -706,22 +737,27 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const m = mr.rows[0];
   if (!m) return;
 
-  addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${m.gold_reward}G`);
+  // 접두사: 황금(gold_bonus_pct), 경험(exp_bonus_pct)
+  const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
+  const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
+  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100));
+
+  addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
 
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 온라인 보너스: 경험치 +50%
+  // 온라인 보너스: 경험치 +50% + 접두사 경험 보너스
   const ONLINE_EXP_BONUS = 1.5;
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * ONLINE_EXP_BONUS * (boostActive ? 1.5 : 1.0));
+  const boostedExp = Math.floor(m.exp_reward * ONLINE_EXP_BONUS * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100));
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel}`);
     const g = result.statGrowth;
     await query(
-      `UPDATE characters SET level=$1, exp=$2, gold=gold+$3,
+      `UPDATE characters SET level=$1, exp=$2, gold=gold+$3::int,
               max_hp=max_hp+$4, hp=max_hp+$4, node_points=node_points+$5,
               stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(
                 stats,
@@ -732,7 +768,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
                 '{spd}', (COALESCE((stats->>'spd')::int,0) + $11)::text::jsonb),
                 '{cri}', (COALESCE((stats->>'cri')::int,0) + $12)::text::jsonb)
        WHERE id=$6`,
-      [result.newLevel, result.newExp, m.gold_reward,
+      [result.newLevel, result.newExp, finalGold,
        result.hpGained, result.nodePointsGained, s.characterId,
        g.str, g.dex, g.int, g.vit, g.spd, g.cri]
     );
@@ -746,7 +782,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
   } else {
     await query('UPDATE characters SET exp=$1, gold=gold+$2 WHERE id=$3',
-      [result.newExp, m.gold_reward, s.characterId]);
+      [result.newExp, finalGold, s.characterId]);
   }
 
   await trackMonsterKill(s.characterId, s.monsterId!);
@@ -861,8 +897,18 @@ async function combatTick(): Promise<void> {
           }
         }
       }
+      // 접두사: 저주(slow_pct) → 몬스터 속도 감소
+      if (s.equipPrefixes.slow_pct) {
+        effectiveMonsterSpeed = Math.round(effectiveMonsterSpeed * (1 - s.equipPrefixes.slow_pct / 100));
+      }
       effectivePlayerSpeed = Math.max(10, effectivePlayerSpeed);
       effectiveMonsterSpeed = Math.max(10, effectiveMonsterSpeed);
+
+      // 접두사: 재생(hp_regen) → 틱당 HP 회복
+      if (s.equipPrefixes.hp_regen && s.playerHp < s.playerMaxHp && s.playerHp > 0) {
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + Math.round(s.equipPrefixes.hp_regen / 10)); // 100ms당 1/10
+        s.dirty = true;
+      }
 
       // 게이지 충전 (GAUGE_FILL_RATE로 스케일링)
       if (!s.waitingInput) {
@@ -1006,6 +1052,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
   const eff = await getEffectiveStats(char);
   const skills = await getCharSkills(characterId, char.class_name, char.level);
   const passives = await getNodePassives(characterId);
+  const equipPrefixes = await loadEquipPrefixes(characterId);
 
   // 키스톤 패시브 적용: 전투 시작 시 스탯 수정
   const pMap = new Map(passives.map(p => [p.key, p.value]));
@@ -1074,6 +1121,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     log: [],
     skills,
     passives,
+    equipPrefixes,
     fieldName,
     dirty: true,
     userId: char.user_id,

@@ -58,11 +58,19 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   );
   const prefixNames = await getPrefixNames();
 
-  function safePrefixStats(raw: unknown): Record<string, number> {
-    if (!raw) return {};
-    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
-    if (typeof raw === 'object') return raw as Record<string, number>;
-    return {};
+  function safePrefixStats(raw: unknown, enhanceLevel = 0): Record<string, number> {
+    let stats: Record<string, number> = {};
+    if (!raw) return stats;
+    if (typeof raw === 'string') { try { stats = JSON.parse(raw); } catch { return {}; } }
+    else if (typeof raw === 'object') stats = { ...(raw as Record<string, number>) };
+    // 강화 배율 적용 (강화당 +8%)
+    if (enhanceLevel > 0) {
+      const mult = 1 + enhanceLevel * 0.08;
+      for (const k of Object.keys(stats)) {
+        stats[k] = Math.round(stats[k] * mult);
+      }
+    }
+    return stats;
   }
 
   // 강화 배율 적용된 스탯 반환
@@ -85,7 +93,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       quantity: r.quantity,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: safePrefixStats(r.prefix_stats),
+      prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: pName,
       locked: r.locked,
       item: {
@@ -127,7 +135,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       description: r.description, stackSize: 1, sellPrice: 0,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: safePrefixStats(r.prefix_stats),
+      prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       locked: r.locked,
     };
   }

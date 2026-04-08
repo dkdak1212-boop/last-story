@@ -9,8 +9,13 @@ export interface PrefixDef {
   max_val: number;
 }
 
+// 강화 시 접두사도 스케일링되는 스탯 키 (기본 스탯만)
+export const SCALABLE_PREFIX_STATS = new Set(['str', 'dex', 'int', 'vit', 'spd', 'cri', 'accuracy', 'dodge', 'hp_regen']);
+
 // 캐시 (서버 시작 시 1회 로드)
 let prefixCache: PrefixDef[] | null = null;
+
+export function clearPrefixCache() { prefixCache = null; }
 
 async function loadPrefixes(): Promise<PrefixDef[]> {
   if (prefixCache) return prefixCache;
