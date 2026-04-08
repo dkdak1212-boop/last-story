@@ -1,7 +1,7 @@
 import { query } from '../db/pool.js';
 import { generatePrefixes } from './prefix.js';
 
-export const BASE_INVENTORY_SLOTS = 100;
+export const BASE_INVENTORY_SLOTS = 300;
 
 async function getMaxSlots(characterId: number): Promise<number> {
   const r = await query<{ bonus: number }>(

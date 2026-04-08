@@ -172,7 +172,7 @@ export function InventoryScreen() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-        <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/100)</h3>
+        <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/300)</h3>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* 자동분해 토글 */}
           <button

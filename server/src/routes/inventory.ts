@@ -201,7 +201,7 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
     'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
   );
   const used = new Set(usedR.rows.map(r => r.slot_index));
-  const maxSlots = 50 + (char.inventory_slots_bonus || 0);
+  const maxSlots = 300 + (char.inventory_slots_bonus || 0);
   let freeSlot = -1;
   for (let i = 0; i < maxSlots; i++) if (!used.has(i)) { freeSlot = i; break; }
   if (freeSlot < 0) return res.status(400).json({ error: 'inventory full' });
