@@ -148,7 +148,7 @@ export function VillageScreen() {
           border: '1px solid rgba(224,128,48,0.3)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid rgba(224,128,48,0.2)' }}>
-            <Px src="/images/monsters/dragon.png" size={22} />
+            <Px src="/images/slots/chest.png" size={22} />
             <span style={{ fontSize: 14, fontWeight: 900, color: '#e08030', letterSpacing: 1 }}>드롭 축하</span>
           </div>
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
@@ -216,7 +216,7 @@ export function VillageScreen() {
         border: '1px solid rgba(100,140,220,0.25)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid rgba(100,140,220,0.15)' }}>
-          <Px src="/images/slots/amulet.png" size={22} />
+          <Px src="/images/monsters/ghost.png" size={22} />
           <span style={{ fontSize: 15, fontWeight: 900, color: '#7ba4e0', letterSpacing: 1 }}>방명록</span>
           <span style={{ fontSize: 11, color: 'var(--text-dim)', marginLeft: 'auto' }}>{guestbook.length}개</span>
         </div>
