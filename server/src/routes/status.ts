@@ -4,6 +4,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects } from '../game/character.js';
 import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
+import { getCombatHp } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -34,7 +35,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     expToNext: expNeed,
     expPercent: Math.round((char.exp / expNeed) * 100),
     gold: char.gold,
-    hp: char.hp,
+    hp: getCombatHp(cid) ?? char.hp,
     nodePoints: char.node_points,
     className: char.class_name,
     baseStats: char.stats,

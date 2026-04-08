@@ -1220,6 +1220,11 @@ export function isInCombat(characterId: number): boolean {
   return activeSessions.has(characterId);
 }
 
+export function getCombatHp(characterId: number): number | null {
+  const s = activeSessions.get(characterId);
+  return s ? Math.max(0, s.playerHp) : null;
+}
+
 function ensureCombatLoop() {
   if (combatInterval) return;
   combatInterval = setInterval(() => {

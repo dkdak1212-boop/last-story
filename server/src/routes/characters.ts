@@ -4,6 +4,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { getStartingStats } from '../game/classes.js';
 import { getEffectiveStats, loadCharacter } from '../game/character.js';
+import { getCombatHp } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -44,6 +45,9 @@ router.get('/:id', async (req: AuthedRequest, res: Response) => {
   if (char) {
     const eff = await getEffectiveStats(char);
     const row = r.rows[0] as Record<string, unknown>;
+    // 전투 중이면 인메모리 HP 사용
+    const combatHp = getCombatHp(id);
+    if (combatHp !== null) row.hp = combatHp;
     row.maxHp = eff.maxHp;
     row.effectiveStats = {
       atk: Math.round(eff.atk),
