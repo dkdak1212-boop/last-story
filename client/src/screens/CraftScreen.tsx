@@ -27,11 +27,20 @@ export function CraftScreen() {
   const [msg, setMsg] = useState('');
   const [result, setResult] = useState<{ itemName: string; prefixCount: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [openSets, setOpenSets] = useState<Set<number | string>>(new Set());
 
   useEffect(() => {
     api<Recipe[]>('/craft/recipes').then(setRecipes).catch(() => {});
     api<SetInfo[]>('/craft/sets').then(setSets).catch(() => {});
   }, []);
+
+  function toggleOpen(key: number | string) {
+    setOpenSets(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   async function craft(recipeId: number) {
     if (!active || busy) return;
@@ -49,18 +58,22 @@ export function CraftScreen() {
 
   // 세트별 그룹핑
   const grouped = new Map<number, { set: SetInfo; recipes: Recipe[] }>();
+  const standalone: Recipe[] = [];
   for (const r of recipes) {
-    if (!r.setId) continue;
-    if (!grouped.has(r.setId)) {
-      const s = sets.find(s => s.id === r.setId);
-      if (s) grouped.set(r.setId, { set: s, recipes: [] });
+    if (r.setId) {
+      if (!grouped.has(r.setId)) {
+        const s = sets.find(s => s.id === r.setId);
+        if (s) grouped.set(r.setId, { set: s, recipes: [] });
+      }
+      grouped.get(r.setId)?.recipes.push(r);
+    } else {
+      standalone.push(r);
     }
-    grouped.get(r.setId)?.recipes.push(r);
   }
 
   return (
     <div>
-      <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>세트 아이템 제작</h2>
+      <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>제작</h2>
 
       {msg && (
         <div style={{
@@ -73,68 +86,102 @@ export function CraftScreen() {
         </div>
       )}
 
-      {[...grouped.values()].map(({ set, recipes: recs }) => (
-        <div key={set.id} style={{
-          marginBottom: 20, borderRadius: 8, overflow: 'hidden',
-          border: '1px solid rgba(224,128,48,0.3)',
-          background: 'linear-gradient(135deg, rgba(224,128,48,0.04) 0%, rgba(201,162,77,0.02) 100%)',
-        }}>
-          {/* 세트 헤더 */}
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(224,128,48,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* 일반 제작 (비세트) */}
+      {standalone.length > 0 && (
+        <div style={{ marginBottom: 20, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(100,140,220,0.3)', background: 'linear-gradient(135deg, rgba(100,140,220,0.04) 0%, rgba(100,140,220,0.02) 100%)' }}>
+          <button onClick={() => toggleOpen('etc')} style={{
+            width: '100%', padding: '14px 16px', background: 'transparent', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', textAlign: 'left',
+          }}>
+            <span style={{ fontSize: 16, fontWeight: 900, color: '#7ba4e0' }}>일반 제작</span>
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{openSets.has('etc') ? '접기 ▲' : '펼치기 ▼'}</span>
+          </button>
+          {openSets.has('etc') && (
+            <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {standalone.map(r => <RecipeCard key={r.id} r={r} onCraft={craft} busy={busy} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 세트 제작 */}
+      {[...grouped.values()].map(({ set, recipes: recs }) => {
+        const isOpen = openSets.has(set.id);
+        return (
+          <div key={set.id} style={{
+            marginBottom: 16, borderRadius: 8, overflow: 'hidden',
+            border: '1px solid rgba(224,128,48,0.3)',
+            background: 'linear-gradient(135deg, rgba(224,128,48,0.04) 0%, rgba(201,162,77,0.02) 100%)',
+          }}>
+            {/* 접이식 헤더 */}
+            <button onClick={() => toggleOpen(set.id)} style={{
+              width: '100%', padding: '14px 16px', background: 'transparent', border: 'none',
+              borderBottom: isOpen ? '1px solid rgba(224,128,48,0.2)' : 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', textAlign: 'left',
+            }}>
               <div>
                 <span style={{ fontSize: 16, fontWeight: 900, color: '#e08030' }}>{set.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--text-dim)', marginLeft: 10 }}>{set.bossName}</span>
               </div>
-            </div>
-            {/* 세트 효과 */}
-            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-              <SetBonusLine count={2} bonus={set.bonus2} />
-              <SetBonusLine count={4} bonus={set.bonus4} />
-              <SetBonusLine count={6} bonus={set.bonus6} />
-            </div>
-          </div>
+              <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>{isOpen ? '접기 ▲' : '펼치기 ▼'}</span>
+            </button>
 
-          {/* 레시피 목록 */}
-          <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {recs.map(r => (
-              <div key={r.id} style={{
-                padding: 12, background: 'rgba(0,0,0,0.2)', borderRadius: 6,
-                border: '1px solid rgba(255,255,255,0.05)',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 14 }}>{r.name}</div>
-                  <button
-                    className="primary" onClick={() => craft(r.id)} disabled={busy}
-                    style={{ padding: '6px 18px', fontWeight: 700 }}
-                  >제작</button>
+            {isOpen && (
+              <>
+                {/* 세트 효과 */}
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(224,128,48,0.1)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                    <SetBonusLine count={2} bonus={set.bonus2} />
+                    <SetBonusLine count={4} bonus={set.bonus4} />
+                    <SetBonusLine count={6} bonus={set.bonus6} />
+                  </div>
                 </div>
-                {/* 재료 */}
-                <div style={{ fontSize: 12, marginBottom: 6 }}>
-                  <span style={{ color: 'var(--text-dim)' }}>재료: </span>
-                  <span style={{ color: GRADE_COLOR[r.materialGrade], fontWeight: 700 }}>{r.materialName}</span>
-                  <span style={{ color: 'var(--accent)' }}> ×{r.materialQty}</span>
+
+                {/* 레시피 */}
+                <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {recs.map(r => <RecipeCard key={r.id} r={r} onCraft={craft} busy={busy} isSet />)}
                 </div>
-                {/* 결과 아이템 */}
-                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-                  <span>결과 (랜덤): </span>
-                  {r.resultItems.map((item, i) => (
-                    <span key={item.id}>
-                      {i > 0 && ' / '}
-                      <span style={{ color: GRADE_COLOR[item.grade], fontWeight: 600 }}>{item.name}</span>
-                    </span>
-                  ))}
-                </div>
-                <div style={{ fontSize: 11, color: '#66ccff', marginTop: 4 }}>
-                  제작 시 3옵 접두사 자동 부여 (2~4티어)
-                </div>
-              </div>
-            ))}
+              </>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {recipes.length === 0 && <div style={{ color: 'var(--text-dim)' }}>레시피가 없습니다.</div>}
+    </div>
+  );
+}
+
+function RecipeCard({ r, onCraft, busy, isSet }: { r: Recipe; onCraft: (id: number) => void; busy: boolean; isSet?: boolean }) {
+  return (
+    <div style={{
+      padding: 12, background: 'rgba(0,0,0,0.2)', borderRadius: 6,
+      border: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 14 }}>{r.name}</div>
+        <button className="primary" onClick={() => onCraft(r.id)} disabled={busy}
+          style={{ padding: '6px 18px', fontWeight: 700 }}>제작</button>
+      </div>
+      <div style={{ fontSize: 12, marginBottom: 6 }}>
+        <span style={{ color: 'var(--text-dim)' }}>재료: </span>
+        <span style={{ color: GRADE_COLOR[r.materialGrade], fontWeight: 700 }}>{r.materialName}</span>
+        <span style={{ color: 'var(--accent)' }}> ×{r.materialQty}</span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+        <span>결과: </span>
+        {r.resultItems.map((item, i) => (
+          <span key={item.id}>
+            {i > 0 && ' / '}
+            <span style={{ color: GRADE_COLOR[item.grade], fontWeight: 600 }}>{item.name}</span>
+          </span>
+        ))}
+      </div>
+      {isSet && (
+        <div style={{ fontSize: 11, color: '#66ccff', marginTop: 4 }}>
+          제작 시 3옵 접두사 자동 부여 (2~4티어)
+        </div>
+      )}
     </div>
   );
 }

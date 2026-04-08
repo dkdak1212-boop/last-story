@@ -113,28 +113,39 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   // 랜덤 결과 아이템 선택
   const resultItemId = recipe.result_item_ids[Math.floor(Math.random() * recipe.result_item_ids.length)];
 
-  // 3옵 접두사 강제 생성
-  const { prefixIds, bonusStats } = await generate3Prefixes();
-
-  // 인벤토리에 추가 (접두사 포함)
-  const usedR = await query<{ slot_index: number }>(
-    'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+  // 아이템 종류 확인 (장비 vs 소비)
+  const itemInfoR = await query<{ name: string; slot: string | null; type: string }>(
+    'SELECT name, slot, type FROM items WHERE id = $1', [resultItemId]
   );
-  const used = new Set(usedR.rows.map(r => r.slot_index));
-  let freeSlot = -1;
-  for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
-  if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
+  const itemInfo = itemInfoR.rows[0];
+  if (!itemInfo) return res.status(500).json({ error: 'item not found' });
 
-  await query(
-    `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
-     VALUES ($1, $2, $3, 1, $4, $5::jsonb)`,
-    [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]
-  );
+  const isEquipment = !!itemInfo.slot;
 
-  const itemNameR = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [resultItemId]);
-  const itemName = itemNameR.rows[0]?.name ?? '???';
+  if (isEquipment) {
+    // 장비: 3옵 접두사 강제 부여
+    const { prefixIds, bonusStats } = await generate3Prefixes();
+    const usedR = await query<{ slot_index: number }>(
+      'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+    );
+    const used = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
+    if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
 
-  res.json({ ok: true, itemName, prefixCount: prefixIds.length, message: `${itemName} 제작 성공! (3옵 부여)` });
+    await query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
+       VALUES ($1, $2, $3, 1, $4, $5::jsonb)`,
+      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]
+    );
+    res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, message: `${itemInfo.name} 제작 성공! (3옵 부여)` });
+  } else {
+    // 소비/재료: 접두사 없이 추가
+    const { addItemToInventory: addItem } = await import('../game/inventory.js');
+    const { added, overflow } = await addItem(characterId, resultItemId, 1);
+    if (overflow > 0) return res.status(400).json({ error: '인벤토리 가득!' });
+    res.json({ ok: true, itemName: itemInfo.name, prefixCount: 0, message: `${itemInfo.name} 제작 성공!` });
+  }
 });
 
 // 3옵 접두사 강제 생성

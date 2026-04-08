@@ -17,16 +17,19 @@ router.get('/:id/quests', async (req: AuthedRequest, res: Response) => {
     id: number; name: string; description: string; required_level: number;
     target_kind: string; target_id: number; target_count: number;
     reward_exp: number; reward_gold: number; reward_item_id: number | null; reward_item_qty: number | null;
+    reward_item_id2: number | null; reward_item_qty2: number | null; reward_item2_name: string | null;
     progress: number | null; completed: boolean | null; claimed: boolean | null;
     target_name: string | null;
   }>(
     `SELECT q.id, q.name, q.description, q.required_level,
             q.target_kind, q.target_id, q.target_count,
             q.reward_exp, q.reward_gold, q.reward_item_id, q.reward_item_qty,
+            q.reward_item_id2, q.reward_item_qty2, i2.name AS reward_item2_name,
             cq.progress, cq.completed, cq.claimed,
             m.name AS target_name
      FROM quests q
      LEFT JOIN character_quests cq ON cq.quest_id = q.id AND cq.character_id = $1
+     LEFT JOIN items i2 ON i2.id = q.reward_item_id2
      LEFT JOIN monsters m ON m.id = q.target_id
      ORDER BY q.required_level ASC, q.id ASC`,
     [id]
@@ -42,6 +45,8 @@ router.get('/:id/quests', async (req: AuthedRequest, res: Response) => {
     rewardGold: row.reward_gold,
     rewardItemId: row.reward_item_id,
     rewardItemQty: row.reward_item_qty,
+    rewardItem2Name: row.reward_item2_name,
+    rewardItem2Qty: row.reward_item_qty2,
     accepted: row.progress !== null,
     progress: row.progress ?? 0,
     completed: row.completed ?? false,
@@ -106,6 +111,17 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
     const { overflow } = await addItemToInventory(id, item.id, 1);
     if (overflow > 0) {
       await deliverToMailbox(id, '퀘스트 보상', `랜덤 박스: ${item.name} — 가방 초과로 우편 발송`, item.id, 1);
+    }
+  }
+
+  // 추가 보상 (찢어진 스크롤 등)
+  const q2 = await query<{ reward_item_id2: number | null; reward_item_qty2: number | null }>(
+    'SELECT reward_item_id2, reward_item_qty2 FROM quests WHERE id = $1', [questId]
+  );
+  if (q2.rows[0]?.reward_item_id2 && q2.rows[0]?.reward_item_qty2) {
+    const { overflow: ov2 } = await addItemToInventory(id, q2.rows[0].reward_item_id2, q2.rows[0].reward_item_qty2);
+    if (ov2 > 0) {
+      await deliverToMailbox(id, '퀘스트 추가 보상', '가방 초과로 우편 발송', q2.rows[0].reward_item_id2, ov2);
     }
   }
 
