@@ -100,21 +100,28 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
 
   // 대상 아이템 조회
   let currentLevel: number;
+  let itemName = '';
+  let itemGrade = '';
   if (parsed.data.kind === 'inventory') {
-    const r = await query<{ enhance_level: number }>(
-      `SELECT ci.enhance_level FROM character_inventory ci
+    const r = await query<{ enhance_level: number; name: string; grade: string }>(
+      `SELECT ci.enhance_level, i.name, i.grade FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 AND ci.quantity = 1`,
       [cid, parsed.data.slotKey]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
     currentLevel = r.rows[0].enhance_level;
+    itemName = r.rows[0].name;
+    itemGrade = r.rows[0].grade;
   } else {
-    const r = await query<{ enhance_level: number }>(
-      `SELECT enhance_level FROM character_equipped WHERE character_id = $1 AND slot = $2`,
+    const r = await query<{ enhance_level: number; name: string; grade: string }>(
+      `SELECT ce.enhance_level, i.name, i.grade FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+       WHERE ce.character_id = $1 AND ce.slot = $2`,
       [cid, parsed.data.slotKey]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
     currentLevel = r.rows[0].enhance_level;
+    itemName = r.rows[0].name;
+    itemGrade = r.rows[0].grade;
   }
 
   if (currentLevel >= 20) return res.status(400).json({ error: '최대 강화 단계' });
@@ -162,6 +169,14 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, parsed.data.slotKey]
       );
     }
+    // 10강 이상 성공 로그
+    if (currentLevel >= 9) {
+      await query(
+        `INSERT INTO enhance_log (character_id, character_name, item_name, item_grade, from_level, to_level, success, destroyed)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE, FALSE)`,
+        [cid, char.name, itemName, itemGrade, currentLevel, currentLevel + 1]
+      );
+    }
     res.json({
       success: true, destroyed: false, cost: info.cost, chance: finalChance,
       destroyRate: info.destroyRate, newLevel: currentLevel + 1,
@@ -181,6 +196,14 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
           [cid, parsed.data.slotKey]
         );
       }
+    }
+    // 10강 이상 실패/파괴 로그
+    if (currentLevel >= 9) {
+      await query(
+        `INSERT INTO enhance_log (character_id, character_name, item_name, item_grade, from_level, to_level, success, destroyed)
+         VALUES ($1, $2, $3, $4, $5, NULL, FALSE, $6)`,
+        [cid, char.name, itemName, itemGrade, currentLevel, destroyed]
+      );
     }
     res.json({
       success: false, destroyed, cost: info.cost, chance: finalChance,
