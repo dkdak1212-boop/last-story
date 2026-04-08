@@ -54,13 +54,16 @@ router.post('/:id/mailbox/claim-all', async (req: AuthedRequest, res: Response) 
 
   for (const m of unclaimed.rows) {
     try {
-      if (m.item_id && m.item_quantity) {
+      // 아이템 있는 경우 (item_id > 0만 유효)
+      if (m.item_id && m.item_id > 0 && m.item_quantity && m.item_quantity > 0) {
         const { overflow } = await addItemToInventory(id, m.item_id, m.item_quantity);
-        if (overflow > 0) { failed++; continue; }
+        if (overflow > 0) { failed++; continue; } // 인벤 꽉차면 이 우편은 건너뜀
       }
+      // 골드 지급
       if (m.gold && Number(m.gold) > 0) {
         await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [m.gold, id]);
       }
+      // 수령 처리
       await query('UPDATE mailbox SET read_at = NOW() WHERE id = $1', [m.id]);
       claimed++;
     } catch {
@@ -86,7 +89,7 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
   if (r.rows[0].read_at) return res.status(400).json({ error: 'already claimed' });
 
   const m = r.rows[0];
-  if (m.item_id && m.item_quantity) {
+  if (m.item_id && m.item_id > 0 && m.item_quantity && m.item_quantity > 0) {
     const { overflow } = await addItemToInventory(id, m.item_id, m.item_quantity);
     if (overflow > 0) return res.status(400).json({ error: 'inventory full' });
   }
