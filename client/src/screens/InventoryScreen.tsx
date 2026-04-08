@@ -22,7 +22,7 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
-  const [sortMode, setSortMode] = useState<'latest' | 'level' | 'enhance'>('latest');
+  const [sortMode, setSortMode] = useState<'latest' | 'level' | 'enhance' | 'slot'>('latest');
 
   async function refresh() {
     if (!active) return;
@@ -176,7 +176,7 @@ export function InventoryScreen() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/300)</h3>
           <div style={{ display: 'flex', gap: 3 }}>
-            {([['latest', '최신순'], ['level', '레벨순'], ['enhance', '강화순']] as const).map(([key, label]) => (
+            {([['latest', '최신순'], ['level', '레벨순'], ['enhance', '강화순'], ['slot', '부위순']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setSortMode(key)}
                 style={{
                   fontSize: 10, padding: '2px 8px',
@@ -231,7 +231,13 @@ export function InventoryScreen() {
         {[...inv].sort((a, b) => {
           if (sortMode === 'enhance') return (b.enhanceLevel || 0) - (a.enhanceLevel || 0);
           if (sortMode === 'level') return ((b.item as any).requiredLevel || 0) - ((a.item as any).requiredLevel || 0);
-          return b.slotIndex - a.slotIndex; // latest = 높은 슬롯이 최신
+          if (sortMode === 'slot') {
+            const order: Record<string, number> = { weapon: 0, helm: 1, chest: 2, boots: 3, ring: 4, amulet: 5 };
+            const sa = a.item.slot ? (order[a.item.slot] ?? 6) : 7;
+            const sb = b.item.slot ? (order[b.item.slot] ?? 6) : 7;
+            return sa - sb || b.slotIndex - a.slotIndex;
+          }
+          return b.slotIndex - a.slotIndex;
         }).map((s) => {
           const locked = (s as unknown as { locked?: boolean }).locked ?? false;
           const isEquipment = !!s.item.slot;
