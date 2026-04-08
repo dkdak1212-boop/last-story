@@ -52,12 +52,40 @@ export async function attackBoss(characterId: number) {
     }
   }
 
-  // 스탯 계산
+  // 스탯 계산 (장비+노드+세트 전부 반영)
   const eff = await getEffectiveStats(char);
   const mageClass = ['mage', 'cleric'].includes(char.class_name);
   const playerAtk = mageClass ? eff.matk : eff.atk;
+  const playerDef = eff.def;
+  const playerMdef = eff.mdef;
 
-  // 스킬 로드 (auto_use ON인 스킬 전부 — 버프/힐 포함)
+  // 노드 패시브 로드
+  const { getNodePassives } = await import('./character.js');
+  const passives = await getNodePassives(characterId);
+  const passiveMap = new Map(passives.map(p => [p.key, p.value]));
+  const armorPierce = passiveMap.get('armor_pierce') || 0;
+  const spellAmp = mageClass ? (passiveMap.get('spell_amp') || 0) : 0;
+  const critDmgBonus = passiveMap.get('crit_damage') || 0;
+  const cdReduce = passiveMap.get('cooldown_reduce') || 0;
+
+  // 장비 접두사 특수 효과 로드
+  const prefixR = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
+    `SELECT ce.enhance_level, ce.prefix_stats FROM character_equipped ce WHERE ce.character_id = $1`, [characterId]
+  );
+  const equipPrefixes: Record<string, number> = {};
+  for (const row of prefixR.rows) {
+    if (!row.prefix_stats) continue;
+    const mult = 1 + (row.enhance_level || 0) * 0.08;
+    for (const [k, v] of Object.entries(row.prefix_stats)) {
+      equipPrefixes[k] = (equipPrefixes[k] || 0) + Math.round((v as number) * mult);
+    }
+  }
+  const prefixDefReduce = equipPrefixes.def_reduce_pct || 0;
+  const prefixLifesteal = equipPrefixes.lifesteal_pct || 0;
+  const prefixCritDmg = equipPrefixes.crit_dmg_pct || 0;
+  const prefixHpRegen = equipPrefixes.hp_regen || 0;
+
+  // 스킬 로드 (auto_use ON인 스킬 전부)
   const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number }>(
     `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value
      FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
@@ -72,14 +100,18 @@ export async function attackBoss(characterId: number) {
 
   // 보스 스탯
   const bossAtk = event.level * 5;
-  const bossDef = event.level * 2;
+  const baseBossDef = event.level * 2;
   const bossSpd = 300 + event.level * 4;
 
   // 페이즈별 보스 강화
   const hpPct = event.current_hp / event.max_hp;
   const phase = hpPct > 0.6 ? 1 : hpPct > 0.3 ? 2 : 3;
   const bossAtkMult = phase === 1 ? 1.0 : phase === 2 ? 1.5 : 2.0;
-  const bossDefMult = phase === 1 ? 1.0 : phase === 2 ? 1.0 : 0.8; // P3에서 방어 감소 (약점 노출)
+  const bossDefMult = phase === 1 ? 1.0 : phase === 2 ? 1.0 : 0.8;
+
+  // 보스 방어력 (접두사 약화 + 노드 관통 적용)
+  const totalPierce = Math.min(80, armorPierce + prefixDefReduce);
+  const bossDef = Math.round(baseBossDef * bossDefMult * (1 - totalPierce / 100));
 
   // ── 10초 시뮬레이션 (100ms 틱) ──
   const GAUGE_MAX = 1000;
@@ -142,32 +174,65 @@ export async function attackBoss(characterId: number) {
         for (const sk of dmgSkills) {
           if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
           const isCrit = Math.random() * 100 < eff.cri;
-          let dmg = Math.round((playerAtk - bossDef * bossDefMult * 0.5) * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
+          let dmg = Math.round((playerAtk - bossDef * 0.5) * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
           dmg = Math.max(1, dmg);
-          if (isCrit) { dmg = Math.round(dmg * 2.0); critCount++; }
+          // 마법 증폭
+          if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+          // 치명타
+          if (isCrit) {
+            const totalCritBonus = 100 + critDmgBonus + prefixCritDmg;
+            dmg = Math.round(dmg * (1 + totalCritBonus / 100));
+            critCount++;
+          }
           totalDmgDealt += dmg;
-          if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
+          // 흡혈
+          if (prefixLifesteal > 0) playerHp = Math.min(char.max_hp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
+          // 쿨다운 (노드 쿨감 적용)
+          if (sk.cooldown_actions > 0) {
+            const cd = Math.max(1, sk.cooldown_actions - Math.floor(cdReduce / 25));
+            cooldowns.set(sk.name, cd);
+          }
           if (combatLog.length < 20) combatLog.push(`[${sk.name}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
           used = true;
           break;
         }
       }
 
-      // 기본 공격 (스킬 전부 쿨다운)
+      // 기본 공격
       if (!used) {
         const isCrit = Math.random() * 100 < eff.cri;
-        let dmg = Math.round((playerAtk - bossDef * bossDefMult * 0.5) * (0.9 + Math.random() * 0.2));
+        let dmg = Math.round((playerAtk - bossDef * 0.5) * (0.9 + Math.random() * 0.2));
         dmg = Math.max(1, dmg);
-        if (isCrit) { dmg = Math.round(dmg * 2.0); critCount++; }
+        if (isCrit) {
+          const totalCritBonus = 100 + critDmgBonus + prefixCritDmg;
+          dmg = Math.round(dmg * (1 + totalCritBonus / 100));
+          critCount++;
+        }
         totalDmgDealt += dmg;
+        if (prefixLifesteal > 0) playerHp = Math.min(char.max_hp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
         if (combatLog.length < 20) combatLog.push(`[기본 공격] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
+      }
+
+      // 접두사: 재생 (틱당 회복은 행동 시 적용)
+      if (prefixHpRegen > 0 && playerHp < char.max_hp) {
+        playerHp = Math.min(char.max_hp, playerHp + prefixHpRegen);
       }
     }
 
     // 보스 행동
     if (bossGauge >= GAUGE_MAX) {
       bossGauge = 0;
-      let bossDmg = Math.round((bossAtk * bossAtkMult - eff.def * 0.5) * (0.9 + Math.random() * 0.2));
+      // 보스 공격: 물리/마법 랜덤 (마법 30%)
+      const bossUseMagic = Math.random() < 0.3;
+      const bossRawAtk = bossAtk * bossAtkMult;
+      const playerDefVal = bossUseMagic ? playerMdef : playerDef;
+      // 플레이어 회피
+      if (Math.random() * 100 < eff.dodge) {
+        if (combatLog.length < 20) combatLog.push(`[회피] 보스 공격을 회피했다!`);
+        continue;
+      }
+
+      let bossDmg = Math.round((bossRawAtk - playerDefVal * 0.5) * (0.9 + Math.random() * 0.2));
       bossDmg = Math.max(1, bossDmg);
 
       // P3 전체공격: 추가 데미지
