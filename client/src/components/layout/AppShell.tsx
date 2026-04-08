@@ -29,7 +29,6 @@ const NAV = [
   { to: '/premium', label: '프리미엄' },
   { to: '/mailbox', label: '우편함' },
   { to: '/ranking', label: '랭킹' },
-  { to: '/feedback', label: '피드백' },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

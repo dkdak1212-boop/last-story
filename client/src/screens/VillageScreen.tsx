@@ -52,6 +52,10 @@ export function VillageScreen() {
   const [gbMsg, setGbMsg] = useState('');
   const [gbText, setGbText] = useState('');
   const [tipsOpen, setTipsOpen] = useState(false);
+  const [fbCategory, setFbCategory] = useState('suggestion');
+  const [fbText, setFbText] = useState('');
+  const [fbMsg, setFbMsg] = useState('');
+  const [fbList, setFbList] = useState<{ id: number; category: string; text: string; status: string; admin_note: string | null; created_at: string }[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(() => {
@@ -64,7 +68,22 @@ export function VillageScreen() {
     api<DropLog[]>('/drop-log').then(setDropLog).catch(() => {});
     api<EnhanceLog[]>('/enhance-log').then(setEnhanceLog).catch(() => {});
     loadGuestbook();
+    loadFeedback();
   }, [refresh]);
+
+  async function loadFeedback() {
+    if (!active) return;
+    try { setFbList(await api<typeof fbList>('/feedback/mine')); } catch {}
+  }
+
+  async function submitFeedback() {
+    if (!active || !fbText.trim()) return;
+    setFbMsg('');
+    try {
+      await api('/feedback', { method: 'POST', body: JSON.stringify({ characterId: active.id, category: fbCategory, text: fbText.trim() }) });
+      setFbText(''); setFbMsg('건의가 접수되었습니다!'); loadFeedback();
+    } catch (e) { setFbMsg(e instanceof Error ? e.message : '실패'); }
+  }
 
   async function loadGuestbook() {
     try { setGuestbook(await api<GuestbookEntry[]>('/guestbook')); } catch {}
@@ -365,6 +384,72 @@ export function VillageScreen() {
             <div>· 경매소: 24시간 경매, 수수료 10%</div>
             <div>· PvP: 하루 10회, ELO 기반 매칭</div>
             <div>· 출석 체크: 매일 랜덤 상자 (전설 2%), 7일 연속 보너스</div>
+          </div>
+        )}
+      </div>
+      {/* 피드백/건의 */}
+      <div style={{
+        padding: 16, borderRadius: 8, marginTop: 16,
+        background: 'linear-gradient(135deg, rgba(180,100,60,0.06) 0%, rgba(180,100,60,0.02) 100%)',
+        border: '1px solid rgba(180,100,60,0.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid rgba(180,100,60,0.15)' }}>
+          <Px src="/images/monsters/goblin.png" size={22} />
+          <span style={{ fontSize: 15, fontWeight: 900, color: '#cc8844', letterSpacing: 1 }}>피드백 / 건의</span>
+        </div>
+
+        {/* 작성 폼 */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          {[['bug', '버그'], ['suggestion', '제안'], ['balance', '밸런스'], ['other', '기타']].map(([k, l]) => (
+            <button key={k} onClick={() => setFbCategory(k)} style={{
+              fontSize: 11, padding: '3px 10px',
+              background: fbCategory === k ? '#cc8844' : 'transparent',
+              color: fbCategory === k ? '#000' : 'var(--text-dim)',
+              border: `1px solid ${fbCategory === k ? '#cc8844' : 'var(--border)'}`,
+              cursor: 'pointer', fontWeight: fbCategory === k ? 700 : 400, borderRadius: 3,
+            }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <textarea
+            value={fbText} onChange={e => setFbText(e.target.value)}
+            placeholder="버그 신고, 개선 제안, 밸런스 의견 등을 자유롭게 작성해주세요..."
+            maxLength={1000} rows={2}
+            style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border)', padding: '8px 12px', fontSize: 13, borderRadius: 4, fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <button onClick={submitFeedback} disabled={!fbText.trim()} style={{
+            padding: '8px 18px', fontWeight: 700, fontSize: 13, alignSelf: 'flex-end',
+            background: fbText.trim() ? '#cc8844' : 'transparent',
+            color: fbText.trim() ? '#000' : 'var(--text-dim)',
+            border: `1px solid ${fbText.trim() ? '#cc8844' : 'var(--border)'}`,
+            borderRadius: 4, cursor: fbText.trim() ? 'pointer' : 'default',
+          }}>보내기</button>
+        </div>
+        {fbMsg && <div style={{ fontSize: 12, color: 'var(--success)', marginBottom: 8 }}>{fbMsg}</div>}
+
+        {/* 내 건의 목록 */}
+        {fbList.length > 0 && (
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>내 건의 내역</div>
+            {fbList.map(f => {
+              const statusLabel: Record<string, string> = { open: '접수됨', reviewing: '검토 중', resolved: '해결됨', closed: '종료' };
+              const statusColor: Record<string, string> = { open: 'var(--text-dim)', reviewing: 'var(--accent)', resolved: 'var(--success)', closed: 'var(--text-dim)' };
+              const catLabel: Record<string, string> = { bug: '버그', suggestion: '제안', balance: '밸런스', other: '기타' };
+              return (
+                <div key={f.id} style={{ padding: '6px 8px', marginBottom: 4, background: 'rgba(0,0,0,0.15)', borderRadius: 4, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: '#cc8844', fontWeight: 700 }}>{catLabel[f.category] || f.category}</span>
+                    <span style={{ color: statusColor[f.status] || 'var(--text-dim)', fontSize: 11 }}>{statusLabel[f.status] || f.status}</span>
+                  </div>
+                  <div style={{ color: 'var(--text)', lineHeight: 1.4 }}>{f.text}</div>
+                  {f.admin_note && (
+                    <div style={{ marginTop: 4, padding: '4px 8px', borderLeft: '2px solid var(--accent)', color: 'var(--accent)', fontSize: 11 }}>
+                      운영자: {f.admin_note}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
