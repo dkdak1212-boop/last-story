@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { adminRequired } from '../middleware/admin.js';
-import { addItemToInventory } from '../game/inventory.js';
+import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { getIo } from '../ws/io.js';
 import { getActiveEvent, finishEvent } from '../game/worldEvent.js';
+import { stopCombatSession } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -31,6 +32,10 @@ router.get('/stats', async (_req, res) => {
   const topGold = await query<{ name: string; gold: string }>(
     `SELECT name, gold FROM characters ORDER BY gold DESC LIMIT 1`
   );
+  // 온라인 전투 중 세션 수
+  const combatSessions = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM combat_sessions');
+  // 총 우편 수
+  const mails = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM mailbox WHERE read_at IS NULL');
   res.json({
     totalUsers: Number(users.rows[0].count),
     totalCharacters: Number(chars.rows[0].count),
@@ -38,6 +43,8 @@ router.get('/stats', async (_req, res) => {
     totalGuilds: Number(guilds.rows[0].count),
     openAuctions: Number(auctions.rows[0].count),
     openFeedback: Number(openFeedback.rows[0].count),
+    combatSessions: Number(combatSessions.rows[0].count),
+    pendingMails: Number(mails.rows[0].count),
     topLevel: topLevel.rows[0] ? `${topLevel.rows[0].name} (Lv.${topLevel.rows[0].level})` : '—',
     topGold: topGold.rows[0] ? `${topGold.rows[0].name} (${Number(topGold.rows[0].gold).toLocaleString()}G)` : '—',
   });
@@ -70,14 +77,12 @@ router.post('/announcements', async (req: AuthedRequest, res: Response) => {
 });
 
 router.post('/announcements/:id/toggle', async (req, res) => {
-  const id = Number(req.params.id);
-  await query('UPDATE announcements SET active = NOT active WHERE id = $1', [id]);
+  await query('UPDATE announcements SET active = NOT active WHERE id = $1', [Number(req.params.id)]);
   res.json({ ok: true });
 });
 
 router.post('/announcements/:id/delete', async (req, res) => {
-  const id = Number(req.params.id);
-  await query('DELETE FROM announcements WHERE id = $1', [id]);
+  await query('DELETE FROM announcements WHERE id = $1', [Number(req.params.id)]);
   res.json({ ok: true });
 });
 
@@ -111,21 +116,136 @@ router.post('/feedback/:id/respond', async (req: AuthedRequest, res: Response) =
   res.json({ ok: true });
 });
 
-// ========== 지원 도구: 골드/경험치 부여 ==========
+// ========== 개인 지급 (골드/경험치/아이템) ==========
 router.post('/grant', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     gold: z.number().int().optional(),
     exp: z.number().int().optional(),
+    itemId: z.number().int().positive().optional(),
+    itemQty: z.number().int().min(1).max(999).optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-  const { characterId, gold, exp } = parsed.data;
-  if (gold) await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, characterId]);
-  if (exp) await query('UPDATE characters SET exp = exp + $1 WHERE id = $2', [exp, characterId]);
-  res.json({ ok: true });
+  const { characterId, gold, exp, itemId, itemQty } = parsed.data;
+
+  const charR = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+  if (charR.rowCount === 0) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+
+  const results: string[] = [];
+  if (gold && gold !== 0) {
+    await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, characterId]);
+    results.push(`골드 ${gold > 0 ? '+' : ''}${gold.toLocaleString()}G`);
+  }
+  if (exp && exp !== 0) {
+    await query('UPDATE characters SET exp = exp + $1 WHERE id = $2', [exp, characterId]);
+    results.push(`경험치 ${exp > 0 ? '+' : ''}${exp.toLocaleString()}`);
+  }
+  if (itemId && itemQty) {
+    const { added, overflow } = await addItemToInventory(characterId, itemId, itemQty);
+    if (overflow > 0) {
+      await deliverToMailbox(characterId, '관리자 아이템 지급', '가방이 가득 차서 우편으로 배송되었습니다.', itemId, overflow);
+    }
+    results.push(`아이템 ${added}개 지급${overflow > 0 ? ` (${overflow}개 우편)` : ''}`);
+  }
+  res.json({ ok: true, message: `${charR.rows[0].name}: ${results.join(', ')}` });
 });
 
-// ========== 1. 유저 목록 조회 + 검색 + 밴 ==========
+// ========== 캐릭터 수정 (레벨/스탯/HP/위치) ==========
+router.post('/characters/:id/modify', async (req: AuthedRequest, res: Response) => {
+  const charId = Number(req.params.id);
+  const parsed = z.object({
+    level: z.number().int().min(1).max(100).optional(),
+    gold: z.number().int().optional(),
+    exp: z.number().int().min(0).optional(),
+    hp: z.number().int().min(0).optional(),
+    maxHp: z.number().int().min(1).optional(),
+    nodePoints: z.number().int().min(0).optional(),
+    location: z.string().optional(),
+    stats: z.object({
+      str: z.number().int().optional(),
+      dex: z.number().int().optional(),
+      int: z.number().int().optional(),
+      vit: z.number().int().optional(),
+      spd: z.number().int().optional(),
+      cri: z.number().int().optional(),
+    }).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+  let paramIdx = 1;
+  const d = parsed.data;
+
+  if (d.level !== undefined) { updates.push(`level = $${paramIdx++}`); params.push(d.level); }
+  if (d.gold !== undefined) { updates.push(`gold = $${paramIdx++}`); params.push(d.gold); }
+  if (d.exp !== undefined) { updates.push(`exp = $${paramIdx++}`); params.push(d.exp); }
+  if (d.hp !== undefined) { updates.push(`hp = $${paramIdx++}`); params.push(d.hp); }
+  if (d.maxHp !== undefined) { updates.push(`max_hp = $${paramIdx++}`); params.push(d.maxHp); }
+  if (d.nodePoints !== undefined) { updates.push(`node_points = $${paramIdx++}`); params.push(d.nodePoints); }
+  if (d.location !== undefined) { updates.push(`location = $${paramIdx++}`); params.push(d.location); }
+  if (d.stats) {
+    // 개별 스탯 수정
+    for (const [k, v] of Object.entries(d.stats)) {
+      if (v !== undefined) {
+        updates.push(`stats = jsonb_set(stats, '{${k}}', $${paramIdx++}::text::jsonb)`);
+        params.push(v);
+      }
+    }
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: '수정할 항목이 없습니다.' });
+
+  params.push(charId);
+  await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${paramIdx}`, params);
+  res.json({ ok: true, message: '캐릭터 수정 완료' });
+});
+
+// ========== 전투 강제 종료 ==========
+router.post('/characters/:id/kick-combat', async (req: AuthedRequest, res: Response) => {
+  const charId = Number(req.params.id);
+  try {
+    await stopCombatSession(charId);
+    res.json({ ok: true, message: '전투 세션 종료 완료' });
+  } catch {
+    res.json({ ok: true, message: '전투 세션이 없거나 이미 종료됨' });
+  }
+});
+
+// ========== 개인 우편 발송 ==========
+router.post('/characters/:id/send-mail', async (req: AuthedRequest, res: Response) => {
+  const charId = Number(req.params.id);
+  const parsed = z.object({
+    subject: z.string().min(1).max(100),
+    body: z.string().min(1).max(500),
+    gold: z.number().int().min(0).default(0),
+    itemId: z.number().int().positive().optional(),
+    itemQty: z.number().int().min(1).max(999).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { subject, body, gold, itemId, itemQty } = parsed.data;
+
+  if (itemId && itemQty) {
+    await deliverToMailbox(charId, subject, body, itemId, itemQty, gold);
+  } else if (gold > 0) {
+    await deliverToMailbox(charId, subject, body, 0, 0, gold);
+  } else {
+    await query(
+      'INSERT INTO mailbox (character_id, subject, body) VALUES ($1, $2, $3)',
+      [charId, subject, body]
+    );
+  }
+  res.json({ ok: true, message: '우편 발송 완료' });
+});
+
+// ========== 캐릭터 인벤토리 초기화 ==========
+router.post('/characters/:id/clear-inventory', async (req: AuthedRequest, res: Response) => {
+  const charId = Number(req.params.id);
+  const r = await query('DELETE FROM character_inventory WHERE character_id = $1', [charId]);
+  res.json({ ok: true, message: `${r.rowCount}개 슬롯 삭제 완료` });
+});
+
+// ========== 유저 관리 ==========
 router.get('/users', async (req, res) => {
   const search = (req.query.search as string) || '';
   const page = Math.max(1, Number(req.query.page) || 1);
@@ -135,7 +255,6 @@ router.get('/users', async (req, res) => {
   let where = '';
   let params: unknown[] = [limit, offset];
   if (search) {
-    // 유저명 또는 캐릭터명으로 검색
     where = 'WHERE (u.username ILIKE $3 OR u.id IN (SELECT user_id FROM characters WHERE name ILIKE $3))';
     params.push(`%${search}%`);
   }
@@ -174,14 +293,13 @@ router.post('/users/:id/ban', async (req, res) => {
   res.json({ ok: true });
 });
 
-// ========== 2. 캐릭터 상세 조회 ==========
+// ========== 캐릭터 검색/상세 ==========
 router.get('/characters/search', async (req, res) => {
   const search = (req.query.name as string) || '';
   if (!search) return res.json({ characters: [] });
-
   const r = await query(
     `SELECT c.id, c.name, c.class_name, c.level, c.exp, c.gold, c.hp, c.max_hp,
-            c.stats, c.location, c.last_online_at, c.created_at,
+            c.stats, c.location, c.last_online_at, c.created_at, c.node_points,
             u.username, u.id AS user_id
      FROM characters c JOIN users u ON u.id = c.user_id
      WHERE c.name ILIKE $1
@@ -193,60 +311,52 @@ router.get('/characters/search', async (req, res) => {
 
 router.get('/characters/:id/detail', async (req, res) => {
   const charId = Number(req.params.id);
-
-  // 기본 정보
   const charR = await query(
     `SELECT c.*, u.username FROM characters c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
     [charId]
   );
   if (charR.rowCount === 0) return res.status(404).json({ error: 'not found' });
-  const char = charR.rows[0];
 
-  // 장착 장비
   const equippedR = await query(
     `SELECT ce.slot, ce.item_id, ce.enhance_level, ce.prefix_stats, ce.locked,
             i.name, i.grade, i.type, i.stats
-     FROM character_equipped ce JOIN items i ON i.id = ce.item_id
-     WHERE ce.character_id = $1`,
+     FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [charId]
   );
-
-  // 인벤토리
   const invR = await query(
     `SELECT ci.slot_index, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_stats, ci.locked,
             i.name, i.grade, i.type, i.slot, i.stats, i.description
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1
-     ORDER BY ci.slot_index`,
+     WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
     [charId]
   );
-
-  // 스킬
   const skillsR = await query(
     `SELECT s.name, s.required_level, cs.auto_use
      FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
      WHERE cs.character_id = $1 ORDER BY s.required_level`,
     [charId]
   );
-
-  // 길드
   const guildR = await query(
     `SELECT g.name AS guild_name, gm.role
-     FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id
-     WHERE gm.character_id = $1`,
+     FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
     [charId]
+  );
+  // 전투 상태
+  const combatR = await query<{ field_id: number }>(
+    'SELECT field_id FROM combat_sessions WHERE character_id = $1', [charId]
   );
 
   res.json({
-    character: char,
+    character: charR.rows[0],
     equipped: equippedR.rows,
     inventory: invR.rows,
     skills: skillsR.rows,
     guild: guildR.rows[0] ?? null,
+    inCombat: (combatR.rowCount ?? 0) > 0,
   });
 });
 
-// ========== 4. 아이템 지급 ==========
+// ========== 아이템 검색 ==========
 router.get('/items/search', async (req, res) => {
   const search = (req.query.name as string) || '';
   if (!search) return res.json({ items: [] });
@@ -262,7 +372,7 @@ router.post('/grant-item', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     itemId: z.number().int().positive(),
-    quantity: z.number().int().min(1).max(99).default(1),
+    quantity: z.number().int().min(1).max(999).default(1),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const { characterId, itemId, quantity } = parsed.data;
@@ -271,21 +381,23 @@ router.post('/grant-item', async (req: AuthedRequest, res: Response) => {
   if (charR.rowCount === 0) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
 
   const { added, overflow } = await addItemToInventory(characterId, itemId, quantity);
-  res.json({ ok: true, added, overflow, message: overflow > 0 ? `${added}개 지급, ${overflow}개는 가방이 가득 차 미지급` : `${added}개 지급 완료` });
+  if (overflow > 0) {
+    await deliverToMailbox(characterId, '관리자 아이템 지급', '가방이 가득 차서 우편으로 배송되었습니다.', itemId, overflow);
+  }
+  res.json({ ok: true, added, overflow, message: overflow > 0 ? `${added}개 지급, ${overflow}개 우편 전송` : `${added}개 지급 완료` });
 });
 
-// ========== 5. 아이템 회수 ==========
 router.post('/revoke-item', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     slotIndex: z.number().int().min(0),
-    quantity: z.number().int().min(1).max(99).default(1),
+    quantity: z.number().int().min(1).max(999).default(1),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const { characterId, slotIndex, quantity } = parsed.data;
 
-  const slotR = await query<{ quantity: number; item_id: number }>(
-    'SELECT quantity, item_id FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
+  const slotR = await query<{ quantity: number }>(
+    'SELECT quantity FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
     [characterId, slotIndex]
   );
   if (slotR.rowCount === 0) return res.status(404).json({ error: '해당 슬롯에 아이템이 없습니다.' });
@@ -299,7 +411,7 @@ router.post('/revoke-item', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, removed: Math.min(quantity, current) });
 });
 
-// ========== 7. 전체 골드/경험치 일괄 지급 ==========
+// ========== 전체 보상 ==========
 router.post('/grant-all', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     gold: z.number().int().min(0).default(0),
@@ -310,32 +422,20 @@ router.post('/grant-all', async (req: AuthedRequest, res: Response) => {
   const { gold, exp, reason } = parsed.data;
   if (!gold && !exp) return res.status(400).json({ error: '골드 또는 경험치를 입력하세요.' });
 
-  // 모든 캐릭터에 지급
   let affected = 0;
-  if (gold) {
-    const r = await query('UPDATE characters SET gold = gold + $1', [gold]);
-    affected = r.rowCount ?? 0;
-  }
-  if (exp) {
-    const r = await query('UPDATE characters SET exp = exp + $1', [exp]);
-    affected = Math.max(affected, r.rowCount ?? 0);
-  }
+  if (gold) { const r = await query('UPDATE characters SET gold = gold + $1', [gold]); affected = r.rowCount ?? 0; }
+  if (exp) { const r = await query('UPDATE characters SET exp = exp + $1', [exp]); affected = Math.max(affected, r.rowCount ?? 0); }
 
-  // 우편으로 알림
   const chars = await query<{ id: number }>('SELECT id FROM characters');
   const subject = '운영자 보상 지급';
   const body = `${reason || '전체 보상 지급'}\n${gold ? `골드: +${gold.toLocaleString()}G` : ''}${exp ? `\n경험치: +${exp.toLocaleString()}` : ''}`;
   for (const c of chars.rows) {
-    await query(
-      'INSERT INTO mailbox (character_id, subject, body) VALUES ($1, $2, $3)',
-      [c.id, subject, body]
-    );
+    await query('INSERT INTO mailbox (character_id, subject, body) VALUES ($1, $2, $3)', [c.id, subject, body]);
   }
-
   res.json({ ok: true, affected, message: `${affected}명에게 지급 완료` });
 });
 
-// ========== 8. 월드 이벤트 수동 실행/종료 ==========
+// ========== 월드 이벤트 ==========
 router.get('/world-event/status', async (_req, res) => {
   const event = await getActiveEvent();
   const bosses = await query<{ id: number; name: string; level: number; max_hp: number }>(
@@ -345,10 +445,8 @@ router.get('/world-event/status', async (_req, res) => {
 });
 
 router.post('/world-event/spawn', async (req, res) => {
-  // 이미 활성 이벤트 확인
   const existing = await getActiveEvent();
   if (existing) return res.status(400).json({ error: '이미 진행 중인 이벤트가 있습니다.' });
-
   const parsed = z.object({
     bossId: z.number().int().positive(),
     durationMin: z.number().int().min(1).max(120).default(30),
@@ -356,9 +454,7 @@ router.post('/world-event/spawn', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   const { bossId, durationMin } = parsed.data;
-  const bossR = await query<{ name: string; max_hp: number }>(
-    'SELECT name, max_hp FROM world_event_bosses WHERE id = $1', [bossId]
-  );
+  const bossR = await query<{ name: string; max_hp: number }>('SELECT name, max_hp FROM world_event_bosses WHERE id = $1', [bossId]);
   if (bossR.rowCount === 0) return res.status(404).json({ error: '보스를 찾을 수 없습니다.' });
   const boss = bossR.rows[0];
 
@@ -367,58 +463,37 @@ router.post('/world-event/spawn', async (req, res) => {
      VALUES ($1, $2, $2, NOW() + INTERVAL '1 minute' * $3)`,
     [bossId, boss.max_hp, durationMin]
   );
-
   const io = getIo();
-  if (io) {
-    const endsAt = new Date(Date.now() + durationMin * 60000).toISOString();
-    io.emit('world_event', { type: 'world_event_start', bossName: boss.name, endsAt });
-  }
-
+  if (io) io.emit('world_event', { type: 'world_event_start', bossName: boss.name, endsAt: new Date(Date.now() + durationMin * 60000).toISOString() });
   res.json({ ok: true, message: `${boss.name} 소환 완료 (${durationMin}분)` });
 });
 
 router.post('/world-event/end', async (_req, res) => {
   const event = await getActiveEvent();
   if (!event) return res.status(400).json({ error: '진행 중인 이벤트가 없습니다.' });
-
   const io = getIo();
   await finishEvent(event.id, 'expired', io ?? undefined);
   res.json({ ok: true, message: '이벤트 강제 종료 완료' });
 });
 
-// ========== 9. 서버 공지 (실시간 채팅) ==========
+// ========== 시스템 공지 ==========
 router.post('/system-message', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     text: z.string().min(1).max(500),
     channel: z.enum(['global', 'trade']).default('global'),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-
   const { text, channel } = parsed.data;
 
-  // DB에 저장
   const r = await query<{ id: number; created_at: string }>(
-    `INSERT INTO chat_messages (channel, from_name, text, scope_id)
-     VALUES ($1, $2, $3, NULL) RETURNING id, created_at`,
+    `INSERT INTO chat_messages (channel, from_name, text, scope_id) VALUES ($1, $2, $3, NULL) RETURNING id, created_at`,
     [channel, '[시스템]', text]
   );
-
-  // 소켓으로 실시간 전송
   const io = getIo();
   if (io) {
-    io.emit('chat', {
-      id: r.rows[0].id,
-      channel,
-      scopeId: null,
-      from: '[시스템]',
-      text,
-      isAdmin: true,
-      createdAt: r.rows[0].created_at,
-    });
-    // 전광판 브로드캐스트
+    io.emit('chat', { id: r.rows[0].id, channel, scopeId: null, from: '[시스템]', text, isAdmin: true, createdAt: r.rows[0].created_at });
     io.emit('system-broadcast', { text, createdAt: r.rows[0].created_at });
   }
-
   res.json({ ok: true });
 });
 
