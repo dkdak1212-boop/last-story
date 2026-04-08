@@ -284,6 +284,66 @@ router.post('/:id/sell', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, sold: name, quantity: qty, gold });
 });
 
+// 아이템 분해 (장비만 가능, 물약/소비 제외)
+router.post('/:id/dismantle', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ slotIndex: z.number().int() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const invR = await query<{ id: number; item_id: number; quantity: number; locked: boolean }>(
+    'SELECT id, item_id, quantity, locked FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
+    [id, parsed.data.slotIndex]
+  );
+  if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  const slot = invR.rows[0];
+  if (slot.locked) return res.status(400).json({ error: '잠긴 아이템은 분해할 수 없습니다.' });
+
+  const itemR = await query<{ name: string; type: string; slot: string | null; sell_price: number }>(
+    'SELECT name, type, slot, sell_price FROM items WHERE id = $1', [slot.item_id]
+  );
+  if (itemR.rowCount === 0) return res.status(404).json({ error: 'item def not found' });
+  const item = itemR.rows[0];
+
+  // 장비만 분해 가능 (소비/재료 제외)
+  if (!item.slot) return res.status(400).json({ error: '장비만 분해할 수 있습니다.' });
+  if (item.type === 'consumable') return res.status(400).json({ error: '분해 불가 아이템입니다.' });
+
+  const gold = Math.max(1, Math.floor(item.sell_price * 0.5));
+
+  await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
+  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, id]);
+
+  res.json({ ok: true, name: item.name, gold });
+});
+
+// 자동분해 설정 조회
+router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const r = await query<{ auto_dismantle_common: boolean }>(
+    'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1', [id]
+  );
+  res.json({ autoDismantleCommon: r.rows[0]?.auto_dismantle_common ?? false });
+});
+
+// 자동분해 설정 변경
+router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  await query('UPDATE characters SET auto_dismantle_common = $1 WHERE id = $2', [parsed.data.enabled, id]);
+  res.json({ autoDismantleCommon: parsed.data.enabled });
+});
+
 // 등급별 일괄 판매
 router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);

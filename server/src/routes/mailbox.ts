@@ -62,6 +62,41 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
   res.json({ ok: true });
 });
 
+// 우편물 일괄 수령
+router.post('/:id/mailbox/claim-all', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const unclaimed = await query<{ id: number; item_id: number | null; item_quantity: number | null; gold: string | null }>(
+    `SELECT id, item_id, item_quantity, gold FROM mailbox
+     WHERE character_id = $1 AND read_at IS NULL AND expires_at > NOW()
+     ORDER BY created_at ASC`,
+    [id]
+  );
+
+  let claimed = 0;
+  let failed = 0;
+
+  for (const m of unclaimed.rows) {
+    try {
+      if (m.item_id && m.item_quantity) {
+        const { overflow } = await addItemToInventory(id, m.item_id, m.item_quantity);
+        if (overflow > 0) { failed++; continue; }
+      }
+      if (m.gold && Number(m.gold) > 0) {
+        await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [m.gold, id]);
+      }
+      await query('UPDATE mailbox SET read_at = NOW() WHERE id = $1', [m.id]);
+      claimed++;
+    } catch {
+      failed++;
+    }
+  }
+
+  res.json({ ok: true, claimed, failed });
+});
+
 // 우편물 삭제
 router.post('/:id/mailbox/:mailId/delete', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);

@@ -165,6 +165,8 @@ export interface CombatSnapshot {
   log: string[];
   potions?: { hpSmall: number; hpMid: number };
   autoPotion: { enabled: boolean; threshold: number };
+  exp?: number;
+  expMax?: number;
   serverTime: number;
 }
 

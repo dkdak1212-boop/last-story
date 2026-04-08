@@ -20,13 +20,16 @@ export function EnhanceScreen() {
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [items, setItems] = useState<EnhanceItem[]>([]);
   const [selected, setSelected] = useState<EnhanceItem | null>(null);
-  const [result, setResult] = useState<{ success: boolean; newLevel: number; cost: number } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; newLevel: number; cost: number; destroyed?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scrollCount, setScrollCount] = useState(0);
+  const [useScroll, setUseScroll] = useState(false);
 
   async function load() {
     if (!active) return;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
+    setScrollCount(d.scrollCount || 0);
   }
   useEffect(() => { load(); }, [active?.id]);
 
@@ -36,21 +39,26 @@ export function EnhanceScreen() {
     if (!active || !selected) return;
     setBusy(true); setResult(null);
     try {
-      const r = await api<{ success: boolean; newLevel: number; cost: number; chance: number }>(
+      const r = await api<{ success: boolean; newLevel: number; cost: number; chance: number; destroyed?: boolean }>(
         `/enhance/${active.id}/attempt`,
         {
           method: 'POST',
           body: JSON.stringify({
             kind: selected.kind,
             slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+            useScroll,
           }),
         }
       );
-      setResult({ success: r.success, newLevel: r.newLevel, cost: r.cost });
+      setResult({ success: r.success, newLevel: r.newLevel, cost: r.cost, destroyed: r.destroyed });
       await refreshActive();
       await load();
-      // 선택 유지
-      setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
+      if (r.destroyed) {
+        setSelected(null);
+      } else {
+        setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
+      }
+      if (useScroll) setUseScroll(false);
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setBusy(false); }
@@ -121,8 +129,8 @@ export function EnhanceScreen() {
                 </div>
               )}
 
-              {selected.enhanceLevel >= 10 ? (
-                <div style={{ color: 'var(--accent)', fontWeight: 700 }}>최대 강화 단계</div>
+              {selected.enhanceLevel >= 20 ? (
+                <div style={{ color: 'var(--accent)', fontWeight: 700 }}>최대 강화 단계 (+20)</div>
               ) : info && (
                 <>
                   <div style={{ padding: 10, background: 'var(--bg-elev)', marginBottom: 10, fontSize: 13 }}>
@@ -130,16 +138,38 @@ export function EnhanceScreen() {
                       <span style={{ color: 'var(--text-dim)' }}>비용</span>
                       <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{info.cost.toLocaleString()}G</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ color: 'var(--text-dim)' }}>성공 확률</span>
                       <span style={{ color: info.chance >= 0.8 ? 'var(--success)' : info.chance >= 0.5 ? 'var(--accent)' : 'var(--danger)', fontWeight: 700 }}>
-                        {Math.round(info.chance * 100)}%
+                        {Math.round((info.chance + (useScroll ? 0.10 : 0)) * 100)}%
+                        {useScroll && <span style={{ color: 'var(--success)', marginLeft: 4 }}>(+10%)</span>}
                       </span>
                     </div>
+                    {info.destroyRate > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ color: 'var(--danger)' }}>파괴 확률</span>
+                        <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{Math.round(info.destroyRate * 100)}%</span>
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
-                      실패 시 골드만 소모됩니다.
+                      {info.destroyRate > 0
+                        ? '실패 시 장비가 파괴될 수 있습니다!'
+                        : '실패 시 골드만 소모됩니다.'
+                      }
                     </div>
                   </div>
+
+                  {/* 스크롤 사용 옵션 */}
+                  {scrollCount > 0 && (
+                    <label style={{
+                      display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                      fontSize: 12, color: 'var(--text-dim)', cursor: 'pointer',
+                    }}>
+                      <input type="checkbox" checked={useScroll} onChange={e => setUseScroll(e.target.checked)} />
+                      강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개
+                    </label>
+                  )}
+
                   <button className="primary" onClick={attempt} disabled={busy} style={{ width: '100%' }}>
                     +{selected.enhanceLevel + 1} 강화 시도
                   </button>
@@ -149,11 +179,15 @@ export function EnhanceScreen() {
               {result && (
                 <div style={{
                   marginTop: 10, padding: 10,
-                  background: result.success ? 'rgba(107,163,104,0.15)' : 'rgba(192,90,74,0.15)',
-                  border: `1px solid ${result.success ? 'var(--success)' : 'var(--danger)'}`,
+                  background: result.destroyed ? 'rgba(192,50,30,0.2)' : result.success ? 'rgba(107,163,104,0.15)' : 'rgba(192,90,74,0.15)',
+                  border: `1px solid ${result.destroyed ? 'var(--danger)' : result.success ? 'var(--success)' : 'var(--danger)'}`,
                   fontSize: 13, textAlign: 'center',
                 }}>
-                  {result.success ? (
+                  {result.destroyed ? (
+                    <span style={{ color: 'var(--danger)', fontWeight: 700 }}>
+                      강화 실패 — 장비가 파괴되었습니다!
+                    </span>
+                  ) : result.success ? (
                     <span style={{ color: 'var(--success)', fontWeight: 700 }}>
                       강화 성공! +{result.newLevel}
                     </span>
@@ -173,10 +207,13 @@ export function EnhanceScreen() {
 function getInfo(currentLevel: number, charLevel: number) {
   const next = currentLevel + 1;
   const lv = Math.max(1, charLevel);
-  let cost: number; let chance: number;
-  if (next <= 3)      { cost = 50 * lv;   chance = 1.0; }
-  else if (next <= 6) { cost = 200 * lv;  chance = 0.8; }
-  else if (next <= 9) { cost = 500 * lv;  chance = 0.5; }
-  else                { cost = 2000 * lv; chance = 0.2; }
-  return { cost, chance };
+  let cost: number; let chance: number; let destroyRate = 0;
+  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
+  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
+  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
+  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
+  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
+  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
+  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
+  return { cost, chance, destroyRate };
 }

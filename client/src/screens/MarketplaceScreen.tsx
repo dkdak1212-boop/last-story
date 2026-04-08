@@ -189,11 +189,14 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
           <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); }}
             style={{
               padding: 8, background: slotIndex === s.slotIndex ? 'var(--bg-elev)' : 'var(--bg-panel)',
-              border: `1px solid ${slotIndex === s.slotIndex ? 'var(--accent)' : 'var(--border)'}`,
+              border: `1px solid ${slotIndex === s.slotIndex ? 'var(--accent)' : GRADE_COLOR[s.item.grade] || 'var(--border)'}`,
               cursor: 'pointer', fontSize: 13,
             }}>
-            <div style={{ fontWeight: 700 }}>{s.item.name}{s.quantity > 1 && ` ×${s.quantity}`}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{s.item.grade}</div>
+            <div style={{ fontWeight: 700, color: GRADE_COLOR[s.item.grade] }}>
+              {s.item.name}{s.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{s.enhanceLevel}</span>}
+              {s.quantity > 1 && ` ×${s.quantity}`}
+            </div>
+            <div style={{ fontSize: 11, color: GRADE_COLOR[s.item.grade] }}>[{GRADE_LABEL[s.item.grade]}]</div>
           </div>
         ))}
       </div>

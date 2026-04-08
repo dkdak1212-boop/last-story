@@ -21,6 +21,7 @@ export function InventoryScreen() {
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
+  const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
 
   async function refresh() {
     if (!active) return;
@@ -31,6 +32,14 @@ export function InventoryScreen() {
     setEquipped(data.equipped);
   }
 
+  // 자동분해 설정 로드
+  useEffect(() => {
+    if (!active) return;
+    api<{ autoDismantleCommon: boolean }>(`/characters/${active.id}/auto-dismantle`)
+      .then(d => setAutoDismantleCommon(d.autoDismantleCommon))
+      .catch(() => {});
+  }, [active?.id]);
+
   useEffect(() => { refresh(); }, [active]);
 
   async function equip(slotIndex: number) {
@@ -38,9 +47,8 @@ export function InventoryScreen() {
     setMsg('');
     try {
       await api(`/characters/${active.id}/equip`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
-      await refresh();
-      await refreshActive();
-    } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '장착 실패'); }
   }
 
   async function unequip(slot: string) {
@@ -48,23 +56,38 @@ export function InventoryScreen() {
     setMsg('');
     try {
       await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) });
-      await refresh();
-      await refreshActive();
+      await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
-  async function sell(slotIndex: number, e: React.MouseEvent) {
+  async function sell(slotIndex: number, enhanceLevel: number, itemName: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!active) return;
+    // 강화 아이템 판매 확인
+    if (enhanceLevel > 0) {
+      if (!confirm(`강화된 아이템입니다 (+${enhanceLevel} ${itemName}). 정말 판매하시겠습니까?`)) return;
+    }
     setMsg('');
     try {
       const res = await api<{ sold: string; quantity: number; gold: number }>(
         `/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) }
       );
       setMsg(`${res.sold} ×${res.quantity} 판매 → +${res.gold}G`);
-      await refresh();
-      await refreshActive();
+      await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
+  }
+
+  async function dismantle(slotIndex: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!active) return;
+    setMsg('');
+    try {
+      const res = await api<{ name: string; gold: number }>(
+        `/characters/${active.id}/dismantle`, { method: 'POST', body: JSON.stringify({ slotIndex }) }
+      );
+      setMsg(`${res.name} 분해 → +${res.gold}G`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '분해 실패'); }
   }
 
   async function toggleLock(slotIndex: number, e: React.MouseEvent) {
@@ -81,6 +104,16 @@ export function InventoryScreen() {
     refresh();
   }
 
+  async function toggleAutoDismantle() {
+    if (!active) return;
+    try {
+      const res = await api<{ autoDismantleCommon: boolean }>(
+        `/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ enabled: !autoDismantleCommon }) }
+      );
+      setAutoDismantleCommon(res.autoDismantleCommon);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+
   return (
     <div>
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>인벤토리</h2>
@@ -95,9 +128,9 @@ export function InventoryScreen() {
       }}>
         {/* 왼쪽: 무기(상), 갑옷(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <EquipSlotCard slot="weapon" item={equipped.weapon} label={SLOT_LABEL.weapon}
+          <EquipSlotCard slot="weapon" item={equipped.weapon} label={SLOT_LABEL.weapon} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('weapon')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('weapon', e); }} />
-          <EquipSlotCard slot="chest" item={equipped.chest} label={SLOT_LABEL.chest}
+          <EquipSlotCard slot="chest" item={equipped.chest} label={SLOT_LABEL.chest} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('chest')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('chest', e); }} />
         </div>
 
@@ -106,25 +139,13 @@ export function InventoryScreen() {
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           position: 'relative', minHeight: 260,
         }}>
-          {/* 머리 */}
-          <div style={{
-            width: 40, height: 40, borderRadius: '50%',
-            border: '2px solid var(--accent-dim)', background: 'var(--bg)',
-            marginBottom: 4,
-          }} />
-          {/* 목걸이 위치 표시 */}
+          <div style={{ width: 40, height: 40, borderRadius: '50%', border: '2px solid var(--accent-dim)', background: 'var(--bg)', marginBottom: 4 }} />
           <div style={{ width: 20, height: 6, background: 'var(--accent-dim)', borderRadius: 3, marginBottom: 2 }} />
-          {/* 몸통 */}
-          <div style={{
-            width: 50, height: 70, borderRadius: '8px 8px 4px 4px',
-            border: '2px solid var(--accent-dim)', background: 'var(--bg)',
-          }} />
-          {/* 다리 */}
+          <div style={{ width: 50, height: 70, borderRadius: '8px 8px 4px 4px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
           <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
             <div style={{ width: 18, height: 50, borderRadius: '0 0 6px 6px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
             <div style={{ width: 18, height: 50, borderRadius: '0 0 6px 6px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
           </div>
-          {/* 라벨 */}
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 8, textAlign: 'center' }}>
             클릭하여 해제
           </div>
@@ -132,27 +153,40 @@ export function InventoryScreen() {
 
         {/* 오른쪽: 투구(상), 목걸이(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <EquipSlotCard slot="helm" item={equipped.helm} label={SLOT_LABEL.helm}
+          <EquipSlotCard slot="helm" item={equipped.helm} label={SLOT_LABEL.helm} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('helm')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('helm', e); }} />
-          <EquipSlotCard slot="amulet" item={equipped.amulet} label={SLOT_LABEL.amulet}
+          <EquipSlotCard slot="amulet" item={equipped.amulet} label={SLOT_LABEL.amulet} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('amulet')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('amulet', e); }} />
         </div>
 
         {/* 하단 행: 반지 + 장화 */}
         <div>
-          <EquipSlotCard slot="ring" item={equipped.ring} label={SLOT_LABEL.ring}
+          <EquipSlotCard slot="ring" item={equipped.ring} label={SLOT_LABEL.ring} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('ring')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('ring', e); }} />
         </div>
         <div />
         <div>
-          <EquipSlotCard slot="boots" item={equipped.boots} label={SLOT_LABEL.boots}
+          <EquipSlotCard slot="boots" item={equipped.boots} label={SLOT_LABEL.boots} charLevel={active?.level ?? 1}
             onUnequip={() => unequip('boots')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('boots', e); }} />
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
         <h3 style={{ fontSize: 16 }}>가방 ({inv.length}/100)</h3>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* 자동분해 토글 */}
+          <button
+            onClick={toggleAutoDismantle}
+            style={{
+              fontSize: 11, padding: '3px 10px',
+              background: autoDismantleCommon ? 'var(--danger)' : 'transparent',
+              color: autoDismantleCommon ? '#fff' : 'var(--text-dim)',
+              border: `1px solid ${autoDismantleCommon ? 'var(--danger)' : 'var(--border)'}`,
+              cursor: 'pointer',
+            }}
+          >
+            일반 자동분해 {autoDismantleCommon ? 'ON' : 'OFF'}
+          </button>
           {(['common', 'rare', 'epic', 'legendary'] as const).map(g => {
             const label: Record<string, string> = { common: '일반', rare: '매직', epic: '에픽', legendary: '전설' };
             const color: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
@@ -166,8 +200,7 @@ export function InventoryScreen() {
                     `/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({ grade: g }) }
                   );
                   setMsg(`${res.grade} ${res.count}개 판매 → +${res.gold.toLocaleString()}G`);
-                  await refresh();
-                  await refreshActive();
+                  await Promise.all([refresh(), refreshActive()]);
                 } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
               }} style={{
                 fontSize: 11, padding: '3px 8px', background: 'transparent',
@@ -182,6 +215,11 @@ export function InventoryScreen() {
       <div className="inventory-bag-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
         {inv.map((s) => {
           const locked = (s as unknown as { locked?: boolean }).locked ?? false;
+          const isEquipment = !!s.item.slot;
+          const isConsumable = (s.item as any).type === 'consumable';
+          const requiredLevel = (s.item as any).requiredLevel || 1;
+          const charLevel = active?.level ?? 1;
+          const levelTooLow = isEquipment && charLevel < requiredLevel;
           return (
             <div
               key={s.slotIndex}
@@ -189,13 +227,11 @@ export function InventoryScreen() {
                 padding: 10, position: 'relative',
                 background: 'var(--bg-panel)',
                 border: `1px solid ${locked ? 'var(--danger)' : GRADE_COLOR[s.item.grade]}`,
-                cursor: s.item.slot && !locked ? 'pointer' : 'default',
               }}
-              onClick={() => s.item.slot && !locked && equip(s.slotIndex)}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ color: GRADE_COLOR[s.item.grade], fontSize: 13, fontWeight: 700 }}>
-                  {s.item.slot && <span style={{ marginRight: 4 }}><SlotIcon slot={s.item.slot} size={16} /></span>}
+                  {isEquipment && <span style={{ marginRight: 4 }}><SlotIcon slot={s.item.slot!} size={16} /></span>}
                   {s.item.name}
                   {s.enhanceLevel > 0 && (
                     <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{s.enhanceLevel}</span>
@@ -204,7 +240,7 @@ export function InventoryScreen() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 10, color: GRADE_COLOR[s.item.grade] }}>{GRADE_LABEL[s.item.grade]}</span>
-                  {s.item.slot && (
+                  {isEquipment && (
                     <img
                       src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'}
                       alt={locked ? '잠금' : '해제'}
@@ -216,26 +252,43 @@ export function InventoryScreen() {
                   )}
                 </div>
               </div>
-              {s.item.slot && (
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{SLOT_LABEL[s.item.slot]}</div>
+              {isEquipment && (
+                <div style={{ fontSize: 10, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)', marginTop: 2, fontWeight: levelTooLow ? 700 : 400 }}>
+                  {SLOT_LABEL[s.item.slot!]} · Lv.{requiredLevel} 이상
+                  {levelTooLow && ' (레벨 부족)'}
+                </div>
               )}
               <div style={{ marginTop: 6 }}>
                 <ItemStatsBlock stats={s.item.stats} />
                 <PrefixDisplay prefixStats={s.prefixStats} />
-                {s.item.slot && (
+                {isEquipment && (
                   <ItemComparison
                     itemStats={s.item.stats}
-                    equippedStats={equipped[s.item.slot]?.stats}
+                    equippedStats={equipped[s.item.slot!]?.stats}
                   />
                 )}
               </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>
                 {s.item.description}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                {/* 장착 버튼 - 장비만, 잠금/레벨부족 아닐 때 */}
+                {isEquipment && !locked && !levelTooLow && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); equip(s.slotIndex); }}
+                    style={{
+                      padding: '5px 16px', fontSize: 12, fontWeight: 700,
+                      background: 'var(--accent)', color: '#000',
+                      border: '1px solid var(--accent)', cursor: 'pointer',
+                    }}
+                  >
+                    장착
+                  </button>
+                )}
+                {/* 판매 버튼 */}
                 {s.item.sellPrice > 0 && !locked && (
                   <button
-                    onClick={(e) => sell(s.slotIndex, e)}
+                    onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, e)}
                     style={{
                       padding: '3px 8px', fontSize: 11,
                       background: 'transparent', color: '#e0a040',
@@ -244,6 +297,23 @@ export function InventoryScreen() {
                   >
                     판매 {s.item.sellPrice}G
                   </button>
+                )}
+                {/* 분해 버튼 - 장비만, 물약/소비 제외, 잠금 제외 */}
+                {isEquipment && !locked && (
+                  <button
+                    onClick={(e) => dismantle(s.slotIndex, e)}
+                    style={{
+                      padding: '3px 8px', fontSize: 11,
+                      background: 'transparent', color: '#cc6666',
+                      border: '1px solid #cc6666', cursor: 'pointer',
+                    }}
+                  >
+                    분해
+                  </button>
+                )}
+                {/* 소비 아이템 분해 불가 표시 */}
+                {isConsumable && (
+                  <span style={{ fontSize: 10, color: 'var(--text-dim)', alignSelf: 'center' }}>분해 불가</span>
                 )}
               </div>
               {locked && (
@@ -258,14 +328,17 @@ export function InventoryScreen() {
   );
 }
 
-function EquipSlotCard({ slot, item, label, onUnequip, onToggleLock }: {
+function EquipSlotCard({ slot, item, label, charLevel, onUnequip, onToggleLock }: {
   slot: string;
   item: any;
   label: string;
+  charLevel: number;
   onUnequip: () => void;
   onToggleLock: (e: React.MouseEvent) => void;
 }) {
   const locked = item?.locked ?? false;
+  const requiredLevel = item?.requiredLevel || 1;
+  const levelTooLow = item && charLevel < requiredLevel;
   return (
     <div
       style={{
@@ -304,6 +377,11 @@ function EquipSlotCard({ slot, item, label, onUnequip, onToggleLock }: {
           </div>
           <ItemStatsBlock stats={item.stats} />
           <PrefixDisplay prefixStats={item.prefixStats} />
+          {levelTooLow && (
+            <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 700, marginTop: 4 }}>
+              Lv.{requiredLevel} 이상 필요 (레벨 부족)
+            </div>
+          )}
         </>
       ) : (
         <div style={{ textAlign: 'center', marginTop: 10, opacity: 0.2 }}>

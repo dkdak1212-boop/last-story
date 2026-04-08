@@ -7,17 +7,21 @@ import { loadCharacterOwned } from '../game/character.js';
 const router = Router();
 router.use(authRequired);
 
-// 강화 비용/확률
+// 강화 비용/확률/파괴율
 export function getEnhanceInfo(currentLevel: number, itemLevel: number) {
   const next = currentLevel + 1;
   const lv = Math.max(1, itemLevel);
   let cost: number;
   let chance: number;
-  if (next <= 3)      { cost = 50 * lv;   chance = 1.0; }
-  else if (next <= 6) { cost = 200 * lv;  chance = 0.8; }
-  else if (next <= 9) { cost = 500 * lv;  chance = 0.5; }
-  else                { cost = 2000 * lv; chance = 0.2; }
-  return { cost, chance, nextLevel: next };
+  let destroyRate = 0;
+  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
+  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
+  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
+  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
+  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
+  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
+  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
+  return { cost, chance, destroyRate, nextLevel: next };
 }
 
 // 현재 인벤 / 장착 중 강화 가능한 아이템 목록
@@ -53,6 +57,15 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     return result;
   }
 
+  // 강화 스크롤 보유량 조회
+  const scrollR = await query<{ quantity: number }>(
+    `SELECT COALESCE(SUM(ci.quantity), 0)::int AS quantity
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '강화 성공률 스크롤'`,
+    [cid]
+  );
+  const scrollCount = scrollR.rows[0]?.quantity || 0;
+
   res.json({
     inventory: inv.rows.map(r => ({
       kind: 'inventory' as const, slotIndex: r.slot_index,
@@ -68,6 +81,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
     })),
+    scrollCount,
   });
 });
 
@@ -80,6 +94,7 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   const parsed = z.object({
     kind: z.enum(['inventory', 'equipped']),
     slotKey: z.union([z.number().int().min(0), z.string()]),
+    useScroll: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
@@ -102,16 +117,37 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
     currentLevel = r.rows[0].enhance_level;
   }
 
-  if (currentLevel >= 10) return res.status(400).json({ error: '최대 강화 단계' });
+  if (currentLevel >= 20) return res.status(400).json({ error: '최대 강화 단계' });
 
   const info = getEnhanceInfo(currentLevel, char.level);
   if (char.gold < info.cost) return res.status(400).json({ error: 'not enough gold' });
+
+  // 스크롤 사용 시 +10% 확률
+  let bonusChance = 0;
+  if (parsed.data.useScroll) {
+    const scrollR = await query<{ id: number; quantity: number }>(
+      `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+       WHERE ci.character_id = $1 AND i.name = '강화 성공률 스크롤' AND ci.quantity > 0
+       ORDER BY ci.slot_index LIMIT 1`,
+      [cid]
+    );
+    if (scrollR.rowCount === 0) return res.status(400).json({ error: '스크롤이 없습니다.' });
+    const scroll = scrollR.rows[0];
+    if (scroll.quantity <= 1) {
+      await query('DELETE FROM character_inventory WHERE id = $1', [scroll.id]);
+    } else {
+      await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [scroll.id]);
+    }
+    bonusChance = 0.10;
+  }
 
   // 골드 차감
   await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [info.cost, cid]);
 
   // 확률 굴림
-  const success = Math.random() < info.chance;
+  const finalChance = Math.min(1.0, info.chance + bonusChance);
+  const success = Math.random() < finalChance;
+
   if (success) {
     if (parsed.data.kind === 'inventory') {
       await query(
@@ -126,14 +162,31 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, parsed.data.slotKey]
       );
     }
+    res.json({
+      success: true, destroyed: false, cost: info.cost, chance: finalChance,
+      destroyRate: info.destroyRate, newLevel: currentLevel + 1,
+    });
+  } else {
+    // 10강 이후 실패 시 파괴 판정
+    const destroyed = info.destroyRate > 0 && Math.random() < info.destroyRate;
+    if (destroyed) {
+      if (parsed.data.kind === 'inventory') {
+        await query(
+          `DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2`,
+          [cid, parsed.data.slotKey]
+        );
+      } else {
+        await query(
+          `DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2`,
+          [cid, parsed.data.slotKey]
+        );
+      }
+    }
+    res.json({
+      success: false, destroyed, cost: info.cost, chance: finalChance,
+      destroyRate: info.destroyRate, newLevel: currentLevel,
+    });
   }
-
-  res.json({
-    success,
-    cost: info.cost,
-    chance: info.chance,
-    newLevel: success ? currentLevel + 1 : currentLevel,
-  });
 });
 
 export default router;

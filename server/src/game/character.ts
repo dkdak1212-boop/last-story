@@ -24,13 +24,19 @@ export interface CharacterRow {
   potion_settings: PotionSettings;
   inventory_slots_bonus: number;
   exp_boost_until: string | null;
+  auto_potion_enabled: boolean;
+  auto_potion_threshold: number;
+  auto_dismantle_common: boolean;
 }
 
 export async function loadCharacter(id: number): Promise<CharacterRow | null> {
   const r = await query<CharacterRow>(
     `SELECT id, user_id, name, class_name, level, exp, gold, hp, max_hp,
             node_points, stats, location, last_online_at, potion_settings,
-            inventory_slots_bonus, exp_boost_until
+            inventory_slots_bonus, exp_boost_until,
+            COALESCE(auto_potion_enabled, TRUE) AS auto_potion_enabled,
+            COALESCE(auto_potion_threshold, 30) AS auto_potion_threshold,
+            COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common
      FROM characters WHERE id = $1`,
     [id]
   );

@@ -52,7 +52,7 @@ router.get('/:id/nodes', async (req: AuthedRequest, res: Response) => {
   });
 });
 
-// 노드 투자
+// 노드 투자 (4포인트 노드: 하위노드 일괄 습득)
 const investSchema = z.object({ nodeId: z.number().int().positive() });
 
 router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
@@ -76,31 +76,81 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'class restriction' });
   }
 
-  // 포인트 부족
-  if (char.node_points < node.cost) {
-    return res.status(400).json({ error: 'not enough points' });
-  }
-
   // 이미 투자
   const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(400).json({ error: 'already invested' });
 
-  // 선행 노드 체크
-  if (node.prerequisites && node.prerequisites.length > 0) {
-    const prereqR = await query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM character_nodes
-       WHERE character_id = $1 AND node_id = ANY($2::int[])`,
-      [id, node.prerequisites]
+  // 4포인트 노드: 경로상 미습득 선행 노드 자동 습득
+  const investedR = await query<{ node_id: number }>(
+    'SELECT node_id FROM character_nodes WHERE character_id = $1', [id]
+  );
+  const investedSet = new Set(investedR.rows.map(r => r.node_id));
+
+  // 재귀적으로 미습득 선행 노드 수집
+  async function collectUnmetPrereqs(nid: number, collected: Map<number, number>): Promise<void> {
+    if (collected.has(nid) || investedSet.has(nid)) return;
+    const nr = await query<{ cost: number; prerequisites: number[]; class_exclusive: string | null }>(
+      'SELECT cost, prerequisites, class_exclusive FROM node_definitions WHERE id = $1', [nid]
     );
-    if (Number(prereqR.rows[0].cnt) < node.prerequisites.length) {
-      return res.status(400).json({ error: 'prerequisites not met' });
+    if (nr.rowCount === 0) return;
+    const n = nr.rows[0];
+    if (n.class_exclusive && n.class_exclusive !== char!.class_name) return;
+    // 먼저 하위 선행 노드 수집
+    if (n.prerequisites && n.prerequisites.length > 0) {
+      for (const pid of n.prerequisites) {
+        await collectUnmetPrereqs(pid, collected);
+      }
+    }
+    if (!investedSet.has(nid)) {
+      collected.set(nid, n.cost);
     }
   }
 
-  await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2)', [id, nodeId]);
-  await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [node.cost, id]);
+  if (node.cost >= 4) {
+    // 4포인트 이상 노드: 미습득 선행 노드 자동 습득
+    const toInvest = new Map<number, number>();
+    if (node.prerequisites && node.prerequisites.length > 0) {
+      for (const pid of node.prerequisites) {
+        await collectUnmetPrereqs(pid, toInvest);
+      }
+    }
+    toInvest.set(nodeId, node.cost);
 
-  res.json({ ok: true, remainingPoints: char.node_points - node.cost });
+    const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
+    if (char.node_points < totalCost) {
+      return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
+    }
+
+    // 순서대로 투자 (선행 먼저)
+    for (const [nid] of toInvest) {
+      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+    }
+    await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
+
+    res.json({ ok: true, remainingPoints: char.node_points - totalCost, invested: toInvest.size });
+  } else {
+    // 기존 로직: 단일 노드 투자
+    if (char.node_points < node.cost) {
+      return res.status(400).json({ error: 'not enough points' });
+    }
+
+    // 선행 노드 체크
+    if (node.prerequisites && node.prerequisites.length > 0) {
+      const prereqR = await query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM character_nodes
+         WHERE character_id = $1 AND node_id = ANY($2::int[])`,
+        [id, node.prerequisites]
+      );
+      if (Number(prereqR.rows[0].cnt) < node.prerequisites.length) {
+        return res.status(400).json({ error: 'prerequisites not met' });
+      }
+    }
+
+    await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2)', [id, nodeId]);
+    await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [node.cost, id]);
+
+    res.json({ ok: true, remainingPoints: char.node_points - node.cost });
+  }
 });
 
 // 부분 리셋 (마지막 5포인트)

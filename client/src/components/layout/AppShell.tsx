@@ -11,10 +11,10 @@ import { io as socketIo } from 'socket.io-client';
 
 const NAV = [
   { to: '/village', label: '메인' },
+  { to: '/announcements', label: '공지' },
   { to: '/status', label: '상태' },
   { to: '/map', label: '사냥터' },
   { to: '/combat', label: '전투' },
-  { to: '/world-event', label: '월드이벤트' },
   { to: '/inventory', label: '인벤토리' },
   { to: '/skills', label: '스킬' },
   { to: '/nodes', label: '노드 트리' },
@@ -22,12 +22,12 @@ const NAV = [
   { to: '/enhance', label: '강화' },
   { to: '/quests', label: '퀘스트' },
   { to: '/marketplace', label: '경매소' },
+  { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },
   { to: '/pvp', label: 'PvP' },
   { to: '/premium', label: '프리미엄' },
   { to: '/mailbox', label: '우편함' },
   { to: '/ranking', label: '랭킹' },
-  { to: '/announcements', label: '공지' },
   { to: '/feedback', label: '피드백' },
 ];
 

@@ -148,6 +148,11 @@ export function CombatScreen() {
   const playerGaugePct = Math.min(100, (localGauges.player / 1000) * 100);
   const monsterGaugePct = Math.min(100, (localGauges.monster / 1000) * 100);
 
+  // 경험치 계산
+  const exp = (state as any).exp ?? 0;
+  const expMax = (state as any).expMax ?? 1;
+  const expPct = Math.min(100, (exp / expMax) * 100);
+
   return (
     <div>
       {/* Header */}
@@ -169,6 +174,17 @@ export function CombatScreen() {
         </div>
       </div>
 
+      {/* Combat log (상단 배치) */}
+      <div style={{
+        padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)',
+        maxHeight: 140, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12, marginBottom: 12,
+        display: 'flex', flexDirection: 'column-reverse',
+      }}>
+        {[...state.log].reverse().map((line, i) => (
+          <div key={i} style={{ color: 'var(--text-dim)', marginBottom: 2 }}>{line}</div>
+        ))}
+      </div>
+
       {/* Combat grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
         {/* Player */}
@@ -178,6 +194,15 @@ export function CombatScreen() {
             {active?.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{active?.level}</span>
           </div>
           <Bar cur={state.player.hp} max={state.player.maxHp} color="var(--success)" label="HP" />
+          {/* 경험치바 */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8b8bef' }}>
+              <span>EXP</span><span>{exp.toLocaleString()} / {expMax.toLocaleString()} ({Math.round(expPct)}%)</span>
+            </div>
+            <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${expPct}%`, background: '#8b8bef', transition: 'width 0.3s' }} />
+            </div>
+          </div>
           <GaugeBar percent={playerGaugePct} color="var(--accent)" label="게이지"
             highlight={state.waitingInput} />
           <EffectIcons effects={state.player.effects} />
@@ -272,16 +297,6 @@ export function CombatScreen() {
         />
         <span style={{ color: 'var(--accent)', fontWeight: 700, minWidth: 36 }}>{autoPotionThreshold}%</span>
         <span style={{ color: 'var(--text-dim)' }}>이하 시 사용</span>
-      </div>
-
-      {/* Combat log */}
-      <div style={{
-        padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)',
-        maxHeight: 200, overflowY: 'auto', fontFamily: 'monospace', fontSize: 13, marginTop: 12,
-      }}>
-        {state.log.map((line, i) => (
-          <div key={i} style={{ color: 'var(--text-dim)', marginBottom: 2 }}>{line}</div>
-        ))}
       </div>
     </div>
   );
@@ -405,6 +420,38 @@ const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string 
   '사신의 포옹':   { icon: '💀', color: '#cc0088', glow: '#ee22aa' },
 };
 
+// 스킬 설명 (툴팁용)
+const SKILL_DESCRIPTIONS: Record<string, string> = {
+  '강타': '적에게 강력한 일격',
+  '분노의 일격': '분노를 담아 대미지 증폭',
+  '철벽': '방어 태세로 피해 감소 실드 생성',
+  '흡혈 참격': '적에게 피해를 입히고 HP 흡수',
+  '반격의 의지': '데미지 반사 효과 부여',
+  '무쌍난무': '연속 다중 타격',
+  '불굴': '무적 + 부활 준비',
+  '화염구': '화염 속성 마법 공격',
+  '냉기 창': '냉기로 적 속도 감소',
+  '게이지 폭발': '게이지를 소모하여 대미지 폭발',
+  '번개 사슬': '연쇄 번개로 다중 타격',
+  '빙결 감옥': '적 게이지 동결',
+  '유성 낙하': '초강력 마법 공격',
+  '마력 과부하': '마법 공격력 대폭 증가',
+  '신성 방벽': '아군에게 피해 흡수 실드',
+  '심판의 철퇴': '신성 물리 공격',
+  '치유의 빛': 'HP 회복',
+  '신성 화염': '신성 속성 지속 피해',
+  '신의 가호': '대미지 감소 버프',
+  '천벌': '강력한 신성 공격',
+  '부활의 기적': '사망 시 자동 부활 준비',
+  '급소 찌르기': '높은 치명타 확률 공격',
+  '독 투척': '독 지속 피해',
+  '백스텝': '회피 + 속도 증가',
+  '연막탄': '적 명중률 감소',
+  '맹독 강화': '독 피해 강화 + 독 부여',
+  '그림자 연격': '다중 타격 + 흡혈',
+  '사신의 낫': '적 HP 비례 대미지',
+};
+
 function SkillBar({ skills, waitingInput, autoMode, onUse }: {
   skills: CombatSkillInfo[];
   waitingInput: boolean;
@@ -412,6 +459,7 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
   onUse: (id: number) => void;
 }) {
   const canUse = waitingInput && !autoMode;
+  const [tooltip, setTooltip] = useState<CombatSkillInfo | null>(null);
 
   return (
     <div style={{
@@ -445,7 +493,14 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
           return (
             <div
               key={sk.id}
-              onClick={() => usable && onUse(sk.id)}
+              onClick={() => {
+                if (usable) {
+                  onUse(sk.id);
+                  setTooltip(null);
+                } else {
+                  setTooltip(tooltip?.id === sk.id ? null : sk);
+                }
+              }}
               style={{
                 position: 'relative', minWidth: 100, padding: '10px 14px',
                 background: usable
@@ -484,6 +539,29 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
                   boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
                 }}>
                   {sk.cooldownLeft}턴
+                </div>
+              )}
+
+              {/* 스킬 툴팁 */}
+              {tooltip?.id === sk.id && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: 'absolute', bottom: '110%', left: '50%', transform: 'translateX(-50%)',
+                    background: 'var(--bg-panel)', border: '1px solid var(--accent)',
+                    padding: '8px 12px', borderRadius: 6, minWidth: 180, zIndex: 100,
+                    textAlign: 'left', boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: fx.color, marginBottom: 4, fontSize: 13 }}>
+                    {fx.icon} {sk.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+                    {SKILL_DESCRIPTIONS[sk.name] || '스킬 효과'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                    {isBasic ? '기본기 (쿨다운 없음)' : `쿨다운: ${sk.cooldownMax}턴`}
+                  </div>
                 </div>
               )}
             </div>

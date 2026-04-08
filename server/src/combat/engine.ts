@@ -4,6 +4,7 @@ import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
+import { expToNext } from '../game/leveling.js';
 import { trackMonsterKill } from '../routes/quests.js';
 import type { Stats } from '../game/classes.js';
 // StatusEffect and CombatSnapshot types defined locally to avoid import path issues
@@ -41,6 +42,8 @@ interface CombatSnapshot {
   log: string[];
   potions?: { hpSmall: number; hpMid: number };
   autoPotion: { enabled: boolean; threshold: number };
+  exp?: number;
+  expMax?: number;
   serverTime: number;
 }
 import { getIo } from '../ws/io.js';
@@ -748,7 +751,27 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   await trackMonsterKill(s.characterId, s.monsterId!);
 
   const drops = rollDrops(m);
+  // 자동분해 설정 체크
+  const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
+    'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
+    [s.characterId]
+  );
+  const autoDismantle = autoDismantleR.rows[0]?.auto_dismantle_common ?? false;
+
   for (const drop of drops) {
+    // 자동분해: 일반 등급 장비 → 골드 변환
+    if (autoDismantle) {
+      const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string }>(
+        'SELECT grade, slot, sell_price, name FROM items WHERE id = $1', [drop.itemId]
+      );
+      if (itemCheck.rows[0] && itemCheck.rows[0].grade === 'common' && itemCheck.rows[0].slot) {
+        const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
+        await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, s.characterId]);
+        addLog(s, `${itemCheck.rows[0].name} 자동분해 → +${gold}G`);
+        continue;
+      }
+    }
+
     const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
     if (overflow > 0) {
       await deliverToMailbox(s.characterId, '가방 초과분', '가방이 가득 차서 우편으로 배송되었습니다.', drop.itemId, overflow);
@@ -912,9 +935,20 @@ async function combatTick(): Promise<void> {
 }
 
 // ── WebSocket Push ──
-function pushCombatState(s: ActiveSession, inCombat: boolean): void {
+async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<void> {
   const io = getIo();
   if (!io) return;
+
+  // exp 정보 로드
+  let exp = 0, expMax = 1;
+  try {
+    const charR = await query<{ level: number; exp: string }>('SELECT level, exp FROM characters WHERE id = $1', [s.characterId]);
+    if (charR.rows[0]) {
+      const lv = charR.rows[0].level;
+      exp = Number(charR.rows[0].exp);
+      expMax = expToNext(lv);
+    }
+  } catch {}
 
   const snapshot: CombatSnapshot = {
     inCombat,
@@ -945,8 +979,10 @@ function pushCombatState(s: ActiveSession, inCombat: boolean): void {
       usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
     })),
     log: s.log,
-    potions: undefined, // lazy load
+    potions: undefined,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
+    exp,
+    expMax,
     serverTime: Date.now(),
   };
 
@@ -1029,8 +1065,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     autoMode: true,
     waitingInput: false,
     waitingSince: 0,
-    autoPotionEnabled: true,
-    autoPotionThreshold: 30,
+    autoPotionEnabled: char.auto_potion_enabled ?? true,
+    autoPotionThreshold: char.auto_potion_threshold ?? 30,
     skillCooldowns: new Map(),
     statusEffects: [],
     actionCount: 0,
@@ -1082,12 +1118,15 @@ export function toggleAutoMode(characterId: number): boolean {
   return s.autoMode;
 }
 
-export function setAutoPotionConfig(characterId: number, enabled: boolean, threshold: number): { enabled: boolean; threshold: number } | null {
+export async function setAutoPotionConfig(characterId: number, enabled: boolean, threshold: number): Promise<{ enabled: boolean; threshold: number } | null> {
   const s = activeSessions.get(characterId);
   if (!s) return null;
   s.autoPotionEnabled = enabled;
   s.autoPotionThreshold = Math.max(5, Math.min(80, threshold));
   s.dirty = true;
+  // DB 영구 저장
+  await query('UPDATE characters SET auto_potion_enabled = $1, auto_potion_threshold = $2 WHERE id = $3',
+    [s.autoPotionEnabled, s.autoPotionThreshold, characterId]);
   return { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold };
 }
 
@@ -1128,9 +1167,18 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   return true;
 }
 
-export function getCombatSnapshot(characterId: number): CombatSnapshot | null {
+export async function getCombatSnapshot(characterId: number): Promise<CombatSnapshot | null> {
   const s = activeSessions.get(characterId);
   if (!s) return null;
+
+  let exp = 0, expMax = 1;
+  try {
+    const charR = await query<{ level: number; exp: string }>('SELECT level, exp FROM characters WHERE id = $1', [characterId]);
+    if (charR.rows[0]) {
+      exp = Number(charR.rows[0].exp);
+      expMax = expToNext(charR.rows[0].level);
+    }
+  } catch {}
 
   return {
     inCombat: true,
@@ -1162,6 +1210,8 @@ export function getCombatSnapshot(characterId: number): CombatSnapshot | null {
     })),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
+    exp,
+    expMax,
     serverTime: Date.now(),
   };
 }

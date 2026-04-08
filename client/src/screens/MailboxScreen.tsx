@@ -13,7 +13,9 @@ interface MailRow {
 
 export function MailboxScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
+  const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [mails, setMails] = useState<MailRow[]>([]);
+  const [msg, setMsg] = useState('');
 
   async function refresh() {
     if (!active) return;
@@ -27,19 +29,46 @@ export function MailboxScreen() {
     try {
       await api(`/characters/${active.id}/mailbox/${mailId}/claim`, { method: 'POST' });
       await refresh();
+      await refreshActive();
     } catch (e) {
       alert(e instanceof Error ? e.message : '수령 실패');
     }
   }
+
+  async function claimAll() {
+    if (!active) return;
+    setMsg('');
+    try {
+      const res = await api<{ claimed: number; failed: number }>(
+        `/characters/${active.id}/mailbox/claim-all`, { method: 'POST' }
+      );
+      setMsg(`${res.claimed}건 수령 완료${res.failed > 0 ? ` (${res.failed}건 실패 - 가방 부족)` : ''}`);
+      await refresh();
+      await refreshActive();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '일괄 수령 실패');
+    }
+  }
+
   async function del(mailId: number) {
     if (!active) return;
     await api(`/characters/${active.id}/mailbox/${mailId}/delete`, { method: 'POST' });
     refresh();
   }
 
+  const unclaimedCount = mails.filter(m => !m.claimed).length;
+
   return (
     <div>
-      <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>우편함</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ color: 'var(--accent)' }}>우편함</h2>
+        {unclaimedCount > 0 && (
+          <button className="primary" onClick={claimAll} style={{ fontWeight: 700 }}>
+            전체 수령 ({unclaimedCount}건)
+          </button>
+        )}
+      </div>
+      {msg && <div style={{ color: 'var(--success)', marginBottom: 12, fontSize: 13 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {mails.length === 0 && <div style={{ color: 'var(--text-dim)' }}>우편이 없다.</div>}
         {mails.map((m) => (

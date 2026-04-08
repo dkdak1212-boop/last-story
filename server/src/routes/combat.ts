@@ -78,7 +78,7 @@ router.post('/:id/combat/auto-potion', async (req: AuthedRequest, res: Response)
   if (!char) return res.status(404).json({ error: 'not found' });
 
   const { enabled, threshold } = req.body;
-  const result = setAutoPotionConfig(id, !!enabled, Number(threshold) || 30);
+  const result = await setAutoPotionConfig(id, !!enabled, Number(threshold) || 30);
   if (!result) return res.status(400).json({ error: 'not in combat' });
   res.json({ ok: true, ...result });
 });
@@ -99,7 +99,7 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const snapshot = getCombatSnapshot(id);
+  const snapshot = await getCombatSnapshot(id);
   if (!snapshot) {
     return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp } });
   }
