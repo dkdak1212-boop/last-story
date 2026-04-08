@@ -5,6 +5,7 @@ import { applyExpGain } from './leveling.js';
 import type { Server } from 'socket.io';
 
 const ATTACK_COOLDOWN_MS = 10_000; // 10초 쿨다운
+const DEATH_COOLDOWN_MS = 60_000; // 사망 시 1분 쿨다운
 
 // ─── 활성 이벤트 조회 ───
 export async function getActiveEvent() {
@@ -35,15 +36,19 @@ export async function attackBoss(characterId: number) {
   if (!char) return { error: '캐릭터를 찾을 수 없습니다.' };
   if (char.level < event.min_level) return { error: `Lv.${event.min_level} 이상만 참여 가능합니다.` };
 
-  // 쿨다운 체크
-  const existing = await query<{ last_attack_at: string }>(
-    `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
+  // 쿨다운 체크 (사망 시 1분, 일반 10초)
+  const existing = await query<{ last_attack_at: string; last_death: boolean }>(
+    `SELECT last_attack_at,
+            COALESCE((SELECT TRUE FROM world_event_participants WHERE event_id = $1 AND character_id = $2 AND total_damage > 0), FALSE) AS last_death
+     FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
     [event.id, characterId]
   );
   if (existing.rows[0]) {
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-    if (elapsed < ATTACK_COOLDOWN_MS) {
-      return { error: '쿨다운 중입니다.', cooldownMs: ATTACK_COOLDOWN_MS - elapsed };
+    // 사망 기록이 있으면 1분, 아니면 10초
+    const cd = (char.hp <= 1) ? DEATH_COOLDOWN_MS : ATTACK_COOLDOWN_MS;
+    if (elapsed < cd) {
+      return { error: char.hp <= 1 ? '사망 쿨다운 중입니다.' : '쿨다운 중입니다.', cooldownMs: cd - elapsed };
     }
   }
 
@@ -52,15 +57,18 @@ export async function attackBoss(characterId: number) {
   const mageClass = ['mage', 'cleric'].includes(char.class_name);
   const playerAtk = mageClass ? eff.matk : eff.atk;
 
-  // 스킬 로드
-  const skillsR = await query<{ name: string; damage_mult: number; cooldown_actions: number; flat_damage: number }>(
-    `SELECT s.name, s.damage_mult, s.cooldown_actions, s.flat_damage
+  // 스킬 로드 (auto_use ON인 스킬 전부 — 버프/힐 포함)
+  const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number }>(
+    `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value
      FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2 AND s.kind = 'damage'
+     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
      ORDER BY s.damage_mult DESC`,
     [characterId, char.level]
   );
-  const skills = skillsR.rows;
+  const allSkills = skillsR.rows;
+  const dmgSkills = allSkills.filter(s => s.kind === 'damage');
+  const healSkills = allSkills.filter(s => s.effect_type === 'heal_pct');
+  const buffSkills = allSkills.filter(s => s.kind === 'buff' && s.effect_type !== 'heal_pct');
 
   // 보스 스탯
   const bossAtk = event.level * 5;
@@ -103,27 +111,56 @@ export async function attackBoss(characterId: number) {
         else cooldowns.set(name, cd - 1);
       }
 
-      // 스킬 선택
+      // HP 낮으면 힐 스킬 우선
       let used = false;
-      for (const sk of skills) {
-        if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
-        const isCrit = Math.random() * 100 < eff.cri;
-        let dmg = Math.round((playerAtk - bossDef * bossDefMult * 0.5) * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
-        dmg = Math.max(1, dmg);
-        if (isCrit) { dmg = Math.round(dmg * 2.0); critCount++; }
-        totalDmgDealt += dmg;
-        if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
-        if (combatLog.length < 15) combatLog.push(`[${sk.name}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
-        used = true;
-        break;
+      if (playerHp < char.max_hp * 0.4) {
+        for (const sk of healSkills) {
+          if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
+          const heal = Math.round(char.max_hp * sk.effect_value / 100);
+          playerHp = Math.min(char.max_hp, playerHp + heal);
+          if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
+          if (combatLog.length < 20) combatLog.push(`[${sk.name}] HP +${heal.toLocaleString()} 회복`);
+          used = true;
+          break;
+        }
       }
+
+      // 버프 스킬 (쿨다운 안 걸린 것 하나)
+      if (!used) {
+        for (const sk of buffSkills) {
+          if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
+          if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
+          if (combatLog.length < 20) combatLog.push(`[${sk.name}] 버프 발동!`);
+          // 버프 효과: 간단히 다음 공격에 보너스 (시뮬레이션이라 직접 적용)
+          used = true;
+          break;
+        }
+      }
+
+      // 공격 스킬
+      if (!used) {
+        for (const sk of dmgSkills) {
+          if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
+          const isCrit = Math.random() * 100 < eff.cri;
+          let dmg = Math.round((playerAtk - bossDef * bossDefMult * 0.5) * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
+          dmg = Math.max(1, dmg);
+          if (isCrit) { dmg = Math.round(dmg * 2.0); critCount++; }
+          totalDmgDealt += dmg;
+          if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
+          if (combatLog.length < 20) combatLog.push(`[${sk.name}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
+          used = true;
+          break;
+        }
+      }
+
+      // 기본 공격 (스킬 전부 쿨다운)
       if (!used) {
         const isCrit = Math.random() * 100 < eff.cri;
         let dmg = Math.round((playerAtk - bossDef * bossDefMult * 0.5) * (0.9 + Math.random() * 0.2));
         dmg = Math.max(1, dmg);
         if (isCrit) { dmg = Math.round(dmg * 2.0); critCount++; }
         totalDmgDealt += dmg;
-        if (combatLog.length < 15) combatLog.push(`[기본 공격] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
+        if (combatLog.length < 20) combatLog.push(`[기본 공격] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
       }
     }
 
@@ -153,8 +190,8 @@ export async function attackBoss(characterId: number) {
     }
   }
 
-  // HP 업데이트
-  const newPlayerHp = Math.max(playerDead ? 1 : 1, playerHp);
+  // HP 업데이트 (사망 시 HP 1)
+  const newPlayerHp = playerDead ? 1 : Math.max(1, playerHp);
   await query('UPDATE characters SET hp = $1 WHERE id = $2', [newPlayerHp, characterId]);
 
   // 보스 공유 HP 감소

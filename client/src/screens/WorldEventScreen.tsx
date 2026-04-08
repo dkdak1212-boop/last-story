@@ -44,7 +44,7 @@ export function WorldEventScreen() {
         return;
       }
       setResult(res);
-      setCooldown(10);
+      setCooldown(res.playerDead ? 60 : 10); // 사망 시 1분, 생존 시 10초
       setStatus(prev => prev ? { ...prev, currentHp: res.currentHp, maxHp: res.maxHp, myDamage: res.myDamage, myRank: res.myRank, myAttackCount: res.myAttackCount } : prev);
       await refreshActive();
     } catch {} finally { setBusy(false); }
