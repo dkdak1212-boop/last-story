@@ -115,9 +115,6 @@ interface ActiveSession {
   fieldName: string;
   dirty: boolean;
   userId: number;
-  // 레이드 모드
-  raidEventId: number | null;
-  raidTotalDamage: number;
 }
 
 const activeSessions = new Map<number, ActiveSession>();
@@ -744,29 +741,6 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const m = mr.rows[0];
   if (!m) return;
 
-  // 레이드 모드: 보스 처치 시 → 보스가 다시 스폰되지 않음 (공유 HP가 0이면 이벤트 종료)
-  if (s.raidEventId) {
-    addLog(s, `보스에게 큰 타격!`);
-    // 보스 재스폰 안 함, 공유 HP 체크는 틱에서 처리
-    const shared = await query<{ current_hp: number }>('SELECT current_hp FROM world_event_active WHERE id = $1', [s.raidEventId]);
-    if (shared.rows[0] && shared.rows[0].current_hp <= 0) {
-      addLog(s, '레이드 보스 처치! 보상이 지급됩니다!');
-      // 세션 종료
-      s.playerHp = s.playerMaxHp;
-      await query('UPDATE characters SET hp=$1, location=$2 WHERE id=$3', [s.playerHp, 'village', s.characterId]);
-      await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
-      pushCombatState(s, false);
-      activeSessions.delete(s.characterId);
-    } else {
-      // 보스 HP 남아있으면 재스폰 (같은 보스)
-      s.monsterHp = s.monsterMaxHp;
-      s.monsterGauge = 0;
-      s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
-    }
-    s.dirty = true;
-    return;
-  }
-
   // 접두사: 황금(gold_bonus_pct), 경험(exp_bonus_pct)
   const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
   const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
@@ -894,28 +868,6 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     return;
   }
 
-  // 레이드: 마을로 귀환 + 1분 쿨타임 후 재참여
-  if (s.raidEventId) {
-    // 기여도 저장은 이미 틱에서 처리됨
-    addLog(s, '쓰러졌다... 마을로 귀환 (1분 후 재참여 가능)');
-    s.playerHp = Math.round(s.playerMaxHp * 0.25);
-    await query(
-      'UPDATE characters SET hp=$1, location=$2, last_online_at=NOW() WHERE id=$3',
-      [s.playerHp, 'village', s.characterId]
-    );
-    // 재참여 쿨타임 기록
-    await query(
-      `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
-       VALUES ($1, $2, 0, 0, NOW())
-       ON CONFLICT (event_id, character_id) DO UPDATE SET last_attack_at = NOW()`,
-      [s.raidEventId, s.characterId]
-    );
-    await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
-    pushCombatState(s, false);
-    activeSessions.delete(s.characterId);
-    return;
-  }
-
   addLog(s, '쓰러졌다... 마을로 돌아간다.');
   s.playerHp = Math.round(s.playerMaxHp * 0.25);
   await query(
@@ -934,9 +886,6 @@ async function combatTick(): Promise<void> {
   for (const [charId, s] of activeSessions) {
     try {
       if (!s.monsterId) continue;
-
-      // 레이드: 몬스터 HP 스냅샷 (데미지 추적용)
-      const raidHpBefore = s.raidEventId ? s.monsterHp : 0;
 
       // 스피드 수정 적용
       let effectivePlayerSpeed = s.playerSpeed;
@@ -1022,23 +971,6 @@ async function combatTick(): Promise<void> {
             s.playerGauge = GAUGE_MAX;
             s.dirty = true;
           }
-        }
-      }
-
-      // 레이드: 데미지를 공유 HP에 반영
-      if (s.raidEventId && raidHpBefore > s.monsterHp) {
-        const dmgDealt = raidHpBefore - Math.max(0, s.monsterHp);
-        if (dmgDealt > 0) {
-          s.raidTotalDamage += dmgDealt;
-          // 공유 HP 감소 + 기여도 업데이트
-          await query('UPDATE world_event_active SET current_hp = GREATEST(0, current_hp - $1) WHERE id = $2 AND status = $3', [dmgDealt, s.raidEventId, 'active']);
-          await query(
-            `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
-             VALUES ($1, $2, $3, 1, NOW())
-             ON CONFLICT (event_id, character_id) DO UPDATE
-             SET total_damage = world_event_participants.total_damage + $3, attack_count = world_event_participants.attack_count + 1, last_attack_at = NOW()`,
-            [s.raidEventId, s.characterId, dmgDealt]
-          );
         }
       }
 
@@ -1198,8 +1130,6 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     fieldName,
     dirty: true,
     userId: char.user_id,
-    raidEventId: null,
-    raidTotalDamage: 0,
   };
 
   // DB 세션
@@ -1347,97 +1277,6 @@ export function isInCombat(characterId: number): boolean {
 export function getCombatHp(characterId: number): number | null {
   const s = activeSessions.get(characterId);
   return s ? Math.max(0, s.playerHp) : null;
-}
-
-// ── 레이드 전투 세션 시작 ──
-export async function startRaidSession(characterId: number, eventId: number, bossName: string, bossLevel: number, bossMaxHp: number, bossStats: { str: number; dex: number; int: number; vit: number; spd: number; cri: number }): Promise<void> {
-  activeSessions.delete(characterId);
-
-  const char = await loadCharacter(characterId);
-  if (!char) throw new Error('character not found');
-
-  const eff = await getEffectiveStats(char);
-  const skills = await getCharSkills(characterId, char.class_name, char.level);
-  const passives = await getNodePassives(characterId);
-  const equipPrefixes = await loadEquipPrefixes(characterId);
-
-  // 보스 스탯 → EffectiveStats 변환
-  const bossEff: EffectiveStats = {
-    str: bossStats.str, dex: bossStats.dex, int: bossStats.int,
-    vit: bossStats.vit, spd: bossStats.spd, cri: bossStats.cri,
-    maxHp: bossMaxHp,
-    atk: bossStats.str * 2.0,
-    matk: bossStats.int * 2.5,
-    def: bossStats.vit * 1.5,
-    mdef: bossStats.int * 1.0,
-    dodge: Math.min(15, bossStats.dex * 0.1),
-    accuracy: 90 + bossStats.dex * 0.2,
-  };
-
-  // 개인 전투용 보스 HP (공유 HP와 별도, 처치 시 재스폰)
-  const personalBossHp = Math.round(bossMaxHp * 0.001); // 공유HP의 0.1%를 개인전투 HP로
-
-  const session: ActiveSession = {
-    characterId,
-    className: char.class_name,
-    fieldId: -1, // 레이드 표시
-    monsterId: -1,
-    monsterName: bossName,
-    monsterLevel: bossLevel,
-    monsterHp: personalBossHp,
-    monsterMaxHp: personalBossHp,
-    monsterSpeed: bossStats.spd,
-    monsterGauge: 0,
-    monsterStats: bossEff,
-    playerHp: char.hp,
-    playerMaxHp: char.max_hp,
-    playerGauge: 0,
-    playerSpeed: eff.spd,
-    playerStats: eff,
-    autoMode: true,
-    waitingInput: false,
-    waitingSince: 0,
-    autoPotionEnabled: char.auto_potion_enabled ?? true,
-    autoPotionThreshold: char.auto_potion_threshold ?? 30,
-    skillCooldowns: new Map(),
-    statusEffects: [],
-    actionCount: 0,
-    log: [`[레이드] ${bossName}에게 도전!`],
-    skills,
-    passives,
-    equipPrefixes,
-    fieldName: `레이드: ${bossName}`,
-    dirty: true,
-    userId: char.user_id,
-    raidEventId: eventId,
-    raidTotalDamage: 0,
-  };
-
-  await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
-  await query(
-    `INSERT INTO combat_sessions (character_id, field_id, player_hp, player_gauge, player_speed, auto_mode)
-     VALUES ($1, -1, $2, 0, $3, TRUE)`,
-    [characterId, char.hp, eff.spd]
-  );
-  await query('UPDATE characters SET location = $1, last_online_at = NOW() WHERE id = $2',
-    [`raid:${eventId}`, characterId]);
-
-  activeSessions.set(characterId, session);
-  ensureCombatLoop();
-}
-
-// 레이드 전체 세션 종료 (보스 처치/만료 시)
-export function endAllRaidSessions(eventId: number) {
-  for (const [charId, s] of activeSessions) {
-    if (s.raidEventId === eventId) {
-      s.log.push('[레이드] 보스가 처치되었습니다! 보상이 지급됩니다.');
-      s.dirty = true;
-      pushCombatState(s, false);
-      query('UPDATE characters SET hp=$1, location=$2 WHERE id=$3', [Math.max(1, s.playerHp), 'village', charId]);
-      query('DELETE FROM combat_sessions WHERE character_id=$1', [charId]);
-      activeSessions.delete(charId);
-    }
-  }
 }
 
 function ensureCombatLoop() {
