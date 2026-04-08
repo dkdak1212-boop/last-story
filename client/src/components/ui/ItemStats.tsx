@@ -26,6 +26,16 @@ export const STAT_LABEL: Record<string, string> = {
   def: '방어력',
   mdef: '마법 방어',
   hp: 'HP',
+  accuracy: '명중',
+  dodge: '회피',
+  def_reduce_pct: '약화',
+  slow_pct: '저주',
+  dot_amp_pct: '확산',
+  hp_regen: '재생',
+  lifesteal_pct: '흡혈',
+  gold_bonus_pct: '황금',
+  exp_bonus_pct: '경험',
+  crit_dmg_pct: '날카로움',
 };
 
 const STAT_ORDER: string[] = ['atk', 'matk', 'def', 'mdef', 'hp', 'str', 'dex', 'int', 'vit', 'spd', 'cri'];

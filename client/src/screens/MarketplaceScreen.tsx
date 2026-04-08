@@ -4,7 +4,7 @@ import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, InventorySlot, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL } from '../components/ui/ItemStats';
 
-const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명', atk: '공격', matk: '마공', def: '방어', mdef: '마방', hp: 'HP' };
+const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명', atk: '공격', matk: '마공', def: '방어', mdef: '마방', hp: 'HP', accuracy: '명중', dodge: '회피', def_reduce_pct: '약화', slow_pct: '저주', dot_amp_pct: '확산', hp_regen: '재생', lifesteal_pct: '흡혈', gold_bonus_pct: '황금', exp_bonus_pct: '경험', crit_dmg_pct: '날카로움' };
 
 interface Auction {
   id: number; itemId: number; itemQuantity: number;
