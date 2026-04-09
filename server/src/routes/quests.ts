@@ -97,7 +97,21 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
   if (!cq.rows[0].completed) return res.status(400).json({ error: 'not completed' });
   if (cq.rows[0].claimed) return res.status(400).json({ error: 'already claimed' });
 
-  // 랜덤 박스 보상 (일반70%/희귀20%/영웅8%/전설2%)
+  // 골드/경험치 지급
+  const questR = await query<{ reward_gold: number; reward_exp: number }>(
+    'SELECT reward_gold, reward_exp FROM quests WHERE id = $1', [questId]
+  );
+  const qReward = questR.rows[0];
+  if (qReward) {
+    if (qReward.reward_gold > 0) {
+      await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [qReward.reward_gold, id]);
+    }
+    if (qReward.reward_exp > 0) {
+      await query('UPDATE characters SET exp = exp + $1 WHERE id = $2', [qReward.reward_exp, id]);
+    }
+  }
+
+  // 랜덤 박스 보상 (일반70%/희귀20%/영웅8%/전설2%) — 제작/재료 아이템 제외
   const gradeRoll = Math.random() * 100;
   let boxGrade: string;
   if (gradeRoll < 2) boxGrade = 'legendary';
@@ -106,7 +120,7 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
   else boxGrade = 'common';
 
   const boxItems = await query<{ id: number; name: string; grade: string }>(
-    `SELECT id, name, grade FROM items WHERE grade = $1 AND type != 'material' ORDER BY RANDOM() LIMIT 1`,
+    `SELECT id, name, grade FROM items WHERE grade = $1 AND type NOT IN ('material') AND set_id IS NULL ORDER BY RANDOM() LIMIT 1`,
     [boxGrade]
   );
 

@@ -197,19 +197,21 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
 function ListItemPanel({ active, inv, onDone }: { active: number | undefined; inv: InventorySlot[]; onDone: () => void }) {
   const [slotIndex, setSlotIndex] = useState<number | null>(null);
   const [qty, setQty] = useState(1);
-  const [startPrice, setStartPrice] = useState(100);
-  const [buyout, setBuyout] = useState<string>('');
+  const [startPrice, setStartPrice] = useState('');
+  const [buyout, setBuyout] = useState('');
 
   const sel = slotIndex !== null ? inv.find(s => s.slotIndex === slotIndex) : null;
   const maxQty = sel?.quantity ?? 1;
 
   async function submit() {
     if (!active || slotIndex === null) return;
+    const sp = Number(startPrice);
+    if (!sp || sp < 1) { alert('시작가를 입력하세요'); return; }
     try {
       await api('/marketplace/list', {
         method: 'POST',
         body: JSON.stringify({
-          characterId: active, slotIndex, quantity: qty, startPrice,
+          characterId: active, slotIndex, quantity: qty, startPrice: sp,
           buyoutPrice: buyout ? Number(buyout) : null,
         }),
       });
@@ -217,44 +219,83 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
 
+  // 접두사 효과 포맷 (PrefixDisplay와 동일)
+  const EFFECT_FMTS: Record<string, (v: number) => string> = {
+    str: v => `힘 +${v}`, dex: v => `민첩 +${v}`, int: v => `지능 +${v}`, vit: v => `체력 +${v}`,
+    spd: v => `속도 +${v}`, cri: v => `치명타 +${v}%`, accuracy: v => `명중 +${v}`, dodge: v => `회피 +${v}`,
+    def_reduce_pct: v => `몬스터 방어력 ${v}% 감소`, slow_pct: v => `몬스터 속도 ${v}% 감소`,
+    dot_amp_pct: v => `도트 데미지 ${v}% 증가`, hp_regen: v => `틱당 HP ${v} 회복`,
+    lifesteal_pct: v => `데미지 흡혈 ${(v/10).toFixed(1)}%`, gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
+    exp_bonus_pct: v => `경험치 획득 ${v}% 증가`, crit_dmg_pct: v => `크리 데미지 ${v}% 증가`,
+  };
+
   return (
     <div>
       <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 (수수료 10%, 24시간)</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6, marginBottom: 16 }}>
         {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>인벤토리 비어있음</div>}
         {inv.map(s => (
-          <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); }}
+          <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); setStartPrice(''); }}
             style={{
               padding: 8, background: slotIndex === s.slotIndex ? 'var(--bg-elev)' : 'var(--bg-panel)',
               border: `1px solid ${slotIndex === s.slotIndex ? 'var(--accent)' : GRADE_COLOR[s.item.grade] || 'var(--border)'}`,
-              cursor: 'pointer', fontSize: 13,
+              cursor: 'pointer', fontSize: 12,
             }}>
             <div style={{ fontWeight: 700, color: GRADE_COLOR[s.item.grade] }}>
               {s.item.name}{s.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{s.enhanceLevel}</span>}
               {s.quantity > 1 && ` ×${s.quantity}`}
             </div>
-            <div style={{ fontSize: 11, color: GRADE_COLOR[s.item.grade] }}>[{GRADE_LABEL[s.item.grade]}]</div>
+            <div style={{ fontSize: 10, color: GRADE_COLOR[s.item.grade] }}>[{GRADE_LABEL[s.item.grade]}]</div>
+            {/* 접두사 미리보기 */}
+            {s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
+              <div style={{ fontSize: 10, color: '#66ccff', marginTop: 2 }}>
+                {Object.entries(s.prefixStats).slice(0, 2).map(([k, v]) => {
+                  const fmt = EFFECT_FMTS[k];
+                  return <div key={k}>{fmt ? fmt(v) : `${k} +${v}`}</div>;
+                })}
+                {Object.keys(s.prefixStats).length > 2 && <div>+{Object.keys(s.prefixStats).length - 2}개 더</div>}
+              </div>
+            )}
           </div>
         ))}
       </div>
 
       {sel && (
         <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--accent)' }}>
-          <div style={{ marginBottom: 10, fontWeight: 700 }}>{sel.item.name}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* 선택 아이템 상세 */}
+          <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15, marginBottom: 4 }}>
+            {sel.item.name}{sel.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{sel.enhanceLevel}</span>}
+          </div>
+          {sel.item.stats && (
+            <div style={{ fontSize: 11, color: 'var(--success)', marginBottom: 2 }}>
+              {Object.entries(sel.item.stats).map(([k, v]) => `${STAT_LABEL[k]||k} +${v}`).join(' · ')}
+            </div>
+          )}
+          {sel.prefixStats && Object.keys(sel.prefixStats).length > 0 && (
+            <div style={{ fontSize: 11, marginBottom: 6 }}>
+              {Object.entries(sel.prefixStats).map(([k, v]) => {
+                const fmt = EFFECT_FMTS[k];
+                const special = ['def_reduce_pct','slow_pct','dot_amp_pct','hp_regen','lifesteal_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
+                return <div key={k} style={{ color: special ? '#66ccff' : '#e0a040' }}>{special ? '◆ ' : ''}{fmt ? fmt(v) : `${k} +${v}`}</div>;
+              })}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
             <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>수량 (최대 {maxQty})
               <input type="number" min="1" max={maxQty} value={qty} onChange={e => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
                 style={{ marginLeft: 8, width: 80 }} />
             </label>
             <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>시작가
-              <input type="number" min="1" value={startPrice} onChange={e => setStartPrice(Math.max(1, Number(e.target.value) || 1))}
+              <input type="text" value={startPrice} onChange={e => setStartPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="금액 입력 (필수)"
                 style={{ marginLeft: 8, width: 120 }} />G
             </label>
             <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>즉시구매가 (선택)
-              <input type="number" min="0" value={buyout} onChange={e => setBuyout(e.target.value)}
+              <input type="text" value={buyout} onChange={e => setBuyout(e.target.value.replace(/[^0-9]/g, ''))}
                 style={{ marginLeft: 8, width: 120 }} placeholder="없음" />G
             </label>
-            <button className="primary" onClick={submit}>등록</button>
+            <button className="primary" onClick={submit} disabled={!startPrice}>등록</button>
           </div>
         </div>
       )}
