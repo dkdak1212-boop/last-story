@@ -81,8 +81,10 @@ router.post('/:id/skills/:skillId/toggle-auto', async (req: AuthedRequest, res: 
     [id, skillId]
   );
   // 전투 중이면 세션 스킬 목록 갱신
-  const { refreshSessionSkills } = await import('../combat/engine.js');
-  await refreshSessionSkills(id);
+  try {
+    const { refreshSessionSkills } = await import('../combat/engine.js');
+    await refreshSessionSkills(id);
+  } catch {}
   res.json({ ok: true });
 });
 
