@@ -143,7 +143,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               관리자
             </Link>
           )}
-          <button onClick={() => { clearChar(); clearMe(); logout(); }}>로그아웃</button>
+          <button onClick={() => { clearChar(); clearMe(); logout(); }} style={{ padding: '2px 8px', fontSize: 10 }}>로그아웃</button>
         </div>
       </header>
 
