@@ -6,14 +6,14 @@ import { loadCharacterOwned } from '../game/character.js';
 const router = Router();
 router.use(authRequired);
 
-function todayKST(): string {
-  const d = new Date(Date.now() + 9 * 3600000);
-  return d.toISOString().slice(0, 10);
+async function todayFromDB(): Promise<string> {
+  const r = await query<{ d: string }>("SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d");
+  return r.rows[0].d;
 }
 
 // 오늘의 퀘스트 할당 (없으면 랜덤 3개)
 async function ensureDailyQuests(characterId: number): Promise<void> {
-  const today = todayKST();
+  const today = await todayFromDB();
   const existing = await query('SELECT id FROM character_daily_quests WHERE character_id = $1 AND assigned_date = $2', [characterId, today]);
   if (existing.rowCount && existing.rowCount > 0) return;
 
@@ -36,7 +36,7 @@ router.get('/:id/daily-quests', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   await ensureDailyQuests(id);
-  const today = todayKST();
+  const today = await todayFromDB();
 
   const quests = await query<{ id: number; quest_pool_id: number; kind: string; target_count: number; progress: number; completed: boolean }>(
     'SELECT cdq.id, cdq.quest_pool_id, cdq.kind, cdq.target_count, cdq.progress, cdq.completed FROM character_daily_quests cdq WHERE cdq.character_id = $1 AND cdq.assigned_date = $2',
@@ -68,7 +68,7 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const today = todayKST();
+  const today = await todayFromDB();
 
   // 이미 수령했는지
   const already = await query('SELECT 1 FROM daily_quest_rewards WHERE character_id = $1 AND reward_date = $2', [id, today]);
@@ -98,7 +98,7 @@ export default router;
 
 // 외부에서 호출: 진행도 업데이트
 export async function trackDailyQuestProgress(characterId: number, kind: string, amount: number = 1): Promise<void> {
-  const today = todayKST();
+  const today = await todayFromDB();
   await query(
     `UPDATE character_daily_quests
      SET progress = LEAST(progress + $1, target_count),
