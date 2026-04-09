@@ -196,8 +196,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 fontSize: 13,
                 color: loc.pathname === n.to ? 'var(--accent)' : 'var(--text-dim)',
                 textDecoration: 'none',
-                borderBottom:
-                  loc.pathname === n.to ? '2px solid var(--accent)' : '2px solid transparent',
+                border: loc.pathname === n.to ? '1px solid var(--accent)' : '1px solid var(--border)',
+                borderRadius: 4,
+                background: loc.pathname === n.to ? 'rgba(201,162,77,0.1)' : 'transparent',
                 whiteSpace: 'nowrap',
               }}
             >
