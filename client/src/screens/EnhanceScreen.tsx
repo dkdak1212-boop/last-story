@@ -139,7 +139,6 @@ export function EnhanceScreen() {
             );
           })()}
         </div>
-        </div>
 
         {/* 우: 강화 패널 */}
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
