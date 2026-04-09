@@ -113,8 +113,10 @@ export function EnhanceScreen() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
                   {Object.entries(selected.stats).map(([k, v]) => {
-                    const cur = Math.round((v as number) * (1 + selected.enhanceLevel * 0.1));
-                    const next = Math.round((v as number) * (1 + (selected.enhanceLevel + 1) * 0.1));
+                    // 서버와 동일한 배율: 1~6강 +15%/단계, 7강+ +25%/단계
+                    const getMult = (el: number) => el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+                    const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
+                    const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
                     return (
                       <div key={k} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
                         <span>{STAT_LABEL[k as keyof Stats]}</span>
