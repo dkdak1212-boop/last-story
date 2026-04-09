@@ -220,10 +220,11 @@ async function getCharSkills(characterId: number, className: string, level: numb
 const DROP_RATE_MULT = 0.1;
 const ONLINE_DROP_BONUS = 1.5;
 
-function rollDrops(m: MonsterDef): { itemId: number; qty: number }[] {
+function rollDrops(m: MonsterDef, dropBoost: boolean = false): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
+  const boostMult = dropBoost ? 1.5 : 1.0;
   for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance * DROP_RATE_MULT * ONLINE_DROP_BONUS) {
+    if (Math.random() < d.chance * DROP_RATE_MULT * ONLINE_DROP_BONUS * boostMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
@@ -881,14 +882,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   await trackMonsterKill(s.characterId, s.monsterId!);
 
-  let drops = rollDrops(m);
-  // 드롭 부스터: +30% 추가 드롭 (기존 드롭 외 추가 판정)
-  if (dropBoostActive) {
-    const extraDrops = rollDrops(m); // 한 번 더 굴림
-    for (const ed of extraDrops) {
-      if (Math.random() < 0.3) drops.push(ed); // 30% 확률로 추가
-    }
-  }
+  let drops = rollDrops(m, !!dropBoostActive);
   // 자동분해 설정 체크
   const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
     'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
@@ -1136,7 +1130,25 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     exp,
     expMax,
     serverTime: Date.now(),
-  };
+  } as any;
+
+  // 부스트 정보
+  try {
+    const br = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
+      'SELECT exp_boost_until, gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [s.characterId]
+    );
+    const now = new Date();
+    const b = br.rows[0];
+    const boosts: { name: string; until: string }[] = [];
+    boosts.push({ name: 'EXP +50%', until: '' });
+    if (b?.exp_boost_until && new Date(b.exp_boost_until) > now)
+      boosts.push({ name: 'EXP 부스터 +50%', until: b.exp_boost_until });
+    if (b?.gold_boost_until && new Date(b.gold_boost_until) > now)
+      boosts.push({ name: '골드 +50%', until: b.gold_boost_until });
+    if (b?.drop_boost_until && new Date(b.drop_boost_until) > now)
+      boosts.push({ name: '드롭률 +50%', until: b.drop_boost_until });
+    snapshot.boosts = boosts;
+  } catch {}
 
   // 해당 유저의 소켓에만 emit
   io.emit(`combat:${s.characterId}`, snapshot);

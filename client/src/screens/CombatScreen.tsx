@@ -342,6 +342,32 @@ export function CombatScreen() {
         </div>
       </div>
 
+      {/* 활성 버프 */}
+      {(state as any).boosts && (state as any).boosts.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8,
+        }}>
+          {(state as any).boosts.map((b: { name: string; until: string }, i: number) => {
+            let timeLeft = '';
+            if (b.until) {
+              const sec = Math.max(0, Math.floor((new Date(b.until).getTime() - Date.now()) / 1000));
+              const h = Math.floor(sec / 3600);
+              const m = Math.floor((sec % 3600) / 60);
+              timeLeft = h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+            }
+            const color = b.name.includes('EXP') ? '#8b8bef' : b.name.includes('골드') ? '#e0a040' : b.name.includes('드롭') ? '#66dd66' : 'var(--accent)';
+            return (
+              <span key={i} style={{
+                padding: '3px 8px', fontSize: 10, fontWeight: 700, borderRadius: 3,
+                background: `${color}15`, color, border: `1px solid ${color}40`,
+              }}>
+                {b.name}{timeLeft ? ` (${timeLeft})` : ' (상시)'}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       {/* Skill bar */}
       <SkillBar
         skills={state.skills}
