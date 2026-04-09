@@ -99,11 +99,11 @@ export function CombatScreen() {
       setState(snapshot);
     });
 
-    // 초기 상태 폴백
+    // 초기 상태 폴백 (WebSocket보다 먼저 도착할 때만 초기화)
     api<CombatSnapshot>(`/characters/${active.id}/combat/state`).then(s => {
       setState(s);
       if (s.monster) prevMonsterHp.current = s.monster.hp;
-      prevLogLen.current = s.log.length; // 기존 로그 스킵
+      if (prevLogLen.current === -1) prevLogLen.current = s.log.length;
     }).catch(() => {});
 
     return () => {
