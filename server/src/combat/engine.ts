@@ -284,24 +284,28 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     ((target === 'monster' && e.source === 'player') || (target === 'player' && e.source === 'monster')) &&
     e.remainingActions > 0
   );
+  if (dots.length === 0) return;
+  let total = 0;
   for (const dot of dots) {
     let dmg = Math.round(dot.value);
     if (dmg <= 0) continue;
     if (target === 'monster') {
-      // 패시브: dot_amp, poison_amp, bleed_amp, burn_amp, holy_dot_amp
       const dotAmp = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
         + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp') + (s.equipPrefixes.dot_amp_pct || 0);
       if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
-      s.monsterHp -= dmg;
-      addLog(s, `[도트] 몬스터에게 ${dmg} 데미지`);
     } else {
-      // 패시브: dot_resist (플레이어가 받는 도트 감소)
       const resist = getPassive(s, 'dot_resist');
       if (resist > 0) dmg = Math.round(dmg * (1 - resist / 100));
-      if (dmg > 0) {
-        s.playerHp -= dmg;
-        addLog(s, `[도트] ${dmg} 데미지를 받았다`);
-      }
+    }
+    total += dmg;
+  }
+  if (total > 0) {
+    if (target === 'monster') {
+      s.monsterHp -= total;
+      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩)`);
+    } else {
+      s.playerHp -= total;
+      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩)`);
     }
   }
 }
