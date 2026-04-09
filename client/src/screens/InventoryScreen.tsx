@@ -202,36 +202,43 @@ export function InventoryScreen() {
           );
         };
 
+        const className = active?.className || 'warrior';
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr', gridTemplateRows: 'auto auto auto', gap: 6, maxWidth: 600, margin: '0 auto' }}>
-            {/* 1행: 무기 | 머리 | 투구 */}
-            <div>{renderSlot('weapon', '무기')}</div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {/* 머리 */}
-              <div style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
-            </div>
-            <div>{renderSlot('helm', '투구')}</div>
-
-            {/* 2행: 반지 | 몸통 | 목걸이 */}
-            <div>{renderSlot('ring', '반지')}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-              {/* 몸통 + 팔 */}
-              <div style={{ width: 16, height: 4, background: 'var(--accent-dim)', borderRadius: 2 }} />
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
-                <div style={{ width: 10, height: 40, borderRadius: '4px 0 0 4px', border: '2px solid var(--accent-dim)', borderRight: 'none', background: 'var(--bg)' }} />
-                <div style={{ width: 36, height: 50, borderRadius: '6px 6px 2px 2px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
-                <div style={{ width: 10, height: 40, borderRadius: '0 4px 4px 0', border: '2px solid var(--accent-dim)', borderLeft: 'none', background: 'var(--bg)' }} />
+          <div style={{ position: 'relative', maxWidth: 640, margin: '0 auto' }}>
+            {/* 중앙 캐릭터 이미지 */}
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0 8px',
+            }}>
+              <div style={{
+                position: 'relative', width: 96, height: 96,
+                border: '2px solid var(--accent)', borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(218,165,32,0.1) 0%, transparent 70%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 0 20px rgba(218,165,32,0.15)',
+              }}>
+                <img src={`/images/classes/${className}.png`} alt={className}
+                  width={64} height={64}
+                  style={{ imageRendering: 'pixelated' }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, marginTop: 6 }}>
+                {active?.name} · Lv.{active?.level}
               </div>
             </div>
-            <div>{renderSlot('amulet', '목걸이')}</div>
 
-            {/* 3행: 장화 | 다리 | 갑옷 */}
-            <div>{renderSlot('boots', '장화')}</div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 4, paddingTop: 4 }}>
-              <div style={{ width: 14, height: 40, borderRadius: '0 0 4px 4px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
-              <div style={{ width: 14, height: 40, borderRadius: '0 0 4px 4px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+            {/* 장비 그리드: 3열 */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+              gap: 6, marginTop: 8,
+            }}>
+              {renderSlot('helm', '투구')}
+              {renderSlot('amulet', '목걸이')}
+              {renderSlot('weapon', '무기')}
+              {renderSlot('chest', '갑옷')}
+              {renderSlot('ring', '반지')}
+              {renderSlot('boots', '장화')}
             </div>
-            <div>{renderSlot('chest', '갑옷')}</div>
           </div>
         );
       })()}
