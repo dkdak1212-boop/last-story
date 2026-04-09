@@ -125,12 +125,12 @@ h1, h2, h3, h4 {
     padding: 1px 4px !important;
   }
 
-  /* ── 네비게이션: 2줄 그리드 ── */
+  /* ── 네비게이션: 그리드 + 구분선 ── */
   .app-nav {
     display: grid !important;
     grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)) !important;
     padding: 4px 6px !important;
-    gap: 2px !important;
+    gap: 3px !important;
     overflow-x: hidden !important;
   }
   .app-nav a {
@@ -140,6 +140,12 @@ h1, h2, h3, h4 {
     text-align: center !important;
     border-bottom: none !important;
     border-radius: 4px !important;
+    border: 1px solid var(--border) !important;
+    background: var(--bg-panel) !important;
+  }
+  .app-nav a[style*="color: var(--accent)"] {
+    border-color: var(--accent) !important;
+    background: rgba(201,162,77,0.1) !important;
   }
 
   /* ── 사이드 장식 숨김 ── */
