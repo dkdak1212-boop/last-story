@@ -489,8 +489,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
       }
       if (skill.effect_type === 'speed_mod') {
-        addEffect(s, { type: 'speed_mod', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
-        addLog(s, `[${skill.name}] 적 스피드 ${skill.effect_value}% ${skill.effect_duration}행동`);
+        // frost_amp: 냉기 스피드 감소 효과 증폭
+        const frostAmp = getPassive(s, 'frost_amp');
+        const slowValue = frostAmp > 0 ? Math.round(skill.effect_value * (1 + frostAmp / 100)) : skill.effect_value;
+        addEffect(s, { type: 'speed_mod', value: slowValue, remainingActions: skill.effect_duration, source: 'player' });
+        addLog(s, `[${skill.name}] 적 스피드 ${slowValue}% ${skill.effect_duration}행동`);
       } else {
         addEffect(s, { type: 'speed_mod', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // affects player
         addLog(s, `[${skill.name}] 자신 스피드 ${skill.effect_value}% ${skill.effect_duration}행동`);
