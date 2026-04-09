@@ -177,7 +177,7 @@ export function CombatScreen() {
       {/* Combat log (상단 배치) */}
       <div style={{
         padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)',
-        maxHeight: 140, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12, marginBottom: 12,
+        height: 140, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12, marginBottom: 12,
         display: 'flex', flexDirection: 'column-reverse',
       }}>
         {[...state.log].reverse().map((line, i) => (
