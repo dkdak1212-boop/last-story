@@ -99,9 +99,19 @@ export function DailyQuestScreen() {
         border: `1px solid ${status.allCompleted ? 'var(--accent)' : 'var(--border)'}`,
       }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>임무 완료 보상</div>
-        <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8, lineHeight: 1.6 }}>
-          EXP (레벨 x 500) + Gold (레벨 x 200)<br/>
-          드롭률 +50% 버프 3시간
+        <div style={{ fontSize: 12, marginBottom: 8, lineHeight: 1.8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: '#8b8bef' }}>경험치</span>
+            <span style={{ color: '#8b8bef', fontWeight: 700 }}>레벨 x 500 EXP</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: '#e0a040' }}>골드</span>
+            <span style={{ color: '#e0a040', fontWeight: 700 }}>레벨 x 200 G</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--success)' }}>드롭률 버프</span>
+            <span style={{ color: 'var(--success)', fontWeight: 700 }}>+50% (3시간)</span>
+          </div>
         </div>
         {status.rewardClaimed ? (
           <div style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 700 }}>오늘 보상을 수령했습니다</div>
