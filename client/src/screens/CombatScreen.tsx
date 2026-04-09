@@ -22,7 +22,7 @@ export function CombatScreen() {
   const popupIdRef = useRef(0);
   const socketRef = useRef<Socket | null>(null);
   const prevMonsterHp = useRef<number>(0);
-  const prevLogLen = useRef<number>(-1);
+  const prevLogRef = useRef<string[] | null>(null);
 
   // WebSocket 연결
   useEffect(() => {
@@ -39,72 +39,73 @@ export function CombatScreen() {
     socket.on(`combat:${active.id}`, (snapshot: CombatSnapshot) => {
       if (snapshot.monster) prevMonsterHp.current = snapshot.monster.hp;
 
-      const prev = prevLogLen.current;
-      const cur = snapshot.log.length;
+      const prevLog = prevLogRef.current;
 
-      // 첫 수신: 초기화만 하고 파싱 스킵
-      if (prev === -1) {
-        prevLogLen.current = cur;
+      // 첫 수신: 저장만 하고 파싱 스킵
+      if (prevLog === null) {
+        prevLogRef.current = [...snapshot.log];
         setState(snapshot);
         return;
       }
 
-      // 로그가 줄었으면(새 몬스터) 리셋
-      if (cur < prev) {
-        prevLogLen.current = 0;
+      // 새 로그 라인 찾기: 이전 로그의 마지막 메시지 이후 부분
+      let newLines: string[] = [];
+      if (prevLog.length === 0) {
+        newLines = snapshot.log;
+      } else {
+        const lastPrev = prevLog[prevLog.length - 1];
+        const lastIdx = snapshot.log.lastIndexOf(lastPrev);
+        if (lastIdx === -1) {
+          // 로그 완전 리셋 (새 몬스터) — 전부 새 로그
+          newLines = snapshot.log;
+        } else if (lastIdx < snapshot.log.length - 1) {
+          newLines = snapshot.log.slice(lastIdx + 1);
+        }
       }
 
-      // 새 로그 파싱
-      if (cur > prevLogLen.current) {
-        const newLines = snapshot.log.slice(prevLogLen.current);
-          const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
-
-          for (const line of newLines) {
-            // 도트: [도트] 몬스터에게 1234 데미지
-            const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
-            if (dotMatch) {
-              pops.push({ id: ++popupIdRef.current, value: parseInt(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
-              continue;
-            }
-            // 스킬 데미지: [스킬명] 1234 데미지! or [스킬명] 1타 1234! or 추가 고정
-            const skillDmgMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
-            if (skillDmgMatch && skillDmgMatch[1] !== '도트') {
-              const crit = !!skillDmgMatch[3];
-              pops.push({ id: ++popupIdRef.current, value: parseInt(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
-            }
-            // 추가 타격
-            const extraMatch = line.match(/추가 타격! (\d+)/);
-            if (extraMatch) {
-              pops.push({ id: ++popupIdRef.current, value: parseInt(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
-            }
-            // 스킬 이펙트
-            const fxMatch = line.match(/\[(.+?)\]/);
-            if (fxMatch) {
-              const fx = SKILL_EFFECTS[fxMatch[1]];
-              if (fx) {
-                setSkillFlash({ icon: getSkillIcon(fxMatch[1]) || fx.icon, color: fx.glow });
-                setTimeout(() => setSkillFlash(null), 600);
-              }
+      if (newLines.length > 0) {
+        const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
+        for (const line of newLines) {
+          const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
+          if (dotMatch) {
+            pops.push({ id: ++popupIdRef.current, value: parseInt(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
+            continue;
+          }
+          const skillDmgMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
+          if (skillDmgMatch && skillDmgMatch[1] !== '도트') {
+            const crit = !!skillDmgMatch[3];
+            pops.push({ id: ++popupIdRef.current, value: parseInt(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
+          }
+          const extraMatch = line.match(/추가 타격! (\d+)/);
+          if (extraMatch) {
+            pops.push({ id: ++popupIdRef.current, value: parseInt(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
+          }
+          const fxMatch = line.match(/\[(.+?)\]/);
+          if (fxMatch) {
+            const fx = SKILL_EFFECTS[fxMatch[1]];
+            if (fx) {
+              setSkillFlash({ icon: getSkillIcon(fxMatch[1]) || fx.icon, color: fx.glow });
+              setTimeout(() => setSkillFlash(null), 600);
             }
           }
-
-          if (pops.length > 0) {
-            setDamagePopups(p => [...p, ...pops]);
-            const ids = pops.map(p => p.id);
-            setTimeout(() => setDamagePopups(p => p.filter(v => !ids.includes(v.id))), 1200);
-          }
+        }
+        if (pops.length > 0) {
+          setDamagePopups(p => [...p, ...pops]);
+          const ids = pops.map(p => p.id);
+          setTimeout(() => setDamagePopups(p => p.filter(v => !ids.includes(v.id))), 1200);
+        }
       }
-      prevLogLen.current = cur;
 
+      prevLogRef.current = [...snapshot.log];
       setState(snapshot);
     });
 
     // 초기 상태 폴백 (WebSocket보다 먼저 도착할 때만)
     api<CombatSnapshot>(`/characters/${active.id}/combat/state`).then(s => {
-      if (prevLogLen.current === -1) {
+      if (prevLogRef.current === null) {
         setState(s);
         if (s.monster) prevMonsterHp.current = s.monster.hp;
-        prevLogLen.current = s.log.length;
+        prevLogRef.current = [...s.log];
       }
     }).catch(() => {});
 
