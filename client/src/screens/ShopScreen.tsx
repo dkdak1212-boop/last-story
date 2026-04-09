@@ -42,7 +42,8 @@ export function ShopScreen() {
         method: 'POST',
         body: JSON.stringify({ itemId, quantity }),
       });
-      setMsg(`구매 완료 (${quantity}개)`);
+      const itemName = shop.find(s => s.item.id === itemId)?.item.name || '';
+      setMsg(`${itemName} ${quantity}개 구매했습니다!`);
       refreshActive();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '구매 실패');
@@ -53,7 +54,7 @@ export function ShopScreen() {
     <div>
       <h2 style={{ marginBottom: 6, color: 'var(--accent)' }}>상점</h2>
       <p style={{ color: 'var(--text-dim)', marginBottom: 20 }}>소모품을 취급한다.</p>
-      {msg && <div style={{ color: 'var(--text-dim)', marginBottom: 12 }}>{msg}</div>}
+      {msg && <div style={{ color: msg.includes('구매했습니다') ? 'var(--success)' : 'var(--danger)', marginBottom: 12, fontWeight: 700, fontSize: 14 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {shop.map((e) => (
           <div
