@@ -29,15 +29,19 @@ export function SkillsScreen() {
 
   const [msg, setMsg] = useState('');
 
-  async function toggleAuto(skillId: number) {
-    if (!active) return;
+  const [toggling, setToggling] = useState(false);
+  async function toggleAuto(skillId: number, skillName: string, currentState: boolean) {
+    if (!active || toggling) return;
     setMsg('');
+    setToggling(true);
     try {
       await api(`/characters/${active.id}/skills/${skillId}/toggle-auto`, { method: 'POST' });
       await refresh();
+      setMsg(`${skillName} → ${currentState ? 'OFF' : 'ON'}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '최대 6개까지 설정 가능');
     }
+    setToggling(false);
   }
 
   const className = active?.className || 'warrior';
@@ -51,7 +55,7 @@ export function SkillsScreen() {
           전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 6 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/6
         </div>
       </div>
-      {msg && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 10 }}>{msg}</div>}
+      {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {skills.map((s) => (
           <div
@@ -85,10 +89,17 @@ export function SkillsScreen() {
             </div>
             {s.learned && (
               <button
-                onClick={() => toggleAuto(s.id)}
-                className={s.autoUse ? 'primary' : ''}
+                onClick={() => toggleAuto(s.id, s.name, s.autoUse)}
+                disabled={toggling}
+                style={{
+                  padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                  background: s.autoUse ? 'var(--success)' : 'transparent',
+                  color: s.autoUse ? '#000' : 'var(--text-dim)',
+                  border: `2px solid ${s.autoUse ? 'var(--success)' : 'var(--border)'}`,
+                  cursor: toggling ? 'wait' : 'pointer',
+                }}
               >
-                {s.autoUse ? '자동 ON' : '자동 OFF'}
+                {s.autoUse ? 'ON' : 'OFF'}
               </button>
             )}
           </div>
