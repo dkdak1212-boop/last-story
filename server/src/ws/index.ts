@@ -66,12 +66,13 @@ export function initWebSocket(httpServer: HttpServer) {
 
       // 캐릭터명 조회
       let displayName = socket.data.username;
+      let nickHighlight = false;
       if (payload.characterId) {
-        const cr = await query<{ name: string }>(
-          'SELECT name FROM characters WHERE id = $1 AND user_id = $2',
+        const cr = await query<{ name: string; nick_highlight: boolean }>(
+          'SELECT name, COALESCE(nick_highlight, FALSE) AS nick_highlight FROM characters WHERE id = $1 AND user_id = $2',
           [payload.characterId, socket.data.userId]
         );
-        if (cr.rows[0]) displayName = cr.rows[0].name;
+        if (cr.rows[0]) { displayName = cr.rows[0].name; nickHighlight = cr.rows[0].nick_highlight; }
       }
 
       let scopeId: number | null = null;
@@ -98,6 +99,7 @@ export function initWebSocket(httpServer: HttpServer) {
             from: displayName,
             text,
             isAdmin: false,
+            nickHighlight,
             createdAt: r.rows[0].created_at,
           });
         }

@@ -22,9 +22,11 @@ router.get('/history', async (req, res) => {
       [channel, scopeId]
     );
   } else {
-    r = await query<{ id: number; from_name: string; text: string; created_at: string; is_admin: boolean }>(
-      `SELECT cm.id, cm.from_name, cm.text, cm.created_at, COALESCE(u.is_admin, FALSE) AS is_admin
+    r = await query<{ id: number; from_name: string; text: string; created_at: string; is_admin: boolean; nick_highlight: boolean }>(
+      `SELECT cm.id, cm.from_name, cm.text, cm.created_at, COALESCE(u.is_admin, FALSE) AS is_admin,
+              COALESCE(c.nick_highlight, FALSE) AS nick_highlight
        FROM chat_messages cm LEFT JOIN users u ON u.username = cm.from_name
+       LEFT JOIN characters c ON c.name = cm.from_name
        WHERE cm.channel = $1 AND (COALESCE(u.is_admin, FALSE) = FALSE OR cm.from_name = '[시스템]')
        ORDER BY cm.created_at DESC LIMIT 50`,
       [channel]
@@ -35,6 +37,7 @@ router.get('/history', async (req, res) => {
     from: row.from_name,
     text: row.text,
     isAdmin: row.is_admin,
+    nickHighlight: (row as any).nick_highlight ?? false,
     createdAt: row.created_at,
     channel,
   })));
