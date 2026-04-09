@@ -253,7 +253,7 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusi
 ('전사 흡혈 강화',     '흡혈량 +15%',                  'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"lifesteal_amp","value":15}]', 1, -18),
 ('전사 반격 강화',     '반사 데미지 +20%',             'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"reflect_amp","value":20}]', 2, -18),
 ('전사 철벽 강화',     '실드 효과 +30%',               'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"shield_amp","value":30}]', 3, -18),
-('전사 연타 강화',     '다단히트 +1회',                'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"extra_hit","value":1}]', 4, -18),
+('무쌍난무',           '타격 1회 증가',                'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"extra_hit","value":1}]', 4, -18),
 ('전사 분노 강화',     '자해 데미지 20% 감소',         'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"rage_reduce","value":20}]', 5, -18),
 ('전사 STR 증강 I',    '힘 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 6, -18),
 ('전사 STR 증강 II',   '힘 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 7, -18),
