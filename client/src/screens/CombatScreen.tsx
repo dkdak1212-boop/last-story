@@ -17,7 +17,7 @@ export function CombatScreen() {
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const token = useAuthStore((s) => s.token);
   const [state, setState] = useState<CombatSnapshot | null>(null);
-  const [damageFlash, setDamageFlash] = useState<number | null>(null);
+  const [damageFlash, setDamageFlash] = useState<{ value: number; crit: boolean } | null>(null);
   const [skillFlash, setSkillFlash] = useState<{ icon: string; color: string } | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const prevMonsterHp = useRef<number>(0);
@@ -39,8 +39,10 @@ export function CombatScreen() {
       setState(_prev => {
         if (_prev?.monster && snapshot.monster && snapshot.monster.hp < prevMonsterHp.current) {
           const dmg = prevMonsterHp.current - snapshot.monster.hp;
-          setDamageFlash(dmg);
-          setTimeout(() => setDamageFlash(null), 500);
+          const newLines = snapshot.log.slice(prevLogLen.current);
+          const isCrit = newLines.some(l => /\d+!/.test(l));
+          setDamageFlash({ value: dmg, crit: isCrit });
+          setTimeout(() => setDamageFlash(null), isCrit ? 900 : 500);
         }
         if (snapshot.monster) prevMonsterHp.current = snapshot.monster.hp;
 
@@ -231,15 +233,36 @@ export function CombatScreen() {
               <AnimatePresence>
                 {damageFlash !== null && (
                   <motion.div
-                    initial={{ opacity: 1, y: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, y: -30, scale: 1.2 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.5 }}
+                    key={Date.now()}
+                    initial={damageFlash.crit
+                      ? { opacity: 0, y: 10, scale: 0.3, rotate: -8 }
+                      : { opacity: 1, y: 0, scale: 0.8 }}
+                    animate={damageFlash.crit
+                      ? { opacity: 1, y: -40, scale: 1.6, rotate: 0 }
+                      : { opacity: 1, y: -25, scale: 1.1 }}
+                    exit={damageFlash.crit
+                      ? { opacity: 0, y: -70, scale: 0.8 }
+                      : { opacity: 0, y: -40 }}
+                    transition={damageFlash.crit
+                      ? { duration: 0.8, ease: [0.16, 1, 0.3, 1] }
+                      : { duration: 0.45 }}
                     style={{
-                      position: 'absolute', top: 20, right: 20,
-                      color: 'var(--accent)', fontSize: 24, fontWeight: 900, pointerEvents: 'none',
+                      position: 'absolute', top: 10, right: 16,
+                      pointerEvents: 'none', textAlign: 'center',
+                      ...(damageFlash.crit ? {
+                        color: '#ff4444',
+                        fontSize: 36, fontWeight: 900, letterSpacing: -1,
+                        textShadow: '0 0 20px rgba(255,68,68,0.8), 0 0 40px rgba(255,68,68,0.4), 0 2px 4px rgba(0,0,0,0.8)',
+                      } : {
+                        color: '#ffd700',
+                        fontSize: 22, fontWeight: 800,
+                        textShadow: '0 0 8px rgba(255,215,0,0.5), 0 2px 3px rgba(0,0,0,0.7)',
+                      }),
                     }}
-                  >-{damageFlash}</motion.div>
+                  >
+                    {damageFlash.crit && <div style={{ fontSize: 12, color: '#ff6666', fontWeight: 700, marginBottom: -2, letterSpacing: 2 }}>CRITICAL</div>}
+                    -{damageFlash.value.toLocaleString()}{damageFlash.crit ? '!' : ''}
+                  </motion.div>
                 )}
                 {skillFlash && (
                   <motion.div
