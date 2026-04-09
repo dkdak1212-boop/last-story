@@ -97,10 +97,10 @@ export function EnhanceScreen() {
       <div className="enhance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16 }}>
         {/* 좌: 아이템 목록 */}
         <div>
-          <h3 style={{ fontSize: 14, marginBottom: 8 }}>강화 가능 장비</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 600, overflowY: 'auto' }}>
-            {items.length === 0 && <div style={{ color: 'var(--text-dim)' }}>장비가 없다.</div>}
-            {items.map((it, idx) => (
+          {(() => {
+            const equipped = items.filter(it => it.kind === 'equipped');
+            const inventory = items.filter(it => it.kind !== 'equipped');
+            const renderItem = (it: EnhanceItem, idx: number) => (
               <div key={`${it.kind}-${idx}`} onClick={() => { setSelected(it); setResult(null); }}
                 style={{
                   padding: 10, background: 'var(--bg-panel)',
@@ -114,13 +114,31 @@ export function EnhanceScreen() {
                       {it.enhanceLevel > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{it.enhanceLevel}</span>}
                     </span>
                     <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-dim)' }}>
-                      [{GRADE_LABEL[it.grade]}] {SLOT_LABEL[it.itemSlot || '']} · {it.kind === 'equipped' ? '장착 중' : '가방'}
+                      [{GRADE_LABEL[it.grade]}] {SLOT_LABEL[it.itemSlot || '']}
                     </span>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 600, overflowY: 'auto' }}>
+                {equipped.length > 0 && (
+                  <>
+                    <h3 style={{ fontSize: 13, color: 'var(--success)', margin: '4px 0' }}>착용 중</h3>
+                    {equipped.map(renderItem)}
+                  </>
+                )}
+                {inventory.length > 0 && (
+                  <>
+                    <h3 style={{ fontSize: 13, color: 'var(--text-dim)', margin: '8px 0 4px' }}>가방</h3>
+                    {inventory.map(renderItem)}
+                  </>
+                )}
+                {items.length === 0 && <div style={{ color: 'var(--text-dim)' }}>장비가 없다.</div>}
+              </div>
+            );
+          })()}
+        </div>
         </div>
 
         {/* 우: 강화 패널 */}
