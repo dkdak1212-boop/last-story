@@ -180,8 +180,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="app-nav"
           style={{
             display: 'flex',
-            gap: 1,
-            padding: '4px 8px',
+            padding: 0,
             borderBottom: '1px solid var(--border)',
             background: 'var(--bg-panel)',
           }}
@@ -191,13 +190,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               key={n.to}
               to={n.to}
               style={{
-                padding: '4px 6px',
-                fontSize: 11,
+                flex: 1,
+                padding: '8px 0',
+                fontSize: 12,
+                textAlign: 'center',
                 color: loc.pathname === n.to ? 'var(--accent)' : 'var(--text-dim)',
                 textDecoration: 'none',
-                border: loc.pathname === n.to ? '1px solid var(--accent)' : '1px solid var(--border)',
-                borderRadius: 3,
+                borderRight: '1px solid var(--border)',
                 background: loc.pathname === n.to ? 'rgba(201,162,77,0.1)' : 'transparent',
+                fontWeight: loc.pathname === n.to ? 700 : 400,
                 whiteSpace: 'nowrap',
               }}
             >
