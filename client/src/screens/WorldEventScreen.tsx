@@ -54,8 +54,52 @@ export function WorldEventScreen() {
   if (!status.active) return (
     <div>
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>레이드</h2>
-      <div style={{ padding: 40, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center', borderRadius: 8 }}>
-        <div style={{ fontSize: 18, color: 'var(--text-dim)', marginBottom: 8 }}>현재 진행 중인 레이드가 없습니다</div>
+      <div style={{ padding: 30, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center', borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ fontSize: 18, color: 'var(--text-dim)' }}>현재 진행 중인 레이드가 없습니다</div>
+      </div>
+
+      <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 15, marginBottom: 12 }}>레이드 보스 등장 시간표</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(68,204,68,0.3)', background: 'rgba(68,204,68,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontWeight: 700, color: '#44cc44', fontSize: 14 }}>태고의 용왕 발라카스</span>
+              <span style={{ fontSize: 11, color: '#44cc44', padding: '2px 8px', border: '1px solid #44cc44', borderRadius: 3 }}>Lv.80 · 쉬움</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 5,000,000 · 1시간</div>
+            <div style={{ fontSize: 13, color: '#44cc44', fontWeight: 700, marginTop: 4 }}>
+              매일 <span style={{ color: '#fff' }}>10:00</span> · <span style={{ color: '#fff' }}>15:00</span> · <span style={{ color: '#fff' }}>22:00</span>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>하루 3회</span>
+            </div>
+          </div>
+          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(255,136,0,0.3)', background: 'rgba(255,136,0,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontWeight: 700, color: '#ff8800', fontSize: 14 }}>심연의 히드라 카르나스</span>
+              <span style={{ fontSize: 11, color: '#ff8800', padding: '2px 8px', border: '1px solid #ff8800', borderRadius: 3 }}>Lv.90 · 보통</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 15,000,000 · 1시간</div>
+            <div style={{ fontSize: 13, color: '#ff8800', fontWeight: 700, marginTop: 4 }}>
+              매일 <span style={{ color: '#fff' }}>20:00</span>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>하루 1회</span>
+            </div>
+          </div>
+          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(255,51,51,0.3)', background: 'rgba(255,51,51,0.04)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontWeight: 700, color: '#ff3333', fontSize: 14 }}>천벌의 거신 아트라스</span>
+              <span style={{ fontSize: 11, color: '#ff3333', padding: '2px 8px', border: '1px solid #ff3333', borderRadius: 3 }}>Lv.100 · 최강</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 50,000,000 · 1시간</div>
+            <div style={{ fontSize: 13, color: '#ff3333', fontWeight: 700, marginTop: 4 }}>
+              <span style={{ color: '#fff' }}>수요일</span> · <span style={{ color: '#fff' }}>토요일</span> <span style={{ color: '#ff3333' }}>0:00</span>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>주 2회</span>
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-dim)' }}>
+          · 시간은 한국 시간(KST) 기준<br/>
+          · 이전 레이드 종료 후 1시간 내 중복 소환 없음<br/>
+          · 보스 처치 시 기여도 순위별 S/A/B/C 보상
+        </div>
       </div>
     </div>
   );
