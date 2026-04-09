@@ -97,6 +97,54 @@ export async function addItemToInventory(
   return { added: quantity - remaining, overflow: remaining };
 }
 
+// 우편 수령용: 접두사 생성 없이 순수 아이템만 인벤토리에 넣기
+export async function addItemToInventoryPlain(
+  characterId: number,
+  itemId: number,
+  quantity: number
+): Promise<{ added: number; overflow: number }> {
+  const itemR = await query<{ stack_size: number }>('SELECT stack_size FROM items WHERE id = $1', [itemId]);
+  if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
+  const stackSize = itemR.rows[0].stack_size;
+
+  let remaining = quantity;
+
+  // 기존 스택에 합치기
+  if (stackSize > 1) {
+    const existing = await query<{ id: number; quantity: number }>(
+      `SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = $2 AND quantity < $3 ORDER BY slot_index ASC`,
+      [characterId, itemId, stackSize]
+    );
+    for (const row of existing.rows) {
+      const canAdd = Math.min(remaining, stackSize - row.quantity);
+      if (canAdd <= 0) break;
+      await query('UPDATE character_inventory SET quantity = quantity + $1 WHERE id = $2', [canAdd, row.id]);
+      remaining -= canAdd;
+      if (remaining === 0) return { added: quantity, overflow: 0 };
+    }
+  }
+
+  // 새 슬롯
+  const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]);
+  const used = new Set(usedR.rows.map(r => r.slot_index));
+  const maxSlots = await getMaxSlots(characterId);
+
+  while (remaining > 0) {
+    let freeSlot = -1;
+    for (let i = 0; i < maxSlots; i++) if (!used.has(i)) { freeSlot = i; break; }
+    if (freeSlot < 0) break;
+    used.add(freeSlot);
+    const qty = Math.min(remaining, stackSize);
+    await query(
+      'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
+      [characterId, itemId, freeSlot, qty]
+    );
+    remaining -= qty;
+  }
+
+  return { added: quantity - remaining, overflow: remaining };
+}
+
 export async function deliverToMailbox(
   characterId: number,
   subject: string,

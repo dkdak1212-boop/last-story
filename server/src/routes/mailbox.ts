@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { addItemToInventory } from '../game/inventory.js';
+import { addItemToInventoryPlain } from '../game/inventory.js';
 
 const router = Router();
 router.use(authRequired);
@@ -56,7 +56,7 @@ router.post('/:id/mailbox/claim-all', async (req: AuthedRequest, res: Response) 
     try {
       // 아이템 있는 경우 (item_id > 0만 유효)
       if (m.item_id && m.item_id > 0 && m.item_quantity && m.item_quantity > 0) {
-        const { overflow } = await addItemToInventory(id, m.item_id, m.item_quantity);
+        const { overflow } = await addItemToInventoryPlain(id, m.item_id, m.item_quantity);
         if (overflow > 0) { failed++; continue; } // 인벤 꽉차면 이 우편은 건너뜀
       }
       // 골드 지급
@@ -90,7 +90,7 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
 
   const m = r.rows[0];
   if (m.item_id && m.item_id > 0 && m.item_quantity && m.item_quantity > 0) {
-    const { overflow } = await addItemToInventory(id, m.item_id, m.item_quantity);
+    const { overflow } = await addItemToInventoryPlain(id, m.item_id, m.item_quantity);
     if (overflow > 0) return res.status(400).json({ error: 'inventory full' });
   }
   if (m.gold && Number(m.gold) > 0) {
