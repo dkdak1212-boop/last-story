@@ -181,10 +181,21 @@ export function CombatScreen() {
   }
 
   if (state.player.hp <= 0) {
+    const goVillage = async () => {
+      if (!active) return;
+      try { await api(`/characters/${active.id}/leave-field`, { method: 'POST' }); } catch {}
+      await refreshActive();
+      nav('/village');
+    };
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
         <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>사망했습니다</div>
-        <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>(새로고침하세요)</div>
+        <button onClick={goVillage} style={{
+          padding: '10px 28px', fontSize: 15, fontWeight: 700,
+          background: 'var(--accent)', color: '#000', border: 'none', cursor: 'pointer',
+        }}>
+          마을로 돌아가기
+        </button>
       </div>
     );
   }
