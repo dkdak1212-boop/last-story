@@ -9,6 +9,7 @@ interface EnhanceItem {
   slotIndex?: number; equipSlot?: string;
   itemId: number; name: string; grade: ItemGrade; itemSlot: string | null;
   stats: Partial<Stats> | null; enhanceLevel: number;
+  prefixIds?: number[]; prefixStats?: Record<string, number>;
 }
 
 const SLOT_LABEL: Record<string, string> = {
@@ -24,12 +25,16 @@ export function EnhanceScreen() {
   const [busy, setBusy] = useState(false);
   const [scrollCount, setScrollCount] = useState(0);
   const [useScroll, setUseScroll] = useState(false);
+  const [rerollCount, setRerollCount] = useState(0);
+  const [rerollBusy, setRerollBusy] = useState(false);
+  const [rerollResult, setRerollResult] = useState<Record<string, number> | null>(null);
 
   async function load() {
     if (!active) return;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     setScrollCount(d.scrollCount || 0);
+    setRerollCount(d.rerollCount || 0);
   }
   useEffect(() => { load(); }, [active?.id]);
 
@@ -62,6 +67,28 @@ export function EnhanceScreen() {
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setBusy(false); }
+  }
+
+  async function rerollPrefix() {
+    if (!active || !selected) return;
+    setRerollBusy(true); setRerollResult(null);
+    try {
+      const r = await api<{ success: boolean; prefixStats: Record<string, number> }>(
+        `/enhance/${active.id}/reroll-prefix`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: selected.kind,
+            slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+          }),
+        }
+      );
+      setRerollResult(r.prefixStats);
+      await refreshActive();
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '실패');
+    } finally { setRerollBusy(false); }
   }
 
   return (
@@ -198,6 +225,50 @@ export function EnhanceScreen() {
                   )}
                 </div>
               )}
+
+              {/* 접두사 재굴림 섹션 */}
+              <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>접두사 재굴림</div>
+                {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 ? (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>현재 접두사</div>
+                    {Object.entries(selected.prefixStats).map(([k, v]) => (
+                      <div key={k} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{STAT_LABEL[k as keyof Stats] || k}</span>
+                        <span style={{ color: '#64d2ff', fontWeight: 700 }}>+{v as number}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>접두사 없음</div>
+                )}
+                {rerollResult && (
+                  <div style={{
+                    marginBottom: 8, padding: 8,
+                    background: 'rgba(100,210,255,0.1)', border: '1px solid rgba(100,210,255,0.3)',
+                    fontSize: 12,
+                  }}>
+                    <div style={{ color: '#64d2ff', fontWeight: 700, marginBottom: 4 }}>새 접두사 적용!</div>
+                    {Object.entries(rerollResult).map(([k, v]) => (
+                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{STAT_LABEL[k as keyof Stats] || k}</span>
+                        <span style={{ color: '#64d2ff', fontWeight: 700 }}>+{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={rerollPrefix} disabled={rerollBusy || rerollCount <= 0}
+                  style={{
+                    width: '100%', padding: '8px 0', fontSize: 13, fontWeight: 700,
+                    background: rerollCount > 0 ? 'rgba(100,210,255,0.15)' : 'var(--bg)',
+                    color: rerollCount > 0 ? '#64d2ff' : 'var(--text-dim)',
+                    border: `1px solid ${rerollCount > 0 ? 'rgba(100,210,255,0.4)' : 'var(--border)'}`,
+                    cursor: rerollCount > 0 ? 'pointer' : 'not-allowed',
+                  }}>
+                  {rerollBusy ? '재굴림 중...' : `접두사 재굴림 (보유: ${rerollCount}개)`}
+                </button>
+              </div>
             </div>
           )}
         </div>

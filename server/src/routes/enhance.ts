@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
+import { generatePrefixes } from '../game/prefix.js';
 
 const router = Router();
 router.use(authRequired);
@@ -31,16 +32,16 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 인벤토리
-  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null }>(
-    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats
+  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
+    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
   // 장착
-  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null }>(
-    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats
+  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
+    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [cid]
@@ -66,6 +67,15 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const scrollCount = scrollR.rows[0]?.quantity || 0;
 
+  // 접두사 재굴림권 보유량 조회
+  const rerollR = await query<{ quantity: number }>(
+    `SELECT COALESCE(SUM(ci.quantity), 0)::int AS quantity
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '접두사 재굴림권'`,
+    [cid]
+  );
+  const rerollCount = rerollR.rows[0]?.quantity || 0;
+
   res.json({
     inventory: inv.rows.map(r => ({
       kind: 'inventory' as const, slotIndex: r.slot_index,
@@ -73,6 +83,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       stats: enhancedStats(r.stats, r.enhance_level),
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
+      prefixIds: r.prefix_ids || [],
+      prefixStats: r.prefix_stats || {},
     })),
     equipped: eq.rows.map(r => ({
       kind: 'equipped' as const, equipSlot: r.slot,
@@ -80,8 +92,11 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       stats: enhancedStats(r.stats, r.enhance_level),
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
+      prefixIds: r.prefix_ids || [],
+      prefixStats: r.prefix_stats || {},
     })),
     scrollCount,
+    rerollCount,
   });
 });
 
@@ -210,6 +225,58 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
       destroyRate: info.destroyRate, newLevel: currentLevel,
     });
   }
+});
+
+// 접두사 재굴림
+router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({
+    kind: z.enum(['inventory', 'equipped']),
+    slotKey: z.union([z.number().int().min(0), z.string()]),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // 재굴림권 소모
+  const ticketR = await query<{ id: number; quantity: number }>(
+    `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '접두사 재굴림권' AND ci.quantity > 0
+     ORDER BY ci.slot_index LIMIT 1`,
+    [cid]
+  );
+  if (ticketR.rowCount === 0) return res.status(400).json({ error: '접두사 재굴림권이 없습니다.' });
+  const ticket = ticketR.rows[0];
+  if (ticket.quantity <= 1) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
+  } else {
+    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
+  }
+
+  // 새 접두사 생성
+  const { prefixIds, bonusStats } = await generatePrefixes();
+
+  // 대상 장비에 접두사 업데이트
+  if (parsed.data.kind === 'inventory') {
+    const r = await query(
+      `UPDATE character_inventory SET prefix_ids = $1, prefix_stats = $2::jsonb
+       WHERE character_id = $3 AND slot_index = $4 AND quantity = 1
+       RETURNING slot_index`,
+      [prefixIds, JSON.stringify(bonusStats), cid, parsed.data.slotKey]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  } else {
+    const r = await query(
+      `UPDATE character_equipped SET prefix_ids = $1, prefix_stats = $2::jsonb
+       WHERE character_id = $3 AND slot = $4
+       RETURNING slot`,
+      [prefixIds, JSON.stringify(bonusStats), cid, parsed.data.slotKey]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  }
+
+  res.json({ success: true, prefixIds, prefixStats: bonusStats });
 });
 
 export default router;
