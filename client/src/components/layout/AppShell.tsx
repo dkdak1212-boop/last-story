@@ -94,33 +94,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </div>
         <span onClick={() => window.location.reload()} className="app-title" style={{
-          fontSize: 26, fontWeight: 900, color: 'var(--accent)',
+          fontSize: 20, fontWeight: 900, color: 'var(--accent)',
           fontFamily: '"Georgia", "Palatino", serif',
-          letterSpacing: 3, textShadow: '0 2px 8px rgba(0,0,0,0.6), 0 0 20px rgba(201,162,77,0.3)',
-          cursor: 'pointer', position: 'relative', zIndex: 1,
+          letterSpacing: 2, textShadow: '0 2px 8px rgba(0,0,0,0.6), 0 0 20px rgba(201,162,77,0.3)',
+          cursor: 'pointer', position: 'relative', zIndex: 1, flexShrink: 0,
         }}>
           The Last Story
         </span>
         {active && (
-          <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>
-              {(active as any).title && <span style={{ color: '#ffd700', fontSize: 11, marginRight: 4 }}>[{(active as any).title}]</span>}
+          <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 13 }}>
+              {(active as any).title && <span style={{ color: '#ffd700', fontSize: 10, marginRight: 3 }}>[{(active as any).title}]</span>}
               {active.name}
             </span>
-            <span style={{ color: 'var(--text-dim)' }}>Lv.{active.level}</span>
-            <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
-            <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
-            <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {(active as any).nodePoints ?? 0}</span>
+            <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>Lv.{active.level}</span>
+            <span style={{ color: 'var(--success)', fontWeight: 700, fontSize: 11 }}>HP {active.hp}/{active.maxHp}</span>
+            <span style={{ color: '#e0a040', fontWeight: 700, fontSize: 11 }}>{active.gold.toLocaleString()}G</span>
+            <span style={{ color: '#8b8bef', fontWeight: 700, fontSize: 11 }}>NP {(active as any).nodePoints ?? 0}</span>
             {active.location?.startsWith('field:') ? (
               <span style={{
-                color: '#ff6b6b', fontWeight: 700, fontSize: 13,
+                color: '#ff6b6b', fontWeight: 700, fontSize: 11,
                 animation: 'blink-status 1s ease-in-out infinite',
               }}>
                 사냥 중 — {(active as any).fieldName || ''}
               </span>
             ) : (
               <span style={{
-                color: 'var(--text-dim)', fontWeight: 700, fontSize: 13,
+                color: 'var(--text-dim)', fontWeight: 700, fontSize: 11,
                 animation: 'blink-status 2s ease-in-out infinite',
               }}>
                 대기 중
@@ -128,15 +128,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
         )}
-        <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           {onlineCount > 0 && (
-            <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 700 }}>
-              {onlineCount}명 접속 중
+            <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 700 }}>
+              {onlineCount}명
             </span>
           )}
           {active && (
-            <span style={{ fontSize: 10, color: '#e0a040', background: 'rgba(224,160,64,0.1)', padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(224,160,64,0.3)' }}>
-              경험치+50% 드롭률+50% (온라인)
+            <span style={{ fontSize: 9, color: '#e0a040', background: 'rgba(224,160,64,0.1)', padding: '1px 6px', borderRadius: 3, border: '1px solid rgba(224,160,64,0.3)', whiteSpace: 'nowrap' }}>
+              EXP+50% DROP+50%
             </span>
           )}
           {me?.isAdmin && (
