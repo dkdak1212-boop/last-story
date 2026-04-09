@@ -32,8 +32,8 @@ export function QuestScreen() {
   }
   async function claim(qid: number) {
     if (!active) return;
-    const res = await api<{ rewardItem: string; rewardGrade: string }>(`/characters/${active.id}/quests/${qid}/claim`, { method: 'POST' });
-    setRewardMsg(`보상 수령 완료! (${res.rewardItem})`);
+    await api(`/characters/${active.id}/quests/${qid}/claim`, { method: 'POST' });
+    setRewardMsg('보상 수령 완료!');
     setTimeout(() => setRewardMsg(null), 4000);
     await refresh();
     await refreshActive();
@@ -67,7 +67,7 @@ export function QuestScreen() {
         background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6,
       }}>
         · 모든 퀘스트는 <span style={{ color: 'var(--accent)', fontWeight: 700 }}>24시간마다 초기화</span>되어 매일 다시 도전할 수 있습니다<br/>
-        · 보상: <span style={{ color: '#e0a040', fontWeight: 700 }}>골드 + 경험치 + 찢어진 스크롤 ×1</span> + 랜덤 박스<br/>
+        · 보상: <span style={{ color: '#e0a040', fontWeight: 700 }}>골드 + 경험치 + 찢어진 스크롤 ×1</span><br/>
         · 찢어진 스크롤 100개를 모아 <span style={{ color: '#b060cc', fontWeight: 700 }}>노드 스크롤 +8</span>을 제작할 수 있습니다
       </div>
 
@@ -107,7 +107,6 @@ export function QuestScreen() {
                     {q.rewardGold > 0 && <span style={{ color: '#e0a040', fontWeight: 700 }}>{q.rewardGold.toLocaleString()}G</span>}
                     {q.rewardExp > 0 && <span style={{ color: '#8b8bef', fontWeight: 700 }}>EXP +{q.rewardExp.toLocaleString()}</span>}
                     <span style={{ color: '#5b8ecc', fontWeight: 700 }}>찢어진 스크롤 ×1</span>
-                    <span style={{ color: 'var(--text-dim)' }}>+ 랜덤 박스</span>
                   </div>
 
                   {q.locked && <div style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>Lv.{q.requiredLevel} 이상 필요</div>}

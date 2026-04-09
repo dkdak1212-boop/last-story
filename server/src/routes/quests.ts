@@ -111,32 +111,7 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
     }
   }
 
-  // 랜덤 박스 보상 (일반70%/희귀20%/영웅8%/전설2%) — 제작/재료 아이템 제외
-  const gradeRoll = Math.random() * 100;
-  let boxGrade: string;
-  if (gradeRoll < 2) boxGrade = 'legendary';
-  else if (gradeRoll < 10) boxGrade = 'epic';
-  else if (gradeRoll < 30) boxGrade = 'rare';
-  else boxGrade = 'common';
-
-  const boxItems = await query<{ id: number; name: string; grade: string }>(
-    `SELECT id, name, grade FROM items WHERE grade = $1 AND type NOT IN ('material') AND set_id IS NULL ORDER BY RANDOM() LIMIT 1`,
-    [boxGrade]
-  );
-
-  let rewardItemName = '(없음)';
-  let rewardGrade = boxGrade;
-  if (boxItems.rows[0]) {
-    const item = boxItems.rows[0];
-    rewardItemName = item.name;
-    rewardGrade = item.grade;
-    const { overflow } = await addItemToInventory(id, item.id, 1);
-    if (overflow > 0) {
-      await deliverToMailbox(id, '퀘스트 보상', `랜덤 박스: ${item.name} — 가방 초과로 우편 발송`, item.id, 1);
-    }
-  }
-
-  // 추가 보상 (찢어진 스크롤 등)
+  // 아이템 보상 (찢어진 스크롤 등)
   const q2 = await query<{ reward_item_id2: number | null; reward_item_qty2: number | null }>(
     'SELECT reward_item_id2, reward_item_qty2 FROM quests WHERE id = $1', [questId]
   );
@@ -152,7 +127,7 @@ router.post('/:id/quests/:questId/claim', async (req: AuthedRequest, res: Respon
     [id, questId]
   );
 
-  res.json({ ok: true, rewardItem: rewardItemName, rewardGrade });
+  res.json({ ok: true });
 });
 
 // 몬스터 처치 시 퀘스트 진행 (내부용)
