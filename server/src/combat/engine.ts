@@ -105,6 +105,7 @@ interface ActiveSession {
   waitingSince: number;
   autoPotionEnabled: boolean;
   autoPotionThreshold: number; // HP% 이하일 때 물약 사용
+  potionCooldown: number; // 물약 쿨타임 (남은 행동 수)
   skillCooldowns: Map<number, number>;  // skillId → remaining actions
   statusEffects: StatusEffect[];
   actionCount: number;
@@ -654,8 +655,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
 // ── 자동 행동 AI ──
 async function autoAction(s: ActiveSession): Promise<void> {
-  // 1. HP 임계값 이하 → 포션
-  if (s.autoPotionEnabled && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
+  // 1. HP 임계값 이하 → 포션 (3턴 쿨타임)
+  if (s.autoPotionEnabled && s.potionCooldown <= 0 && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
     const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
     const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
     if (pot) {
@@ -663,7 +664,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
       const heal = Math.round(s.playerMaxHp * pct / 100);
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       await consumeOneFromSlot(pot.id);
-      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%)`);
+      s.potionCooldown = 3;
+      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
       return;
     }
     // 성직자 치유
@@ -1016,6 +1018,7 @@ async function combatTick(): Promise<void> {
             if (cd > 0) s.skillCooldowns.set(skId, cd - 1);
             if (cd <= 1) s.skillCooldowns.delete(skId);
           }
+          if (s.potionCooldown > 0) s.potionCooldown--;
 
           await autoAction(s);
           tickDownEffects(s, 'monster');
@@ -1188,6 +1191,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     waitingSince: 0,
     autoPotionEnabled: char.auto_potion_enabled ?? true,
     autoPotionThreshold: char.auto_potion_threshold ?? 30,
+    potionCooldown: 0,
     skillCooldowns: new Map(),
     statusEffects: [],
     actionCount: 0,
