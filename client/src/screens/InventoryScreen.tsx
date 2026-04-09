@@ -83,6 +83,7 @@ export function InventoryScreen() {
   async function dismantle(slotIndex: number, e: React.MouseEvent) {
     e.stopPropagation();
     if (!active) return;
+    if (!confirm('분해하시겠습니까?')) return;
     setMsg('');
     try {
       const res = await api<{ name: string; gold: number }>(
@@ -369,9 +370,9 @@ export function InventoryScreen() {
                   <button
                     onClick={(e) => dismantle(s.slotIndex, e)}
                     style={{
-                      padding: '3px 8px', fontSize: 11,
-                      background: 'transparent', color: '#cc6666',
-                      border: '1px solid #cc6666', cursor: 'pointer',
+                      padding: '1px 5px', fontSize: 9,
+                      background: 'transparent', color: '#996666',
+                      border: '1px solid #664444', cursor: 'pointer',
                     }}
                   >
                     분해
