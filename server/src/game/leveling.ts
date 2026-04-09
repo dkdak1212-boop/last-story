@@ -19,7 +19,7 @@ export function expToNext(level: number): number {
 export const CLASS_GROWTH: Record<string, { str: number; dex: number; int: number; vit: number; spd: number; cri: number }> = {
   warrior: { str: 2, dex: 0.5, int: 0, vit: 1.5, spd: 2, cri: 0.1 },
   mage:    { str: 0, dex: 0.5, int: 2, vit: 0.8, spd: 2, cri: 0.1 },     // vit 0.5→0.8, spd 1.5→2
-  cleric:  { str: 0.5, dex: 0.5, int: 1.5, vit: 1.2, spd: 1.5, cri: 0.1 }, // vit 1→1.2, spd 1→1.5
+  cleric:  { str: 0.5, dex: 0.5, int: 2, vit: 1.5, spd: 1.8, cri: 0.1 }, // int 1.5→2, vit 1.2→1.5, spd 1.5→1.8
   rogue:   { str: 1, dex: 1.5, int: 0, vit: 0.5, spd: 2.5, cri: 0.15 },   // spd 3→2.5, cri 0.2→0.15
 };
 

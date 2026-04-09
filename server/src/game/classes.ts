@@ -29,8 +29,8 @@ export const CLASS_START: Record<ClassName, ClassStart> = {
     description: '원소 파괴 + 게이지 조작 제어',
   },
   cleric: {
-    stats: { str: 8,  dex: 6,  int: 14, vit: 12, spd: 250, cri: 4  },
-    maxHp: 160,
+    stats: { str: 8,  dex: 6,  int: 16, vit: 14, spd: 280, cri: 5  },
+    maxHp: 180,
     description: '보조/공격 양면, 신성 실드와 심판',
   },
   rogue: {
