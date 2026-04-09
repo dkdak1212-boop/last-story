@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api/client';
@@ -293,6 +293,9 @@ export function CombatScreen() {
         autoMode={state.autoMode}
         onUse={useSkill}
       />
+
+      {/* 딜미터기 */}
+      <DamageMeter log={state.log} />
 
       {/* Auto potion settings */}
       <div style={{
@@ -652,6 +655,120 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── 딜미터기 ──
+function DamageMeter({ log }: { log: string[] }) {
+  const [open, setOpen] = useState(false);
+
+  const stats = useMemo(() => {
+    const map = new Map<string, { total: number; hits: number; crits: number; max: number }>();
+    let totalDmg = 0;
+    let dotTotal = 0;
+    let dotHits = 0;
+
+    for (const line of log) {
+      // 도트 데미지: [도트] 몬스터에게 1234 데미지 (3중첩)
+      const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
+      if (dotMatch) {
+        const dmg = parseInt(dotMatch[1]);
+        dotTotal += dmg;
+        dotHits++;
+        totalDmg += dmg;
+        continue;
+      }
+
+      // 스킬 데미지: [스킬명] 1234 데미지 or [스킬명] 1타 1234 or [스킬명] 추가 고정 1234
+      const skillMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
+      if (skillMatch) {
+        const name = skillMatch[1];
+        if (name === '도트') continue;
+        const dmg = parseInt(skillMatch[2]);
+        const crit = !!skillMatch[3];
+        if (!map.has(name)) map.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
+        const s = map.get(name)!;
+        s.total += dmg;
+        s.hits++;
+        if (crit) s.crits++;
+        if (dmg > s.max) s.max = dmg;
+        totalDmg += dmg;
+      }
+
+      // 추가 타격: 추가 타격! 1234
+      const extraMatch = line.match(/추가 타격! (\d+)/);
+      if (extraMatch) {
+        const dmg = parseInt(extraMatch[1]);
+        const name = '추가 타격';
+        if (!map.has(name)) map.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
+        const s = map.get(name)!;
+        s.total += dmg;
+        s.hits++;
+        totalDmg += dmg;
+      }
+
+      // 출혈: 출혈 발동!
+      const bleedMatch = line.match(/치명 흡혈/);
+      if (bleedMatch) continue; // skip heal lines
+    }
+
+    if (dotTotal > 0) {
+      map.set('도트 (합산)', { total: dotTotal, hits: dotHits, crits: 0, max: 0 });
+    }
+
+    const sorted = [...map.entries()].sort((a, b) => b[1].total - a[1].total);
+    return { sorted, totalDmg };
+  }, [log]);
+
+  if (stats.sorted.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 8, border: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '6px 12px', cursor: 'pointer', userSelect: 'none',
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
+          딜미터 — 총 {stats.totalDmg.toLocaleString()}
+        </span>
+        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ padding: '0 12px 10px' }}>
+          {stats.sorted.map(([name, s]) => {
+            const pct = stats.totalDmg > 0 ? (s.total / stats.totalDmg * 100) : 0;
+            const avg = s.hits > 0 ? Math.round(s.total / s.hits) : 0;
+            const critRate = s.hits > 0 ? Math.round(s.crits / s.hits * 100) : 0;
+            const barColor = name === '도트 (합산)' ? '#66cc66' : critRate > 30 ? '#ff6644' : '#daa520';
+            return (
+              <div key={name} style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
+                  <span style={{ color: '#fff', fontWeight: 600 }}>{name}</span>
+                  <span style={{ color: 'var(--text-dim)' }}>
+                    {s.total.toLocaleString()} ({pct.toFixed(1)}%)
+                  </span>
+                </div>
+                <div style={{ height: 14, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden', position: 'relative' }}>
+                  <div style={{
+                    height: '100%', width: `${pct}%`, background: barColor,
+                    transition: 'width 0.3s', opacity: 0.7,
+                  }} />
+                  <div style={{
+                    position: 'absolute', top: 0, right: 4, lineHeight: '14px',
+                    fontSize: 9, color: 'var(--text-dim)',
+                  }}>
+                    {s.hits}회 · 평균 {avg.toLocaleString()}{s.max > 0 ? ` · 최대 ${s.max.toLocaleString()}` : ''}{critRate > 0 ? ` · 크리 ${critRate}%` : ''}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
