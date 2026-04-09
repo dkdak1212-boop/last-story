@@ -323,17 +323,52 @@ export function InventoryScreen() {
                   </div>
 
                   {/* ── 펼침 상세 ── */}
-                  {isExpanded && (
+                  {isExpanded && (() => {
+                    const eqItem = isEquipment ? (equipped as any)[s.item.slot!] : null;
+                    return (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                       {isEquipment && (
                         <div style={{ fontSize: 10, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)', marginBottom: 6 }}>
                           {SLOT_LABEL[s.item.slot!]} · Lv.{requiredLevel}{levelTooLow ? ' (레벨 부족)' : ''}
                         </div>
                       )}
-                      <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
-                      <PrefixDisplay prefixStats={s.prefixStats} />
+
+                      {/* 장착 아이템과 비교 */}
+                      {isEquipment ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          {/* 이 아이템 */}
+                          <div style={{ padding: 8, background: 'rgba(76,175,80,0.05)', border: '1px solid rgba(76,175,80,0.2)', borderRadius: 4 }}>
+                            <div style={{ fontSize: 10, color: 'var(--success)', fontWeight: 700, marginBottom: 4 }}>이 아이템</div>
+                            <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                            <PrefixDisplay prefixStats={s.prefixStats} />
+                          </div>
+                          {/* 현재 장착 */}
+                          <div style={{ padding: 8, background: 'rgba(218,165,32,0.05)', border: '1px solid rgba(218,165,32,0.2)', borderRadius: 4 }}>
+                            <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, marginBottom: 4 }}>
+                              현재 장착{eqItem ? '' : ' (없음)'}
+                            </div>
+                            {eqItem ? (
+                              <>
+                                <div style={{ fontSize: 11, color: (GRADE_COLOR as any)[eqItem.grade], fontWeight: 700, marginBottom: 3 }}>
+                                  {eqItem.name}{eqItem.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{eqItem.enhanceLevel}</span>}
+                                </div>
+                                <ItemStatsBlock stats={eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} />
+                                <PrefixDisplay prefixStats={eqItem.prefixStats} />
+                              </>
+                            ) : (
+                              <div style={{ fontSize: 11, color: 'var(--text-dim)', opacity: 0.4 }}>장착 없음</div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                          <PrefixDisplay prefixStats={s.prefixStats} />
+                        </>
+                      )}
+
                       {isEquipment && (
-                        <div style={{ marginTop: 4 }}>
+                        <div style={{ marginTop: 6 }}>
                           <ItemComparison
                             itemStats={s.item.stats} equippedStats={equipped[s.item.slot!]?.stats}
                             itemEnhance={s.enhanceLevel || 0} equippedEnhance={equipped[s.item.slot!]?.enhanceLevel || 0}
@@ -372,7 +407,8 @@ export function InventoryScreen() {
                       </div>
                       {locked && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 6 }}>잠김</div>}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}
