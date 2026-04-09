@@ -933,16 +933,17 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     return;
   }
 
-  addLog(s, '쓰러졌다... 마을로 돌아간다.');
-  s.playerHp = Math.round(s.playerMaxHp * 0.25);
+  addLog(s, '사망했습니다.');
+  const savedHp = Math.round(s.playerMaxHp * 0.25);
+  s.playerHp = 0; // 클라이언트에 사망 상태 전달
   await query(
     'UPDATE characters SET hp=$1, location=$2, last_online_at=NOW() WHERE id=$3',
-    [s.playerHp, 'village', s.characterId]
+    [savedHp, 'village', s.characterId]
   );
   await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
 
-  // 최종 상태 push
-  pushCombatState(s, false);
+  // 최종 상태 push (HP 0으로 사망 표시)
+  pushCombatState(s, true);
   activeSessions.delete(s.characterId);
 }
 
