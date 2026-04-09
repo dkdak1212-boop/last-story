@@ -87,7 +87,15 @@ export function SkillsScreen() {
                 쿨다운 {s.cooldown}s
               </div>
             </div>
-            {s.learned && (
+            {s.learned && s.cooldown === 0 ? (
+              <span style={{
+                padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                background: 'var(--accent)', color: '#000',
+                border: '2px solid var(--accent)',
+              }}>
+                기본기
+              </span>
+            ) : s.learned && (
               <button
                 onClick={() => toggleAuto(s.id, s.name, s.autoUse)}
                 disabled={toggling}

@@ -191,18 +191,27 @@ async function getCharSkills(characterId: number, className: string, level: numb
     );
   }
 
-  // 전투에 가져갈 스킬: auto_use=true인 것만, 최대 6개
-  const r = await query<SkillDef>(
+  // 기본기 (cooldown=0) 항상 포함
+  const basicR = await query<SkillDef>(
+    `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
+            s.effect_type, s.effect_value, s.effect_duration, s.required_level
+     FROM skills s
+     WHERE s.class_name = $1 AND s.required_level <= $2 AND s.cooldown_actions = 0
+     ORDER BY s.required_level ASC`,
+    [className, level]
+  );
+  // auto_use=true 스킬 (기본기 제외), 최대 6개
+  const slotR = await query<SkillDef>(
     `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
             s.effect_type, s.effect_value, s.effect_duration, s.required_level
      FROM skills s
      JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
-     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE
+     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE AND s.cooldown_actions > 0
      ORDER BY s.required_level ASC
      LIMIT $4`,
     [className, level, characterId, MAX_COMBAT_SKILLS]
   );
-  return r.rows;
+  return [...basicR.rows, ...slotR.rows];
 }
 
 // 드롭률 배율: 기본 x0.1 (대폭 하향), 온라인 보너스 +50%
