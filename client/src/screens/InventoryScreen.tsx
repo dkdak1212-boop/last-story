@@ -121,12 +121,6 @@ export function InventoryScreen() {
     return b.slotIndex - a.slotIndex;
   });
 
-  const equipSlots = [
-    { slot: 'weapon', label: '무기' }, { slot: 'helm', label: '투구' },
-    { slot: 'chest', label: '갑옷' }, { slot: 'boots', label: '장화' },
-    { slot: 'ring', label: '반지' }, { slot: 'amulet', label: '목걸이' },
-  ];
-
   const isGood = (m: string) => m.includes('성공') || m.includes('판매') || m.includes('분해') || m.includes('재굴림');
 
   return (
@@ -161,59 +155,86 @@ export function InventoryScreen() {
       </div>
 
       {/* ═══ 장착 탭 ═══ */}
-      {tab === 'equip' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {equipSlots.map(({ slot, label }) => {
-            const item = (equipped as any)[slot];
-            const locked = item?.locked ?? false;
-            return (
-              <div key={slot} style={{
-                padding: '10px 12px', borderRadius: 6, background: 'var(--bg-panel)',
-                border: `1px solid ${item ? (GRADE_COLOR as any)[item.grade] + '60' : 'var(--border)'}`,
-              }}>
-                {/* 슬롯 헤더 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: item ? 6 : 0 }}>
-                  <SlotIcon slot={slot} size={18} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', minWidth: 36 }}>{label}</span>
-                  {item ? (
-                    <>
-                      <span style={{ color: (GRADE_COLOR as any)[item.grade], fontWeight: 700, fontSize: 14, flex: 1 }}>
-                        {item.name}
-                        {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)', fontSize: 15 }}> +{item.enhanceLevel}</span>}
-                      </span>
-                      <img
-                        src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
-                        onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
-                        onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                        style={{ width: 14, height: 14, imageRendering: 'pixelated', opacity: locked ? 0.8 : 0.25, cursor: 'pointer' }}
-                      />
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, color: 'var(--text-dim)', opacity: 0.3 }}>비어있음</span>
-                  )}
-                </div>
-                {/* 스탯 + 버튼 */}
+      {tab === 'equip' && (() => {
+        const renderSlot = (slot: string, label: string) => {
+          const item = (equipped as any)[slot];
+          const locked = item?.locked ?? false;
+          return (
+            <div style={{
+              padding: 8, borderRadius: 6, background: 'var(--bg-panel)',
+              border: `1px solid ${item ? (GRADE_COLOR as any)[item.grade] + '60' : 'var(--border)'}`,
+              minWidth: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                <SlotIcon slot={slot} size={16} />
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)' }}>{label}</span>
                 {item && (
-                  <div style={{ paddingLeft: 26 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 120 }}>
-                        <ItemStatsBlock stats={item.stats} enhanceLevel={item.enhanceLevel || 0} />
-                        <PrefixDisplay prefixStats={item.prefixStats} />
-                      </div>
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0, paddingTop: 2 }}>
-                        {!locked && <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>}
-                        {!locked && (item.enhanceLevel || 0) < 20 && (
-                          <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e)} style={btnStyle('var(--accent)', 'var(--accent)')}>강화</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                    onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
+                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
+                    style={{ width: 12, height: 12, imageRendering: 'pixelated', opacity: locked ? 0.8 : 0.2, cursor: 'pointer', marginLeft: 'auto' }}
+                  />
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              {item ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: (GRADE_COLOR as any)[item.grade], lineHeight: 1.3 }}>
+                    {item.name}
+                    {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{item.enhanceLevel}</span>}
+                  </div>
+                  <div style={{ marginTop: 3 }}>
+                    <StatSummary stats={item.stats} enhanceLevel={item.enhanceLevel || 0} />
+                  </div>
+                  <PrefixDisplay prefixStats={item.prefixStats} />
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    {!locked && <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>}
+                    {!locked && (item.enhanceLevel || 0) < 20 && (
+                      <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e)} style={btnStyle('var(--accent)', 'var(--accent)')}>강화</button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '8px 0', opacity: 0.12 }}>
+                  <SlotIcon slot={slot} size={28} />
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr', gridTemplateRows: 'auto auto auto', gap: 6, maxWidth: 600, margin: '0 auto' }}>
+            {/* 1행: 무기 | 머리 | 투구 */}
+            <div>{renderSlot('weapon', '무기')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {/* 머리 */}
+              <div style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+            </div>
+            <div>{renderSlot('helm', '투구')}</div>
+
+            {/* 2행: 반지 | 몸통 | 목걸이 */}
+            <div>{renderSlot('ring', '반지')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+              {/* 몸통 + 팔 */}
+              <div style={{ width: 16, height: 4, background: 'var(--accent-dim)', borderRadius: 2 }} />
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                <div style={{ width: 10, height: 40, borderRadius: '4px 0 0 4px', border: '2px solid var(--accent-dim)', borderRight: 'none', background: 'var(--bg)' }} />
+                <div style={{ width: 36, height: 50, borderRadius: '6px 6px 2px 2px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+                <div style={{ width: 10, height: 40, borderRadius: '0 4px 4px 0', border: '2px solid var(--accent-dim)', borderLeft: 'none', background: 'var(--bg)' }} />
+              </div>
+            </div>
+            <div>{renderSlot('amulet', '목걸이')}</div>
+
+            {/* 3행: 장화 | 다리 | 갑옷 */}
+            <div>{renderSlot('boots', '장화')}</div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 4, paddingTop: 4 }}>
+              <div style={{ width: 14, height: 40, borderRadius: '0 0 4px 4px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+              <div style={{ width: 14, height: 40, borderRadius: '0 0 4px 4px', border: '2px solid var(--accent-dim)', background: 'var(--bg)' }} />
+            </div>
+            <div>{renderSlot('chest', '갑옷')}</div>
+          </div>
+        );
+      })()}
 
       {/* ═══ 가방 탭 ═══ */}
       {tab === 'bag' && (
