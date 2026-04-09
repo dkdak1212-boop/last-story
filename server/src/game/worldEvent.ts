@@ -384,9 +384,13 @@ export async function finishEvent(eventId: number, status: 'defeated' | 'expired
 // ─── 스케줄러 ───
 export async function checkAndSpawnWorldEvent(io?: Server) {
   const active = await getActiveEvent(); if (active) return;
-  const hour = new Date().getUTCHours();
+  const now = new Date();
+  const hour = now.getUTCHours();
+  const kstDay = new Date(now.getTime() + 9 * 3600000).getDay(); // 0=일 1=월 2=화 3=수 4=목 5=금 6=토
   const sched = await query<{ boss_id: number }>(`SELECT boss_id FROM world_event_schedule WHERE hour_utc = $1 AND enabled = TRUE LIMIT 1`, [hour]);
   if (sched.rowCount === 0) return;
+  // 아트라스(boss_id=2): 수(3), 토(6)에만 등장
+  if (sched.rows[0].boss_id === 2 && kstDay !== 3 && kstDay !== 6) return;
   const recent = await query(`SELECT id FROM world_event_active WHERE started_at > NOW() - INTERVAL '1 hour'`);
   if ((recent.rowCount ?? 0) > 0) return;
   const bossR = await query<{ name: string; max_hp: number; time_limit_sec: number }>(`SELECT name, max_hp, time_limit_sec FROM world_event_bosses WHERE id = $1`, [sched.rows[0].boss_id]);
