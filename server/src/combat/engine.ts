@@ -380,7 +380,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: bleed_on_hit (타격 시 출혈)
         const bleedChance = getPassive(s, 'bleed_on_hit');
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
-          const bleedDmg = Math.round(s.playerStats.atk * 0.15);
+          const bleedDmg = Math.round(s.playerStats.atk * 0.25);
           addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
           addLog(s, `출혈 발동!`);
         }
@@ -436,7 +436,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
-      const dotDmg = Math.round(s.playerStats.atk * 0.2);
+      const dotDmg = Math.round(s.playerStats.atk * 0.35);
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
         if (!d.miss) {
@@ -453,7 +453,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
-        const dotDmg = Math.round(s.playerStats.atk * 0.3);
+        const dotDmg = Math.round(s.playerStats.atk * 0.5);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
         addLog(s, `[${skill.name}] 도트 ${skill.effect_duration + stormExt}행동`);
@@ -469,7 +469,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지`);
       }
-      const dotDmg = Math.round(s.playerStats.atk * 0.25);
+      const dotDmg = Math.round(s.playerStats.atk * 0.4);
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
       // 스피드 감소
       if (skill.effect_value > 0) {
