@@ -1239,6 +1239,13 @@ export async function stopCombatSession(characterId: number): Promise<void> {
   activeSessions.delete(characterId);
 }
 
+export async function refreshSessionSkills(characterId: number): Promise<void> {
+  const s = activeSessions.get(characterId);
+  if (!s) return;
+  s.skills = await getCharSkills(characterId, s.className, 999);
+  s.dirty = true;
+}
+
 export function toggleAutoMode(characterId: number): boolean {
   const s = activeSessions.get(characterId);
   if (!s) return true;
