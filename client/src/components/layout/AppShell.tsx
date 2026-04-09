@@ -11,7 +11,6 @@ import { io as socketIo } from 'socket.io-client';
 
 const NAV = [
   { to: '/village', label: '메인' },
-  { to: '/announcements', label: '공지' },
   { to: '/status', label: '상태' },
   { to: '/map', label: '사냥터' },
   { to: '/combat', label: '전투' },

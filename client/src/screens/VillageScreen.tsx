@@ -43,6 +43,12 @@ function Px({ src, size = 18 }: { src: string; size?: number }) {
   return <img src={src} alt="" width={size} height={size} style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
 }
 
+interface Announcement {
+  id: number; title: string; body: string; priority: string; created_at: string;
+}
+const PRIORITY_COLOR: Record<string, string> = { urgent: 'var(--danger)', important: 'var(--accent)', normal: 'var(--text-dim)' };
+const PRIORITY_LABEL: Record<string, string> = { urgent: '긴급', important: '중요', normal: '일반' };
+
 export function VillageScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refresh = useCharacterStore((s) => s.refreshActive);
@@ -56,6 +62,8 @@ export function VillageScreen() {
   const [fbText, setFbText] = useState('');
   const [fbMsg, setFbMsg] = useState('');
   const [fbList, setFbList] = useState<{ id: number; category: string; text: string; status: string; admin_note: string | null; created_at: string }[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsOpen, setAnnouncementsOpen] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(() => {
@@ -67,6 +75,7 @@ export function VillageScreen() {
     refresh();
     api<DropLog[]>('/drop-log').then(setDropLog).catch(() => {});
     api<EnhanceLog[]>('/enhance-log').then(setEnhanceLog).catch(() => {});
+    api<Announcement[]>('/announcements').then(setAnnouncements).catch(() => {});
     loadGuestbook();
     loadFeedback();
   }, [refresh]);
@@ -135,6 +144,38 @@ export function VillageScreen() {
 
   return (
     <div>
+      {/* 공지사항 */}
+      {announcements.length > 0 && (
+        <div style={{ marginBottom: 14, border: '1px solid var(--accent-dim)', borderRadius: 6, overflow: 'hidden' }}>
+          <div onClick={() => setAnnouncementsOpen(!announcementsOpen)} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '8px 12px', background: 'rgba(218,165,32,0.06)', cursor: 'pointer',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>공지사항</span>
+            <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{announcementsOpen ? '▲' : '▼'}</span>
+          </div>
+          {announcementsOpen && (
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              {announcements.map(a => (
+                <div key={a.id} style={{ padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', fontWeight: 700,
+                      background: PRIORITY_COLOR[a.priority], color: '#1a1612', borderRadius: 2,
+                    }}>{PRIORITY_LABEL[a.priority]}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{a.title}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-dim)', marginLeft: 'auto' }}>
+                      {new Date(a.created_at).toLocaleDateString('ko-KR')}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--text)', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6 }}>{a.body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* BGM */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', marginBottom: 16,
