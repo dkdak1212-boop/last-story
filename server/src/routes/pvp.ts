@@ -5,6 +5,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { simulatePvP, calculateEloChange } from '../pvp/simulator.js';
 import { deliverToMailbox } from '../game/inventory.js';
+import { trackDailyQuestProgress } from './dailyQuests.js';
 
 const router = Router();
 router.use(authRequired);
@@ -146,6 +147,9 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
      VALUES ($1, $2, $3, $4, $5::jsonb)`,
     [attackerId, defenderId, winnerId, sim.winner === 'attacker' ? eloChange : -eloChange, JSON.stringify(sim.log)]
   );
+
+  // 일일임무 진행
+  await trackDailyQuestProgress(attackerId, 'pvp_attack', 1);
 
   // 방어자 우편 알림
   await deliverToMailbox(

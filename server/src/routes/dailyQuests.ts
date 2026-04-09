@@ -85,10 +85,11 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
   // 보상: 레벨*500 EXP, 레벨*200 골드, 드롭률 3시간
   const expReward = char.level * 500;
   const goldReward = char.level * 200;
-  const boostUntil = new Date(Date.now() + 3 * 3600000).toISOString();
-
-  await query('UPDATE characters SET exp = exp + $1, gold = gold + $2, drop_boost_until = $3 WHERE id = $4',
-    [expReward, goldReward, boostUntil, id]);
+  await query(
+    `UPDATE characters SET exp = exp + $1, gold = gold + $2,
+     drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
+     WHERE id = $3`,
+    [expReward, goldReward, id]);
   await query('INSERT INTO daily_quest_rewards (character_id, reward_date) VALUES ($1, $2)', [id, today]);
 
   res.json({ exp: expReward, gold: goldReward, dropBoostHours: 3 });
