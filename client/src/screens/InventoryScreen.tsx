@@ -5,6 +5,7 @@ import type { InventorySlot, Equipped, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, STAT_LABEL, getEnhanceMult } from '../components/ui/ItemStats';
 import { ItemComparison } from '../components/ui/ItemComparison';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
+import { ItemIcon } from '../components/ui/ItemIcon';
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
@@ -166,7 +167,7 @@ export function InventoryScreen() {
               minWidth: 0,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                <SlotIcon slot={slot} size={16} />
+                {item ? <ItemIcon slot={slot} grade={item.grade} size={24} /> : <SlotIcon slot={slot} size={16} />}
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)' }}>{label}</span>
                 {item && (
                   <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
@@ -310,7 +311,7 @@ export function InventoryScreen() {
                 >
                   {/* 헤더 행 */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {isEquipment && <SlotIcon slot={s.item.slot!} size={14} />}
+                    <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={s.item.name} size={24} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
                         <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{s.item.name}</span>
