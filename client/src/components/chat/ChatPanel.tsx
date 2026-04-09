@@ -119,13 +119,17 @@ export function ChatPanel() {
             {!scopeMissing && messages[channel].map((m, i) => (
               <div key={m.id ?? `${i}-${m.createdAt}`} style={{ marginBottom: 3 }}>
                 <span style={{
-                  color: m.isAdmin ? 'var(--success)' : m.nickHighlight ? '#ffd700' : 'var(--accent)',
+                  color: m.isAdmin ? '#00e060' : m.nickHighlight ? '#ffd700' : 'var(--accent)',
                   fontWeight: 700,
-                  textShadow: m.nickHighlight ? '0 0 6px rgba(255,215,0,0.5)' : 'none',
+                  textShadow: m.isAdmin ? '0 0 8px rgba(0,224,96,0.6)' : m.nickHighlight ? '0 0 6px rgba(255,215,0,0.5)' : 'none',
                 }}>
-                  {m.isAdmin ? '[운영자] ' : ''}{m.from}:
+                  {m.isAdmin ? '[운영자]' : m.from}:
                 </span>{' '}
-                <span style={{ color: m.isAdmin ? 'var(--success)' : 'var(--text)' }}>{m.text}</span>
+                <span style={{
+                  color: m.isAdmin ? '#00e060' : 'var(--text)',
+                  fontWeight: m.isAdmin ? 700 : 400,
+                  textShadow: m.isAdmin ? '0 0 6px rgba(0,224,96,0.4)' : 'none',
+                }}>{m.text}</span>
               </div>
             ))}
             {!scopeMissing && messages[channel].length === 0 && (

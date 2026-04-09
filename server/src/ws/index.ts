@@ -86,23 +86,22 @@ export function initWebSocket(httpServer: HttpServer) {
       }
 
       try {
+        const isAdmin = !!socket.data.isAdmin;
+        const chatName = isAdmin ? '운영자' : displayName;
         const r = await query<{ id: number; created_at: string }>(
           `INSERT INTO chat_messages (channel, from_name, text, scope_id)
            VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-          [channel, displayName, text, scopeId]
+          [channel, chatName, text, scopeId]
         );
-        // 관리자 메시지는 다른 유저에게 안 보임 (유령 모드)
-        if (!socket.data.isAdmin) {
-          io.emit('chat', {
-            id: r.rows[0].id,
-            channel, scopeId,
-            from: displayName,
-            text,
-            isAdmin: false,
-            nickHighlight,
-            createdAt: r.rows[0].created_at,
-          });
-        }
+        io.emit('chat', {
+          id: r.rows[0].id,
+          channel, scopeId,
+          from: chatName,
+          text,
+          isAdmin,
+          nickHighlight: isAdmin ? false : nickHighlight,
+          createdAt: r.rows[0].created_at,
+        });
       } catch (e) {
         console.error('[chat] save error', e);
       }

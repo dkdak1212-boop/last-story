@@ -27,7 +27,7 @@ router.get('/history', async (req, res) => {
               COALESCE(c.nick_highlight, FALSE) AS nick_highlight
        FROM chat_messages cm LEFT JOIN users u ON u.username = cm.from_name
        LEFT JOIN characters c ON c.name = cm.from_name
-       WHERE cm.channel = $1 AND (COALESCE(u.is_admin, FALSE) = FALSE OR cm.from_name = '[시스템]')
+       WHERE cm.channel = $1
        ORDER BY cm.created_at DESC LIMIT 50`,
       [channel]
     );
