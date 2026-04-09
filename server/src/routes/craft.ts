@@ -122,9 +122,13 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
 
   const isEquipment = !!itemInfo.slot;
 
+  // 아이템 레벨 조회 (접두사 스케일링용)
+  const rlR = await query<{ required_level: number }>('SELECT COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [resultItemId]);
+  const craftItemLevel = rlR.rows[0]?.required_level ?? 35;
+
   if (isEquipment) {
     // 장비: 3옵 접두사 강제 부여
-    const { prefixIds, bonusStats } = await generate3Prefixes();
+    const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
     const usedR = await query<{ slot_index: number }>(
       'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
     );
@@ -148,18 +152,18 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   }
 });
 
-// 3옵 접두사 강제 생성
-async function generate3Prefixes(): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
+// 3옵 접두사 강제 생성 (아이템 레벨 비례 스케일링)
+async function generate3Prefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
   const prefixes = await query<{ id: number; tier: number; stat_key: string; min_val: number; max_val: number }>(
     'SELECT id, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id'
   );
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
 
   const prefixIds: number[] = [];
   const bonusStats: Record<string, number> = {};
   const usedKeys = new Set<string>();
 
   for (let i = 0; i < 3; i++) {
-    // 티어: 2~4 (세트 아이템은 최소 2티어 보장)
     const roll = Math.random() * 100;
     const tier = roll < 1 ? 4 : roll < 15 ? 3 : 2;
 
@@ -167,7 +171,8 @@ async function generate3Prefixes(): Promise<{ prefixIds: number[]; bonusStats: R
     if (candidates.length === 0) continue;
 
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
-    const value = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const value = Math.max(1, Math.round(baseValue * levelScale));
 
     prefixIds.push(picked.id);
     bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;

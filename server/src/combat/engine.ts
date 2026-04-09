@@ -56,6 +56,15 @@ const MAX_LOG = 30;
 // 100ms 틱에서 speed를 이 비율로 충전 (0.2 = speed 300일 때 ~1.7초 행동주기)
 const GAUGE_FILL_RATE = 0.2;
 
+// 속도 감쇠 — 소프트캡 300, 이후 평방근 감쇠
+// 300 이하: 그대로, 300 이상: 300 + sqrt(초과분) * 15
+// 예) spd 300→300, 500→326, 800→367, 1200→413
+function diminishSpeed(rawSpd: number): number {
+  const SOFT_CAP = 300;
+  if (rawSpd <= SOFT_CAP) return rawSpd;
+  return Math.round(SOFT_CAP + Math.sqrt(rawSpd - SOFT_CAP) * 15);
+}
+
 // ── 타입 ──
 
 // SessionRow removed — in-memory only now
@@ -1000,8 +1009,8 @@ async function combatTick(): Promise<void> {
       if (s.equipPrefixes.slow_pct) {
         effectiveMonsterSpeed = Math.round(effectiveMonsterSpeed * (1 - s.equipPrefixes.slow_pct / 100));
       }
-      effectivePlayerSpeed = Math.max(10, effectivePlayerSpeed);
-      effectiveMonsterSpeed = Math.max(10, effectiveMonsterSpeed);
+      effectivePlayerSpeed = diminishSpeed(Math.max(10, effectivePlayerSpeed));
+      effectiveMonsterSpeed = diminishSpeed(Math.max(10, effectiveMonsterSpeed));
 
       // 접두사: 재생(hp_regen) → 틱당 HP 회복
       if (s.equipPrefixes.hp_regen && s.playerHp < s.playerMaxHp && s.playerHp > 0) {

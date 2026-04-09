@@ -16,13 +16,14 @@ export async function addItemToInventory(
   quantity: number
 ): Promise<{ added: number; overflow: number }> {
   // 아이템 조회 — 스택 가능 여부 + 장비 여부
-  const itemR = await query<{ stack_size: number; slot: string | null }>(
-    'SELECT stack_size, slot FROM items WHERE id = $1',
+  const itemR = await query<{ stack_size: number; slot: string | null; required_level: number }>(
+    'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1',
     [itemId]
   );
   if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
   const stackSize = itemR.rows[0].stack_size;
-  const isEquipment = !!itemR.rows[0].slot; // 장비 아이템이면 접두사 부여
+  const isEquipment = !!itemR.rows[0].slot;
+  const itemRequiredLevel = itemR.rows[0].required_level;
 
   let remaining = quantity;
 
@@ -61,7 +62,7 @@ export async function addItemToInventory(
 
     if (isEquipment) {
       // 장비 아이템: 접두사 랜덤 생성
-      const { prefixIds, bonusStats } = await generatePrefixes();
+      const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
       await query(
         `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,

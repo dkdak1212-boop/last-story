@@ -70,16 +70,21 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
 
   const today = await todayFromDB();
 
-  // 이미 수령했는지
-  const already = await query('SELECT 1 FROM daily_quest_rewards WHERE character_id = $1 AND reward_date = $2', [id, today]);
-  if (already.rowCount && already.rowCount > 0) return res.status(400).json({ error: '이미 보상을 수령했습니다.' });
-
   // 전부 완료?
   const quests = await query<{ completed: boolean }>(
     'SELECT completed FROM character_daily_quests WHERE character_id = $1 AND assigned_date = $2', [id, today]
   );
   if (quests.rowCount === 0 || !quests.rows.every(q => q.completed)) {
     return res.status(400).json({ error: '모든 임무를 완료해야 합니다.' });
+  }
+
+  // INSERT 먼저 시도 (PK 중복 시 0 rows → 이미 수령)
+  const inserted = await query(
+    'INSERT INTO daily_quest_rewards (character_id, reward_date) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [id, today]
+  );
+  if (inserted.rowCount === 0) {
+    return res.status(400).json({ error: '이미 보상을 수령했습니다.' });
   }
 
   // 보상: 레벨*500 EXP, 레벨*200 골드, 드롭률 3시간
@@ -90,7 +95,6 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
      drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
      WHERE id = $3`,
     [expReward, goldReward, id]);
-  await query('INSERT INTO daily_quest_rewards (character_id, reward_date) VALUES ($1, $2)', [id, today]);
 
   res.json({ exp: expReward, gold: goldReward, dropBoostHours: 3 });
 });

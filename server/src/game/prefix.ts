@@ -35,8 +35,12 @@ function rollTier(): number {
 
 // 접두사 1~3개 생성 (장비 아이템 드롭 시 호출)
 // 1옵 90%, 2옵 9%, 3옵 1%
-export async function generatePrefixes(): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
+// itemLevel: 아이템 요구 레벨 (1~70). 접두사 값을 레벨 비례 스케일링
+//   저렙(~10): 0.4~0.7배, 중렙(~35): 1.0배(기준), 고렙(50+): 1.3~1.8배
+export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
   const prefixes = await loadPrefixes();
+  // 레벨 스케일 팩터: lv35 = 1.0 기준
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
 
   // 옵션 개수 결정
   const countRoll = Math.random() * 100;
@@ -51,12 +55,12 @@ export async function generatePrefixes(): Promise<{ prefixIds: number[]; bonusSt
 
   for (let i = 0; i < count; i++) {
     const tier = rollTier();
-    // 해당 등급 접두사 중 아직 안 쓴 스탯키만 필터
     const candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
     if (candidates.length === 0) continue;
 
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
-    const value = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const value = Math.max(1, Math.round(baseValue * levelScale));
 
     prefixIds.push(picked.id);
     bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;

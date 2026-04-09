@@ -804,6 +804,8 @@ function DamageMeter({ log }: { log: string[] }) {
   }
   const sorted = [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   const totalDmg = totalDmgRef.current;
+  const elapsedSec = Math.max(1, Math.floor((Date.now() - resetTimeRef.current) / 1000));
+  const dps = Math.round(totalDmg / elapsedSec);
 
   if (sorted.length === 0) return null;
 
@@ -817,7 +819,7 @@ function DamageMeter({ log }: { log: string[] }) {
         }}
       >
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
-          딜미터 — 총 {totalDmg.toLocaleString()}
+          DPS {dps.toLocaleString()}/s — 총 {totalDmg.toLocaleString()}
         </span>
         <span style={{ fontSize: 10, color: remaining <= 10 ? 'var(--danger)' : 'var(--text-dim)' }}>
           {remaining}초 {open ? '▲' : '▼'}

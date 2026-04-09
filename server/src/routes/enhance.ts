@@ -9,19 +9,21 @@ const router = Router();
 router.use(authRequired);
 
 // 강화 비용/확률/파괴율
+// 비용: 아이템 레벨 비선형 스케일링 (lv^1.4) — 저렙 상향, 고렙 완만
 export function getEnhanceInfo(currentLevel: number, itemLevel: number) {
   const next = currentLevel + 1;
   const lv = Math.max(1, itemLevel);
+  const scaledLv = Math.round(Math.pow(lv, 1.4));
   let cost: number;
   let chance: number;
   let destroyRate = 0;
-  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
-  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
-  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
-  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
-  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
-  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
-  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
+  if (next <= 3)       { cost = 80 * scaledLv;    chance = 1.0; }
+  else if (next <= 6)  { cost = 300 * scaledLv;   chance = 0.8; }
+  else if (next <= 9)  { cost = 800 * scaledLv;   chance = 0.5; }
+  else if (next <= 12) { cost = 3000 * scaledLv;  chance = 0.3; destroyRate = 0.10; }
+  else if (next <= 15) { cost = 7000 * scaledLv;  chance = 0.2; destroyRate = 0.20; }
+  else if (next <= 18) { cost = 15000 * scaledLv; chance = 0.1; destroyRate = 0.30; }
+  else                 { cost = 30000 * scaledLv; chance = 0.05; destroyRate = 0.40; }
   return { cost, chance, destroyRate, nextLevel: next };
 }
 
@@ -263,8 +265,22 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 새 접두사 생성
-  const { prefixIds, bonusStats } = await generatePrefixes();
+  // 대상 아이템 레벨 조회
+  let targetItemLevel = 35;
+  if (parsed.data.kind === 'inventory') {
+    const ilr = await query<{ required_level: number }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+       WHERE ci.character_id = $1 AND ci.slot_index = $2`, [cid, parsed.data.slotKey]);
+    if (ilr.rows[0]) targetItemLevel = ilr.rows[0].required_level;
+  } else {
+    const ilr = await query<{ required_level: number }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+       WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
+    if (ilr.rows[0]) targetItemLevel = ilr.rows[0].required_level;
+  }
+
+  // 새 접두사 생성 (아이템 레벨 비례)
+  const { prefixIds, bonusStats } = await generatePrefixes(targetItemLevel);
 
   // 대상 장비에 접두사 업데이트
   if (parsed.data.kind === 'inventory') {

@@ -7,6 +7,13 @@ const GAUGE_MAX = 1000;
 const MAX_TICKS = 2000;
 const PVP_DAMAGE_MULT = 0.45; // PvP 전용 데미지 감소 (55% 감소)
 
+// 속도 감쇠 — 소프트캡 300, 이후 평방근 감쇠
+function diminishSpeed(rawSpd: number): number {
+  const SOFT_CAP = 300;
+  if (rawSpd <= SOFT_CAP) return rawSpd;
+  return Math.round(SOFT_CAP + Math.sqrt(rawSpd - SOFT_CAP) * 15);
+}
+
 interface StatusEffect {
   type: string; value: number; remaining: number;
 }
@@ -83,8 +90,8 @@ export async function simulatePvP(attackerId: number, defenderId: number): Promi
     for (const e of attacker.effects) { if (e.type === 'speed_mod') atkSpd = Math.round(atkSpd * (1 + e.value / 100)); }
     for (const e of defender.effects) { if (e.type === 'speed_mod') defSpd = Math.round(defSpd * (1 + e.value / 100)); }
 
-    attacker.gauge += Math.max(10, atkSpd);
-    defender.gauge += Math.max(10, defSpd);
+    attacker.gauge += diminishSpeed(Math.max(10, atkSpd));
+    defender.gauge += diminishSpeed(Math.max(10, defSpd));
 
     if (attacker.gauge >= GAUGE_MAX) {
       attacker.gauge = 0;
