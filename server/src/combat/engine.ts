@@ -332,8 +332,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] 빗나감!`);
       } else {
         let dmg = d.damage;
-        // 패시브: spell_amp
+        // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+        // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
+        const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
+        if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
         // 패시브: crit_damage (치명타 추가 배율) + 접두사: 날카로움(crit_dmg_pct)
         if (d.crit) {
           const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
@@ -403,9 +406,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'multi_hit': {
-      const hits = Math.round(skill.effect_value);
+      const hits = Math.round(skill.effect_value) + getPassive(s, 'extra_hit');
+      const chainAmp = getPassive(s, 'chain_action_amp');
+      const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       for (let i = 0; i < hits; i++) {
-        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+        const d = calcDamage(s.playerStats, s.monsterStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
         } else {
@@ -436,8 +441,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
         const dotDmg = Math.round(s.playerStats.atk * 0.3);
-        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
-        addLog(s, `[${skill.name}] 도트 ${skill.effect_duration}행동`);
+        const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
+        addLog(s, `[${skill.name}] 도트 ${skill.effect_duration + stormExt}행동`);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
@@ -503,8 +509,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'gauge_reset': {
       s.monsterGauge = 0;
+      const gcAmp = getPassive(s, 'gauge_control_amp');
+      const stunChance = skill.effect_value * (1 + gcAmp / 100);
       addLog(s, `[${skill.name}] 적 게이지 리셋!`);
-      if (Math.random() * 100 < skill.effect_value) {
+      if (Math.random() * 100 < stunChance) {
         addEffect(s, { type: 'stun', value: 0, remainingActions: 1, source: 'player' });
         addLog(s, `[${skill.name}] 조작불능!`);
       }
@@ -527,8 +535,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'gauge_freeze': {
       const freezeExt = getPassive(s, 'freeze_extend');
-      addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: skill.effect_duration + freezeExt, source: 'player' });
-      addLog(s, `[${skill.name}] 적 게이지 동결 ${skill.effect_duration + freezeExt}행동!`);
+      const gcAmp2 = getPassive(s, 'gauge_control_amp');
+      const freezeDur = Math.round((skill.effect_duration + freezeExt) * (1 + gcAmp2 / 100));
+      addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: freezeDur, source: 'player' });
+      addLog(s, `[${skill.name}] 적 게이지 동결 ${freezeDur}행동!`);
       break;
     }
 
@@ -540,8 +550,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'accuracy_debuff': {
       s.monsterGauge = Math.round(s.monsterGauge * 0.5);
-      addEffect(s, { type: 'accuracy_debuff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
-      addLog(s, `[${skill.name}] 적 게이지 50% 감소, 명중률 감소!`);
+      const ctrlAmp = getPassive(s, 'control_amp');
+      const smokeExt = getPassive(s, 'smoke_extend');
+      const debuffVal = Math.round(skill.effect_value * (1 + ctrlAmp / 100));
+      const debuffDur = skill.effect_duration + smokeExt;
+      addEffect(s, { type: 'accuracy_debuff', value: debuffVal, remainingActions: debuffDur, source: 'player' });
+      addLog(s, `[${skill.name}] 적 명중률 ${debuffVal}% 감소 ${debuffDur}행동!`);
       break;
     }
 
@@ -1134,6 +1148,12 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     dirty: true,
     userId: char.user_id,
   };
+
+  // 패시브: counter_incarnation (상시 반사)
+  const counterInc = pMap.get('counter_incarnation') || 0;
+  if (counterInc > 0) {
+    session.statusEffects.push({ id: 'counter_inc', type: 'damage_reflect', value: counterInc, remainingActions: 99999, source: 'monster' });
+  }
 
   // DB 세션
   await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
