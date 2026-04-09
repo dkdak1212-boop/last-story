@@ -47,6 +47,7 @@ interface CombatSnapshot {
   exp?: number;
   expMax?: number;
   serverTime: number;
+  boosts?: { name: string; until: string }[];
 }
 import { getIo } from '../ws/io.js';
 
