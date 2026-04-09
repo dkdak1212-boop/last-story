@@ -70,11 +70,12 @@ router.post('/purchase', async (req: AuthedRequest, res: Response) => {
       await addItemToInventoryPlain(characterId!, 286, 5);
       break;
     }
-    case 'prefix_reroll':
-      // 접두사 재굴림권 아이템 지급 (인벤에서 사용)
-      // 별도 아이템으로 관리 — DB에 없으면 플래그로
-      await query(`UPDATE characters SET prefix_reroll_count = COALESCE(prefix_reroll_count, 0) + 1 WHERE id = $1`, [characterId]);
+    case 'prefix_reroll': {
+      // 접두사 재굴림권 아이템 인벤토리에 지급
+      const { addItemToInventoryPlain: addReroll } = await import('../game/inventory.js');
+      await addReroll(characterId!, 322, 1);
       break;
+    }
     case 'nick_highlight':
       await query(`UPDATE characters SET nick_highlight = TRUE WHERE id = $1`, [characterId]);
       break;
