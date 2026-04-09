@@ -1130,7 +1130,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     exp,
     expMax,
     serverTime: Date.now(),
-  } as any;
+  };
 
   // 부스트 정보
   try {

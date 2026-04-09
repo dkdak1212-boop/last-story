@@ -168,6 +168,7 @@ export interface CombatSnapshot {
   exp?: number;
   expMax?: number;
   serverTime: number;
+  boosts?: { name: string; until: string }[];
 }
 
 export interface CombatSkillInfo {
