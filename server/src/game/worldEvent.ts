@@ -98,10 +98,10 @@ export async function attackBoss(characterId: number) {
   const healSkills = allSkills.filter(s => s.effect_type === 'heal_pct');
   const buffSkills = allSkills.filter(s => s.kind === 'buff' && s.effect_type !== 'heal_pct');
 
-  // 보스 스탯
-  const bossAtk = event.level * 5;
+  // 보스 스탯 (플레이어 maxHp 기준으로 밸런싱 — 10초에 3~4대 맞으면 죽을 정도)
+  const bossAtk = Math.round(eff.maxHp * 0.08 + event.level * 2); // maxHp의 8% + 레벨 보정
   const baseBossDef = event.level * 2;
-  const bossSpd = 300 + event.level * 4;
+  const bossSpd = 250 + event.level * 3;
 
   // 페이즈별 보스 강화
   const hpPct = event.current_hp / event.max_hp;
@@ -116,7 +116,8 @@ export async function attackBoss(characterId: number) {
   // ── 10초 시뮬레이션 (100ms 틱) ──
   const GAUGE_MAX = 1000;
   const TICKS = 100; // 10초 = 100틱
-  let playerHp = char.hp;
+  // 플레이어 HP: 장비/노드/세트 반영된 maxHp 기준 (전투 시작 시 풀HP)
+  let playerHp = eff.maxHp;
   let playerGauge = 0;
   let bossGauge = 0;
   let totalDmgDealt = 0;
@@ -145,11 +146,11 @@ export async function attackBoss(characterId: number) {
 
       // HP 낮으면 힐 스킬 우선
       let used = false;
-      if (playerHp < char.max_hp * 0.4) {
+      if (playerHp < eff.maxHp * 0.4) {
         for (const sk of healSkills) {
           if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
-          const heal = Math.round(char.max_hp * sk.effect_value / 100);
-          playerHp = Math.min(char.max_hp, playerHp + heal);
+          const heal = Math.round(eff.maxHp * sk.effect_value / 100);
+          playerHp = Math.min(eff.maxHp, playerHp + heal);
           if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
           if (combatLog.length < 20) combatLog.push(`[${sk.name}] HP +${heal.toLocaleString()} 회복`);
           used = true;
@@ -186,7 +187,7 @@ export async function attackBoss(characterId: number) {
           }
           totalDmgDealt += dmg;
           // 흡혈
-          if (prefixLifesteal > 0) playerHp = Math.min(char.max_hp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
+          if (prefixLifesteal > 0) playerHp = Math.min(eff.maxHp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
           // 쿨다운 (노드 쿨감 적용)
           if (sk.cooldown_actions > 0) {
             const cd = Math.max(1, sk.cooldown_actions - Math.floor(cdReduce / 25));
@@ -209,13 +210,13 @@ export async function attackBoss(characterId: number) {
           critCount++;
         }
         totalDmgDealt += dmg;
-        if (prefixLifesteal > 0) playerHp = Math.min(char.max_hp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
+        if (prefixLifesteal > 0) playerHp = Math.min(eff.maxHp, playerHp + Math.round(dmg * prefixLifesteal / 1000));
         if (combatLog.length < 20) combatLog.push(`[기본 공격] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
       }
 
       // 접두사: 재생 (틱당 회복은 행동 시 적용)
-      if (prefixHpRegen > 0 && playerHp < char.max_hp) {
-        playerHp = Math.min(char.max_hp, playerHp + prefixHpRegen);
+      if (prefixHpRegen > 0 && playerHp < eff.maxHp) {
+        playerHp = Math.min(eff.maxHp, playerHp + prefixHpRegen);
       }
     }
 
@@ -237,15 +238,16 @@ export async function attackBoss(characterId: number) {
 
       // P3 전체공격: 추가 데미지
       if (phase === 3 && Math.random() < 0.3) {
-        const aoeDmg = Math.round(char.max_hp * 0.08);
+        const aoeDmg = Math.round(eff.maxHp * 0.08);
         bossDmg += aoeDmg;
-        if (combatLog.length < 15) combatLog.push(`[보스 전체공격] ${bossDmg.toLocaleString()}`);
+        totalDmgReceived += bossDmg;
+        playerHp -= bossDmg;
+        if (combatLog.length < 20) combatLog.push(`[보스 전체공격] ${bossDmg.toLocaleString()} (HP: ${Math.max(0, playerHp).toLocaleString()}/${eff.maxHp.toLocaleString()})`);
       } else {
-        if (combatLog.length < 15) combatLog.push(`[보스 공격] ${bossDmg.toLocaleString()}`);
+        totalDmgReceived += bossDmg;
+        playerHp -= bossDmg;
+        if (combatLog.length < 20) combatLog.push(`[보스 공격] ${bossDmg.toLocaleString()} (HP: ${Math.max(0, playerHp).toLocaleString()}/${eff.maxHp.toLocaleString()})`);
       }
-
-      totalDmgReceived += bossDmg;
-      playerHp -= bossDmg;
 
       if (playerHp <= 0) {
         playerDead = true;
@@ -294,6 +296,7 @@ export async function attackBoss(characterId: number) {
     critCount,
     playerDead,
     playerHp: newPlayerHp,
+    playerMaxHp: eff.maxHp,
     phase,
     combatLog,
     currentHp: newBossHp,
