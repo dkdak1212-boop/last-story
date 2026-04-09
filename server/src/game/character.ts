@@ -27,6 +27,7 @@ export interface CharacterRow {
   auto_potion_enabled: boolean;
   auto_potion_threshold: number;
   auto_dismantle_common: boolean;
+  title: string | null;
 }
 
 export async function loadCharacter(id: number): Promise<CharacterRow | null> {
@@ -36,7 +37,8 @@ export async function loadCharacter(id: number): Promise<CharacterRow | null> {
             inventory_slots_bonus, exp_boost_until,
             COALESCE(auto_potion_enabled, TRUE) AS auto_potion_enabled,
             COALESCE(auto_potion_threshold, 30) AS auto_potion_threshold,
-            COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common
+            COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common,
+            title
      FROM characters WHERE id = $1`,
     [id]
   );
