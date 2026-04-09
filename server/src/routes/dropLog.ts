@@ -9,8 +9,12 @@ router.get('/', async (_req, res) => {
     character_name: string; item_name: string; item_grade: string;
     prefix_count: number; created_at: string;
   }>(
-    `SELECT character_name, item_name, item_grade, prefix_count, created_at
-     FROM item_drop_log ORDER BY created_at DESC LIMIT 20`
+    `SELECT dl.character_name, dl.item_name, dl.item_grade, dl.prefix_count, dl.created_at
+     FROM item_drop_log dl
+     JOIN characters c ON c.id = dl.character_id
+     JOIN users u ON u.id = c.user_id
+     WHERE u.is_admin = FALSE
+     ORDER BY dl.created_at DESC LIMIT 20`
   );
   res.json(r.rows.map(row => ({
     characterName: row.character_name,

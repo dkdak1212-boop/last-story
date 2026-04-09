@@ -8,8 +8,12 @@ const router = Router();
 // 방명록 목록 (최근 50개)
 router.get('/', async (_req, res) => {
   const r = await query(
-    `SELECT id, character_name, class_name, message, created_at
-     FROM guestbook ORDER BY created_at DESC LIMIT 50`
+    `SELECT g.id, g.character_name, g.class_name, g.message, g.created_at
+     FROM guestbook g
+     JOIN characters c ON c.id = g.character_id
+     JOIN users u ON u.id = c.user_id
+     WHERE u.is_admin = FALSE
+     ORDER BY g.created_at DESC LIMIT 50`
   );
   res.json(r.rows.map(row => ({
     id: row.id,

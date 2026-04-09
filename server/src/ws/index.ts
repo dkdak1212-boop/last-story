@@ -28,7 +28,8 @@ export function initWebSocket(httpServer: HttpServer) {
   });
 
   function broadcastOnlineCount() {
-    const count = io.sockets.sockets.size;
+    let count = 0;
+    for (const [, s] of io.sockets.sockets) { if (!s.data.isAdmin) count++; }
     io.emit('online-count', count);
   }
 
@@ -89,14 +90,17 @@ export function initWebSocket(httpServer: HttpServer) {
            VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
           [channel, displayName, text, scopeId]
         );
-        io.emit('chat', {
-          id: r.rows[0].id,
-          channel, scopeId,
-          from: displayName,
-          text,
-          isAdmin: socket.data.isAdmin ?? false,
-          createdAt: r.rows[0].created_at,
-        });
+        // 관리자 메시지는 다른 유저에게 안 보임 (유령 모드)
+        if (!socket.data.isAdmin) {
+          io.emit('chat', {
+            id: r.rows[0].id,
+            channel, scopeId,
+            from: displayName,
+            text,
+            isAdmin: false,
+            createdAt: r.rows[0].created_at,
+          });
+        }
       } catch (e) {
         console.error('[chat] save error', e);
       }

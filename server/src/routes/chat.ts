@@ -25,7 +25,8 @@ router.get('/history', async (req, res) => {
     r = await query<{ id: number; from_name: string; text: string; created_at: string; is_admin: boolean }>(
       `SELECT cm.id, cm.from_name, cm.text, cm.created_at, COALESCE(u.is_admin, FALSE) AS is_admin
        FROM chat_messages cm LEFT JOIN users u ON u.username = cm.from_name
-       WHERE cm.channel = $1 ORDER BY cm.created_at DESC LIMIT 50`,
+       WHERE cm.channel = $1 AND (COALESCE(u.is_admin, FALSE) = FALSE OR cm.from_name = '[시스템]')
+       ORDER BY cm.created_at DESC LIMIT 50`,
       [channel]
     );
   }
