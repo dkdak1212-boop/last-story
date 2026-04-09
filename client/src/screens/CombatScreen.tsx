@@ -145,6 +145,15 @@ export function CombatScreen() {
     return <div style={{ color: 'var(--text-dim)' }}>전투 준비 중...</div>;
   }
 
+  if (state.player.hp <= 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
+        <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>사망했습니다</div>
+        <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>(새로고침하세요)</div>
+      </div>
+    );
+  }
+
   const playerGaugePct = Math.min(100, (localGauges.player / 1000) * 100);
   const monsterGaugePct = Math.min(100, (localGauges.monster / 1000) * 100);
 
