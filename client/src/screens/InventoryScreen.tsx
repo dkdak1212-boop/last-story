@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import type { InventorySlot, Equipped } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock } from '../components/ui/ItemStats';
+import type { InventorySlot, Equipped, Stats } from '../types';
+import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, STAT_LABEL } from '../components/ui/ItemStats';
 import { ItemComparison } from '../components/ui/ItemComparison';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
@@ -23,6 +23,8 @@ export function InventoryScreen() {
   const [msg, setMsg] = useState('');
   const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
   const [sortMode, setSortMode] = useState<'latest' | 'level' | 'enhance' | 'slot'>('latest');
+  const [enhanceBusy, setEnhanceBusy] = useState(false);
+  const [rerollBusy, setRerollBusy] = useState(false);
 
   async function refresh() {
     if (!active) return;
@@ -103,6 +105,43 @@ export function InventoryScreen() {
     if (!active) return;
     await api(`/characters/${active.id}/lock-equipped`, { method: 'POST', body: JSON.stringify({ slot }) });
     refresh();
+  }
+
+  async function enhanceItem(_slotIndex: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!active || enhanceBusy) return;
+    setEnhanceBusy(true); setMsg('');
+    try {
+      const r = await api<{ success: boolean; newLevel: number; cost: number; destroyed?: boolean }>(
+        `/enhance/${active.id}/attempt`,
+        { method: 'POST', body: JSON.stringify({ kind, slotKey, useScroll: false }) }
+      );
+      if (r.destroyed) {
+        setMsg(`강화 실패 — 장비가 파괴되었습니다! (-${r.cost.toLocaleString()}G)`);
+      } else if (r.success) {
+        setMsg(`강화 성공! +${r.newLevel} (-${r.cost.toLocaleString()}G)`);
+      } else {
+        setMsg(`강화 실패 (-${r.cost.toLocaleString()}G)`);
+      }
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '강화 실패'); }
+    finally { setEnhanceBusy(false); }
+  }
+
+  async function rerollPrefix(_slotIndex: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!active || rerollBusy) return;
+    setRerollBusy(true); setMsg('');
+    try {
+      const r = await api<{ success: boolean; prefixStats: Record<string, number> }>(
+        `/enhance/${active.id}/reroll-prefix`,
+        { method: 'POST', body: JSON.stringify({ kind, slotKey }) }
+      );
+      const statStr = Object.entries(r.prefixStats).map(([k, v]) => `${STAT_LABEL[k as keyof Stats] || k}+${v}`).join(', ');
+      setMsg(`접두사 재굴림 완료! → ${statStr || '없음'}`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '재굴림 실패'); }
+    finally { setRerollBusy(false); }
   }
 
   async function toggleAutoDismantle() {
@@ -334,6 +373,35 @@ export function InventoryScreen() {
                     }}
                   >
                     분해
+                  </button>
+                )}
+                {/* 강화 버튼 - 장비만 */}
+                {isEquipment && !locked && (
+                  <button
+                    onClick={(e) => enhanceItem(s.slotIndex, 'inventory', s.slotIndex, e)}
+                    disabled={enhanceBusy || (s.enhanceLevel || 0) >= 20}
+                    style={{
+                      padding: '3px 8px', fontSize: 11,
+                      background: 'transparent', color: 'var(--accent)',
+                      border: '1px solid var(--accent)', cursor: (s.enhanceLevel || 0) >= 20 ? 'not-allowed' : 'pointer',
+                      opacity: (s.enhanceLevel || 0) >= 20 ? 0.4 : 1,
+                    }}
+                  >
+                    강화
+                  </button>
+                )}
+                {/* 접두사 재굴림 버튼 - 장비만 */}
+                {isEquipment && !locked && (
+                  <button
+                    onClick={(e) => rerollPrefix(s.slotIndex, 'inventory', s.slotIndex, e)}
+                    disabled={rerollBusy}
+                    style={{
+                      padding: '3px 8px', fontSize: 11,
+                      background: 'transparent', color: '#64d2ff',
+                      border: '1px solid #64d2ff', cursor: 'pointer',
+                    }}
+                  >
+                    재굴림
                   </button>
                 )}
                 {/* 소비 아이템 분해 불가 표시 */}
