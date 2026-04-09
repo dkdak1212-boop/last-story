@@ -371,7 +371,7 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   const items = await query<{ id: number; quantity: number; sell_price: number; name: string }>(
     `SELECT ci.id, ci.quantity, i.sell_price, i.name
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.grade = $2 AND ci.locked = FALSE AND i.sell_price > 0`,
+     WHERE ci.character_id = $1 AND i.grade = $2 AND ci.locked = FALSE AND i.sell_price > 0 AND i.type != 'consumable'`,
     [id, grade]
   );
 
