@@ -579,10 +579,20 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield': {
+      // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리)
+      if (skill.damage_mult > 0) {
+        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+        if (!d.miss) {
+          let dmg = d.damage;
+          if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+          s.monsterHp -= dmg;
+          addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
+        }
+      }
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp');
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
-      addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration, source: 'monster' });
+      addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
       addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
       break;
     }
