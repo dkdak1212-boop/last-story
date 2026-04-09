@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api/client';
@@ -718,85 +718,85 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
 // ── 딜미터기 ──
 function DamageMeter({ log }: { log: string[] }) {
   const [open, setOpen] = useState(false);
-  const [resetAt, setResetAt] = useState(() => Date.now());
   const [remaining, setRemaining] = useState(60);
-  const resetLogIdx = useRef(0);
+  const resetTimeRef = useRef(Date.now());
+  const prevLogLenRef = useRef(0);
+  const accRef = useRef<Map<string, { total: number; hits: number; crits: number; max: number }>>(new Map());
+  const dotAccRef = useRef({ total: 0, hits: 0 });
+  const totalDmgRef = useRef(0);
+  const [, forceUpdate] = useState(0);
 
   // 1분 타이머
   useEffect(() => {
     const iv = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - resetAt) / 1000);
+      const elapsed = Math.floor((Date.now() - resetTimeRef.current) / 1000);
       const left = Math.max(0, 60 - elapsed);
       setRemaining(left);
       if (left <= 0) {
-        resetLogIdx.current = log.length;
-        setResetAt(Date.now());
+        accRef.current = new Map();
+        dotAccRef.current = { total: 0, hits: 0 };
+        totalDmgRef.current = 0;
+        resetTimeRef.current = Date.now();
+        prevLogLenRef.current = log.length;
         setRemaining(60);
+        forceUpdate(n => n + 1);
       }
     }, 1000);
     return () => clearInterval(iv);
-  }, [resetAt, log.length]);
+  }, [log.length]);
 
-  const stats = useMemo(() => {
-    const map = new Map<string, { total: number; hits: number; crits: number; max: number }>();
-    let totalDmg = 0;
-    let dotTotal = 0;
-    let dotHits = 0;
+  // 새 로그만 파싱해서 누적
+  useEffect(() => {
+    const prev = prevLogLenRef.current;
+    const cur = log.length;
+    if (cur <= prev) {
+      // 로그 리셋 (새 몬스터) — 인덱스만 리셋, 누적은 유지
+      prevLogLenRef.current = 0;
+      return;
+    }
+    const newLines = log.slice(prev, cur);
+    prevLogLenRef.current = cur;
 
-    const lines = log.slice(resetLogIdx.current);
-    for (const line of lines) {
-      // 도트 데미지: [도트] 몬스터에게 1234 데미지 (3중첩)
+    for (const line of newLines) {
       const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
       if (dotMatch) {
         const dmg = parseInt(dotMatch[1]);
-        dotTotal += dmg;
-        dotHits++;
-        totalDmg += dmg;
+        dotAccRef.current.total += dmg;
+        dotAccRef.current.hits++;
+        totalDmgRef.current += dmg;
         continue;
       }
-
-      // 스킬 데미지: [스킬명] 1234 데미지 or [스킬명] 1타 1234 or [스킬명] 추가 고정 1234
       const skillMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
-      if (skillMatch) {
+      if (skillMatch && skillMatch[1] !== '도트') {
         const name = skillMatch[1];
-        if (name === '도트') continue;
         const dmg = parseInt(skillMatch[2]);
         const crit = !!skillMatch[3];
-        if (!map.has(name)) map.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
-        const s = map.get(name)!;
-        s.total += dmg;
-        s.hits++;
-        if (crit) s.crits++;
-        if (dmg > s.max) s.max = dmg;
-        totalDmg += dmg;
+        if (!accRef.current.has(name)) accRef.current.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
+        const s = accRef.current.get(name)!;
+        s.total += dmg; s.hits++; if (crit) s.crits++; if (dmg > s.max) s.max = dmg;
+        totalDmgRef.current += dmg;
       }
-
-      // 추가 타격: 추가 타격! 1234
       const extraMatch = line.match(/추가 타격! (\d+)/);
       if (extraMatch) {
         const dmg = parseInt(extraMatch[1]);
-        const name = '추가 타격';
-        if (!map.has(name)) map.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
-        const s = map.get(name)!;
-        s.total += dmg;
-        s.hits++;
-        totalDmg += dmg;
+        if (!accRef.current.has('추가 타격')) accRef.current.set('추가 타격', { total: 0, hits: 0, crits: 0, max: 0 });
+        const s = accRef.current.get('추가 타격')!;
+        s.total += dmg; s.hits++;
+        totalDmgRef.current += dmg;
       }
-
-      // 출혈: 출혈 발동!
-      const bleedMatch = line.match(/치명 흡혈/);
-      if (bleedMatch) continue; // skip heal lines
     }
+    forceUpdate(n => n + 1);
+  }, [log]);
 
-    if (dotTotal > 0) {
-      map.set('도트 (합산)', { total: dotTotal, hits: dotHits, crits: 0, max: 0 });
-    }
+  // 렌더용 데이터 구성
+  const map = new Map(accRef.current);
+  if (dotAccRef.current.total > 0) {
+    map.set('도트 (합산)', { total: dotAccRef.current.total, hits: dotAccRef.current.hits, crits: 0, max: 0 });
+  }
+  const sorted = [...map.entries()].sort((a, b) => b[1].total - a[1].total);
+  const totalDmg = totalDmgRef.current;
 
-    const sorted = [...map.entries()].sort((a, b) => b[1].total - a[1].total);
-    return { sorted, totalDmg };
-  }, [log, resetAt]);
-
-  if (stats.sorted.length === 0) return null;
+  if (sorted.length === 0) return null;
 
   return (
     <div style={{ marginTop: 8, border: '1px solid var(--border)', background: 'var(--bg-panel)' }}>
@@ -808,7 +808,7 @@ function DamageMeter({ log }: { log: string[] }) {
         }}
       >
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
-          딜미터 — 총 {stats.totalDmg.toLocaleString()}
+          딜미터 — 총 {totalDmg.toLocaleString()}
         </span>
         <span style={{ fontSize: 10, color: remaining <= 10 ? 'var(--danger)' : 'var(--text-dim)' }}>
           {remaining}초 {open ? '▲' : '▼'}
@@ -816,8 +816,8 @@ function DamageMeter({ log }: { log: string[] }) {
       </div>
       {open && (
         <div style={{ padding: '0 12px 10px' }}>
-          {stats.sorted.map(([name, s]) => {
-            const pct = stats.totalDmg > 0 ? (s.total / stats.totalDmg * 100) : 0;
+          {sorted.map(([name, s]) => {
+            const pct = totalDmg > 0 ? (s.total / totalDmg * 100) : 0;
             const avg = s.hits > 0 ? Math.round(s.total / s.hits) : 0;
             const critRate = s.hits > 0 ? Math.round(s.crits / s.hits * 100) : 0;
             const barColor = name === '도트 (합산)' ? '#66cc66' : critRate > 30 ? '#ff6644' : '#daa520';
