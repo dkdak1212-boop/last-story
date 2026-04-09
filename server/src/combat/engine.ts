@@ -179,9 +179,10 @@ async function getCharSkills(characterId: number, className: string, level: numb
     [className, level, characterId]
   );
   for (const sk of newSkills.rows) {
-    // 현재 auto_use ON 개수 체크 후 6개 미만이면 ON
+    // 현재 auto_use ON 개수 체크 후 6개 미만이면 ON (기본기 제외)
     const countR = await query<{ cnt: string }>(
-      'SELECT COUNT(*)::text AS cnt FROM character_skills WHERE character_id = $1 AND auto_use = TRUE', [characterId]
+      `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+       WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [characterId]
     );
     const autoOn = Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
     await query(

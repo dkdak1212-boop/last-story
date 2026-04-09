@@ -66,9 +66,10 @@ router.post('/:id/skills/:skillId/toggle-auto', async (req: AuthedRequest, res: 
 
   const isOn = cur.rows[0].auto_use;
   if (!isOn) {
-    // ON으로 전환 시 6개 제한 체크
+    // ON으로 전환 시 6개 제한 체크 (기본기 제외)
     const countR = await query<{ cnt: string }>(
-      'SELECT COUNT(*)::text AS cnt FROM character_skills WHERE character_id = $1 AND auto_use = TRUE', [id]
+      `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+       WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [id]
     );
     if (Number(countR.rows[0].cnt) >= 6) {
       return res.status(400).json({ error: '자동 스킬은 최대 6개까지 설정 가능합니다.' });

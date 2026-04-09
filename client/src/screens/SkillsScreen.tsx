@@ -45,7 +45,7 @@ export function SkillsScreen() {
   }
 
   const className = active?.className || 'warrior';
-  const autoCount = skills.filter(s => s.learned && s.autoUse).length;
+  const autoCount = skills.filter(s => s.learned && s.autoUse && s.cooldown > 0).length;
 
   return (
     <div>
