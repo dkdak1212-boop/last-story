@@ -9,21 +9,19 @@ const router = Router();
 router.use(authRequired);
 
 // 강화 비용/확률/파괴율
-// 비용: 아이템 레벨 비선형 스케일링 (lv^1.4) — 저렙 상향, 고렙 완만
 export function getEnhanceInfo(currentLevel: number, itemLevel: number) {
   const next = currentLevel + 1;
   const lv = Math.max(1, itemLevel);
-  const scaledLv = Math.round(Math.pow(lv, 1.4));
   let cost: number;
   let chance: number;
   let destroyRate = 0;
-  if (next <= 3)       { cost = 80 * scaledLv;    chance = 1.0; }
-  else if (next <= 6)  { cost = 300 * scaledLv;   chance = 0.8; }
-  else if (next <= 9)  { cost = 800 * scaledLv;   chance = 0.5; }
-  else if (next <= 12) { cost = 3000 * scaledLv;  chance = 0.3; destroyRate = 0.10; }
-  else if (next <= 15) { cost = 7000 * scaledLv;  chance = 0.2; destroyRate = 0.20; }
-  else if (next <= 18) { cost = 15000 * scaledLv; chance = 0.1; destroyRate = 0.30; }
-  else                 { cost = 30000 * scaledLv; chance = 0.05; destroyRate = 0.40; }
+  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
+  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
+  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
+  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
+  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
+  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
+  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
   return { cost, chance, destroyRate, nextLevel: next };
 }
 
