@@ -20,7 +20,7 @@ export const STAT_LABEL: Record<string, string> = {
   int: '지능',
   vit: '체력',
   spd: '스피드',
-  cri: '치명타',
+  cri: '치명타 확률',
   atk: '물리 공격',
   matk: '마법 공격',
   def: '방어력',
@@ -51,20 +51,27 @@ export function formatPrefixValue(key: string, value: number): string {
   return `+${value}`;
 }
 
+// 강화 배율 계산 (EnhanceScreen과 동일)
+export function getEnhanceMult(el: number): number {
+  if (el <= 0) return 1;
+  return el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+}
+
 // 스탯 jsonb → 라인 배열
-export function formatStats(stats: Record<string, number> | null | undefined): string[] {
+export function formatStats(stats: Record<string, number> | null | undefined, enhanceLevel = 0): string[] {
   if (!stats) return [];
+  const mult = getEnhanceMult(enhanceLevel);
   const lines: string[] = [];
   for (const key of STAT_ORDER) {
     const v = (stats as any)[key];
-    if (v) lines.push(`${STAT_LABEL[key] || key} +${v}`);
+    if (v) lines.push(`${STAT_LABEL[key] || key} +${Math.round(v * mult)}`);
   }
   return lines;
 }
 
 // 인라인 스탯 표시 (한 줄)
-export function ItemStatsInline({ stats }: { stats: Partial<Stats> | null | undefined }) {
-  const lines = formatStats(stats);
+export function ItemStatsInline({ stats, enhanceLevel = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number }) {
+  const lines = formatStats(stats, enhanceLevel);
   if (lines.length === 0) return null;
   return (
     <span style={{ fontSize: 11, color: 'var(--success)' }}>
@@ -74,8 +81,8 @@ export function ItemStatsInline({ stats }: { stats: Partial<Stats> | null | unde
 }
 
 // 블록형 스탯 표시 (여러 줄)
-export function ItemStatsBlock({ stats }: { stats: Partial<Stats> | null | undefined }) {
-  const lines = formatStats(stats);
+export function ItemStatsBlock({ stats, enhanceLevel = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number }) {
+  const lines = formatStats(stats, enhanceLevel);
   if (lines.length === 0) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: 'var(--success)' }}>

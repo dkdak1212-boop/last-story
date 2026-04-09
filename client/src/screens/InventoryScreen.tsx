@@ -323,12 +323,14 @@ export function InventoryScreen() {
                 </div>
               )}
               <div style={{ marginTop: 6 }}>
-                <ItemStatsBlock stats={s.item.stats} />
+                <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
                 <PrefixDisplay prefixStats={s.prefixStats} />
                 {isEquipment && (
                   <ItemComparison
                     itemStats={s.item.stats}
                     equippedStats={equipped[s.item.slot!]?.stats}
+                    itemEnhance={s.enhanceLevel || 0}
+                    equippedEnhance={equipped[s.item.slot!]?.enhanceLevel || 0}
                   />
                 )}
               </div>
@@ -468,7 +470,7 @@ function EquipSlotCard({ slot, item, label, charLevel, onUnequip, onToggleLock }
               <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{item.enhanceLevel}</span>
             )}
           </div>
-          <ItemStatsBlock stats={item.stats} />
+          <ItemStatsBlock stats={item.stats} enhanceLevel={item.enhanceLevel || 0} />
           <PrefixDisplay prefixStats={item.prefixStats} />
           {levelTooLow && (
             <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 700, marginTop: 4 }}>

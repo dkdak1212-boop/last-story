@@ -1,19 +1,23 @@
 import type { Stats } from '../../types';
-import { STAT_LABEL } from './ItemStats';
+import { STAT_LABEL, getEnhanceMult } from './ItemStats';
 
 const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
 interface Props {
   itemStats: Partial<Stats> | null | undefined;
   equippedStats: Partial<Stats> | null | undefined;
+  itemEnhance?: number;
+  equippedEnhance?: number;
 }
 
-export function ItemComparison({ itemStats, equippedStats }: Props) {
+export function ItemComparison({ itemStats, equippedStats, itemEnhance = 0, equippedEnhance = 0 }: Props) {
   const diffs: { key: keyof Stats; diff: number }[] = [];
+  const multA = getEnhanceMult(itemEnhance);
+  const multB = getEnhanceMult(equippedEnhance);
 
   for (const k of STAT_ORDER) {
-    const a = (itemStats as Record<string, number> | null)?.[k] ?? 0;
-    const b = (equippedStats as Record<string, number> | null)?.[k] ?? 0;
+    const a = Math.round(((itemStats as Record<string, number> | null)?.[k] ?? 0) * multA);
+    const b = Math.round(((equippedStats as Record<string, number> | null)?.[k] ?? 0) * multB);
     const diff = a - b;
     if (diff !== 0) diffs.push({ key: k, diff });
   }
