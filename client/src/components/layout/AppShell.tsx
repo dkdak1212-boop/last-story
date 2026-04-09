@@ -92,14 +92,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               style={{ imageRendering: 'pixelated', flexShrink: 0 }} />
           ))}
         </div>
-        <Link to="/village" className="app-title" style={{
+        <span onClick={() => window.location.reload()} className="app-title" style={{
           fontSize: 26, fontWeight: 900, color: 'var(--accent)',
           fontFamily: '"Georgia", "Palatino", serif',
           letterSpacing: 3, textShadow: '0 2px 8px rgba(0,0,0,0.6), 0 0 20px rgba(201,162,77,0.3)',
-          textDecoration: 'none', position: 'relative', zIndex: 1,
+          cursor: 'pointer', position: 'relative', zIndex: 1,
         }}>
           The Last Story
-        </Link>
+        </span>
         {active && (
           <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>{active.name}</span>
