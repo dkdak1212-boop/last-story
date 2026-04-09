@@ -39,6 +39,11 @@ export function CombatScreen() {
     socket.on(`combat:${active.id}`, (snapshot: CombatSnapshot) => {
       if (snapshot.monster) prevMonsterHp.current = snapshot.monster.hp;
 
+      // 로그 리셋 감지 (새 몬스터 스폰 시 로그가 짧아짐)
+      if (snapshot.log.length < prevLogLen.current) {
+        prevLogLen.current = 0;
+      }
+
       // 새 로그 파싱 → 데미지 팝업 + 스킬 이펙트
       if (prevLogLen.current > 0 && snapshot.log.length > prevLogLen.current) {
         const newLines = snapshot.log.slice(prevLogLen.current);
