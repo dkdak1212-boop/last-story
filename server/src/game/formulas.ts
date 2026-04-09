@@ -64,7 +64,7 @@ export function computeEffective(
   const maxHp = baseMaxHp + equipVit * 10 + (equipBonus.bonusHp ?? 0);
 
   const atk = str * 1.0 + (equipBonus.bonusAtk ?? 0);
-  const matk = intl * 1.2 + (equipBonus.bonusMatk ?? 0);
+  const matk = intl * 1.5 + (equipBonus.bonusMatk ?? 0); // 1.2 → 1.5 마법사 강화
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
   const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);
   // 회피: DEX 계수 하향 + 상한 30%

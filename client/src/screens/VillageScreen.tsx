@@ -322,9 +322,9 @@ export function VillageScreen() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 14 }}>
               {[
                 { c: 'warrior', n: '전사', d: '힘15 체14 속300 — 물리 딜러, 흡혈 참격으로 생존' },
-                { c: 'mage', n: '마법사', d: '지16 치6% 속250 — 원소 파괴, 게이지 제어' },
-                { c: 'cleric', n: '성직자', d: '지14 체12 속200 — 힐/실드 + 심판 공격' },
-                { c: 'rogue', n: '도적', d: '민14 치12% 속400 — 독/연쇄, 최고 속도' },
+                { c: 'mage', n: '마법사', d: '지16 체10 속300 — 원소 파괴, 게이지 제어, 높은 마법배율' },
+                { c: 'cleric', n: '성직자', d: '지14 체12 속250 — 힐/실드 + 심판 공격' },
+                { c: 'rogue', n: '도적', d: '민14 치8% 속350 — 독/연쇄, 빠른 속도' },
               ].map(cl => (
                 <div key={cl.c} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: 6, background: 'var(--bg)', borderRadius: 4 }}>
                   <Px src={`/images/classes/${cl.c}.png`} size={24} />

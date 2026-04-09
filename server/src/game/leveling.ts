@@ -18,9 +18,9 @@ export function expToNext(level: number): number {
 // 밸런스 v3: 치명타 성장 극소화, 나머지 유지
 export const CLASS_GROWTH: Record<string, { str: number; dex: number; int: number; vit: number; spd: number; cri: number }> = {
   warrior: { str: 2, dex: 0.5, int: 0, vit: 1.5, spd: 2, cri: 0.1 },
-  mage:    { str: 0, dex: 0.5, int: 2, vit: 0.5, spd: 1.5, cri: 0.1 },
-  cleric:  { str: 0.5, dex: 0.5, int: 1.5, vit: 1, spd: 1, cri: 0.1 },
-  rogue:   { str: 1, dex: 1.5, int: 0, vit: 0.5, spd: 3, cri: 0.2 },
+  mage:    { str: 0, dex: 0.5, int: 2, vit: 0.8, spd: 2, cri: 0.1 },     // vit 0.5→0.8, spd 1.5→2
+  cleric:  { str: 0.5, dex: 0.5, int: 1.5, vit: 1.2, spd: 1.5, cri: 0.1 }, // vit 1→1.2, spd 1→1.5
+  rogue:   { str: 1, dex: 1.5, int: 0, vit: 0.5, spd: 2.5, cri: 0.15 },   // spd 3→2.5, cri 0.2→0.15
 };
 
 export interface LevelUpResult {
