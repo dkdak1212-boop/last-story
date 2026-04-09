@@ -16,9 +16,10 @@ interface PremiumItem {
 }
 
 const ITEMS: PremiumItem[] = [
-  { code: 'inv_slots_10', name: '인벤토리 +10 슬롯', description: '영구히 인벤토리가 10칸 늘어납니다.', priceKrw: 0, requireCharacter: true },
-  { code: 'offline_100_7d', name: '오프라인 효율 100% (7일)', description: '7일간 오프라인 보상 효율이 100%가 됩니다.', priceKrw: 0 },
-  { code: 'exp_boost_3d', name: '경험치 부스터 +50% (3일)', description: '3일간 획득 경험치가 50% 증가합니다.', priceKrw: 0, requireCharacter: true },
+  { code: 'exp_boost_3d', name: '경험치 부스터 +50% (3일)', description: '3일간 사냥 경험치가 50% 증가합니다.', priceKrw: 0, requireCharacter: true },
+  { code: 'gold_boost_3d', name: '골드 부스터 +50% (3일)', description: '3일간 사냥 골드가 50% 증가합니다.', priceKrw: 0, requireCharacter: true },
+  { code: 'drop_boost_3d', name: '드롭률 부스터 +30% (3일)', description: '3일간 장비 드롭 확률이 30% 증가합니다.', priceKrw: 0, requireCharacter: true },
+  { code: 'enhance_scroll_5', name: '강화 성공률 스크롤 ×5', description: '강화 시 성공 확률 +10% 스크롤 5개를 지급합니다.', priceKrw: 0, requireCharacter: true },
 ];
 
 router.get('/shop', async (_req, res) => {
@@ -42,35 +43,33 @@ router.post('/purchase', async (req: AuthedRequest, res: Response) => {
     if (!char) return res.status(404).json({ error: 'character not found' });
   }
 
-  // 계정당 1회 구매 제한
-  const already = await query(
-    'SELECT 1 FROM premium_purchases WHERE user_id = $1 AND item_code = $2',
-    [req.userId, code]
-  );
-  if (already.rowCount && already.rowCount > 0) {
-    return res.status(400).json({ error: '이미 구매한 상품입니다.' });
-  }
-
   // 효과 적용
   switch (code) {
-    case 'inv_slots_10':
-      await query(`UPDATE characters SET inventory_slots_bonus = inventory_slots_bonus + 10 WHERE id = $1`, [characterId]);
-      break;
-    case 'offline_100_7d':
-      await query(
-        `UPDATE users SET premium_until = GREATEST(COALESCE(premium_until, NOW()), NOW()) + INTERVAL '7 days' WHERE id = $1`,
-        [req.userId]
-      );
-      break;
-    case 'char_slot':
-      await query(`UPDATE users SET max_character_slots = max_character_slots + 1 WHERE id = $1`, [req.userId]);
-      break;
     case 'exp_boost_3d':
       await query(
         `UPDATE characters SET exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '3 days' WHERE id = $1`,
         [characterId]
       );
       break;
+    case 'gold_boost_3d':
+      await query(
+        `UPDATE characters SET gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '3 days' WHERE id = $1`,
+        [characterId]
+      );
+      break;
+    case 'drop_boost_3d':
+      await query(
+        `UPDATE characters SET drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 days' WHERE id = $1`,
+        [characterId]
+      );
+      break;
+    case 'enhance_scroll_5': {
+      const { addItemToInventoryPlain } = await import('../game/inventory.js');
+      await addItemToInventoryPlain(characterId!, 286, 5);
+      break;
+    }
+    default:
+      return res.status(400).json({ error: 'unknown item' });
   }
 
   await query(
@@ -89,14 +88,15 @@ router.get('/status/:characterId', async (req: AuthedRequest, res: Response) => 
   const u = await query<{ premium_until: string | null; max_character_slots: number }>(
     `SELECT premium_until, max_character_slots FROM users WHERE id = $1`, [req.userId]
   );
-  const c = await query<{ inventory_slots_bonus: number; exp_boost_until: string | null }>(
-    `SELECT inventory_slots_bonus, exp_boost_until FROM characters WHERE id = $1`, [cid]
+  const c = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
+    `SELECT exp_boost_until, COALESCE(gold_boost_until, NULL) AS gold_boost_until, COALESCE(drop_boost_until, NULL) AS drop_boost_until FROM characters WHERE id = $1`, [cid]
   );
   res.json({
     premiumUntil: u.rows[0].premium_until,
     maxCharacterSlots: u.rows[0].max_character_slots,
-    inventorySlotsBonus: c.rows[0].inventory_slots_bonus,
     expBoostUntil: c.rows[0].exp_boost_until,
+    goldBoostUntil: c.rows[0].gold_boost_until,
+    dropBoostUntil: c.rows[0].drop_boost_until,
   });
 });
 

@@ -758,10 +758,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const m = mr.rows[0];
   if (!m) return;
 
-  // 접두사: 황금(gold_bonus_pct), 경험(exp_bonus_pct)
+  // 접두사 + 프리미엄 부스터
+  const charBoost = await query<{ gold_boost_until: string | null; drop_boost_until: string | null }>(
+    'SELECT gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [s.characterId]
+  );
   const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
   const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100));
+  const goldBoostActive = charBoost.rows[0]?.gold_boost_until && new Date(charBoost.rows[0].gold_boost_until) > new Date();
+  const dropBoostActive = charBoost.rows[0]?.drop_boost_until && new Date(charBoost.rows[0].drop_boost_until) > new Date();
+  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (goldBoostActive ? 1.5 : 1.0));
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
 
@@ -808,7 +813,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   await trackMonsterKill(s.characterId, s.monsterId!);
 
-  const drops = rollDrops(m);
+  let drops = rollDrops(m);
+  // 드롭 부스터: +30% 추가 드롭 (기존 드롭 외 추가 판정)
+  if (dropBoostActive) {
+    const extraDrops = rollDrops(m); // 한 번 더 굴림
+    for (const ed of extraDrops) {
+      if (Math.random() < 0.3) drops.push(ed); // 30% 확률로 추가
+    }
+  }
   // 자동분해 설정 체크
   const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
     'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
