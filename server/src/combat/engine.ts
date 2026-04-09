@@ -313,10 +313,10 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
   if (total > 0) {
     if (target === 'monster') {
       s.monsterHp -= total;
-      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩)`);
+      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩, 방어무시)`);
     } else {
       s.playerHp -= total;
-      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩)`);
+      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩, 방어무시)`);
     }
   }
 }
@@ -371,7 +371,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
         }
         s.monsterHp -= dmg;
-        addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+        if (d.crit) {
+          const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
+        } else {
+          addLog(s, `[${skill.name}] ${dmg} 데미지`);
+        }
 
         // 접두사: 흡혈귀(lifesteal_pct)
         const prefixLifesteal = s.equipPrefixes.lifesteal_pct || 0;
@@ -397,7 +402,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
           const bleedDmg = Math.round(s.playerStats.atk * 0.5);
           addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
-          addLog(s, `출혈 발동!`);
+          addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어무시)`);
         }
 
         if (skill.effect_type === 'lifesteal') {
@@ -471,7 +476,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dotDmg = Math.round(s.playerStats.atk * 1.0);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
-        addLog(s, `[${skill.name}] 도트 ${skill.effect_duration + stormExt}행동`);
+        addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어무시)`);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
@@ -486,10 +491,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       }
       const dotDmg = Math.round(s.playerStats.atk * 0.8);
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
+      addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어무시)`);
       // 스피드 감소
       if (skill.effect_value > 0) {
         addEffect(s, { type: 'speed_mod', value: -skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
-        addLog(s, `[${skill.name}] 독 + 스피드 감소`);
+        addLog(s, `[${skill.name}] 스피드 ${skill.effect_value}% 감소`);
       }
       break;
     }
@@ -779,7 +785,8 @@ function monsterAction(s: ActiveSession): void {
 
     if (dmg > 0) {
       s.playerHp -= dmg;
-      addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+      const defUsed = Math.round(playerDefStats.def);
+      addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? '!' : ''} (방어 ${defUsed})`);
     }
 
     // 반사 (패시브: reflect_amp)

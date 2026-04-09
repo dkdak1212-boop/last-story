@@ -232,12 +232,24 @@ export function CombatScreen() {
       {/* Combat log (상단 배치) */}
       <div style={{
         padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)',
-        height: 140, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12, marginBottom: 12,
+        height: 200, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12, marginBottom: 12,
         display: 'flex', flexDirection: 'column-reverse',
       }}>
-        {[...state.log].reverse().map((line, i) => (
-          <div key={i} style={{ color: 'var(--text-dim)', marginBottom: 2 }}>{line}</div>
-        ))}
+        {[...state.log].reverse().map((line, i) => {
+          const isCrit = line.includes('치명타') || /\d+!/.test(line);
+          const isDot = line.includes('[도트]');
+          const isHeal = line.includes('HP +') || line.includes('회복') || line.includes('흡혈');
+          const isPlayerHit = line.includes('데미지를 받았다') || line.includes('피해');
+          const isMiss = line.includes('빗나감');
+          const isBuff = line.includes('무적') || line.includes('실드') || line.includes('스턴') || line.includes('동결') || line.includes('부활') || line.includes('게이지');
+          const isKill = line.includes('처치') || line.includes('나타났다');
+          const isDeath = line.includes('사망');
+          const color = isDeath ? '#ff2222' : isCrit ? '#ff6644' : isDot ? '#bb88ff' : isHeal ? '#66dd66' : isPlayerHit ? '#ff8888' : isMiss ? '#666' : isBuff ? '#66ccff' : isKill ? '#ffd700' : 'var(--text-dim)';
+          const weight = isCrit || isKill || isDeath ? 700 : 400;
+          return (
+            <div key={i} style={{ color, fontWeight: weight, marginBottom: 3, lineHeight: 1.5, fontSize: isCrit ? 13 : 12 }}>{line}</div>
+          );
+        })}
       </div>
 
       {/* Combat grid */}
