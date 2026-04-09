@@ -20,7 +20,7 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
     `SELECT id, name, class_name AS "className", level, exp, gold,
             hp, max_hp AS "maxHp", node_points AS "nodePoints",
             stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
-            user_id AS "userId", potion_settings AS "potionSettings"
+            user_id AS "userId", potion_settings AS "potionSettings", title
      FROM characters WHERE user_id = $1 ORDER BY id`,
     [req.userId]
   );
@@ -34,7 +34,7 @@ router.get('/:id', async (req: AuthedRequest, res: Response) => {
     `SELECT id, name, class_name AS "className", level, exp, gold,
             hp, max_hp AS "maxHp", node_points AS "nodePoints",
             stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
-            user_id AS "userId", potion_settings AS "potionSettings"
+            user_id AS "userId", potion_settings AS "potionSettings", title
      FROM characters WHERE id = $1 AND user_id = $2`,
     [id, req.userId]
   );

@@ -42,6 +42,9 @@ const EnhanceScreen = lazyRetry(() => import('./screens/EnhanceScreen').then((m)
 const CraftScreen = lazyRetry(() => import('./screens/CraftScreen').then((m) => ({ default: m.CraftScreen })));
 const WorldEventScreen = lazyRetry(() => import('./screens/WorldEventScreen').then((m) => ({ default: m.WorldEventScreen })));
 
+const DailyQuestScreen = lazyRetry(() => import('./screens/DailyQuestScreen').then((m) => ({ default: m.DailyQuestScreen })));
+const AchievementScreen = lazyRetry(() => import('./screens/AchievementScreen').then((m) => ({ default: m.AchievementScreen })));
+
 // 에러 바운더리: 렌더 에러 시 검은화면 대신 복구 UI
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -99,6 +102,8 @@ export default function App() {
                       <Route path="/pvp" element={<PvPScreen />} />
                       <Route path="/premium" element={<PremiumShopScreen />} />
                       <Route path="/announcements" element={<AnnouncementScreen />} />
+                      <Route path="/daily-quests" element={<DailyQuestScreen />} />
+                      <Route path="/achievements" element={<AchievementScreen />} />
                       <Route path="/feedback" element={<FeedbackScreen />} />
                       <Route path="/admin" element={<AdminScreen />} />
                       <Route path="/status" element={<StatusScreen />} />

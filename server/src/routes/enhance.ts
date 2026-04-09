@@ -192,6 +192,15 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, char.name, itemName, itemGrade, currentLevel, currentLevel + 1]
       );
     }
+    // 일일퀘 + 업적 트래킹
+    try {
+      const { trackDailyQuestProgress } = await import('./dailyQuests.js');
+      await trackDailyQuestProgress(cid, 'enhance', 1);
+      const newLv = currentLevel + 1;
+      await query('UPDATE characters SET max_enhance_level = GREATEST(max_enhance_level, $1) WHERE id = $2', [newLv, cid]);
+      const { checkAndUnlockAchievements } = await import('../game/achievements.js');
+      await checkAndUnlockAchievements(cid);
+    } catch {}
     res.json({
       success: true, destroyed: false, cost: info.cost, chance: finalChance,
       destroyRate: info.destroyRate, newLevel: currentLevel + 1,

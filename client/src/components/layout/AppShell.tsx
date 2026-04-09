@@ -21,6 +21,8 @@ const NAV = [
   { to: '/enhance', label: '강화' },
   { to: '/craft', label: '제작' },
   { to: '/quests', label: '퀘스트' },
+  { to: '/daily-quests', label: '일일임무' },
+  { to: '/achievements', label: '업적' },
   { to: '/marketplace', label: '경매소' },
   { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },
@@ -101,7 +103,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </span>
         {active && (
           <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>{active.name}</span>
+            <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>
+              {(active as any).title && <span style={{ color: '#ffd700', fontSize: 11, marginRight: 4 }}>[{(active as any).title}]</span>}
+              {active.name}
+            </span>
             <span style={{ color: 'var(--text-dim)' }}>Lv.{active.level}</span>
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>

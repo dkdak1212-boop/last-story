@@ -6,6 +6,8 @@ import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/chara
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
 import { trackMonsterKill } from '../routes/quests.js';
+import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
+import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 // StatusEffect and CombatSnapshot types defined locally to avoid import path issues
 
@@ -334,6 +336,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     const cd = Math.max(1, skill.cooldown_actions - Math.floor(cdReduce / 25)); // 25%마다 1턴 감소
     s.skillCooldowns.set(skill.id, cd);
   }
+
+  // 일일퀘 스킬 사용 트래킹
+  try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
 
   // 패시브: spell_amp (마법 공격 증폭), armor_pierce (방어 무시)
   const spellAmp = useMatk ? getPassive(s, 'spell_amp') : 0;
@@ -824,6 +829,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (goldBoostActive ? 1.5 : 1.0));
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
+
+  // 일일퀘 + 업적 트래킹
+  try {
+    await trackDailyQuestProgress(s.characterId, 'kill_monsters', 1);
+    await trackDailyQuestProgress(s.characterId, 'earn_gold', finalGold);
+    await query('UPDATE characters SET total_kills = total_kills + 1, total_gold_earned = total_gold_earned + $1 WHERE id = $2', [finalGold, s.characterId]);
+    await checkAndUnlockAchievements(s.characterId);
+  } catch {}
 
   const char = await loadCharacter(s.characterId);
   if (!char) return;
