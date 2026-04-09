@@ -82,7 +82,7 @@ export function CombatScreen() {
             if (fxMatch) {
               const fx = SKILL_EFFECTS[fxMatch[1]];
               if (fx) {
-                setSkillFlash({ icon: fx.icon, color: fx.glow });
+                setSkillFlash({ icon: getSkillIcon(fxMatch[1]) || fx.icon, color: fx.glow });
                 setTimeout(() => setSkillFlash(null), 600);
               }
             }
@@ -332,7 +332,10 @@ export function CombatScreen() {
                       fontSize: 48, pointerEvents: 'none',
                       filter: `drop-shadow(0 0 12px ${skillFlash.color})`,
                     }}
-                  >{skillFlash.icon}</motion.div>
+                  >{skillFlash.icon.startsWith('/') ? (
+                    <img src={skillFlash.icon} alt="" width={48} height={48} style={{ imageRendering: 'pixelated' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : skillFlash.icon}</motion.div>
                 )}
               </AnimatePresence>
             </>
@@ -484,75 +487,47 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
 }
 
 // 스킬별 이펙트 매핑 (아이콘 + 색상)
-const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string }> = {
-  // 전사
-  '강타':         { icon: '⚔', color: '#e04040', glow: '#ff4444' },
-  '분노의 일격':   { icon: '💢', color: '#ff2020', glow: '#ff0000' },
-  '철벽':         { icon: '🛡', color: '#4488cc', glow: '#4488ff' },
-  '흡혈 참격':     { icon: '🩸', color: '#cc2244', glow: '#ff2266' },
-  '반격의 의지':   { icon: '↩', color: '#ff8800', glow: '#ffaa00' },
-  '무쌍난무':      { icon: '⚡', color: '#ff4400', glow: '#ff6600' },
-  '불굴':         { icon: '✦', color: '#ffcc00', glow: '#ffee00' },
-  // 마법사
-  '화염구':       { icon: '🔥', color: '#ff6600', glow: '#ff8800' },
-  '냉기 창':      { icon: '❄', color: '#44bbff', glow: '#66ddff' },
-  '게이지 폭발':   { icon: '💥', color: '#ff44ff', glow: '#ff66ff' },
-  '번개 사슬':     { icon: '⚡', color: '#ffee00', glow: '#ffff44' },
-  '빙결 감옥':     { icon: '🧊', color: '#00ccff', glow: '#44eeff' },
-  '유성 낙하':     { icon: '☄', color: '#ff4400', glow: '#ff6622' },
-  '마력 과부하':   { icon: '🌀', color: '#aa44ff', glow: '#cc66ff' },
-  // 성직자
-  '신성 방벽':     { icon: '✝', color: '#ffdd44', glow: '#ffee66' },
-  '심판의 철퇴':   { icon: '🔨', color: '#ffffff', glow: '#ffffaa' },
-  '치유의 빛':     { icon: '💚', color: '#44dd44', glow: '#66ff66' },
-  '신성 화염':     { icon: '🕯', color: '#ffcc00', glow: '#ffdd44' },
-  '신의 가호':     { icon: '🌟', color: '#ffee88', glow: '#ffffaa' },
-  '천벌':         { icon: '⚡', color: '#ffffff', glow: '#ffffcc' },
-  '부활의 기적':   { icon: '♱', color: '#44ff88', glow: '#66ffaa' },
-  // 도적
-  '급소 찌르기':   { icon: '🗡', color: '#cc44cc', glow: '#ee66ee' },
-  '독 투척':       { icon: '☠', color: '#44cc44', glow: '#66ee44' },
-  '백스텝':       { icon: '💨', color: '#88ccff', glow: '#aaeeff' },
-  '연막탄':       { icon: '🌫', color: '#888888', glow: '#aaaaaa' },
-  '맹독 강화':     { icon: '☣', color: '#22cc22', glow: '#44ff22' },
-  '그림자 연격':   { icon: '🌑', color: '#8844aa', glow: '#aa66cc' },
-  '사신의 낫':     { icon: '💀', color: '#aa00aa', glow: '#cc22cc' },
-  // 추가 스킬
-  '대지 분쇄':     { icon: '🌍', color: '#cc6600', glow: '#ee8800' },
-  '전쟁의 함성':   { icon: '📯', color: '#ff4444', glow: '#ff6666' },
-  '참수':          { icon: '🪓', color: '#dd0000', glow: '#ff2222' },
-  '최후의 일격':   { icon: '💥', color: '#ff0000', glow: '#ff4400' },
-  '연쇄 번개':     { icon: '⚡', color: '#ffdd00', glow: '#ffee44' },
-  '절대 영도':     { icon: '🧊', color: '#00aaff', glow: '#44ccff' },
-  '운석 폭격':     { icon: '☄', color: '#ff2200', glow: '#ff4422' },
-  '차원 붕괴':     { icon: '🌀', color: '#8800ff', glow: '#aa22ff' },
-  '신성 타격':     { icon: '✨', color: '#ffdd00', glow: '#ffee44' },
-  '정화의 빛':     { icon: '💛', color: '#44ff44', glow: '#88ff88' },
-  '신성 폭발':     { icon: '💫', color: '#ffaa00', glow: '#ffcc44' },
-  '천상의 방벽':   { icon: '🛡', color: '#44ddff', glow: '#88eeff' },
-  '심판의 날':     { icon: '⚡', color: '#ffff00', glow: '#ffff88' },
-  '암살':          { icon: '🗡', color: '#ff0044', glow: '#ff2266' },
-  '독안개':        { icon: '🌫', color: '#44aa44', glow: '#66cc66' },
-  '그림자 폭풍':   { icon: '🌑', color: '#6622aa', glow: '#8844cc' },
-  '사신의 포옹':   { icon: '💀', color: '#cc0088', glow: '#ee22aa' },
-  // 신규 Lv.60~75
-  '전장의 포효':   { icon: '📯', color: '#ff6644', glow: '#ff8866' },
-  '갑옷 분쇄':     { icon: '🔨', color: '#cc6600', glow: '#ee8822' },
-  '지옥의 칼날':   { icon: '🔥', color: '#ff2200', glow: '#ff4422' },
-  '대지의 심판':   { icon: '⚡', color: '#ff4400', glow: '#ff6622' },
-  '마력 집중':     { icon: '🌀', color: '#8866ff', glow: '#aa88ff' },
-  '시간 왜곡':     { icon: '🕐', color: '#44aaff', glow: '#66ccff' },
-  '태양의 불꽃':   { icon: '☀', color: '#ffaa00', glow: '#ffcc44' },
-  '별의 종말':     { icon: '🌟', color: '#cc44ff', glow: '#ee66ff' },
-  '신의 축복':     { icon: '✝', color: '#ffee44', glow: '#ffff88' },
-  '신성 사슬':     { icon: '⛓', color: '#ffcc00', glow: '#ffee44' },
-  '빛의 심판':     { icon: '💫', color: '#ffffff', glow: '#ffffcc' },
-  '천상의 낙인':   { icon: '🔱', color: '#ffdd44', glow: '#ffee88' },
-  '그림자 은신':   { icon: '💨', color: '#6644aa', glow: '#8866cc' },
-  '맹독의 안개':   { icon: '☣', color: '#44aa22', glow: '#66cc44' },
-  '심장 관통':     { icon: '🗡', color: '#ff2266', glow: '#ff4488' },
-  '죽음의 무도':   { icon: '💀', color: '#aa22cc', glow: '#cc44ee' },
+// 스킬명 → { 클래스, 레벨 } 매핑 (아이콘 경로 생성용)
+const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
+  '강타': { cls: 'warrior', lv: 1 }, '분노의 일격': { cls: 'warrior', lv: 5 }, '철벽': { cls: 'warrior', lv: 10 },
+  '흡혈 참격': { cls: 'warrior', lv: 15 }, '반격의 의지': { cls: 'warrior', lv: 20 }, '무쌍난무': { cls: 'warrior', lv: 25 },
+  '불굴': { cls: 'warrior', lv: 30 }, '대지 분쇄': { cls: 'warrior', lv: 35 }, '전쟁의 함성': { cls: 'warrior', lv: 40 },
+  '참수': { cls: 'warrior', lv: 45 }, '최후의 일격': { cls: 'warrior', lv: 50 }, '전장의 포효': { cls: 'warrior', lv: 60 },
+  '갑옷 분쇄': { cls: 'warrior', lv: 65 }, '지옥의 칼날': { cls: 'warrior', lv: 70 }, '대지의 심판': { cls: 'warrior', lv: 75 },
+  '화염구': { cls: 'mage', lv: 1 }, '냉기 창': { cls: 'mage', lv: 5 }, '게이지 폭발': { cls: 'mage', lv: 10 },
+  '번개 사슬': { cls: 'mage', lv: 15 }, '빙결 감옥': { cls: 'mage', lv: 20 }, '유성 낙하': { cls: 'mage', lv: 25 },
+  '마력 과부하': { cls: 'mage', lv: 30 }, '연쇄 번개': { cls: 'mage', lv: 35 }, '절대 영도': { cls: 'mage', lv: 40 },
+  '운석 폭격': { cls: 'mage', lv: 45 }, '차원 붕괴': { cls: 'mage', lv: 50 }, '마력 집중': { cls: 'mage', lv: 60 },
+  '시간 왜곡': { cls: 'mage', lv: 65 }, '태양의 불꽃': { cls: 'mage', lv: 70 }, '별의 종말': { cls: 'mage', lv: 75 },
+  '신성 타격': { cls: 'cleric', lv: 1 }, '신성 방벽': { cls: 'cleric', lv: 5 }, '심판의 철퇴': { cls: 'cleric', lv: 10 },
+  '치유의 빛': { cls: 'cleric', lv: 15 }, '신성 화염': { cls: 'cleric', lv: 20 }, '신의 가호': { cls: 'cleric', lv: 25 },
+  '천벌': { cls: 'cleric', lv: 30 }, '부활의 기적': { cls: 'cleric', lv: 35 }, '정화의 빛': { cls: 'cleric', lv: 40 },
+  '신성 폭발': { cls: 'cleric', lv: 45 }, '천상의 방벽': { cls: 'cleric', lv: 50 }, '심판의 날': { cls: 'cleric', lv: 55 },
+  '신의 축복': { cls: 'cleric', lv: 60 }, '신성 사슬': { cls: 'cleric', lv: 65 }, '빛의 심판': { cls: 'cleric', lv: 70 },
+  '천상의 낙인': { cls: 'cleric', lv: 75 },
+  '급소 찌르기': { cls: 'rogue', lv: 1 }, '독 투척': { cls: 'rogue', lv: 5 }, '백스텝': { cls: 'rogue', lv: 10 },
+  '연막탄': { cls: 'rogue', lv: 15 }, '맹독 강화': { cls: 'rogue', lv: 20 }, '그림자 연격': { cls: 'rogue', lv: 25 },
+  '사신의 낫': { cls: 'rogue', lv: 30 }, '암살': { cls: 'rogue', lv: 35 }, '독안개': { cls: 'rogue', lv: 40 },
+  '그림자 폭풍': { cls: 'rogue', lv: 45 }, '사신의 포옹': { cls: 'rogue', lv: 50 }, '그림자 은신': { cls: 'rogue', lv: 60 },
+  '맹독의 안개': { cls: 'rogue', lv: 65 }, '심장 관통': { cls: 'rogue', lv: 70 }, '죽음의 무도': { cls: 'rogue', lv: 75 },
 };
+function getSkillIcon(name: string): string {
+  const m = SKILL_CLASS_MAP[name];
+  return m ? `/images/skills/${m.cls}_${m.lv}.png` : '';
+}
+
+const SKILL_COLORS: Record<string, { color: string; glow: string }> = {
+  warrior: { color: '#e04040', glow: '#ff4444' },
+  mage: { color: '#6688ff', glow: '#88aaff' },
+  cleric: { color: '#ffcc44', glow: '#ffee66' },
+  rogue: { color: '#aa66cc', glow: '#cc88ee' },
+};
+
+const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string }> = {};
+for (const [name, { cls }] of Object.entries(SKILL_CLASS_MAP)) {
+  const c = SKILL_COLORS[cls] || { color: 'var(--accent)', glow: 'var(--accent)' };
+  SKILL_EFFECTS[name] = { icon: '', color: c.color, glow: c.glow };
+}
 
 // 스킬 설명 (툴팁용)
 const SKILL_DESCRIPTIONS: Record<string, string> = {
@@ -686,8 +661,13 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
                 boxShadow: usable ? `0 0 12px ${fx.glow}88, inset 0 0 8px ${fx.glow}44` : 'none',
               }}
             >
-              <div style={{ fontSize: 18, lineHeight: 1, marginBottom: 4 }}>
-                {fx.icon}
+              <div style={{ lineHeight: 1, marginBottom: 4, display: 'flex', justifyContent: 'center' }}>
+                {getSkillIcon(sk.name) ? (
+                  <img src={getSkillIcon(sk.name)} alt="" width={32} height={32}
+                    style={{ imageRendering: 'pixelated' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                ) : <span style={{ fontSize: 18 }}>⚔</span>}
               </div>
               <div style={{
                 fontSize: 12, fontWeight: 700, marginBottom: isBasic ? 0 : 3,
