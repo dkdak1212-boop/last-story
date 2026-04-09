@@ -112,7 +112,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 color: '#ff6b6b', fontWeight: 700, fontSize: 13,
                 animation: 'blink-status 1s ease-in-out infinite',
               }}>
-                사냥 중
+                사냥 중 — {(active as any).fieldName || ''}
               </span>
             ) : (
               <span style={{

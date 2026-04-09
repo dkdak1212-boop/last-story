@@ -59,6 +59,13 @@ router.get('/:id', async (req: AuthedRequest, res: Response) => {
       spd: eff.spd,
       cri: eff.cri,
     };
+    // 사냥터 이름 추가
+    const loc = char.location;
+    if (loc?.startsWith('field:')) {
+      const fieldId = Number(loc.split(':')[1]);
+      const fr = await query<{ name: string }>('SELECT name FROM fields WHERE id = $1', [fieldId]);
+      if (fr.rows[0]) row.fieldName = fr.rows[0].name;
+    }
   }
   res.json(r.rows[0]);
 });
