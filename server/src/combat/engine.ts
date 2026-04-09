@@ -910,15 +910,17 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
-  // 부활 체크 (패시브: resurrect_amp 회복량 증가)
+  // 부활 체크 (전투당 1회, 패시브: resurrect_amp 회복량 증가)
   const resurrect = s.statusEffects.find(e => e.type === 'resurrect' && e.source === 'monster');
-  if (resurrect) {
+  const alreadyResurrected = s.statusEffects.some(e => e.type === 'resurrect' && e.id === 'resurrect_used');
+  if (resurrect && !alreadyResurrected) {
     let healPct = resurrect.value;
     const resAmp = getPassive(s, 'resurrect_amp');
     if (resAmp > 0) healPct = Math.min(100, healPct + resAmp);
     s.playerHp = Math.round(s.playerMaxHp * healPct / 100);
-    s.statusEffects = s.statusEffects.filter(e => e !== resurrect);
-    addLog(s, `부활의 기적! HP ${s.playerHp} 회복!`);
+    s.statusEffects = s.statusEffects.filter(e => e.type !== 'resurrect');
+    s.statusEffects.push({ id: 'resurrect_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+    addLog(s, `부활의 기적! HP ${s.playerHp} 회복! (전투당 1회)`);
     return;
   }
 
