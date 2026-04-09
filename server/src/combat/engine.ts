@@ -656,13 +656,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 async function autoAction(s: ActiveSession): Promise<void> {
   // 1. HP 임계값 이하 → 포션
   if (s.autoPotionEnabled && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
-    const potionHeals: Record<number, number> = { 106: 800, 104: 300, 102: 150, 100: 50 };
+    const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
     const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
     if (pot) {
-      const heal = potionHeals[pot.item_id] || 50;
+      const pct = potionHealPct[pot.item_id] || 20;
+      const heal = Math.round(s.playerMaxHp * pct / 100);
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       await consumeOneFromSlot(pot.id);
-      addLog(s, `체력 물약 사용 — HP +${heal}`);
+      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%)`);
       return;
     }
     // 성직자 치유
