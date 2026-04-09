@@ -124,12 +124,13 @@ let combatInterval: ReturnType<typeof setInterval> | null = null;
 
 function monsterToEffective(m: MonsterDef): EffectiveStats {
   const s = m.stats;
+  const mult = m.level >= 30 ? 3 : 1;
   return {
     str: s.str, dex: s.dex, int: s.int, vit: s.vit, spd: s.spd, cri: s.cri,
-    maxHp: m.max_hp,
-    atk: s.str * 1.0,
+    maxHp: m.max_hp * mult,
+    atk: s.str * 1.0 * mult,
     matk: s.int * 1.2,
-    def: s.vit * 0.8,
+    def: s.vit * 0.8 * mult,
     mdef: s.int * 0.5,
     dodge: s.dex * 0.4,
     accuracy: 80 + s.dex * 0.5,
@@ -897,8 +898,9 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterId = m.id;
   s.monsterName = m.name;
   s.monsterLevel = m.level;
-  s.monsterHp = m.max_hp;
-  s.monsterMaxHp = m.max_hp;
+  const hpMult = m.level >= 30 ? 3 : 1;
+  s.monsterHp = m.max_hp * hpMult;
+  s.monsterMaxHp = m.max_hp * hpMult;
   s.monsterStats = monsterToEffective(m);
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;

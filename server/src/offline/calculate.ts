@@ -85,7 +85,7 @@ export async function generateAndApplyOfflineReport(
   const skills = skillsR.rows;
   const useMatk = pEff.matk > pEff.atk;
 
-  // 몬스터 평균 effective stats 계산 (온라인 엔진과 동일 공식)
+  // 몬스터 평균 effective stats 계산 (온라인 엔진과 동일 공식, Lv30+ 3배)
   const avgMonsterStats: EffectiveStats = {
     str: avg(monsters.map(m => m.stats.str)),
     dex: avg(monsters.map(m => m.stats.dex)),
@@ -93,17 +93,17 @@ export async function generateAndApplyOfflineReport(
     vit: avg(monsters.map(m => m.stats.vit)),
     spd: avg(monsters.map(m => m.stats.spd)),
     cri: avg(monsters.map(m => m.stats.cri)),
-    maxHp: avg(monsters.map(m => m.max_hp)),
-    atk: avg(monsters.map(m => m.stats.str)),
+    maxHp: avg(monsters.map(m => m.max_hp * (m.level >= 30 ? 3 : 1))),
+    atk: avg(monsters.map(m => m.stats.str * (m.level >= 30 ? 3 : 1))),
     matk: avg(monsters.map(m => m.stats.int * 1.2)),
-    def: avg(monsters.map(m => m.stats.vit * 0.8)),
+    def: avg(monsters.map(m => m.stats.vit * 0.8 * (m.level >= 30 ? 3 : 1))),
     mdef: avg(monsters.map(m => m.stats.int * 0.5)),
     dodge: avg(monsters.map(m => m.stats.dex * 0.2)),
     accuracy: avg(monsters.map(m => 80 + m.stats.dex * 0.3)),
   };
 
   // ── 전투 시뮬레이션 (온라인 autoAction과 동일 로직) ──
-  const avgMonsterHp = avg(monsters.map(m => m.max_hp));
+  const avgMonsterHp = avg(monsters.map(m => m.max_hp * (m.level >= 30 ? 3 : 1)));
   const avgMonsterSpd = Math.max(10, avg(monsters.map(m => m.stats.spd)));
 
   // 한 마리 킬타임 시뮬레이션
