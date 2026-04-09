@@ -18,7 +18,6 @@ const TABS: { key: string; label: string }[] = [
   { key: 'gold', label: '골드' },
   { key: 'pvp', label: 'PvP' },
   { key: 'enhance', label: '강화' },
-  { key: 'kill', label: '사냥' },
 ];
 
 function medalColor(rank: number): string | null {
