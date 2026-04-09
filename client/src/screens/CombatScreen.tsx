@@ -22,7 +22,7 @@ export function CombatScreen() {
   const popupIdRef = useRef(0);
   const socketRef = useRef<Socket | null>(null);
   const prevMonsterHp = useRef<number>(0);
-  const prevLogLen = useRef<number>(0);
+  const prevLogLen = useRef<number>(-1);
 
   // WebSocket 연결
   useEffect(() => {
@@ -39,52 +39,62 @@ export function CombatScreen() {
     socket.on(`combat:${active.id}`, (snapshot: CombatSnapshot) => {
       if (snapshot.monster) prevMonsterHp.current = snapshot.monster.hp;
 
-      // 로그 리셋 감지 (새 몬스터 스폰 시 로그가 짧아짐)
-      if (snapshot.log.length < prevLogLen.current) {
+      const prev = prevLogLen.current;
+      const cur = snapshot.log.length;
+
+      // 첫 수신: 초기화만 하고 파싱 스킵
+      if (prev === -1) {
+        prevLogLen.current = cur;
+        setState(snapshot);
+        return;
+      }
+
+      // 로그가 줄었으면(새 몬스터) 리셋
+      if (cur < prev) {
         prevLogLen.current = 0;
       }
 
-      // 새 로그 파싱 → 데미지 팝업 + 스킬 이펙트
-      if (prevLogLen.current > 0 && snapshot.log.length > prevLogLen.current) {
+      // 새 로그 파싱
+      if (cur > prevLogLen.current) {
         const newLines = snapshot.log.slice(prevLogLen.current);
-        const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
+          const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
 
-        for (const line of newLines) {
-          // 도트: [도트] 몬스터에게 1234 데미지
-          const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
-          if (dotMatch) {
-            pops.push({ id: ++popupIdRef.current, value: parseInt(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
-            continue;
-          }
-          // 스킬 데미지: [스킬명] 1234 데미지! or [스킬명] 1타 1234! or 추가 고정
-          const skillDmgMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
-          if (skillDmgMatch && skillDmgMatch[1] !== '도트') {
-            const crit = !!skillDmgMatch[3];
-            pops.push({ id: ++popupIdRef.current, value: parseInt(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
-          }
-          // 추가 타격
-          const extraMatch = line.match(/추가 타격! (\d+)/);
-          if (extraMatch) {
-            pops.push({ id: ++popupIdRef.current, value: parseInt(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
-          }
-          // 스킬 이펙트
-          const fxMatch = line.match(/\[(.+?)\]/);
-          if (fxMatch) {
-            const fx = SKILL_EFFECTS[fxMatch[1]];
-            if (fx) {
-              setSkillFlash({ icon: fx.icon, color: fx.glow });
-              setTimeout(() => setSkillFlash(null), 600);
+          for (const line of newLines) {
+            // 도트: [도트] 몬스터에게 1234 데미지
+            const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
+            if (dotMatch) {
+              pops.push({ id: ++popupIdRef.current, value: parseInt(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
+              continue;
+            }
+            // 스킬 데미지: [스킬명] 1234 데미지! or [스킬명] 1타 1234! or 추가 고정
+            const skillDmgMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
+            if (skillDmgMatch && skillDmgMatch[1] !== '도트') {
+              const crit = !!skillDmgMatch[3];
+              pops.push({ id: ++popupIdRef.current, value: parseInt(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
+            }
+            // 추가 타격
+            const extraMatch = line.match(/추가 타격! (\d+)/);
+            if (extraMatch) {
+              pops.push({ id: ++popupIdRef.current, value: parseInt(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
+            }
+            // 스킬 이펙트
+            const fxMatch = line.match(/\[(.+?)\]/);
+            if (fxMatch) {
+              const fx = SKILL_EFFECTS[fxMatch[1]];
+              if (fx) {
+                setSkillFlash({ icon: fx.icon, color: fx.glow });
+                setTimeout(() => setSkillFlash(null), 600);
+              }
             }
           }
-        }
 
-        if (pops.length > 0) {
-          setDamagePopups(prev => [...prev, ...pops]);
-          const ids = pops.map(p => p.id);
-          setTimeout(() => setDamagePopups(prev => prev.filter(p => !ids.includes(p.id))), 1200);
-        }
+          if (pops.length > 0) {
+            setDamagePopups(p => [...p, ...pops]);
+            const ids = pops.map(p => p.id);
+            setTimeout(() => setDamagePopups(p => p.filter(v => !ids.includes(v.id))), 1200);
+          }
       }
-      prevLogLen.current = snapshot.log.length;
+      prevLogLen.current = cur;
 
       setState(snapshot);
     });
