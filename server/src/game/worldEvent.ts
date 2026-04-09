@@ -99,7 +99,7 @@ export async function attackBoss(characterId: number) {
   const buffSkills = allSkills.filter(s => s.kind === 'buff' && s.effect_type !== 'heal_pct');
 
   // 보스 스탯 (플레이어 maxHp 기준으로 밸런싱 — 10초에 3~4대 맞으면 죽을 정도)
-  const bossAtk = Math.round((eff.maxHp * 0.08 + event.level * 2) * 3);
+  const bossAtk = Math.round((eff.maxHp * 0.08 + event.level * 2) * 1.5);
   const baseBossDef = event.level * 2 * 3;
   const bossSpd = 250 + event.level * 3;
 
