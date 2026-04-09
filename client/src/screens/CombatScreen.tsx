@@ -718,6 +718,24 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
 // ── 딜미터기 ──
 function DamageMeter({ log }: { log: string[] }) {
   const [open, setOpen] = useState(false);
+  const [resetAt, setResetAt] = useState(() => Date.now());
+  const [remaining, setRemaining] = useState(60);
+  const resetLogIdx = useRef(0);
+
+  // 1분 타이머
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - resetAt) / 1000);
+      const left = Math.max(0, 60 - elapsed);
+      setRemaining(left);
+      if (left <= 0) {
+        resetLogIdx.current = log.length;
+        setResetAt(Date.now());
+        setRemaining(60);
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [resetAt, log.length]);
 
   const stats = useMemo(() => {
     const map = new Map<string, { total: number; hits: number; crits: number; max: number }>();
@@ -725,7 +743,8 @@ function DamageMeter({ log }: { log: string[] }) {
     let dotTotal = 0;
     let dotHits = 0;
 
-    for (const line of log) {
+    const lines = log.slice(resetLogIdx.current);
+    for (const line of lines) {
       // 도트 데미지: [도트] 몬스터에게 1234 데미지 (3중첩)
       const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
       if (dotMatch) {
@@ -775,7 +794,7 @@ function DamageMeter({ log }: { log: string[] }) {
 
     const sorted = [...map.entries()].sort((a, b) => b[1].total - a[1].total);
     return { sorted, totalDmg };
-  }, [log]);
+  }, [log, resetAt]);
 
   if (stats.sorted.length === 0) return null;
 
@@ -791,7 +810,9 @@ function DamageMeter({ log }: { log: string[] }) {
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
           딜미터 — 총 {stats.totalDmg.toLocaleString()}
         </span>
-        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ fontSize: 10, color: remaining <= 10 ? 'var(--danger)' : 'var(--text-dim)' }}>
+          {remaining}초 {open ? '▲' : '▼'}
+        </span>
       </div>
       {open && (
         <div style={{ padding: '0 12px 10px' }}>
