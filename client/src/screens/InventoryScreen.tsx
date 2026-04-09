@@ -170,9 +170,11 @@ export function InventoryScreen() {
         {/* 왼쪽: 무기(상), 갑옷(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <EquipSlotCard slot="weapon" item={equipped.weapon} label={SLOT_LABEL.weapon} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('weapon')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('weapon', e); }} />
+            onUnequip={() => unequip('weapon')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('weapon', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'weapon', e)} />
           <EquipSlotCard slot="chest" item={equipped.chest} label={SLOT_LABEL.chest} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('chest')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('chest', e); }} />
+            onUnequip={() => unequip('chest')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('chest', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'chest', e)} />
         </div>
 
         {/* 중앙: 인체 실루엣 */}
@@ -195,20 +197,24 @@ export function InventoryScreen() {
         {/* 오른쪽: 투구(상), 목걸이(하) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <EquipSlotCard slot="helm" item={equipped.helm} label={SLOT_LABEL.helm} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('helm')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('helm', e); }} />
+            onUnequip={() => unequip('helm')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('helm', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'helm', e)} />
           <EquipSlotCard slot="amulet" item={equipped.amulet} label={SLOT_LABEL.amulet} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('amulet')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('amulet', e); }} />
+            onUnequip={() => unequip('amulet')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('amulet', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'amulet', e)} />
         </div>
 
         {/* 하단 행: 반지 + 장화 */}
         <div>
           <EquipSlotCard slot="ring" item={equipped.ring} label={SLOT_LABEL.ring} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('ring')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('ring', e); }} />
+            onUnequip={() => unequip('ring')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('ring', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'ring', e)} />
         </div>
         <div />
         <div>
           <EquipSlotCard slot="boots" item={equipped.boots} label={SLOT_LABEL.boots} charLevel={active?.level ?? 1}
-            onUnequip={() => unequip('boots')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('boots', e); }} />
+            onUnequip={() => unequip('boots')} onToggleLock={(e) => { e.stopPropagation(); toggleLockEquipped('boots', e); }}
+            onEnhance={(e) => enhanceItem(-1, 'equipped', 'boots', e)} />
         </div>
       </div>
 
@@ -424,13 +430,14 @@ export function InventoryScreen() {
   );
 }
 
-function EquipSlotCard({ slot, item, label, charLevel, onUnequip, onToggleLock }: {
+function EquipSlotCard({ slot, item, label, charLevel, onUnequip, onToggleLock, onEnhance }: {
   slot: string;
   item: any;
   label: string;
   charLevel: number;
   onUnequip: () => void;
   onToggleLock: (e: React.MouseEvent) => void;
+  onEnhance?: (e: React.MouseEvent) => void;
 }) {
   const locked = item?.locked ?? false;
   const requiredLevel = item?.requiredLevel || 1;
@@ -477,6 +484,18 @@ function EquipSlotCard({ slot, item, label, charLevel, onUnequip, onToggleLock }
             <div style={{ fontSize: 10, color: 'var(--danger)', fontWeight: 700, marginTop: 4 }}>
               Lv.{requiredLevel} 이상 필요 (레벨 부족)
             </div>
+          )}
+          {onEnhance && !locked && (item.enhanceLevel || 0) < 20 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onEnhance(e); }}
+              style={{
+                marginTop: 6, padding: '2px 8px', fontSize: 10,
+                background: 'transparent', color: 'var(--accent)',
+                border: '1px solid var(--accent)', cursor: 'pointer',
+              }}
+            >
+              강화
+            </button>
           )}
         </>
       ) : (
