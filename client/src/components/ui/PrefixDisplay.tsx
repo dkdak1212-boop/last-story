@@ -7,7 +7,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   int: v => `지능 +${v}`,
   vit: v => `체력 +${v}`,
   spd: v => `속도 +${v}`,
-  cri: v => `치명타 +${v}%`,
+  cri: v => `치명타 확률 +${v}%`,
   accuracy: v => `명중 +${v}`,
   dodge: v => `회피 +${v}`,
   // 신규 특수 효과
@@ -18,7 +18,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   lifesteal_pct: v => `데미지 흡혈 ${(v / 10).toFixed(1)}%`,
   gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
   exp_bonus_pct: v => `경험치 획득 ${v}% 증가`,
-  crit_dmg_pct: v => `크리 데미지 ${v}% 증가`,
+  crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
 };
 
 interface Props {

@@ -31,7 +31,7 @@ const COMBAT_STAT_DESC: Record<string, string> = {
   '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 30%.',
   '명중률': '공격이 적중할 확률. 기본 80% + 민첩(DEX) × 0.3 + 장비. 상한 100%.',
   '스피드': '게이지 충전 속도. 높을수록 빠르게 행동. 게이지 MAX=1000, 매 틱 SPD × 0.2 충전.',
-  '치명타': '크리티컬 발동 확률. 발동 시 데미지 2배. 상한 100%. 노드/장비로 상승.',
+  '치명타 확률': '크리티컬 발동 확률. 발동 시 데미지 2배. 상한 100%. 노드/장비로 상승.',
 };
 
 export function StatusScreen() {
@@ -90,7 +90,7 @@ export function StatusScreen() {
             { label: '회피율', value: `${status.effective.dodge}%` },
             { label: '명중률', value: `${status.effective.accuracy}%` },
             { label: '스피드', value: status.effective.spd },
-            { label: '치명타', value: `${status.effective.cri}%` },
+            { label: '치명타 확률', value: `${status.effective.cri}%` },
           ].map(s => (
             <div key={s.label}>
               <CombatRow label={s.label} value={s.value} onClick={() => setTooltip(tooltip === s.label ? null : s.label)} active={tooltip === s.label} />
@@ -137,7 +137,7 @@ export function StatusScreen() {
           <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 | 마법 방어 = 지능 × 0.5. 마법사(+2/Lv), 성직자(+1.5/Lv)</span>
           <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 | 장비/노드 체력 1당 HP +10. 전사(+1.5/Lv)</span>
           <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도. 매 100ms마다 SPD × 0.2 충전 → MAX 1000 시 행동. 도적(+3/Lv) {'>'} 전사(+2/Lv)</span>
-          <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률% (상한 100%). 발동 시 데미지 2배. 도적(+0.2/Lv), 나머지(+0.1/Lv)</span>
+          <span style={{ color: 'var(--text)' }}>치명타 확률 (CRI)</span><span>크리 확률% (상한 100%). 발동 시 데미지 2배. 도적(+0.2/Lv), 나머지(+0.1/Lv)</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>

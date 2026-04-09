@@ -205,15 +205,15 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, effects, posi
 ('근원 체력 II',  '체력 +4', 'center', 'small', 1, '[{"type":"stat","stat":"vit","value":4}]', 3, -6),
 ('근원 속도 I',   '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 0, -7),
 ('근원 속도 II',  '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 1, -7),
-('근원 치명 I',   '치명타 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 2, -7),
-('근원 치명 II',  '치명타 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 3, -7);
+('근원 치명 I',   '치명타 확률 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 2, -7),
+('근원 치명 II',  '치명타 확률 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 3, -7);
 
 -- 중형 4개
 INSERT INTO node_definitions (name, description, zone, tier, cost, effects, position_x, position_y) VALUES
-('만능 전사',     'STR+8, VIT+8', 'center', 'medium', 2, '[{"type":"stat","stat":"str","value":8},{"type":"stat","stat":"vit","value":8}]', 0, -8),
-('만능 마법사',   'INT+8, SPD+30', 'center', 'medium', 2, '[{"type":"stat","stat":"int","value":8},{"type":"stat","stat":"spd","value":30}]', 1, -8),
-('만능 도적',     'DEX+8, CRI+8%', 'center', 'medium', 2, '[{"type":"stat","stat":"dex","value":8},{"type":"stat","stat":"cri","value":8}]', 2, -8),
-('만능 성직자',   'INT+6, VIT+6', 'center', 'medium', 2, '[{"type":"stat","stat":"int","value":6},{"type":"stat","stat":"vit","value":6}]', 3, -8);
+('만능 전사',     '힘 +8, 체력 +8', 'center', 'medium', 2, '[{"type":"stat","stat":"str","value":8},{"type":"stat","stat":"vit","value":8}]', 0, -8),
+('만능 마법사',   '지능 +8, 스피드 +30', 'center', 'medium', 2, '[{"type":"stat","stat":"int","value":8},{"type":"stat","stat":"spd","value":30}]', 1, -8),
+('만능 도적',     '민첩 +8, 치명타 확률 +8%', 'center', 'medium', 2, '[{"type":"stat","stat":"dex","value":8},{"type":"stat","stat":"cri","value":8}]', 2, -8),
+('만능 성직자',   '지능 +6, 체력 +6', 'center', 'medium', 2, '[{"type":"stat","stat":"int","value":6},{"type":"stat","stat":"vit","value":6}]', 3, -8);
 
 -- 대형 4개 (공용 키스톤)
 INSERT INTO node_definitions (name, description, zone, tier, cost, effects, position_x, position_y) VALUES
@@ -223,7 +223,7 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, effects, posi
  '[{"type":"passive","key":"iron_will","value":1},{"type":"stat","stat":"vit","value":25}]', 1, -10),
 ('마력의 흐름',   '모든 스킬 쿨타임-1행동, HP-15%', 'center', 'large', 4,
  '[{"type":"passive","key":"mana_flow","value":1}]', 2, -10),
-('집중의 경지',   '치명타+25%, 치명타데미지+50%, 공격력-10%', 'center', 'large', 4,
+('집중의 경지',   '치명타 확률 +25%, 치명타 데미지 +50%, 공격력 -10%', 'center', 'large', 4,
  '[{"type":"passive","key":"focus_mastery","value":1},{"type":"stat","stat":"cri","value":25}]', 3, -10);
 
 -- ============================================================
@@ -255,12 +255,12 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusi
 ('전사 철벽 강화',     '실드 효과 +30%',               'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"shield_amp","value":30}]', 3, -18),
 ('전사 연타 강화',     '다단히트 +1회',                'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"extra_hit","value":1}]', 4, -18),
 ('전사 분노 강화',     '자해 데미지 20% 감소',         'north_warrior', 'medium', 2, 'warrior', '[{"type":"passive","key":"rage_reduce","value":20}]', 5, -18),
-('전사 STR 증강 I',    'STR +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 6, -18),
-('전사 STR 증강 II',   'STR +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 7, -18),
-('전사 VIT 증강 I',    'VIT +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"vit","value":12}]', 8, -18),
-('전사 VIT 증강 II',   'VIT +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"vit","value":12}]', 0, -19),
-('전사 CRI 증강',      'CRI +8%',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"cri","value":8}]', 1, -19),
-('전사 SPD 증강',      'SPD +50',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"spd","value":50}]', 2, -19);
+('전사 STR 증강 I',    '힘 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 6, -18),
+('전사 STR 증강 II',   '힘 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"str","value":12}]', 7, -18),
+('전사 VIT 증강 I',    '체력 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"vit","value":12}]', 8, -18),
+('전사 VIT 증강 II',   '체력 +12',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"vit","value":12}]', 0, -19),
+('전사 치명타 증강',      '치명타 확률 +8%',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"cri","value":8}]', 1, -19),
+('전사 SPD 증강',      '스피드 +50',                      'north_warrior', 'medium', 2, 'warrior', '[{"type":"stat","stat":"spd","value":50}]', 2, -19);
 
 -- 대형 3개
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
@@ -286,7 +286,7 @@ SELECT '마법사 속도 ' || n, '스피드 +15', 'north_mage', 'small', 1, 'mag
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '마법사 치명 ' || n, '치명타 +3%', 'north_mage', 'small', 1, 'mage',
+SELECT '마법사 치명 ' || n, '치명타 확률 +3%', 'north_mage', 'small', 1, 'mage',
        '[{"type":"stat","stat":"cri","value":3}]', n+9, -17
 FROM generate_series(1, 9) n;
 
@@ -297,12 +297,12 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusi
 ('마법사 동결 강화',     '동결 지속 +1행동',            'north_mage', 'medium', 2, 'mage', '[{"type":"passive","key":"freeze_extend","value":1}]', 13, -18),
 ('마법사 화염 강화',     '화상 데미지 +50%',            'north_mage', 'medium', 2, 'mage', '[{"type":"passive","key":"burn_amp","value":50}]', 14, -18),
 ('마법사 냉기 강화',     '냉기 스피드 감소 +15%',       'north_mage', 'medium', 2, 'mage', '[{"type":"passive","key":"frost_amp","value":15}]', 15, -18),
-('마법사 INT 증강 I',    'INT +12',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"int","value":12}]', 16, -18),
-('마법사 INT 증강 II',   'INT +12',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"int","value":12}]', 17, -18),
-('마법사 SPD 증강 I',    'SPD +50',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"spd","value":50}]', 10, -19),
-('마법사 SPD 증강 II',   'SPD +50',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"spd","value":50}]', 11, -19),
-('마법사 CRI 증강',      'CRI +8%',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"cri","value":8}]', 12, -19),
-('마법사 VIT 증강',      'VIT +10',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"vit","value":10}]', 13, -19);
+('마법사 INT 증강 I',    '지능 +12',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"int","value":12}]', 16, -18),
+('마법사 INT 증강 II',   '지능 +12',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"int","value":12}]', 17, -18),
+('마법사 SPD 증강 I',    '스피드 +50',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"spd","value":50}]', 10, -19),
+('마법사 SPD 증강 II',   '스피드 +50',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"spd","value":50}]', 11, -19),
+('마법사 치명타 증강',      '치명타 확률 +8%',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"cri","value":8}]', 12, -19),
+('마법사 VIT 증강',      '체력 +10',                     'north_mage', 'medium', 2, 'mage', '[{"type":"stat","stat":"vit","value":10}]', 13, -19);
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
 ('원소 폭주',     '도트데미지+80%, 도트지속+1, 직접스킬-20%', 'north_mage', 'large', 4, 'mage',
@@ -338,12 +338,12 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusi
 ('성직자 심판 강화',     '공격 스킬 데미지 +25%',       'north_cleric', 'medium', 2, 'cleric', '[{"type":"passive","key":"judge_amp","value":25}]', 23, -18),
 ('성직자 신성 도트',     '신성 도트 +40%',              'north_cleric', 'medium', 2, 'cleric', '[{"type":"passive","key":"holy_dot_amp","value":40}]', 24, -18),
 ('성직자 부활 강화',     '부활 HP +20%',                'north_cleric', 'medium', 2, 'cleric', '[{"type":"passive","key":"resurrect_amp","value":20}]', 25, -18),
-('성직자 INT 증강 I',    'INT +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"int","value":12}]', 26, -18),
-('성직자 INT 증강 II',   'INT +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"int","value":12}]', 27, -18),
-('성직자 VIT 증강 I',    'VIT +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"vit","value":12}]', 20, -19),
-('성직자 VIT 증강 II',   'VIT +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"vit","value":12}]', 21, -19),
-('성직자 SPD 증강',      'SPD +50',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"spd","value":50}]', 22, -19),
-('성직자 CRI 증강',      'CRI +8%',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"cri","value":8}]', 23, -19);
+('성직자 INT 증강 I',    '지능 +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"int","value":12}]', 26, -18),
+('성직자 INT 증강 II',   '지능 +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"int","value":12}]', 27, -18),
+('성직자 VIT 증강 I',    '체력 +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"vit","value":12}]', 20, -19),
+('성직자 VIT 증강 II',   '체력 +12',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"vit","value":12}]', 21, -19),
+('성직자 SPD 증강',      '스피드 +50',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"spd","value":50}]', 22, -19),
+('성직자 치명타 증강',      '치명타 확률 +8%',                     'north_cleric', 'medium', 2, 'cleric', '[{"type":"stat","stat":"cri","value":8}]', 23, -19);
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
 ('신성한 심판자', '공격스킬+45%, 보조-30%', 'north_cleric', 'large', 4, 'cleric',
@@ -368,7 +368,7 @@ SELECT '도적 속도 ' || n, '스피드 +15', 'north_rogue', 'small', 1, 'rogue
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '도적 치명 ' || n, '치명타 +3%', 'north_rogue', 'small', 1, 'rogue',
+SELECT '도적 치명 ' || n, '치명타 확률 +3%', 'north_rogue', 'small', 1, 'rogue',
        '[{"type":"stat","stat":"cri","value":3}]', n+29, -17
 FROM generate_series(1, 9) n;
 
@@ -379,12 +379,12 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusi
 ('도적 회피 강화',       '회피 +10%',                   'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dex","value":10}]', 33, -18),
 ('도적 독폭발 강화',     '독 폭발 배율 +50%',           'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"poison_burst_amp","value":50}]', 34, -18),
 ('도적 연막 강화',       '연막 지속 +1행동',            'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"smoke_extend","value":1}]', 35, -18),
-('도적 DEX 증강 I',      'DEX +12',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dex","value":12}]', 36, -18),
-('도적 DEX 증강 II',     'DEX +12',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dex","value":12}]', 37, -18),
-('도적 SPD 증강 I',      'SPD +50',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]', 30, -19),
-('도적 SPD 증강 II',     'SPD +50',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]', 31, -19),
-('도적 CRI 증강 I',      'CRI +8%',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"cri","value":8}]', 32, -19),
-('도적 CRI 증강 II',     'CRI +8%',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"cri","value":8}]', 33, -19);
+('도적 DEX 증강 I',      '민첩 +12',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dex","value":12}]', 36, -18),
+('도적 DEX 증강 II',     '민첩 +12',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dex","value":12}]', 37, -18),
+('도적 SPD 증강 I',      '스피드 +50',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]', 30, -19),
+('도적 SPD 증강 II',     '스피드 +50',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]', 31, -19),
+('도적 치명타 증강 I',      '치명타 확률 +8%',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"cri","value":8}]', 32, -19),
+('도적 치명타 증강 II',     '치명타 확률 +8%',                     'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"cri","value":8}]', 33, -19);
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
 ('독의 군주',     '독중첩+3, 독데미지+60%, 물리-15%', 'north_rogue', 'large', 4, 'rogue',
