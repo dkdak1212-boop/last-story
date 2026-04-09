@@ -20,8 +20,14 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
     [char.class_name, char.level, id]
   );
   for (const s of newSkills.rows) {
-    await query('INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, TRUE) ON CONFLICT DO NOTHING',
-      [id, s.id]);
+    // 슬롯 여유 있으면 ON, 없으면 OFF로 학습
+    const countR = await query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+       WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [id]
+    );
+    const autoOn = Number(countR.rows[0].cnt) < 6;
+    await query('INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [id, s.id, autoOn]);
   }
 
   const r = await query<{
