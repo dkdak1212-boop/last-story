@@ -242,6 +242,19 @@ function addLog(s: ActiveSession, msg: string) {
 }
 
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
+  // speed_mod: 중첩 불가 — 기존 효과를 더 강한 것으로 갱신
+  if (effect.type === 'speed_mod') {
+    const existing = s.statusEffects.find(e => e.type === 'speed_mod' && e.source === effect.source && e.remainingActions > 0);
+    if (existing) {
+      // 더 강한 감소 또는 더 긴 지속시간으로 갱신
+      if (Math.abs(effect.value) >= Math.abs(existing.value)) {
+        existing.value = effect.value;
+        existing.remainingActions = Math.max(existing.remainingActions, effect.remainingActions);
+      }
+      return;
+    }
+  }
+  // dot/poison: 중첩 허용 (그대로 push)
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
 }
 
