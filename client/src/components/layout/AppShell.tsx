@@ -134,11 +134,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {onlineCount}명 접속 중
             </span>
           )}
-          {active && (
-            <span style={{ fontSize: 10, color: '#e0a040', background: 'rgba(224,160,64,0.1)', padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(224,160,64,0.3)' }}>
-              경험치+50% 드롭률+50% (온라인)
-            </span>
-          )}
           {me?.isAdmin && (
             <Link to="/admin" style={{
               padding: '4px 10px', fontSize: 12, color: 'var(--danger)',
