@@ -61,12 +61,13 @@ export async function addItemToInventory(
     const qty = Math.min(remaining, stackSize);
 
     if (isEquipment) {
-      // 장비 아이템: 접두사 랜덤 생성
+      // 장비 아이템: 접두사 + 품질(0~100) 랜덤 생성
       const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
+      const quality = Math.floor(Math.random() * 101); // 0~100
       await query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats)]
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats), quality]
       );
       // 전설 등급 또는 3옵 → 드롭 로그 기록
       const itemInfo = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);

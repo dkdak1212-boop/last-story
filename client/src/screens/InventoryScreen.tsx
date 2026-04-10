@@ -177,6 +177,9 @@ export function InventoryScreen() {
                   <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
                     <span style={{ color: (GRADE_COLOR as any)[item.grade] }}>{item.name}</span>
                     {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{item.enhanceLevel}</span>}
+                    {(item as any).quality !== undefined && (
+                      <span style={{ color: '#66ccff', fontSize: 9, marginLeft: 4 }}>· 품질 {(item as any).quality}%</span>
+                    )}
                   </div>
                   <div style={{ marginTop: 3 }}>
                     <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} />
@@ -317,6 +320,16 @@ export function InventoryScreen() {
                           <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
                         )}
                         <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{(s.item as any).baseName || s.item.name}</span>
+                        {(s as any).quality !== undefined && (s.item as any).slot && (() => {
+                          const q = (s as any).quality;
+                          const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : '#888';
+                          return (
+                            <span style={{
+                              fontSize: 9, padding: '1px 5px', borderRadius: 2,
+                              border: `1px solid ${color}`, color, fontWeight: 700,
+                            }}>품질 {q}%</span>
+                          );
+                        })()}
                         {(s.item as any).classRestriction && (() => {
                           const cls = (s.item as any).classRestriction;
                           const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };

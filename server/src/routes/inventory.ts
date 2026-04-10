@@ -51,12 +51,12 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
-    class_restriction: string | null;
+    class_restriction: string | null; quality: number;
   }>(
     `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
-            i.class_restriction
+            i.class_restriction, COALESCE(ci.quality, 0) AS quality
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
     [id]
@@ -78,11 +78,13 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     return stats;
   }
 
-  // 강화 배율 적용된 스탯 반환
-  function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number): Record<string, number> | null {
+  // 강화 배율 + 품질 적용된 스탯 반환
+  function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number, quality: number = 0): Record<string, number> | null {
     if (!baseStats) return null;
     const el = enhanceLevel || 0;
-    const mult = 1 + el * 0.075;
+    const enhMult = 1 + el * 0.075;
+    const qualMult = 1 + (quality || 0) / 100;
+    const mult = enhMult * qualMult;
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(baseStats)) {
       result[k] = Math.round((v as number) * mult);
@@ -101,11 +103,12 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: pName,
       locked: r.locked,
+      quality: r.quality || 0,
       item: {
         id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
         baseName: r.name,
         type: r.type, grade: r.grade, slot: r.slot,
-        stats: enhancedStats(r.stats, r.enhance_level),
+        stats: enhancedStats(r.stats, r.enhance_level, r.quality),
         baseStats: r.stats,
         description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
         requiredLevel: (r as any).required_level || 1,
@@ -119,10 +122,11 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     name: string; type: string; grade: string;
     item_slot: string | null; stats: Record<string, number> | null; description: string;
-    class_restriction: string | null;
+    class_restriction: string | null; quality: number;
   }>(
     `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats, ce.locked,
-            i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description, i.class_restriction
+            i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description, i.class_restriction,
+            COALESCE(ce.quality, 0) AS quality
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
   );
@@ -137,7 +141,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
       baseName: r.name,
       type: r.type, grade: r.grade, slot: r.item_slot,
-      stats: enhancedStats(r.stats, r.enhance_level),
+      stats: enhancedStats(r.stats, r.enhance_level, r.quality),
       baseStats: r.stats,
       description: r.description, stackSize: 1, sellPrice: 0,
       enhanceLevel: r.enhance_level,
@@ -145,6 +149,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       locked: r.locked,
       classRestriction: r.class_restriction,
+      quality: r.quality || 0,
     };
   }
 
@@ -161,16 +166,16 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   // 슬롯에서 아이템 찾기
-  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number; class_restriction: string | null }>(
+  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number; class_restriction: string | null; quality: number }>(
     `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
-            COALESCE(i.required_level, 1) AS required_level, i.class_restriction
+            COALESCE(i.required_level, 1) AS required_level, i.class_restriction, COALESCE(ci.quality, 0) AS quality
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.slot_index = $2`,
     [id, parsed.data.slotIndex]
   );
   if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
   if (invR.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
-  const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level, class_restriction } = invR.rows[0];
+  const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level, class_restriction, quality } = invR.rows[0];
   if (!slot) return res.status(400).json({ error: 'not equippable' });
   if (char.level < required_level) return res.status(400).json({ error: `Lv.${required_level} 이상만 장착 가능` });
   if (class_restriction && class_restriction !== char.class_name) {
@@ -179,15 +184,15 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   }
 
   // 해제 먼저 (인벤토리로 돌려보내기)
-  const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    'SELECT item_id, enhance_level, prefix_ids, prefix_stats FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]
+  const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]
   );
   if (existing.rowCount && existing.rowCount > 0) {
     const ex = existing.rows[0];
     const exPrefixIds = ex.prefix_ids && ex.prefix_ids.length > 0 ? ex.prefix_ids : [];
     const exPrefixStats = ex.prefix_stats || {};
-    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb WHERE character_id = $5 AND slot_index = $6',
-      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), id, parsed.data.slotIndex]);
+    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb, quality = $5 WHERE character_id = $6 AND slot_index = $7',
+      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), ex.quality || 0, id, parsed.data.slotIndex]);
     await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]);
   } else {
     await query('DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
@@ -195,8 +200,8 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   }
   const equipPrefixIds = prefix_ids && prefix_ids.length > 0 ? prefix_ids : [];
   const equipPrefixStats = prefix_stats || {};
-  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, $4, $5, $6::jsonb)',
-    [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats)]);
+  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
+    [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats), quality || 0]);
 
   await refreshCombatSessionStats(id);
   res.json({ ok: true });
@@ -211,8 +216,8 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ slot: z.string() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean }>(
-    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked FROM character_equipped WHERE character_id = $1 AND slot = $2',
+  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; quality: number }>(
+    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked, COALESCE(quality, 0) AS quality FROM character_equipped WHERE character_id = $1 AND slot = $2',
     [id, parsed.data.slot]
   );
   if (eq.rowCount === 0) return res.status(404).json({ error: 'nothing equipped' });
@@ -231,8 +236,8 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const eqRow = eq.rows[0];
   const unequipPrefixIds = eqRow.prefix_ids && eqRow.prefix_ids.length > 0 ? eqRow.prefix_ids : [];
   const unequipPrefixStats = eqRow.prefix_stats || {};
-  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb)',
-    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats)]);
+  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)',
+    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats), eqRow.quality || 0]);
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
   res.json({ ok: true });

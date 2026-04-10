@@ -56,8 +56,8 @@ export async function loadCharacterOwned(id: number, userId: number): Promise<Ch
 }
 
 export async function getEquippedItems(characterId: number) {
-  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number; prefix_stats: Record<string, number> | null }>(
-    `SELECT ce.slot, i.stats, ce.enhance_level, ce.prefix_stats
+  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number; prefix_stats: Record<string, number> | null; quality: number }>(
+    `SELECT ce.slot, i.stats, ce.enhance_level, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [characterId]
@@ -65,9 +65,11 @@ export async function getEquippedItems(characterId: number) {
   return r.rows.map(row => {
     const result: Partial<Stats> = {};
     if (row.stats) {
-      // 강화 배율: +7.5%/단계 (1~20강 동일)
+      // 강화 배율: +7.5%/단계 + 품질 0~100% (1배~2배)
       const el = row.enhance_level || 0;
-      const mult = 1 + el * 0.075;
+      const enhMult = 1 + el * 0.075;
+      const qualMult = 1 + (row.quality || 0) / 100;
+      const mult = enhMult * qualMult;
       for (const [k, v] of Object.entries(row.stats)) {
         result[k as keyof Stats] = Math.round((v as number) * mult);
       }
