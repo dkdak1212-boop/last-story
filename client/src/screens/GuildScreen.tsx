@@ -36,10 +36,31 @@ const CLASS_COLOR: Record<string, string> = {
 };
 
 const SKILL_ICON: Record<string, string> = {
-  hp: '❤️', gold: '💰', exp: '⭐', drop: '🎁',
+  hp: '/images/items/potion/ruby.png',
+  gold: '/images/items/amulet/golden.png',
+  exp: '/images/items/potion/brilliant_blue.png',
+  drop: '/images/items/ring/diamond.png',
 };
 const SKILL_COLOR: Record<string, string> = {
   hp: '#e07070', gold: '#e0a040', exp: '#8b8bef', drop: '#66dd66',
+};
+
+// 픽셀 아이콘 헬퍼
+function PxIcon({ src, size = 18 }: { src: string; size?: number }) {
+  return <img src={src} alt="" width={size} height={size}
+    style={{ imageRendering: 'pixelated', verticalAlign: 'middle', flexShrink: 0 }} />;
+}
+
+const ICON = {
+  guild: '/images/items/weapon/double_sword.png',
+  leader: '/images/items/amulet/golden.png',
+  members: '/images/items/helm/helmet1.png',
+  treasury: '/images/items/ring/gold.png',
+  level: '/images/items/misc/scroll.png',
+  overview: '/images/items/misc/scroll.png',
+  skills: '/images/skills/spells/orb_of_electricity.png',
+  territory: '/images/skills/spells/shields.png',
+  flag: '/images/skills/spells/shields.png',
 };
 
 type Tab = 'overview' | 'skills' | 'territory' | 'members';
@@ -147,7 +168,9 @@ export function GuildScreen() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 22 }}>⚔️ 길드</h2>
+              <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <PxIcon src={ICON.guild} size={28} /> 길드
+              </h2>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
                 길드에 가입해 동료들과 함께 강해지세요. 길드 스킬, 영토 점령전, 일일 기여로 큰 보너스를 얻습니다.
               </div>
@@ -190,8 +213,8 @@ export function GuildScreen() {
                       color: full ? 'var(--danger)' : 'var(--success)', fontWeight: 700,
                     }}>{g.memberCount}/{g.maxMembers}</span>
                   </div>
-                  <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 3 }}>
-                    👑 {g.leaderName}
+                  <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <PxIcon src={ICON.leader} size={14} /> {g.leaderName}
                   </div>
                   {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
                 </div>
@@ -221,7 +244,7 @@ export function GuildScreen() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 28 }}>⚔️</span>
+              <PxIcon src={ICON.guild} size={32} />
               <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 24, fontWeight: 800 }}>{my.name}</h2>
               <span style={{
                 fontSize: 12, fontWeight: 700, color: '#000',
@@ -232,7 +255,8 @@ export function GuildScreen() {
                   fontSize: 10, padding: '2px 6px', borderRadius: 3,
                   background: 'rgba(218,165,32,0.2)', border: '1px solid var(--accent)',
                   color: 'var(--accent)', fontWeight: 700,
-                }}>👑 길드장</span>
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                }}><PxIcon src={ICON.leader} size={12} /> 길드장</span>
               )}
             </div>
             {my.description && (
@@ -247,9 +271,9 @@ export function GuildScreen() {
 
         {/* 핵심 지표 3개 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 14 }}>
-          <Stat icon="👥" label="멤버" value={`${my.members.length}/${my.maxMembers}`} />
-          <Stat icon="💰" label="자금" value={`${my.treasury.toLocaleString()}G`} accent />
-          <Stat icon="⭐" label="레벨" value={`${my.level}/${my.maxLevel}`} />
+          <Stat iconSrc={ICON.members} label="멤버" value={`${my.members.length}/${my.maxMembers}`} />
+          <Stat iconSrc={ICON.treasury} label="자금" value={`${my.treasury.toLocaleString()}G`} accent />
+          <Stat iconSrc={ICON.level} label="레벨" value={`${my.level}/${my.maxLevel}`} />
         </div>
 
         {/* EXP 바 */}
@@ -276,10 +300,10 @@ export function GuildScreen() {
       {/* ── 탭 ── */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
         {([
-          ['overview', '개요', '📋'],
-          ['skills', '스킬', '✨'],
-          ['territory', '영토', '🏴'],
-          ['members', '멤버', '👥'],
+          ['overview', '개요', ICON.overview],
+          ['skills', '스킬', ICON.skills],
+          ['territory', '영토', ICON.territory],
+          ['members', '멤버', ICON.members],
         ] as [Tab, string, string][]).map(([k, label, icon]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             padding: '8px 14px', fontSize: 12, fontWeight: 700,
@@ -288,7 +312,8 @@ export function GuildScreen() {
             border: 'none',
             borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent',
             cursor: 'pointer', borderRadius: '4px 4px 0 0',
-          }}>{icon} {label}</button>
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}><PxIcon src={icon} size={16} /> {label}</button>
         ))}
       </div>
 
@@ -296,7 +321,7 @@ export function GuildScreen() {
       {tab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* 기부 카드 */}
-          <Card title="💰 길드 자금 기부" subtitle={`일일 한도 ${my.dailyDonationCap.toLocaleString()}G`}>
+          <Card iconSrc={ICON.treasury} title="길드 자금 기부" subtitle={`일일 한도 ${my.dailyDonationCap.toLocaleString()}G`}>
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
                 <span style={{ color: 'var(--text-dim)' }}>오늘 내 기부</span>
@@ -331,7 +356,7 @@ export function GuildScreen() {
           </Card>
 
           {/* 활성 스킬 요약 */}
-          <Card title="✨ 활성 길드 버프">
+          <Card iconSrc={ICON.skills} title="활성 길드 버프">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               {my.skills.map(sk => (
                 <div key={sk.key} style={{
@@ -339,8 +364,8 @@ export function GuildScreen() {
                   borderLeft: `3px solid ${SKILL_COLOR[sk.key]}`, borderRadius: 3,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  <span style={{ fontSize: 12 }}>
-                    <span style={{ marginRight: 6 }}>{SKILL_ICON[sk.key]}</span>
+                  <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <PxIcon src={SKILL_ICON[sk.key]} size={18} />
                     {sk.label}
                   </span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: SKILL_COLOR[sk.key] }}>
@@ -354,7 +379,7 @@ export function GuildScreen() {
       )}
 
       {tab === 'skills' && (
-        <Card title="✨ 길드 스킬" subtitle={my.isLeader ? '자금을 사용해 업그레이드' : '리더만 업그레이드 가능'}>
+        <Card iconSrc={ICON.skills} title="길드 스킬" subtitle={my.isLeader ? '자금을 사용해 업그레이드' : '리더만 업그레이드 가능'}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
             {my.skills.map(sk => {
               const maxed = sk.level >= sk.max;
@@ -369,8 +394,8 @@ export function GuildScreen() {
                   borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 8,
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>
-                      <span style={{ marginRight: 6, fontSize: 18 }}>{SKILL_ICON[sk.key]}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <PxIcon src={SKILL_ICON[sk.key]} size={22} />
                       {sk.label}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{sk.level}/{sk.max}</span>
@@ -429,7 +454,7 @@ export function GuildScreen() {
       )}
 
       {tab === 'territory' && (
-        <Card title="🏴 영토 점령전" subtitle="매주 일요일 23:50 (UTC) 결산 · 점령 시 EXP +15%, 드랍 +15%">
+        <Card iconSrc={ICON.territory} title="영토 점령전" subtitle="매주 일요일 23:50 (UTC) 결산 · 점령 시 EXP +15%, 드랍 +15%">
           <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10, padding: '8px 10px', background: 'var(--bg)', borderLeft: '3px solid var(--accent)', borderRadius: 2 }}>
             1주일간 사냥터에서 가장 많이 사냥한 길드(100점 이상)가 점령. 매주 월요일 점수 리셋.
           </div>
@@ -451,13 +476,19 @@ export function GuildScreen() {
                     </span>
                     <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>Lv.{t.requiredLevel}+</span>
                   </div>
-                  <div style={{ fontSize: 10, marginTop: 4 }}>
+                  <div style={{ fontSize: 10, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {occupied ? (
-                      <span style={{ color: owned ? 'var(--accent)' : '#daa520', fontWeight: 700 }}>
-                        🏴 {t.ownerGuildName} {owned && '(우리)'}
-                      </span>
+                      <>
+                        <PxIcon src={ICON.flag} size={12} />
+                        <span style={{ color: owned ? 'var(--accent)' : '#daa520', fontWeight: 700 }}>
+                          {t.ownerGuildName} {owned && '(우리)'}
+                        </span>
+                      </>
                     ) : (
-                      <span style={{ color: 'var(--text-dim)' }}>⚔️ 무점령</span>
+                      <>
+                        <PxIcon src={ICON.guild} size={12} />
+                        <span style={{ color: 'var(--text-dim)' }}>무점령</span>
+                      </>
                     )}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dim)', marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
@@ -482,7 +513,7 @@ export function GuildScreen() {
       )}
 
       {tab === 'members' && (
-        <Card title={`👥 길드원 (${my.members.length}/${my.maxMembers})`}>
+        <Card iconSrc={ICON.members} title={`길드원 (${my.members.length}/${my.maxMembers})`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {my.members.map(m => {
               const cls = CLASS_COLOR[m.className] || 'var(--text-dim)';
@@ -495,7 +526,7 @@ export function GuildScreen() {
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {m.role === 'leader' && <span style={{ color: 'var(--accent)', fontSize: 16 }}>👑</span>}
+                    {m.role === 'leader' && <PxIcon src={ICON.leader} size={18} />}
                     <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
                     <span style={{
                       fontSize: 10, padding: '1px 5px', borderRadius: 2,
@@ -518,14 +549,14 @@ export function GuildScreen() {
 }
 
 // ── 보조 컴포넌트 ──
-function Stat({ icon, label, value, accent }: { icon: string; label: string; value: string; accent?: boolean }) {
+function Stat({ iconSrc, label, value, accent }: { iconSrc: string; label: string; value: string; accent?: boolean }) {
   return (
     <div style={{
       padding: '10px 12px', background: 'rgba(0,0,0,0.3)',
       border: '1px solid var(--border)', borderRadius: 4,
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
-      <span style={{ fontSize: 22 }}>{icon}</span>
+      <PxIcon src={iconSrc} size={28} />
       <div>
         <div style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
         <div style={{ fontSize: 14, fontWeight: 700, color: accent ? 'var(--accent)' : 'var(--text)' }}>{value}</div>
@@ -534,14 +565,17 @@ function Stat({ icon, label, value, accent }: { icon: string; label: string; val
   );
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Card({ iconSrc, title, subtitle, children }: { iconSrc?: string; title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{
       padding: 14, background: 'var(--bg-panel)',
       border: '1px solid var(--border)', borderRadius: 4,
     }}>
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{title}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {iconSrc && <PxIcon src={iconSrc} size={20} />}
+          {title}
+        </div>
         {subtitle && <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{subtitle}</div>}
       </div>
       {children}
