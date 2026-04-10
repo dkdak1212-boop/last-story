@@ -27,10 +27,10 @@ export function DailyQuestScreen() {
     if (!active || claiming) return;
     setClaiming(true); setMsg('');
     try {
-      const r = await api<{ exp: number; scrollId: number; scrollQty: number }>(
+      const r = await api<{ exp: number; scrollId: number; scrollQty: number; boostHours: number }>(
         `/characters/${active.id}/daily-quests/claim`, { method: 'POST' }
       );
-      setMsg(`보상 수령! EXP +${r.exp.toLocaleString()}, 찢어진 스크롤 x${r.scrollQty}`);
+      setMsg(`보상 수령! EXP +${r.exp.toLocaleString()}, 찢어진 스크롤 x${r.scrollQty}, EXP/골드/드랍 +50% ${r.boostHours}시간`);
       await load();
       await refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '수령 실패'); }
@@ -107,6 +107,10 @@ export function DailyQuestScreen() {
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--accent)' }}>찢어진 스크롤</span>
             <span style={{ color: 'var(--accent)', fontWeight: 700 }}>x 1</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--success)' }}>EXP/골드/드랍 버프</span>
+            <span style={{ color: 'var(--success)', fontWeight: 700 }}>+50% (3시간)</span>
           </div>
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>매일 자정(KST) 초기화</div>

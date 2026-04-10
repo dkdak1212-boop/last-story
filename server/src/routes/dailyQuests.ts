@@ -90,15 +90,23 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
     return res.status(400).json({ error: '이미 보상을 수령했습니다.' });
   }
 
-  // 보상: 레벨*500 EXP + 찢어진 스크롤 1개
+  // 보상: 레벨*500 EXP + 찢어진 스크롤 1개 + EXP/골드/드랍 +50% 3시간 버프
   const expReward = char.level * 500;
-  await query('UPDATE characters SET exp = exp + $1 WHERE id = $2', [expReward, id]);
+  await query(
+    `UPDATE characters SET
+       exp = exp + $1,
+       exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+       gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+       drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
+     WHERE id = $2`,
+    [expReward, id]
+  );
   const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 1);
   if (overflow > 0) {
     await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);
   }
 
-  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 1 });
+  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 1, boostHours: 3 });
 });
 
 export default router;
