@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { TermsModal } from '../components/ui/TermsModal';
 
 export function LoginScreen() {
   const nav = useNavigate();
@@ -10,10 +11,16 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (mode === 'register' && !agreed) {
+      setError('서비스 이용약관에 동의해 주세요');
+      return;
+    }
     setBusy(true);
     try {
       if (mode === 'login') await login(username, password);
@@ -70,6 +77,29 @@ export function LoginScreen() {
               required
               minLength={4}
             />
+            {mode === 'register' && (
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+                color: 'var(--text-dim)', cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  style={{ flexShrink: 0 }}
+                />
+                <span>
+                  [필수]{' '}
+                  <span
+                    onClick={(e) => { e.preventDefault(); setShowTerms(true); }}
+                    style={{ color: 'var(--accent)', textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    서비스 이용약관
+                  </span>
+                  에 동의합니다
+                </span>
+              </label>
+            )}
             {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
             <button type="submit" className="primary" disabled={busy}>
               {busy ? '...' : mode === 'login' ? '로그인' : '회원가입'}
@@ -85,7 +115,17 @@ export function LoginScreen() {
             {mode === 'login' ? '계정이 없으신가요? 가입하기' : '이미 계정이 있으신가요? 로그인'}
           </button>
         </div>
+
+        <div style={{ marginTop: 10, textAlign: 'center', fontSize: 11 }}>
+          <button
+            onClick={() => setShowTerms(true)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
+          >
+            서비스 이용약관 보기
+          </button>
+        </div>
       </div>
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
     </div>
   );
 }
