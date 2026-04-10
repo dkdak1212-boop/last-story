@@ -875,6 +875,13 @@ function monsterAction(s: ActiveSession): void {
     return;
   }
 
+  // 게이지 동결 체크
+  if (hasEffect(s, 'player', 'gauge_freeze')) {
+    addLog(s, '몬스터가 동결 상태!');
+    tickDownEffects(s, 'player');
+    return;
+  }
+
   // 패시브: guard_instinct (HP 40% 이하 시 방어 증가)
   let playerDefStats = s.playerStats;
   const guardInstinct = getPassive(s, 'guard_instinct');
@@ -1179,10 +1186,8 @@ async function combatTick(): Promise<void> {
         s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE;
       }
 
-      // 몬스터 게이지 동결 체크
-      if (!hasEffect(s, 'player', 'gauge_freeze') && !hasEffect(s, 'player', 'stun')) {
-        s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE;
-      }
+      // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
+      s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE;
 
       // 몬스터 행동
       if (s.monsterGauge >= GAUGE_MAX) {
