@@ -1092,7 +1092,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 일일퀘 + 업적 트래킹
   try {
-    await trackDailyQuestProgress(s.characterId, 'kill_field', 1, s.fieldId);
+    await trackDailyQuestProgress(s.characterId, 'kill_monsters', 1);
     await query('UPDATE characters SET total_kills = total_kills + 1, total_gold_earned = total_gold_earned + $1 WHERE id = $2', [finalGold, s.characterId]);
     await checkAndUnlockAchievements(s.characterId);
   } catch {}
