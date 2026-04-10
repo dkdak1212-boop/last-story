@@ -279,13 +279,11 @@ export function NodeTreeScreen() {
     return () => svg.removeEventListener('wheel', onWheel);
   }, []);
 
-  // 터치 (모바일 pan + pinch zoom)
-  // touchmove/end는 document 레벨에서 받음. viewBox는 ref로 안정화하여 effect 재등록 방지.
+  // 터치 (모바일 pan + pinch zoom) — React 합성 이벤트로 단순화
   const touchRef = useRef<{ x: number; y: number; vbX: number; vbY: number; dist?: number; vbW?: number; vbH?: number } | null>(null);
   const viewBoxRef = useRef(viewBox);
   viewBoxRef.current = viewBox;
 
-  // viewBox sanity helper — NaN/Infinity 방지
   function safeViewBox(vb: { x: number; y: number; w: number; h: number }) {
     if (!isFinite(vb.x) || !isFinite(vb.y) || !isFinite(vb.w) || !isFinite(vb.h) || vb.w <= 0 || vb.h <= 0) {
       return { x: -700, y: -700, w: 1400, h: 1400 };
@@ -298,84 +296,71 @@ export function NodeTreeScreen() {
     };
   }
 
-  // 빈 deps로 1회만 등록 — viewBox 변경에도 리스너 재등록 안 함
+  function handleTouchStart(e: React.TouchEvent) {
+    const vb = viewBoxRef.current;
+    if (e.touches.length === 1) {
+      touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: vb.x, vbY: vb.y };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 10) return;
+      touchRef.current = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        vbX: vb.x, vbY: vb.y, dist,
+        vbW: vb.w, vbH: vb.h,
+      };
+    }
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (!touchRef.current) return;
+    const vb = viewBoxRef.current;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    if (e.touches.length === 1) {
+      const dx = (e.touches[0].clientX - touchRef.current.x) * (vb.w / rect.width);
+      const dy = (e.touches[0].clientY - touchRef.current.y) * (vb.h / rect.height);
+      if (!isFinite(dx) || !isFinite(dy)) return;
+      setViewBox(safeViewBox({ x: touchRef.current.vbX - dx, y: touchRef.current.vbY - dy, w: vb.w, h: vb.h }));
+    } else if (e.touches.length === 2 && touchRef.current.dist != null) {
+      const ndx = e.touches[0].clientX - e.touches[1].clientX;
+      const ndy = e.touches[0].clientY - e.touches[1].clientY;
+      const newDist = Math.sqrt(ndx * ndx + ndy * ndy);
+      if (newDist < 10) return;
+      const scale = touchRef.current.dist / newDist;
+      if (!isFinite(scale) || scale <= 0) return;
+      const baseW = touchRef.current.vbW!;
+      const baseH = touchRef.current.vbH!;
+      const newW = Math.min(4000, Math.max(400, baseW * scale));
+      const newH = newW * (baseH / baseW);
+      if (!isFinite(newW) || !isFinite(newH)) return;
+      const cx = touchRef.current.x - rect.left;
+      const cy = touchRef.current.y - rect.top;
+      const newX = touchRef.current.vbX + (baseW - newW) * (cx / rect.width);
+      const newY = touchRef.current.vbY + (baseH - newH) * (cy / rect.height);
+      setViewBox(safeViewBox({ x: newX, y: newY, w: newW, h: newH }));
+    }
+  }
+
+  function handleTouchEnd() { touchRef.current = null; }
+
+  // iOS Safari gesture 이벤트 차단 (1회만)
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-
-    function onTouchStart(e: TouchEvent) {
-      if (e.touches.length >= 2) e.preventDefault();
-      const vb = viewBoxRef.current;
-      if (e.touches.length === 1) {
-        touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: vb.x, vbY: vb.y };
-      } else if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 10) return;
-        touchRef.current = {
-          x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-          y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-          vbX: vb.x, vbY: vb.y, dist,
-          vbW: vb.w, vbH: vb.h,
-        };
-      }
-    }
-    function onGesture(e: Event) { e.preventDefault(); }
-
-    function onDocTouchMove(e: TouchEvent) {
-      if (!touchRef.current) return;
-      const vb = viewBoxRef.current;
-      try { e.preventDefault(); } catch {}
-      const rect = svg!.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-
-      if (e.touches.length === 1) {
-        const dx = (e.touches[0].clientX - touchRef.current.x) * (vb.w / rect.width);
-        const dy = (e.touches[0].clientY - touchRef.current.y) * (vb.h / rect.height);
-        if (!isFinite(dx) || !isFinite(dy)) return;
-        setViewBox(safeViewBox({ x: touchRef.current.vbX - dx, y: touchRef.current.vbY - dy, w: vb.w, h: vb.h }));
-      } else if (e.touches.length === 2 && touchRef.current.dist != null) {
-        const ndx = e.touches[0].clientX - e.touches[1].clientX;
-        const ndy = e.touches[0].clientY - e.touches[1].clientY;
-        const newDist = Math.sqrt(ndx * ndx + ndy * ndy);
-        if (newDist < 10) return;
-        const scale = touchRef.current.dist / newDist;
-        if (!isFinite(scale) || scale <= 0) return;
-
-        const baseW = touchRef.current.vbW!;
-        const baseH = touchRef.current.vbH!;
-        const newW = Math.min(4000, Math.max(400, baseW * scale));
-        const newH = newW * (baseH / baseW);
-        if (!isFinite(newW) || !isFinite(newH)) return;
-
-        const cx = touchRef.current.x - rect.left;
-        const cy = touchRef.current.y - rect.top;
-        const mxRatio = cx / rect.width;
-        const myRatio = cy / rect.height;
-        const newX = touchRef.current.vbX + (baseW - newW) * mxRatio;
-        const newY = touchRef.current.vbY + (baseH - newH) * myRatio;
-        setViewBox(safeViewBox({ x: newX, y: newY, w: newW, h: newH }));
-      }
-    }
-    function onDocTouchEnd() { touchRef.current = null; }
-
-    svg.addEventListener('touchstart', onTouchStart, { passive: false });
+    const onGesture = (e: Event) => e.preventDefault();
     svg.addEventListener('gesturestart', onGesture as any);
     svg.addEventListener('gesturechange', onGesture as any);
     svg.addEventListener('gestureend', onGesture as any);
-    document.addEventListener('touchmove', onDocTouchMove, { passive: false });
-    document.addEventListener('touchend', onDocTouchEnd);
-    document.addEventListener('touchcancel', onDocTouchEnd);
-
     return () => {
-      svg.removeEventListener('touchstart', onTouchStart);
       svg.removeEventListener('gesturestart', onGesture as any);
       svg.removeEventListener('gesturechange', onGesture as any);
       svg.removeEventListener('gestureend', onGesture as any);
-      document.removeEventListener('touchmove', onDocTouchMove);
-      document.removeEventListener('touchend', onDocTouchEnd);
-      document.removeEventListener('touchcancel', onDocTouchEnd);
     };
   }, []);
 
@@ -482,6 +467,10 @@ export function NodeTreeScreen() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
           {/* 동심원 가이드 */}
           {[100, 210, 320, 430, 540, 650].map(r => (
