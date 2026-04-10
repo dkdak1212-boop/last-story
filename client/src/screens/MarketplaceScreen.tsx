@@ -134,7 +134,7 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
 
   // 강화 적용된 스탯 계산
   const enhancedStats = a.itemStats ? (() => {
-    const mult = 1 + el * 0.05;
+    const mult = 1 + el * 0.075;
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(a.itemStats!)) result[k] = Math.round((v as number) * mult);
     return result;
