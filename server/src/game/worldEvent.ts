@@ -380,8 +380,8 @@ async function distributeRewards(eventId: number, mult: number = 1.0) {
 export async function finishEvent(eventId: number, status: 'defeated' | 'expired', io?: Server) {
   await query(`UPDATE world_event_active SET status = $1, finished_at = NOW() WHERE id = $2`, [status, eventId]);
   const boss = await query<{ name: string }>(`SELECT b.name FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id WHERE e.id = $1`, [eventId]);
-  // 처치/만료 모두 참여자에게 보상 (만료는 50% 감소)
-  await distributeRewards(eventId, status === 'expired' ? 0.5 : 1.0);
+  // 처치/만료 모두 100% 보상
+  await distributeRewards(eventId, 1.0);
   if (io) io.emit('world_event', { type: 'world_event_end', bossName: boss.rows[0]?.name ?? '???', result: status });
 }
 
