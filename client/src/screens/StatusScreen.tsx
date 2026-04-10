@@ -8,6 +8,7 @@ import type { Stats, ClassName } from '../types';
 interface CharStatus {
   level: number; exp: number; expToNext: number; expPercent: number;
   gold: number; hp: number; className: string;
+  statPoints: number;
   baseStats: Stats; baseMaxHp: number;
   equipBonus: Partial<Stats>;
   nodeBonus: Partial<Stats>;
@@ -38,11 +39,22 @@ export function StatusScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const [status, setStatus] = useState<CharStatus | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  function reload() {
     if (!active) return;
     api<CharStatus>(`/characters/${active.id}/status`).then(setStatus).catch(() => {});
-  }, [active?.id]);
+  }
+  useEffect(reload, [active?.id]);
+
+  async function spendStat(stat: keyof Stats) {
+    if (!active || busy) return;
+    setBusy(true);
+    try {
+      await api(`/characters/${active.id}/spend-stat`, { method: 'POST', body: JSON.stringify({ stat, amount: 1 }) });
+      reload();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
+  }
 
   if (!status || !active) return <div style={{ color: 'var(--text-dim)' }}>로딩...</div>;
 
@@ -101,23 +113,35 @@ export function StatusScreen() {
 
         {/* 스탯 분해 */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-          <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>스탯 분해</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 55px 55px 55px 60px', gap: 4, fontSize: 12, alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 style={{ fontSize: 14, color: 'var(--accent)', margin: 0 }}>스탯 분해</h3>
+            <div style={{ fontSize: 12, color: status.statPoints > 0 ? 'var(--accent)' : 'var(--text-dim)', fontWeight: 700 }}>
+              스탯 포인트: {status.statPoints}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 28px', gap: 4, fontSize: 12, alignItems: 'center' }}>
             <div style={{ color: 'var(--text-dim)' }}></div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>기본</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>장비</div>
             <div style={{ color: '#8b8bef', textAlign: 'right' }}>노드</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>합계</div>
+            <div></div>
             {STAT_ORDER.map((k) => {
               const base = status.baseStats[k] || 0;
               const eq = (status.equipBonus[k] || 0) as number;
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
               return (
-                <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total} />
+                <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
+                  canSpend={status.statPoints > 0 && !busy}
+                  onSpend={() => spendStat(k)}
+                />
               );
             })}
           </div>
+          {status.statPoints > 0 && (
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)' }}>+ 버튼을 눌러 스탯을 1씩 분배할 수 있습니다.</div>
+          )}
         </div>
       </div>
 
@@ -145,7 +169,7 @@ export function StatusScreen() {
           <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK or MATK) - (DEF or MDEF × 0.5)</span> × 스킬배율 + 고정피해 ± 10%</div>
           <div>· 게이지 MAX=1000 도달 시 행동. <span style={{ color: 'var(--text)' }}>SPD 300 → 약 1.7초</span>, SPD 400 → 약 1.25초</div>
           <div>· <span style={{ color: 'var(--text)' }}>수동 모드</span>: 게이지 충전 후 3초 내 스킬 미선택 시 자동 행동</div>
-          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +8, 노드포인트 +2, 직업별 스탯 자동 성장</div>
+          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +5 (수동 분배)</div>
           <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span>: 기본 스탯 + 특수 효과 (약화/저주/흡혈/확산/재생/황금/경험/날카로움)</div>
           <div>· <span style={{ color: 'var(--text)' }}>접두사 강화</span>: 장비 강화당 접두사 수치 +8% 스케일링</div>
           <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>: 302개 노드 (5구역), 상위 노드 클릭 시 하위 자동 습득</div>
@@ -184,7 +208,7 @@ function Desc({ text }: { text: string }) {
   );
 }
 
-function StatRow({ label, base, eq, node, total }: { label: string; base: number; eq: number; node: number; total: number }) {
+function StatRow({ label, base, eq, node, total, canSpend, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; onSpend?: () => void }) {
   return (
     <>
       <div style={{ color: 'var(--text)' }}>{label}</div>
@@ -196,6 +220,18 @@ function StatRow({ label, base, eq, node, total }: { label: string; base: number
         {node > 0 ? `+${node}` : '-'}
       </div>
       <div style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{total}</div>
+      <button
+        onClick={onSpend}
+        disabled={!canSpend}
+        style={{
+          padding: '2px 0', fontSize: 12, fontWeight: 900,
+          background: canSpend ? 'var(--accent)' : 'transparent',
+          color: canSpend ? '#000' : 'var(--text-dim)',
+          border: `1px solid ${canSpend ? 'var(--accent)' : 'var(--border)'}`,
+          cursor: canSpend ? 'pointer' : 'not-allowed', borderRadius: 3,
+          opacity: canSpend ? 1 : 0.4,
+        }}
+      >+</button>
     </>
   );
 }

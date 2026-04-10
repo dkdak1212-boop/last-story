@@ -354,15 +354,12 @@ async function distributeRewards(eventId: number, mult: number = 1.0) {
       const cr = await query<{ level: number; exp: string; class_name: string }>('SELECT level, exp, class_name FROM characters WHERE id = $1', [p.character_id]);
       if (cr.rows[0]) {
         const result = applyExpGain(cr.rows[0].level, Number(cr.rows[0].exp), expAmt, cr.rows[0].class_name);
-        const g = result.statGrowth;
         await query(
-          `UPDATE characters SET level=$1, exp=$2, max_hp=max_hp+$3, node_points=node_points+$4,
-           stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(stats,
-             '{str}',(COALESCE((stats->>'str')::int,0)+$6)::text::jsonb),'{dex}',(COALESCE((stats->>'dex')::int,0)+$7)::text::jsonb),
-             '{int}',(COALESCE((stats->>'int')::int,0)+$8)::text::jsonb),'{vit}',(COALESCE((stats->>'vit')::int,0)+$9)::text::jsonb),
-             '{spd}',(COALESCE((stats->>'spd')::int,0)+$10)::text::jsonb),'{cri}',(COALESCE((stats->>'cri')::int,0)+$11)::text::jsonb)
+          `UPDATE characters SET level=$1, exp=$2, max_hp=max_hp+$3,
+             node_points=node_points+$4,
+             stat_points=COALESCE(stat_points,0)+$6
            WHERE id=$5`,
-          [result.newLevel, result.newExp, result.hpGained, result.nodePointsGained, p.character_id, g.str, g.dex, g.int, g.vit, g.spd, g.cri]
+          [result.newLevel, result.newExp, result.hpGained, result.nodePointsGained, p.character_id, result.statPointsGained]
         );
       }
     }

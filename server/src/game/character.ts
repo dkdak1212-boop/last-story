@@ -33,7 +33,8 @@ export interface CharacterRow {
 export async function loadCharacter(id: number): Promise<CharacterRow | null> {
   const r = await query<CharacterRow>(
     `SELECT id, user_id, name, class_name, level, exp, gold, hp, max_hp,
-            node_points, stats, location, last_online_at, potion_settings,
+            node_points, COALESCE(stat_points, 0) AS stat_points,
+            stats, location, last_online_at, potion_settings,
             inventory_slots_bonus, exp_boost_until,
             COALESCE(auto_potion_enabled, TRUE) AS auto_potion_enabled,
             COALESCE(auto_potion_threshold, 30) AS auto_potion_threshold,

@@ -215,25 +215,17 @@ export async function generateAndApplyOfflineReport(
 
   // 캐릭터 업데이트
   if (levelUp.levelsGained > 0) {
-    const g = levelUp.statGrowth;
     await query(
       `UPDATE characters
        SET level=$1, exp=$2, gold=gold+$3,
            max_hp=max_hp+$4, hp=max_hp+$4,
            node_points=node_points+$5,
-           stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(
-             stats,
-             '{str}', (COALESCE((stats->>'str')::int,0) + $7)::text::jsonb),
-             '{dex}', (COALESCE((stats->>'dex')::int,0) + $8)::text::jsonb),
-             '{int}', (COALESCE((stats->>'int')::int,0) + $9)::text::jsonb),
-             '{vit}', (COALESCE((stats->>'vit')::int,0) + $10)::text::jsonb),
-             '{spd}', (COALESCE((stats->>'spd')::int,0) + $11)::text::jsonb),
-             '{cri}', (COALESCE((stats->>'cri')::int,0) + $12)::text::jsonb),
+           stat_points=COALESCE(stat_points,0)+$7,
            last_online_at=NOW()
        WHERE id=$6`,
       [levelUp.newLevel, levelUp.newExp, goldGained,
        levelUp.hpGained, levelUp.nodePointsGained, characterId,
-       g.str, g.dex, g.int, g.vit, g.spd, g.cri]
+       levelUp.statPointsGained]
     );
   } else {
     await query(

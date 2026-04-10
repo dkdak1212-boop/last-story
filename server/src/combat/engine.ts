@@ -1030,23 +1030,16 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
 
   if (result.levelsGained > 0) {
-    addLog(s, `레벨업! Lv.${result.newLevel}`);
-    const g = result.statGrowth;
+    addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
     await query(
       `UPDATE characters SET level=$1, exp=$2, gold=gold+$3::int,
-              max_hp=max_hp+$4, hp=max_hp+$4, node_points=node_points+$5,
-              stats = jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(
-                stats,
-                '{str}', (COALESCE((stats->>'str')::int,0) + $7)::text::jsonb),
-                '{dex}', (COALESCE((stats->>'dex')::int,0) + $8)::text::jsonb),
-                '{int}', (COALESCE((stats->>'int')::int,0) + $9)::text::jsonb),
-                '{vit}', (COALESCE((stats->>'vit')::int,0) + $10)::text::jsonb),
-                '{spd}', (COALESCE((stats->>'spd')::int,0) + $11)::text::jsonb),
-                '{cri}', (COALESCE((stats->>'cri')::int,0) + $12)::text::jsonb)
+              max_hp=max_hp+$4, hp=max_hp+$4,
+              node_points=node_points+$5,
+              stat_points=COALESCE(stat_points,0)+$7
        WHERE id=$6`,
       [result.newLevel, result.newExp, finalGold,
        result.hpGained, result.nodePointsGained, s.characterId,
-       g.str, g.dex, g.int, g.vit, g.spd, g.cri]
+       result.statPointsGained]
     );
     // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
     const updatedChar = await loadCharacter(s.characterId);
