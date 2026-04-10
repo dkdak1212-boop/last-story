@@ -21,7 +21,6 @@ const NAV = [
   { to: '/enhance', label: '강화' },
   { to: '/craft', label: '제작' },
   { to: '/daily-quests', label: '일일임무' },
-  { to: '/achievements', label: '업적' },
   { to: '/marketplace', label: '거래소' },
   { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },

@@ -27,20 +27,34 @@ function medalColor(rank: number): string | null {
   return null;
 }
 
+const CLASS_TABS: { key: string; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'warrior', label: '전사' },
+  { key: 'mage', label: '마법사' },
+  { key: 'cleric', label: '성직자' },
+  { key: 'rogue', label: '도적' },
+];
+
 export function RankingScreen() {
   const [type, setType] = useState('level');
+  const [classFilter, setClassFilter] = useState('all');
   const [rows, setRows] = useState<RankEntry[]>([]);
 
   useEffect(() => {
     api<RankEntry[]>(`/ranking?type=${type}`).then(setRows).catch(() => {});
   }, [type]);
 
+  // 클래스 필터 적용 + 재순위 매기기
+  const filtered = classFilter === 'all'
+    ? rows
+    : rows.filter(r => r.className === classFilter).map((r, i) => ({ ...r, rank: i + 1 }));
+
   return (
     <div style={{ maxWidth: 700, margin: '0 auto' }}>
       <h2 style={{ marginBottom: 12, color: 'var(--accent)' }}>랭킹 TOP 100</h2>
 
-      {/* 탭 */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderBottom: '2px solid var(--border)' }}>
+      {/* 지표 탭 */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 8, borderBottom: '2px solid var(--border)' }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setType(t.key)} style={{
             flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 700,
@@ -53,10 +67,27 @@ export function RankingScreen() {
         ))}
       </div>
 
+      {/* 직업 필터 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+        {CLASS_TABS.map(c => {
+          const active = classFilter === c.key;
+          const color = c.key === 'all' ? 'var(--accent)' : (CLASS_COLOR[c.key] || 'var(--accent)');
+          return (
+            <button key={c.key} onClick={() => setClassFilter(c.key)} style={{
+              padding: '5px 12px', fontSize: 11, fontWeight: 700,
+              background: active ? color : 'transparent',
+              color: active ? '#000' : color,
+              border: `1px solid ${color}`,
+              borderRadius: 3, cursor: 'pointer',
+            }}>{c.label}</button>
+          );
+        })}
+      </div>
+
       {/* 랭킹 리스트 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {rows.length === 0 && <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: 20 }}>데이터 없음</div>}
-        {rows.map(r => {
+        {filtered.length === 0 && <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: 20 }}>데이터 없음</div>}
+        {filtered.map(r => {
           const medal = medalColor(r.rank);
           return (
             <div key={`${r.id}-${r.rank}`} style={{
