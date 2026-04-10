@@ -233,14 +233,26 @@ async function getCharSkills(characterId: number, className: string, level: numb
 }
 
 // 드롭률 배율: 기본 x0.1 (드롭 부스터로 1.5배)
+// 유니크 아이템은 배율 적용 없이 DB 확률 그대로 사용
 const DROP_RATE_MULT = 0.1;
+
+// 유니크 아이템 ID 캐시 (startup 시 로드)
+const uniqueItemIds = new Set<number>();
+export async function loadUniqueItemIds() {
+  const r = await query<{ id: number }>("SELECT id FROM items WHERE grade = 'unique'");
+  uniqueItemIds.clear();
+  for (const row of r.rows) uniqueItemIds.add(row.id);
+  console.log(`[drop] 유니크 ${uniqueItemIds.size}개 캐시`);
+}
 
 function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   const boostMult = dropBoost ? 1.5 : 1.0;
   const guildMult = 1 + guildDropPct / 100;
   for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance * DROP_RATE_MULT * boostMult * guildMult) {
+    // 유니크는 DROP_RATE_MULT 제외 (DB 확률 그대로)
+    const rateMult = uniqueItemIds.has(d.itemId) ? 1.0 : DROP_RATE_MULT;
+    if (Math.random() < d.chance * rateMult * boostMult * guildMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }

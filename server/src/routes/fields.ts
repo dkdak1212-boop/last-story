@@ -56,14 +56,18 @@ router.get('/', async (_req, res) => {
         level: m.level,
         exp: m.exp_reward,
         gold: m.gold_reward,
-        drops: (m.drop_table || []).map(d => ({
-          name: itemNames.get(d.itemId)?.name || `#${d.itemId}`,
-          grade: itemNames.get(d.itemId)?.grade || 'common',
-          // 실제 드랍 시 시스템 배수 (DROP_RATE_MULT 0.1) 적용
-          chance: Math.round(d.chance * 0.1 * 10000) / 100, // 소수점 2자리 %
-          minQty: d.minQty,
-          maxQty: d.maxQty,
-        })),
+        drops: (m.drop_table || []).map(d => {
+          const grade = itemNames.get(d.itemId)?.grade || 'common';
+          // 유니크는 DROP_RATE_MULT(0.1) 제외, 나머지는 적용
+          const mult = grade === 'unique' ? 1.0 : 0.1;
+          return {
+            name: itemNames.get(d.itemId)?.name || `#${d.itemId}`,
+            grade,
+            chance: Math.round(d.chance * mult * 10000) / 100, // 소수점 2자리 %
+            minQty: d.minQty,
+            maxQty: d.maxQty,
+          };
+        }),
       };
     }).filter(Boolean),
   }));

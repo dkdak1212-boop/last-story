@@ -44,7 +44,7 @@ import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEv
 import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import achievementRoutes from './routes/achievements.js';
-import { restoreCombatSessions } from './combat/engine.js';
+import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import migrateForceRoutes from './routes/migrate-force.js';
 import { query } from './db/pool.js';
 
@@ -155,6 +155,7 @@ httpServer.listen(PORT, () => {
       console.error('[migrations] equip overhaul error:', e);
     }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
+    loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));
   })();
 });
 
