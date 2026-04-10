@@ -251,23 +251,31 @@ export function NodeTreeScreen() {
   }
   function handleMouseUp() { dragRef.current.dragging = false; }
 
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault();
+  // wheel 이벤트는 useEffect에서 직접 등록 (React onWheel은 passive라 preventDefault 안 됨)
+  useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    const newW = Math.min(4000, Math.max(400, viewBox.w * scale));
-    const newH = newW * (viewBox.h / viewBox.w);
-    // 마우스 위치 기준 줌
-    const mxRatio = mx / rect.width;
-    const myRatio = my / rect.height;
-    const newX = viewBox.x + (viewBox.w - newW) * mxRatio;
-    const newY = viewBox.y + (viewBox.h - newH) * myRatio;
-    setViewBox({ x: newX, y: newY, w: newW, h: newH });
-  }
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const rect = svg!.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+      setViewBox(v => {
+        const newW = Math.min(4000, Math.max(400, v.w * scale));
+        const newH = newW * (v.h / v.w);
+        const mxRatio = mx / rect.width;
+        const myRatio = my / rect.height;
+        return {
+          x: v.x + (v.w - newW) * mxRatio,
+          y: v.y + (v.h - newH) * myRatio,
+          w: newW, h: newH,
+        };
+      });
+    }
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  }, []);
 
   // 터치 (모바일 pan + pinch zoom)
   const touchRef = useRef<{ x: number; y: number; vbX: number; vbY: number; dist?: number; vbW?: number; vbH?: number } | null>(null);
@@ -415,7 +423,6 @@ export function NodeTreeScreen() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          onWheel={handleWheel}
         >
           {/* 동심원 가이드 */}
           {[100, 210, 320, 430, 540, 650].map(r => (
