@@ -80,7 +80,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number): Record<string, number> | null {
     if (!baseStats) return null;
     const el = enhanceLevel || 0;
-    const mult = el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+    const mult = 1 + el * 0.05;
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(baseStats)) {
       result[k] = Math.round((v as number) * mult);

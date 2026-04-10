@@ -51,10 +51,10 @@ export function formatPrefixValue(key: string, value: number): string {
   return `+${value}`;
 }
 
-// 강화 배율 계산 (EnhanceScreen과 동일)
+// 강화 배율 계산 (EnhanceScreen과 동일): +5%/단계
 export function getEnhanceMult(el: number): number {
   if (el <= 0) return 1;
-  return el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+  return 1 + el * 0.05;
 }
 
 // 스탯 jsonb → 라인 배열

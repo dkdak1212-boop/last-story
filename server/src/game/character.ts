@@ -65,9 +65,9 @@ export async function getEquippedItems(characterId: number) {
   return r.rows.map(row => {
     const result: Partial<Stats> = {};
     if (row.stats) {
-      // 강화 배율: +15%/단계 (기존 10%) + 7강 이후 가속
+      // 강화 배율: +5%/단계 (1~20강 동일)
       const el = row.enhance_level || 0;
-      const mult = el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+      const mult = 1 + el * 0.05;
       for (const [k, v] of Object.entries(row.stats)) {
         result[k as keyof Stats] = Math.round((v as number) * mult);
       }

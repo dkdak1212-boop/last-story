@@ -159,8 +159,8 @@ export function EnhanceScreen() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
                   {Object.entries(selected.baseStats).map(([k, v]) => {
-                    // baseStats는 강화 전 원본. 1~6강 +15%/단계, 7강+ +25%/단계
-                    const getMult = (el: number) => el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
+                    // 강화 배율: +5%/단계
+                    const getMult = (el: number) => 1 + el * 0.05;
                     const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
                     const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
                     return (
