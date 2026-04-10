@@ -37,9 +37,7 @@ export function initWebSocket(httpServer: HttpServer) {
       if (s.data.isAdmin) continue;
       if (s.data.userId) userIds.add(s.data.userId);
     }
-    // 1.5배 뻥튀기
-    const inflated = Math.max(userIds.size, Math.ceil(userIds.size * 1.5));
-    io.emit('online-count', inflated);
+    io.emit('online-count', userIds.size);
   }
 
   io.on('connection', (socket) => {
