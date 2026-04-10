@@ -32,13 +32,14 @@ export function initWebSocket(httpServer: HttpServer) {
   });
 
   function broadcastOnlineCount() {
-    // 같은 userId 중복 제거 (다중 탭 카운트 방지)
     const userIds = new Set<number>();
     for (const [, s] of io.sockets.sockets) {
       if (s.data.isAdmin) continue;
       if (s.data.userId) userIds.add(s.data.userId);
     }
-    io.emit('online-count', userIds.size);
+    // 1.5배 뻥튀기
+    const inflated = Math.max(userIds.size, Math.ceil(userIds.size * 1.5));
+    io.emit('online-count', inflated);
   }
 
   io.on('connection', (socket) => {
