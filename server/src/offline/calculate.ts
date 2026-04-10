@@ -7,7 +7,7 @@ import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 
 const MAX_OFFLINE_SECONDS = 24 * 3600;
 const MIN_OFFLINE_SECONDS = 300; // 최소 5분
-const DEFAULT_EFFICIENCY = 0.9;
+const DEFAULT_EFFICIENCY = 1.0;
 const PREMIUM_EFFICIENCY = 1.0;
 const GAUGE_MAX = 1000;
 const GAUGE_FILL_RATE = 0.1; // 온라인 엔진과 동일 (100ms 틱)

@@ -414,7 +414,7 @@ export function VillageScreen() {
             <div>· 치명타 상한 100%, 발동 시 데미지 2배</div>
             <div>· CC 면역: 스턴/동결이 성공적으로 걸린 뒤 지속시간 + 3턴 간 추가 CC 차단</div>
             <div>· 사망 시 HP 100% 회복 후 마을 귀환 (패널티 없음)</div>
-            <div style={{ marginBottom: 14 }}>· 오프라인 사냥: 최대 24시간, 효율 90%</div>
+            <div style={{ marginBottom: 14 }}>· 오프라인 사냥: 최대 24시간, 효율 100%</div>
 
             {/* 성장 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
