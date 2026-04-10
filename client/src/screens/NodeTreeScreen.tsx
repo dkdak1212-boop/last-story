@@ -251,19 +251,21 @@ export function NodeTreeScreen() {
   }
   function handleMouseUp() { dragRef.current.dragging = false; }
 
-  // wheel 이벤트는 useEffect에서 직접 등록 (React onWheel은 passive라 preventDefault 안 됨)
+  // wheel 이벤트 (1회만 등록)
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       const rect = svg!.getBoundingClientRect();
+      if (rect.width <= 0) return;
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const scale = e.deltaY > 0 ? 1.15 : 1 / 1.15;
       setViewBox(v => {
         const newW = Math.min(4000, Math.max(400, v.w * scale));
         const newH = newW * (v.h / v.w);
+        if (!isFinite(newW) || !isFinite(newH)) return v;
         const mxRatio = mx / rect.width;
         const myRatio = my / rect.height;
         return {
@@ -278,8 +280,10 @@ export function NodeTreeScreen() {
   }, []);
 
   // 터치 (모바일 pan + pinch zoom)
-  // touchmove/end는 document 레벨에서 받아서 손가락이 SVG 밖으로 나가도 안전
+  // touchmove/end는 document 레벨에서 받음. viewBox는 ref로 안정화하여 effect 재등록 방지.
   const touchRef = useRef<{ x: number; y: number; vbX: number; vbY: number; dist?: number; vbW?: number; vbH?: number } | null>(null);
+  const viewBoxRef = useRef(viewBox);
+  viewBoxRef.current = viewBox;
 
   // viewBox sanity helper — NaN/Infinity 방지
   function safeViewBox(vb: { x: number; y: number; w: number; h: number }) {
@@ -294,47 +298,48 @@ export function NodeTreeScreen() {
     };
   }
 
+  // 빈 deps로 1회만 등록 — viewBox 변경에도 리스너 재등록 안 함
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
 
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length >= 2) e.preventDefault();
+      const vb = viewBoxRef.current;
       if (e.touches.length === 1) {
-        touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: viewBox.x, vbY: viewBox.y };
+        touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: vb.x, vbY: vb.y };
       } else if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 10) return; // 너무 가까우면 무시
+        if (dist < 10) return;
         touchRef.current = {
           x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
           y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-          vbX: viewBox.x, vbY: viewBox.y,
-          dist,
-          vbW: viewBox.w, vbH: viewBox.h,
+          vbX: vb.x, vbY: vb.y, dist,
+          vbW: vb.w, vbH: vb.h,
         };
       }
     }
     function onGesture(e: Event) { e.preventDefault(); }
 
-    // document 레벨: 손가락이 SVG 밖으로 나가도 처리
     function onDocTouchMove(e: TouchEvent) {
       if (!touchRef.current) return;
-      e.preventDefault();
+      const vb = viewBoxRef.current;
+      try { e.preventDefault(); } catch {}
       const rect = svg!.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
 
       if (e.touches.length === 1) {
-        const dx = (e.touches[0].clientX - touchRef.current.x) * (viewBox.w / rect.width);
-        const dy = (e.touches[0].clientY - touchRef.current.y) * (viewBox.h / rect.height);
+        const dx = (e.touches[0].clientX - touchRef.current.x) * (vb.w / rect.width);
+        const dy = (e.touches[0].clientY - touchRef.current.y) * (vb.h / rect.height);
         if (!isFinite(dx) || !isFinite(dy)) return;
-        setViewBox(v => safeViewBox({ ...v, x: touchRef.current!.vbX - dx, y: touchRef.current!.vbY - dy }));
+        setViewBox(safeViewBox({ x: touchRef.current.vbX - dx, y: touchRef.current.vbY - dy, w: vb.w, h: vb.h }));
       } else if (e.touches.length === 2 && touchRef.current.dist != null) {
         const ndx = e.touches[0].clientX - e.touches[1].clientX;
         const ndy = e.touches[0].clientY - e.touches[1].clientY;
         const newDist = Math.sqrt(ndx * ndx + ndy * ndy);
-        if (newDist < 10) return; // 0 나눗셈 방지
+        if (newDist < 10) return;
         const scale = touchRef.current.dist / newDist;
         if (!isFinite(scale) || scale <= 0) return;
 
@@ -372,7 +377,7 @@ export function NodeTreeScreen() {
       document.removeEventListener('touchend', onDocTouchEnd);
       document.removeEventListener('touchcancel', onDocTouchEnd);
     };
-  }, [viewBox.x, viewBox.y, viewBox.w, viewBox.h]);
+  }, []);
 
   // 노드트리 화면에서는 페이지 전체 overscroll/pull-to-refresh 차단
   useEffect(() => {
