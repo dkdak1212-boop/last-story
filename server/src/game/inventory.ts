@@ -15,15 +15,19 @@ export async function addItemToInventory(
   itemId: number,
   quantity: number
 ): Promise<{ added: number; overflow: number }> {
-  // 아이템 조회 — 스택 가능 여부 + 장비 여부
-  const itemR = await query<{ stack_size: number; slot: string | null; required_level: number }>(
-    'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1',
+  // 아이템 조회 — 스택 가능 여부 + 장비 여부 + 유니크 여부
+  const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
+    'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name FROM items WHERE id = $1',
     [itemId]
   );
   if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
   const stackSize = itemR.rows[0].stack_size;
   const isEquipment = !!itemR.rows[0].slot;
   const itemRequiredLevel = itemR.rows[0].required_level;
+  const itemGrade = itemR.rows[0].grade;
+  const uniquePrefixStats = itemR.rows[0].unique_prefix_stats;
+  const itemName = itemR.rows[0].name;
+  const isUnique = itemGrade === 'unique';
 
   let remaining = quantity;
 
@@ -61,29 +65,54 @@ export async function addItemToInventory(
     const qty = Math.min(remaining, stackSize);
 
     if (isEquipment) {
-      // 장비 아이템: 접두사 + 품질(0~100) 랜덤 생성
-      const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
-      const quality = Math.floor(Math.random() * 101); // 0~100
-      await query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
-        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats), quality]
-      );
-      // 전설 등급 또는 3옵 → 드롭 로그 기록
-      const itemInfo = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);
-      if (itemInfo.rows[0]) {
-        const { name: iName, grade } = itemInfo.rows[0];
-        if (grade === 'legendary' || prefixIds.length >= 3) {
+      if (isUnique) {
+        // 유니크 아이템: 고정 특수옵션 + 랜덤 접두사 + 랜덤 품질
+        const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
+        const quality = Math.floor(Math.random() * 101);
+        const fixedStats = uniquePrefixStats || {};
+        // 고정 + 랜덤 접두사 스탯 합치기 (같은 키면 덧셈)
+        const mergedStats: Record<string, number> = { ...fixedStats };
+        for (const [k, v] of Object.entries(bonusStats)) {
+          mergedStats[k] = (mergedStats[k] || 0) + (v as number);
+        }
+        await query(
+          `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+          [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(mergedStats), quality]
+        );
+        // 유니크 드롭 로그 기록
+        const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+        const cName = charInfo.rows[0]?.name ?? '???';
+        const prefixNameList = prefixIds.length > 0
+          ? (await query<{ name: string }>('SELECT name FROM item_prefixes WHERE id = ANY($1)', [prefixIds])).rows.map(r => r.name).join(' ')
+          : '';
+        const fullName = prefixNameList ? `${prefixNameList} ${itemName}` : itemName;
+        await query(
+          `INSERT INTO item_drop_log (character_id, character_name, item_name, item_grade, prefix_count, prefix_names)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [characterId, cName, fullName, 'unique', prefixIds.length, prefixNameList]
+        );
+      } else {
+        // 일반 장비: 접두사 + 품질(0~100) 랜덤 생성
+        const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
+        const quality = Math.floor(Math.random() * 101); // 0~100
+        await query(
+          `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+          [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(bonusStats), quality]
+        );
+        // 전설 등급 또는 3옵 → 드롭 로그 기록
+        if (itemGrade === 'legendary' || prefixIds.length >= 3) {
           const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
           const cName = charInfo.rows[0]?.name ?? '???';
           const prefixNameList = prefixIds.length > 0
             ? (await query<{ name: string }>('SELECT name FROM item_prefixes WHERE id = ANY($1)', [prefixIds])).rows.map(r => r.name).join(' ')
             : '';
-          const fullName = prefixNameList ? `${prefixNameList} ${iName}` : iName;
+          const fullName = prefixNameList ? `${prefixNameList} ${itemName}` : itemName;
           await query(
             `INSERT INTO item_drop_log (character_id, character_name, item_name, item_grade, prefix_count, prefix_names)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [characterId, cName, fullName, grade, prefixIds.length, prefixNameList]
+            [characterId, cName, fullName, itemGrade, prefixIds.length, prefixNameList]
           );
         }
       }

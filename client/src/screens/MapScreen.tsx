@@ -103,12 +103,21 @@ export function MapScreen() {
                         <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
                           <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>드랍 아이템 (1킬당 확률, 실제 적용)</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px', fontSize: 10 }}>
-                            {drops.map((d, i) => (
-                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ color: 'var(--text-dim)' }}>{d.name}</span>
-                                <span style={{ color: '#88ccff', fontWeight: 700 }}>{d.chance.toFixed(2)}%</span>
-                              </div>
-                            ))}
+                            {drops.map((d, i) => {
+                              const isUnique = d.grade === 'unique';
+                              return (
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                  <span style={{
+                                    color: isUnique ? '#ff8c2a' : 'var(--text-dim)',
+                                    fontWeight: isUnique ? 700 : 400,
+                                    textShadow: isUnique ? '0 0 4px rgba(255,140,42,0.6)' : undefined,
+                                  }}>
+                                    {isUnique ? '★ ' : ''}{d.name}{isUnique ? ' [유니크]' : ''}
+                                  </span>
+                                  <span style={{ color: isUnique ? '#ffb060' : '#88ccff', fontWeight: 700 }}>{d.chance.toFixed(2)}%</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
 
