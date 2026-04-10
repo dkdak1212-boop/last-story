@@ -88,55 +88,32 @@ export function MapScreen() {
                       </div>
                     </div>
                   ))}
-                  {/* 드랍 아이템 목록 + 확률 */}
+                  {/* 드랍 아이템 + 슬롯별 실제 확률 */}
                   {(() => {
-                    const allDrops = f.monsters.flatMap(m => m.drops || []);
-                    if (allDrops.length === 0) return null;
-                    // 무기/방어구/악세 분류 (이름 기반: '검/지팡이/홀/단검'=무기, '투구/갑옷/장화'=방어구, '반지/목걸이'=악세)
-                    const isWeapon = (n: string) => /검|지팡이|홀|단검/.test(n);
-                    const isArmor = (n: string) => /투구|갑옷|장화/.test(n);
-                    const isAccessory = (n: string) => /반지|목걸이/.test(n);
-
-                    const weapons = allDrops.filter(d => isWeapon(d.name));
-                    const armors = allDrops.filter(d => isArmor(d.name));
-                    const accs = allDrops.filter(d => isAccessory(d.name));
-
-                    // 카테고리 종합 확률 = 1 - 각 슬롯 모두 실패 확률
-                    function catChance(drops: typeof allDrops): number {
-                      if (drops.length === 0) return 0;
-                      let failProb = 1;
-                      for (const d of drops) failProb *= (1 - d.chance / 100);
-                      return Math.round((1 - failProb) * 10000) / 100;
+                    // 같은 이름은 1개로 (몬스터 두 마리가 같은 드랍 테이블 가질 수 있음)
+                    const dropMap = new Map<string, DropInfo>();
+                    for (const m of f.monsters) for (const d of m.drops || []) {
+                      if (!dropMap.has(d.name)) dropMap.set(d.name, d);
                     }
-
-                    const wChance = catChance(weapons);
-                    const aChance = catChance(armors);
-                    const cChance = catChance(accs);
+                    const drops = [...dropMap.values()];
+                    if (drops.length === 0) return null;
 
                     return (
                       <>
-                        <div style={{ marginTop: 6, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
-                          <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>드랍 가능 장비</div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {[...new Map(allDrops.map(d => [d.name, d])).values()].map((d, i) => (
-                              <span key={i} style={{
-                                fontSize: 10, padding: '2px 6px', borderRadius: 3,
-                                border: '1px solid var(--border)',
-                                color: 'var(--text-dim)',
-                                background: 'var(--bg-panel)',
-                              }}>{d.name}</span>
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>드랍 아이템 (1킬당 확률, 실제 적용)</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px', fontSize: 10 }}>
+                            {drops.map((d, i) => (
+                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-dim)' }}>{d.name}</span>
+                                <span style={{ color: '#88ccff', fontWeight: 700 }}>{d.chance.toFixed(2)}%</span>
+                              </div>
                             ))}
                           </div>
                         </div>
 
                         <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-                          <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>드랍 확률 (1킬당)</div>
-                          <div>
-                            <span style={{ color: '#ff8866' }}>무기 {wChance.toFixed(2)}%</span>{' · '}
-                            <span style={{ color: '#88ccff' }}>방어구 {aChance.toFixed(2)}%</span>{' · '}
-                            <span style={{ color: '#e0a040' }}>악세서리 {cChance.toFixed(2)}%</span>
-                          </div>
-                          <div style={{ marginTop: 6, fontWeight: 700, color: 'var(--accent)' }}>접두사 등급 확률</div>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)' }}>접두사 등급 확률</div>
                           <div>
                             <span style={{ color: '#daa520' }}>T1 90%</span>{' · '}
                             <span style={{ color: '#5b8ecc' }}>T2 9%</span>{' · '}
