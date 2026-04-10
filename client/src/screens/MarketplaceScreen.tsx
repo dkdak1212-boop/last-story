@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, InventorySlot, Stats } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
+import { GRADE_COLOR, ItemStatsBlock } from '../components/ui/ItemStats';
+import { PrefixDisplay } from '../components/ui/PrefixDisplay';
+import { ItemIcon } from '../components/ui/ItemIcon';
 
 interface Listing {
   id: number; itemId: number; itemQuantity: number;
@@ -119,61 +121,64 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
   const timeLeft = Math.max(0, new Date(a.endsAt).getTime() - Date.now());
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
   const el = a.enhanceLevel || 0;
-
-  // 강화 적용된 스탯 계산
-  const enhancedStats = a.itemStats ? (() => {
-    const mult = 1 + el * 0.075;
-    const result: Record<string, number> = {};
-    for (const [k, v] of Object.entries(a.itemStats!)) result[k] = Math.round((v as number) * mult);
-    return result;
-  })() : null;
+  const gradeClr = GRADE_COLOR[a.itemGrade] || 'var(--border)';
 
   return (
-    <div style={{ padding: 12, background: 'var(--bg-panel)', border: `1px solid ${GRADE_COLOR[a.itemGrade]}` }}>
-      <div className="auction-row-inner" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
+    <div style={{
+      padding: 12, background: 'var(--bg-panel)',
+      borderLeft: `3px solid ${gradeClr}`,
+      border: '1px solid var(--border)',
+      borderRadius: 4,
+    }}>
+      {/* 헤더: 아이콘 + 이름 + 가격 + 구매 버튼 */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <ItemIcon slot={a.itemSlot ?? null} grade={a.itemGrade} itemName={a.itemName} size={32} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ color: gradeClr, fontWeight: 700, fontSize: 14 }}>{a.itemName}</span>
+            {el > 0 && (
+              <span style={{
+                color: '#000', background: 'var(--accent)', padding: '0 5px',
+                borderRadius: 2, fontSize: 11, fontWeight: 900, lineHeight: '16px',
+              }}>+{el}</span>
+            )}
+            {a.itemQuantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>×{a.itemQuantity}</span>}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+            판매자: {a.sellerName} · 남은 시간 {h}시간 {m}분
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 16 }}>
+            {a.price.toLocaleString()}G
+          </div>
+          <button onClick={onBuy} style={{
+            padding: '8px 20px', fontSize: 13, fontWeight: 700,
+            background: 'var(--success)', color: '#000',
+            border: 'none', cursor: 'pointer', borderRadius: 4,
+          }}>구매</button>
+        </div>
+      </div>
+
+      {/* 본문: 스탯 + 접두사 */}
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+        {a.itemStats && Object.keys(a.itemStats).length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>아이템 스탯</div>
+            <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} />
+          </div>
+        )}
+        {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
           <div>
-            <span style={{ color: GRADE_COLOR[a.itemGrade], fontWeight: 700 }}>{a.itemName}</span>
-            {el > 0 && <span style={{ color: 'var(--accent)', fontWeight: 700, marginLeft: 4 }}>+{el}</span>}
-            {a.itemQuantity > 1 && <span style={{ marginLeft: 6, color: 'var(--text-dim)', fontSize: 12 }}>×{a.itemQuantity}</span>}
-            <span style={{ marginLeft: 8, fontSize: 10, color: GRADE_COLOR[a.itemGrade] }}>[{GRADE_LABEL[a.itemGrade]}]</span>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>접두사</div>
+            <PrefixDisplay prefixStats={a.prefixStats} />
           </div>
-          {/* 기본 스탯 (강화 적용) */}
-          {enhancedStats && (
-            <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text-dim)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {Object.entries(enhancedStats).map(([k, v]) => (
-                <span key={k} style={{ color: '#aac8a0' }}>{STAT_LABEL[k] || k} +{v}</span>
-              ))}
-            </div>
-          )}
-          {/* 접두사 효과 */}
-          {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
-            <div style={{ marginTop: 2, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {Object.entries(a.prefixStats).map(([k, v]) => {
-                const fmts: Record<string, (v: number) => string> = {
-                  str: v => `힘 +${v}`, dex: v => `민첩 +${v}`, int: v => `지능 +${v}`, vit: v => `체력 +${v}`,
-                  spd: v => `속도 +${v}`, cri: v => `치명타 확률 +${v}%`, accuracy: v => `명중 +${v}`, dodge: v => `회피 +${v}`,
-                  def_reduce_pct: v => `몬스터 방어력 ${v}% 감소`, slow_pct: v => `몬스터 속도 ${v}% 감소`,
-                  dot_amp_pct: v => `도트 데미지 ${v}% 증가`, hp_regen: v => `틱당 HP ${v} 회복`,
-                  lifesteal_pct: v => `데미지 흡혈 ${(v/10).toFixed(1)}%`, gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
-                  exp_bonus_pct: v => `경험치 획득 ${v}% 증가`, crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
-                };
-                const text = fmts[k] ? fmts[k](v) : `${STAT_LABEL[k]||k} +${v}`;
-                return <span key={k} style={{ color: '#66ccff', fontWeight: 600 }}>◆ {text}</span>;
-              })}
-            </div>
-          )}
-          {a.itemDescription && <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>{a.itemDescription}</div>}
-          <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 4 }}>
-            판매자: {a.sellerName} · {h}시간 {m}분 남음
+        )}
+        {a.itemDescription && (
+          <div style={{ color: 'var(--text-dim)', fontSize: 10, marginTop: 6, fontStyle: 'italic' }}>
+            {a.itemDescription}
           </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>{a.price.toLocaleString()}G</div>
-        </div>
-        <div className="auction-actions">
-          <button className="primary" onClick={onBuy} style={{ fontSize: 13, padding: '6px 16px', fontWeight: 700 }}>구매</button>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -202,68 +207,70 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
 
-  // 접두사 효과 포맷 (PrefixDisplay와 동일)
-  const EFFECT_FMTS: Record<string, (v: number) => string> = {
-    str: v => `힘 +${v}`, dex: v => `민첩 +${v}`, int: v => `지능 +${v}`, vit: v => `체력 +${v}`,
-    spd: v => `속도 +${v}`, cri: v => `치명타 확률 +${v}%`, accuracy: v => `명중 +${v}`, dodge: v => `회피 +${v}`,
-    def_reduce_pct: v => `몬스터 방어력 ${v}% 감소`, slow_pct: v => `몬스터 속도 ${v}% 감소`,
-    dot_amp_pct: v => `도트 데미지 ${v}% 증가`, hp_regen: v => `틱당 HP ${v} 회복`,
-    lifesteal_pct: v => `데미지 흡혈 ${(v/10).toFixed(1)}%`, gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
-    exp_bonus_pct: v => `경험치 획득 ${v}% 증가`, crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
-  };
-
   return (
     <div>
       <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6, marginBottom: 16 }}>
+      {/* 인벤토리 그리드 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, marginBottom: 16 }}>
         {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>인벤토리 비어있음</div>}
-        {inv.map(s => (
-          <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); setPrice(''); }}
-            style={{
-              padding: 8, background: slotIndex === s.slotIndex ? 'var(--bg-elev)' : 'var(--bg-panel)',
-              border: `1px solid ${slotIndex === s.slotIndex ? 'var(--accent)' : GRADE_COLOR[s.item.grade] || 'var(--border)'}`,
-              cursor: 'pointer', fontSize: 12,
-            }}>
-            <div style={{ fontWeight: 700, color: GRADE_COLOR[s.item.grade] }}>
-              {s.item.name}{s.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{s.enhanceLevel}</span>}
-              {s.quantity > 1 && ` ×${s.quantity}`}
-            </div>
-            <div style={{ fontSize: 10, color: GRADE_COLOR[s.item.grade] }}>[{GRADE_LABEL[s.item.grade]}]</div>
-            {/* 접두사 미리보기 */}
-            {s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
-              <div style={{ fontSize: 10, color: '#66ccff', marginTop: 2 }}>
-                {Object.entries(s.prefixStats).slice(0, 2).map(([k, v]) => {
-                  const fmt = EFFECT_FMTS[k];
-                  return <div key={k}>{fmt ? fmt(v) : `${k} +${v}`}</div>;
-                })}
-                {Object.keys(s.prefixStats).length > 2 && <div>+{Object.keys(s.prefixStats).length - 2}개 더</div>}
+        {inv.filter(s => !!s.item.slot).map(s => {
+          const gradeClr = GRADE_COLOR[s.item.grade];
+          const isSel = slotIndex === s.slotIndex;
+          return (
+            <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); setPrice(''); }}
+              style={{
+                padding: 8, background: isSel ? 'var(--bg-elev)' : 'var(--bg-panel)',
+                borderLeft: `3px solid ${gradeClr}`,
+                border: `1px solid ${isSel ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 4, cursor: 'pointer',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ItemIcon slot={s.item.slot ?? null} grade={s.item.grade} itemName={s.item.name} size={24} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: gradeClr, fontWeight: 700, fontSize: 12 }}>
+                    {s.item.name}
+                    {s.enhanceLevel > 0 && (
+                      <span style={{
+                        color: '#000', background: 'var(--accent)', padding: '0 4px',
+                        borderRadius: 2, fontSize: 10, fontWeight: 900, marginLeft: 4,
+                      }}>+{s.enhanceLevel}</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
 
       {sel && (
-        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--accent)' }}>
+        <div style={{
+          padding: 14, background: 'var(--bg-panel)',
+          border: '2px solid var(--accent)', borderRadius: 6,
+        }}>
           {/* 선택 아이템 상세 */}
-          <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15, marginBottom: 4 }}>
-            {sel.item.name}{sel.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{sel.enhanceLevel}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <ItemIcon slot={sel.item.slot ?? null} grade={sel.item.grade} itemName={sel.item.name} size={32} />
+            <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15 }}>
+              {sel.item.name}
+              {sel.enhanceLevel > 0 && (
+                <span style={{
+                  color: '#000', background: 'var(--accent)', padding: '0 5px',
+                  borderRadius: 2, fontSize: 11, fontWeight: 900, marginLeft: 6,
+                }}>+{sel.enhanceLevel}</span>
+              )}
+            </div>
           </div>
           {sel.item.stats && (
-            <div style={{ fontSize: 11, color: 'var(--success)', marginBottom: 2 }}>
-              {Object.entries(sel.item.stats).map(([k, v]) => `${STAT_LABEL[k]||k} +${v}`).join(' · ')}
+            <div style={{ marginBottom: 6 }}>
+              <ItemStatsBlock stats={sel.item.stats} enhanceLevel={sel.enhanceLevel || 0} />
             </div>
           )}
           {sel.prefixStats && Object.keys(sel.prefixStats).length > 0 && (
-            <div style={{ fontSize: 11, marginBottom: 6 }}>
-              {Object.entries(sel.prefixStats).map(([k, v]) => {
-                const fmt = EFFECT_FMTS[k];
-                return <div key={k} style={{ color: '#66ccff' }}>◆ {fmt ? fmt(v) : `${k} +${v}`}</div>;
-              })}
-            </div>
+            <PrefixDisplay prefixStats={sel.prefixStats} />
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
             <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>수량 (최대 {maxQty})
               <input type="number" min="1" max={maxQty} value={qty} onChange={e => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
                 style={{ marginLeft: 8, width: 80 }} />
