@@ -11,16 +11,20 @@ export function initWebSocket(httpServer: HttpServer) {
     cors: { origin: process.env.CORS_ORIGIN || '*' },
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('no token'));
     try {
       const payload = jwt.verify(token, SECRET) as { userId: number; username: string };
       socket.data.userId = payload.userId;
       socket.data.username = payload.username;
-      query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [payload.userId])
-        .then(r => { socket.data.isAdmin = r.rows[0]?.is_admin ?? false; })
-        .catch(() => { socket.data.isAdmin = false; });
+      // is_admin 동기로 가져와야 broadcastOnlineCount가 정확
+      try {
+        const r = await query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [payload.userId]);
+        socket.data.isAdmin = r.rows[0]?.is_admin ?? false;
+      } catch {
+        socket.data.isAdmin = false;
+      }
       next();
     } catch {
       next(new Error('invalid token'));
@@ -28,9 +32,13 @@ export function initWebSocket(httpServer: HttpServer) {
   });
 
   function broadcastOnlineCount() {
-    let count = 0;
-    for (const [, s] of io.sockets.sockets) { if (!s.data.isAdmin) count++; }
-    io.emit('online-count', count);
+    // 같은 userId 중복 제거 (다중 탭 카운트 방지)
+    const userIds = new Set<number>();
+    for (const [, s] of io.sockets.sockets) {
+      if (s.data.isAdmin) continue;
+      if (s.data.userId) userIds.add(s.data.userId);
+    }
+    io.emit('online-count', userIds.size);
   }
 
   io.on('connection', (socket) => {
