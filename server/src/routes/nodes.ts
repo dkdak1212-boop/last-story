@@ -34,7 +34,7 @@ router.get('/:id/nodes', async (req: AuthedRequest, res: Response) => {
 
   res.json({
     availablePoints: char.node_points,
-    totalPoints: (char.level - 1) * 2,
+    totalPoints: char.level - 1,
     investedNodeIds: investedIds,
     nodes: nodesR.rows.map(n => ({
       id: n.id,

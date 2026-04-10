@@ -28,7 +28,7 @@ export interface LevelUpResult {
   newExp: number;
   levelsGained: number;
   hpGained: number;        // +8 per level
-  nodePointsGained: number; // +2 per level
+  nodePointsGained: number; // +1 per level
   statGrowth: { str: number; dex: number; int: number; vit: number; spd: number; cri: number };
 }
 
@@ -50,7 +50,7 @@ export function applyExpGain(
     exp -= expToNext(level);
     level += 1;
     hpGained += 8;
-    nodePointsGained += 2;
+    nodePointsGained += 1;
   }
   // 소수점 성장 누적 후 정수 변환
   const gained = level - levelsStart;
