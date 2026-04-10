@@ -131,9 +131,11 @@ export function StatusScreen() {
               const eq = (status.equipBonus[k] || 0) as number;
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
+              const spendable = k !== 'cri'; // 치명타 확률은 수동 분배 불가
               return (
                 <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
-                  canSpend={status.statPoints > 0 && !busy}
+                  canSpend={spendable && status.statPoints > 0 && !busy}
+                  spendable={spendable}
                   onSpend={() => spendStat(k)}
                 />
               );
@@ -169,7 +171,7 @@ export function StatusScreen() {
           <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK or MATK) - (DEF or MDEF × 0.5)</span> × 스킬배율 + 고정피해 ± 10%</div>
           <div>· 게이지 MAX=1000 도달 시 행동. <span style={{ color: 'var(--text)' }}>SPD 300 → 약 1.7초</span>, SPD 400 → 약 1.25초</div>
           <div>· <span style={{ color: 'var(--text)' }}>수동 모드</span>: 게이지 충전 후 3초 내 스킬 미선택 시 자동 행동</div>
-          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +5 (수동 분배)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (수동 분배, 치명타 제외)</div>
           <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span>: 기본 스탯 + 특수 효과 (약화/저주/흡혈/확산/재생/황금/경험/날카로움)</div>
           <div>· <span style={{ color: 'var(--text)' }}>접두사 강화</span>: 장비 강화당 접두사 수치 +8% 스케일링</div>
           <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>: 302개 노드 (5구역), 상위 노드 클릭 시 하위 자동 습득</div>
@@ -208,7 +210,7 @@ function Desc({ text }: { text: string }) {
   );
 }
 
-function StatRow({ label, base, eq, node, total, canSpend, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; onSpend?: () => void }) {
+function StatRow({ label, base, eq, node, total, canSpend, spendable = true, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; spendable?: boolean; onSpend?: () => void }) {
   return (
     <>
       <div style={{ color: 'var(--text)' }}>{label}</div>
@@ -220,18 +222,22 @@ function StatRow({ label, base, eq, node, total, canSpend, onSpend }: { label: s
         {node > 0 ? `+${node}` : '-'}
       </div>
       <div style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{total}</div>
-      <button
-        onClick={onSpend}
-        disabled={!canSpend}
-        style={{
-          padding: '2px 0', fontSize: 12, fontWeight: 900,
-          background: canSpend ? 'var(--accent)' : 'transparent',
-          color: canSpend ? '#000' : 'var(--text-dim)',
-          border: `1px solid ${canSpend ? 'var(--accent)' : 'var(--border)'}`,
-          cursor: canSpend ? 'pointer' : 'not-allowed', borderRadius: 3,
-          opacity: canSpend ? 1 : 0.4,
-        }}
-      >+</button>
+      {spendable ? (
+        <button
+          onClick={onSpend}
+          disabled={!canSpend}
+          style={{
+            padding: '2px 0', fontSize: 12, fontWeight: 900,
+            background: canSpend ? 'var(--accent)' : 'transparent',
+            color: canSpend ? '#000' : 'var(--text-dim)',
+            border: `1px solid ${canSpend ? 'var(--accent)' : 'var(--border)'}`,
+            cursor: canSpend ? 'pointer' : 'not-allowed', borderRadius: 3,
+            opacity: canSpend ? 1 : 0.4,
+          }}
+        >+</button>
+      ) : (
+        <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'center' }}>–</div>
+      )}
     </>
   );
 }

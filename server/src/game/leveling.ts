@@ -3,7 +3,7 @@
 // 자동 스탯 성장 제거 — 스탯은 상태창에서 수동으로 찍는다
 
 export const HP_PER_LEVEL = 25;
-export const STAT_POINTS_PER_LEVEL = 5;
+export const STAT_POINTS_PER_LEVEL = 2;
 
 export function expToNext(level: number): number {
   if (level <= 30) {
