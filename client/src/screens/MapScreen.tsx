@@ -4,8 +4,7 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { MonsterIcon } from '../components/ui/MonsterIcon';
 
-const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
-interface DropInfo { name: string; grade: string; chance: number; }
+interface DropInfo { name: string; grade: string; chance: number; minQty?: number; maxQty?: number; }
 interface MonsterInfo {
   name: string; level: number; exp: number; gold: number; drops?: DropInfo[];
 }
@@ -89,45 +88,67 @@ export function MapScreen() {
                       </div>
                     </div>
                   ))}
-                  {/* 드랍 아이템 목록 */}
+                  {/* 드랍 아이템 목록 + 확률 */}
                   {(() => {
                     const allDrops = f.monsters.flatMap(m => m.drops || []);
-                    const uniqueDrops = new Map<string, DropInfo>();
-                    for (const d of allDrops) { if (!uniqueDrops.has(d.name)) uniqueDrops.set(d.name, d); }
-                    const sorted = [...uniqueDrops.values()].sort((a, b) => {
-                      const go: Record<string, number> = { legendary: 0, epic: 1, rare: 2, common: 3 };
-                      return (go[a.grade] ?? 9) - (go[b.grade] ?? 9);
-                    });
-                    return sorted.length > 0 ? (
-                      <div style={{ marginTop: 6, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
-                        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>획득 가능 장비</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                          {sorted.map((d, i) => (
-                            <span key={i} style={{
-                              fontSize: 10, padding: '2px 6px', borderRadius: 3,
-                              border: `1px solid ${GRADE_COLOR[d.grade] || 'var(--border)'}`,
-                              color: GRADE_COLOR[d.grade] || 'var(--text-dim)',
-                              background: 'var(--bg-panel)',
-                            }}>{d.name}</span>
-                          ))}
+                    if (allDrops.length === 0) return null;
+                    // 무기/방어구/악세 분류 (이름 기반: '검/지팡이/홀/단검'=무기, '투구/갑옷/장화'=방어구, '반지/목걸이'=악세)
+                    const isWeapon = (n: string) => /검|지팡이|홀|단검/.test(n);
+                    const isArmor = (n: string) => /투구|갑옷|장화/.test(n);
+                    const isAccessory = (n: string) => /반지|목걸이/.test(n);
+
+                    const weapons = allDrops.filter(d => isWeapon(d.name));
+                    const armors = allDrops.filter(d => isArmor(d.name));
+                    const accs = allDrops.filter(d => isAccessory(d.name));
+
+                    // 카테고리 종합 확률 = 1 - 각 슬롯 모두 실패 확률
+                    function catChance(drops: typeof allDrops): number {
+                      if (drops.length === 0) return 0;
+                      let failProb = 1;
+                      for (const d of drops) failProb *= (1 - d.chance / 100);
+                      return Math.round((1 - failProb) * 10000) / 100;
+                    }
+
+                    const wChance = catChance(weapons);
+                    const aChance = catChance(armors);
+                    const cChance = catChance(accs);
+
+                    return (
+                      <>
+                        <div style={{ marginTop: 6, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4 }}>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 11, marginBottom: 6 }}>드랍 가능 장비</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {[...new Map(allDrops.map(d => [d.name, d])).values()].map((d, i) => (
+                              <span key={i} style={{
+                                fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                                border: '1px solid var(--border)',
+                                color: 'var(--text-dim)',
+                                background: 'var(--bg-panel)',
+                              }}>{d.name}</span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ) : null;
+
+                        <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>드랍 확률 (1킬당)</div>
+                          <div>
+                            <span style={{ color: '#ff8866' }}>무기 {wChance.toFixed(2)}%</span>{' · '}
+                            <span style={{ color: '#88ccff' }}>방어구 {aChance.toFixed(2)}%</span>{' · '}
+                            <span style={{ color: '#e0a040' }}>악세서리 {cChance.toFixed(2)}%</span>
+                          </div>
+                          <div style={{ marginTop: 6, fontWeight: 700, color: 'var(--accent)' }}>접두사 등급 확률</div>
+                          <div>
+                            <span style={{ color: '#daa520' }}>T1 90%</span>{' · '}
+                            <span style={{ color: '#5b8ecc' }}>T2 9%</span>{' · '}
+                            <span style={{ color: '#b060cc' }}>T3 0.9%</span>{' · '}
+                            <span style={{ color: '#ff4444' }}>T4 0.1%</span>
+                          </div>
+                          <div style={{ marginTop: 4, fontWeight: 700, color: 'var(--accent)' }}>접두사 옵션 수</div>
+                          <div>1옵 90% · 2옵 9% · 3옵 1%</div>
+                        </div>
+                      </>
+                    );
                   })()}
-                  <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>드랍 확률</div>
-                    <div>
-                      <span style={{ color: '#9a8b75' }}>일반 50%</span>{' · '}
-                      <span style={{ color: '#5b8ecc' }}>매직 30%</span>{' · '}
-                      <span style={{ color: '#b060cc' }}>에픽 19%</span>{' · '}
-                      <span style={{ color: '#e08030' }}>전설 1%</span>
-                    </div>
-                    <div style={{ marginTop: 2 }}>
-                      무기 3% · 방어구 2% · 악세서리 1.5%
-                    </div>
-                    <div style={{ marginTop: 4, fontWeight: 700, color: 'var(--accent)' }}>접두사</div>
-                    <div>1옵 90% · 2옵 9% · 3옵 1%</div>
-                  </div>
                 </div>
               )}
             </div>

@@ -50,7 +50,8 @@ router.get('/', async (_req, res) => {
         drops: (m.drop_table || []).map(d => ({
           name: itemNames.get(d.itemId)?.name || `#${d.itemId}`,
           grade: itemNames.get(d.itemId)?.grade || 'common',
-          chance: Math.round(d.chance * 1000) / 10, // % 표시
+          // 실제 드랍 시 시스템 배수 (DROP_RATE_MULT 0.1 × ONLINE_DROP_BONUS 1.5 = 0.15) 적용
+          chance: Math.round(d.chance * 0.15 * 10000) / 100, // 소수점 2자리 %
           minQty: d.minQty,
           maxQty: d.maxQty,
         })),
