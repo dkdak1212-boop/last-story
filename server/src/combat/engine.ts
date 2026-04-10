@@ -469,7 +469,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: bleed_on_hit (타격 시 출혈)
         const bleedChance = getPassive(s, 'bleed_on_hit');
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
-          const bleedDmg = Math.round(s.playerStats.atk * 0.5);
+          const bleedBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+          const bleedDmg = Math.round(bleedBase * 0.75);
           addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
           addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어무시)`);
         }
@@ -545,7 +546,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
-      const dotDmg = Math.round(s.playerStats.atk * 0.7);
+      const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+      const dotDmg = Math.round(dotBase * 1.05);
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
         if (!d.miss) {
@@ -562,7 +564,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
-        const dotDmg = Math.round(s.playerStats.atk * 1.0);
+        const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+        const dotDmg = Math.round(dotBase * 1.5);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
         addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어무시)`);
@@ -578,7 +581,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지`);
       }
-      const dotDmg = Math.round(s.playerStats.atk * 0.8);
+      const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+      const dotDmg = Math.round(dotBase * 1.2);
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어무시)`);
       // 스피드 감소
