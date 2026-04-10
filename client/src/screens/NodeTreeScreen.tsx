@@ -80,6 +80,14 @@ export function NodeTreeScreen() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [selected, setSelected] = useState<NodeDefinition | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const fetchNodes = useCallback(async () => {
     if (!active) return;
@@ -316,53 +324,65 @@ export function NodeTreeScreen() {
         ))}
       </div>
 
-      {/* 선택 노드 패널 */}
-      {selected && (
+      {/* 선택 노드 패널: 데스크톱은 inline, 모바일은 모달 */}
+      {selected && !isMobile && (
         <div style={{
           padding: 14, marginBottom: 12,
           background: 'var(--bg-panel)',
           border: `2px solid ${nodeStatus(selected) === 'invested' ? 'var(--accent)' : canInvestWithPrereqs(selected) ? 'var(--success)' : '#ff8800'}`,
           borderRadius: 8,
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: nodeStatus(selected) === 'invested' ? 'var(--accent)' : '#fff' }}>
-                {selected.name}
-                <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
-                  {TIER_LABEL[selected.tier]} · {selected.cost}pt
-                </span>
-              </div>
-              <div style={{ fontSize: 13, color: '#ccc', marginTop: 4 }}>{selected.description}</div>
-              {!invested.has(selected.id) && selectedUnmetCount > 1 && (
-                <div style={{ fontSize: 11, color: '#ff8800', marginTop: 4 }}>
-                  하위 노드 {selectedUnmetCount - 1}개 자동 습득 (총 {selectedTotalCost}pt 필요)
-                </div>
-              )}
-              {selected.prerequisites.length > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
-                  선행: {selected.prerequisites.map(pid => {
-                    const pn = treeState.nodes.find(n => n.id === pid);
-                    const met = invested.has(pid);
-                    return <span key={pid} style={{ color: met ? 'var(--success)' : '#ff8800', marginRight: 6 }}>
-                      {pn ? pn.name : `#${pid}`} {met ? '✓' : '→자동'}
-                    </span>;
-                  })}
-                </div>
-              )}
-            </div>
-            <div style={{ flexShrink: 0 }}>
-              {nodeStatus(selected) === 'invested' ? (
-                <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>투자됨 ✓</span>
-              ) : canInvestWithPrereqs(selected) ? (
-                <button onClick={() => invest(selected.id)} disabled={loading} style={{
-                  padding: '10px 24px', background: 'var(--success)', color: '#000', border: 'none', fontWeight: 700, fontSize: 15,
-                }}>
-                  {selectedUnmetCount > 1 ? `${selectedTotalCost}pt 일괄투자` : '투자'}
-                </button>
-              ) : (
-                <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>포인트 부족 ({selectedTotalCost}pt)</span>
-              )}
-            </div>
+          <NodeDetailContent
+            selected={selected}
+            invested={invested}
+            treeState={treeState}
+            selectedTotalCost={selectedTotalCost}
+            selectedUnmetCount={selectedUnmetCount}
+            nodeStatus={nodeStatus}
+            canInvestWithPrereqs={canInvestWithPrereqs}
+            invest={invest}
+            loading={loading}
+            inline
+          />
+        </div>
+      )}
+
+      {/* 모바일 모달 */}
+      {selected && isMobile && (
+        <div
+          onClick={() => setSelected(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000, padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 420, padding: 18,
+              background: 'var(--bg-panel)',
+              border: `2px solid ${nodeStatus(selected) === 'invested' ? 'var(--accent)' : canInvestWithPrereqs(selected) ? 'var(--success)' : '#ff8800'}`,
+              borderRadius: 12,
+              maxHeight: '85vh', overflowY: 'auto',
+            }}
+          >
+            <NodeDetailContent
+              selected={selected}
+              invested={invested}
+              treeState={treeState}
+              selectedTotalCost={selectedTotalCost}
+              selectedUnmetCount={selectedUnmetCount}
+              nodeStatus={nodeStatus}
+              canInvestWithPrereqs={canInvestWithPrereqs}
+              invest={invest}
+              loading={loading}
+              inline={false}
+            />
+            <button
+              onClick={() => setSelected(null)}
+              style={{ marginTop: 12, width: '100%', padding: '10px', background: 'var(--bg)', color: 'var(--text-dim)', border: '1px solid var(--border)' }}
+            >닫기</button>
           </div>
         </div>
       )}
@@ -372,6 +392,81 @@ export function NodeTreeScreen() {
         <button onClick={resetPartial} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>부분 리셋 500G</button>
         <button onClick={resetZone} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>구역 리셋 2,000G</button>
         <button onClick={resetAll} disabled={loading} style={{ fontSize: 11, padding: '5px 10px', color: 'var(--danger)' }}>전체 리셋 5,000G</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── 노드 상세 내용 (inline / modal 공통) ── */
+interface NodeDetailContentProps {
+  selected: NodeDefinition;
+  invested: Set<number>;
+  treeState: NodeTreeState;
+  selectedTotalCost: number;
+  selectedUnmetCount: number;
+  nodeStatus: (n: NodeDefinition) => 'invested' | 'available' | 'locked';
+  canInvestWithPrereqs: (n: NodeDefinition) => boolean;
+  invest: (id: number) => void;
+  loading: boolean;
+  inline: boolean;
+}
+
+function NodeDetailContent(props: NodeDetailContentProps) {
+  const { selected, invested, treeState, selectedTotalCost, selectedUnmetCount, nodeStatus, canInvestWithPrereqs, invest, loading, inline } = props;
+  const status = nodeStatus(selected);
+
+  return (
+    <div style={{
+      display: inline ? 'flex' : 'block',
+      justifyContent: inline ? 'space-between' : undefined,
+      alignItems: inline ? 'center' : undefined,
+      gap: inline ? 10 : 0,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: inline ? 15 : 17, color: status === 'invested' ? 'var(--accent)' : '#fff' }}>
+          {selected.name}
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
+            {TIER_LABEL[selected.tier]} · {selected.cost}pt
+          </span>
+        </div>
+        <div style={{ fontSize: inline ? 13 : 14, color: '#ccc', marginTop: 6, lineHeight: 1.4 }}>{selected.description}</div>
+        {!invested.has(selected.id) && selectedUnmetCount > 1 && (
+          <div style={{ fontSize: 12, color: '#ff8800', marginTop: 8 }}>
+            하위 노드 {selectedUnmetCount - 1}개 자동 습득 (총 {selectedTotalCost}pt 필요)
+          </div>
+        )}
+        {selected.prerequisites.length > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>
+            선행: {selected.prerequisites.map(pid => {
+              const pn = treeState.nodes.find(n => n.id === pid);
+              const met = invested.has(pid);
+              return <span key={pid} style={{ color: met ? 'var(--success)' : '#ff8800', marginRight: 6 }}>
+                {pn ? pn.name : `#${pid}`} {met ? '✓' : '→자동'}
+              </span>;
+            })}
+          </div>
+        )}
+      </div>
+      <div style={{
+        flexShrink: 0,
+        marginTop: inline ? 0 : 14,
+        display: inline ? 'block' : 'flex',
+        justifyContent: inline ? undefined : 'center',
+      }}>
+        {status === 'invested' ? (
+          <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>투자됨 ✓</span>
+        ) : canInvestWithPrereqs(selected) ? (
+          <button onClick={() => invest(selected.id)} disabled={loading} style={{
+            padding: inline ? '10px 24px' : '14px 32px',
+            background: 'var(--success)', color: '#000', border: 'none',
+            fontWeight: 700, fontSize: inline ? 15 : 17,
+            width: inline ? 'auto' : '100%',
+          }}>
+            {selectedUnmetCount > 1 ? `${selectedTotalCost}pt 일괄투자` : '투자'}
+          </button>
+        ) : (
+          <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>포인트 부족 ({selectedTotalCost}pt)</span>
+        )}
       </div>
     </div>
   );
