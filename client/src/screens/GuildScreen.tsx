@@ -29,9 +29,20 @@ interface TerritoryInfo {
 }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
-  assassin: '암살자', mage: '마법사', priest: '사제', druid: '드루이드',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
 };
+const CLASS_COLOR: Record<string, string> = {
+  warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0',
+};
+
+const SKILL_ICON: Record<string, string> = {
+  hp: '❤️', gold: '💰', exp: '⭐', drop: '🎁',
+};
+const SKILL_COLOR: Record<string, string> = {
+  hp: '#e07070', gold: '#e0a040', exp: '#8b8bef', drop: '#66dd66',
+};
+
+type Tab = 'overview' | 'skills' | 'territory' | 'members';
 
 export function GuildScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -44,9 +55,9 @@ export function GuildScreen() {
   const [err, setErr] = useState('');
   const [donateAmt, setDonateAmt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
   const [territories, setTerritories] = useState<TerritoryInfo[]>([]);
   const [myScores, setMyScores] = useState<Record<number, { score: number; rank: number }>>({});
-  const [showTerritories, setShowTerritories] = useState(false);
 
   async function load() {
     if (!active) return;
@@ -123,213 +134,417 @@ export function GuildScreen() {
       setMyScores(m);
     } catch (e) { /* silent */ }
   }
-  useEffect(() => { if (showTerritories) loadTerritories(); }, [showTerritories, active?.id]);
+  useEffect(() => { if (tab === 'territory') loadTerritories(); }, [tab, active?.id]);
 
-  if (my) {
-    const expPct = my.expToNext > 0 ? Math.min(100, Math.floor((my.exp / my.expToNext) * 100)) : 100;
-    const remainingDonation = Math.max(0, my.dailyDonationCap - my.myDonationToday);
+  // ── 길드 가입 안 한 상태 (목록 + 생성) ──
+  if (!my) {
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
-          <div>
-            <h2 style={{ color: 'var(--accent)', marginBottom: 4 }}>
-              {my.name} <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>Lv.{my.level}</span>
-            </h2>
-            <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{my.description}</div>
-            <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
-              인원 {my.members.length}/{my.maxMembers}
+        <div style={{
+          padding: 20, marginBottom: 16, borderRadius: 6,
+          background: 'linear-gradient(135deg, rgba(218,165,32,0.12), rgba(218,165,32,0.04))',
+          border: '1px solid var(--accent)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 22 }}>⚔️ 길드</h2>
+              <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
+                길드에 가입해 동료들과 함께 강해지세요. 길드 스킬, 영토 점령전, 일일 기여로 큰 보너스를 얻습니다.
+              </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {my.isLeader && <button onClick={disband}>해산</button>}
-            {!my.isLeader && <button onClick={leave}>탈퇴</button>}
+            <button className="primary" onClick={() => setCreating(!creating)}>
+              {creating ? '취소' : '길드 생성 (5,000G)'}
+            </button>
           </div>
         </div>
 
-        {/* 길드 레벨 / EXP */}
-        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-            <span style={{ color: 'var(--text-dim)' }}>길드 EXP</span>
+        {creating && (
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--accent)', marginBottom: 12, borderRadius: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <input placeholder="길드명 (2~20자)" value={name} onChange={e => setName(e.target.value)} maxLength={20} />
+              <input placeholder="소개 (선택)" value={desc} onChange={e => setDesc(e.target.value)} maxLength={200} />
+              {err && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{err}</div>}
+              <button className="primary" onClick={create} disabled={name.length < 2}>생성</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, marginBottom: 8 }}>길드 목록</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {guilds.length === 0 && <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>아직 길드가 없습니다.</div>}
+          {guilds.map(g => {
+            const full = g.memberCount >= g.maxMembers;
+            return (
+              <div key={g.id} style={{
+                padding: 14, background: 'var(--bg-panel)',
+                border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
+                borderRadius: 4,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 15 }}>{g.name}</span>
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                      background: full ? 'rgba(192,90,74,0.15)' : 'rgba(107,163,104,0.15)',
+                      color: full ? 'var(--danger)' : 'var(--success)', fontWeight: 700,
+                    }}>{g.memberCount}/{g.maxMembers}</span>
+                  </div>
+                  <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 3 }}>
+                    👑 {g.leaderName}
+                  </div>
+                  {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
+                </div>
+                <button onClick={() => join(g.id)} disabled={full}>가입</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 내 길드 화면 ──
+  const expPct = my.expToNext > 0 ? Math.min(100, Math.floor((my.exp / my.expToNext) * 100)) : 100;
+  const remainingDonation = Math.max(0, my.dailyDonationCap - my.myDonationToday);
+  const donationPct = Math.floor((my.myDonationToday / my.dailyDonationCap) * 100);
+
+  return (
+    <div>
+      {/* ── HERO ── */}
+      <div style={{
+        padding: 20, marginBottom: 14, borderRadius: 6,
+        background: 'linear-gradient(135deg, rgba(218,165,32,0.18), rgba(218,165,32,0.05))',
+        border: '1px solid var(--accent)',
+        boxShadow: '0 0 20px rgba(218,165,32,0.1)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 28 }}>⚔️</span>
+              <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 24, fontWeight: 800 }}>{my.name}</h2>
+              <span style={{
+                fontSize: 12, fontWeight: 700, color: '#000',
+                background: 'var(--accent)', padding: '3px 9px', borderRadius: 3,
+              }}>Lv.{my.level}</span>
+              {my.isLeader && (
+                <span style={{
+                  fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                  background: 'rgba(218,165,32,0.2)', border: '1px solid var(--accent)',
+                  color: 'var(--accent)', fontWeight: 700,
+                }}>👑 길드장</span>
+              )}
+            </div>
+            {my.description && (
+              <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6, fontStyle: 'italic' }}>"{my.description}"</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {my.isLeader && <button onClick={disband} style={{ fontSize: 11 }}>해산</button>}
+            {!my.isLeader && <button onClick={leave} style={{ fontSize: 11 }}>탈퇴</button>}
+          </div>
+        </div>
+
+        {/* 핵심 지표 3개 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 14 }}>
+          <Stat icon="👥" label="멤버" value={`${my.members.length}/${my.maxMembers}`} />
+          <Stat icon="💰" label="자금" value={`${my.treasury.toLocaleString()}G`} accent />
+          <Stat icon="⭐" label="레벨" value={`${my.level}/${my.maxLevel}`} />
+        </div>
+
+        {/* EXP 바 */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dim)', marginBottom: 4 }}>
+            <span>길드 경험치</span>
             <span>
               {my.level >= my.maxLevel
                 ? <span style={{ color: 'var(--accent)' }}>최대 레벨</span>
                 : <>{my.exp.toLocaleString()} / {my.expToNext.toLocaleString()} ({expPct}%)</>}
             </span>
           </div>
-          <div style={{ height: 8, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
-            <div style={{ width: `${expPct}%`, height: '100%', background: 'var(--accent)' }} />
+          <div style={{ height: 10, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              width: `${expPct}%`, height: '100%',
+              background: 'linear-gradient(90deg, var(--accent), #ffd66b)',
+              boxShadow: '0 0 6px rgba(218,165,32,0.5)',
+              transition: 'width 0.3s',
+            }} />
           </div>
         </div>
+      </div>
 
-        {/* 자금 / 기부 */}
-        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>길드 자금</span>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>{my.treasury.toLocaleString()}G</span>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
-            오늘 내 기부 {my.myDonationToday.toLocaleString()}G / {my.dailyDonationCap.toLocaleString()}G (남음 {remainingDonation.toLocaleString()}G)
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              type="number" placeholder="기부 금액"
-              value={donateAmt} onChange={e => setDonateAmt(e.target.value)}
-              max={remainingDonation}
-              style={{ flex: 1 }}
-              disabled={remainingDonation <= 0}
-            />
-            <button onClick={donate} disabled={busy || remainingDonation <= 0}>기부</button>
-          </div>
+      {/* ── 탭 ── */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
+        {([
+          ['overview', '개요', '📋'],
+          ['skills', '스킬', '✨'],
+          ['territory', '영토', '🏴'],
+          ['members', '멤버', '👥'],
+        ] as [Tab, string, string][]).map(([k, label, icon]) => (
+          <button key={k} onClick={() => setTab(k)} style={{
+            padding: '8px 14px', fontSize: 12, fontWeight: 700,
+            background: tab === k ? 'var(--bg-panel)' : 'transparent',
+            color: tab === k ? 'var(--accent)' : 'var(--text-dim)',
+            border: 'none',
+            borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent',
+            cursor: 'pointer', borderRadius: '4px 4px 0 0',
+          }}>{icon} {label}</button>
+        ))}
+      </div>
+
+      {/* ── 탭 내용 ── */}
+      {tab === 'overview' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* 기부 카드 */}
+          <Card title="💰 길드 자금 기부" subtitle={`일일 한도 ${my.dailyDonationCap.toLocaleString()}G`}>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                <span style={{ color: 'var(--text-dim)' }}>오늘 내 기부</span>
+                <span style={{ color: donationPct >= 100 ? 'var(--danger)' : 'var(--success)' }}>
+                  {my.myDonationToday.toLocaleString()} / {my.dailyDonationCap.toLocaleString()}G
+                </span>
+              </div>
+              <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{
+                  width: `${Math.min(100, donationPct)}%`, height: '100%',
+                  background: donationPct >= 100 ? 'var(--danger)' : 'var(--success)',
+                }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                type="number" placeholder="기부 금액 (G)"
+                value={donateAmt} onChange={e => setDonateAmt(e.target.value)}
+                max={remainingDonation} disabled={remainingDonation <= 0}
+                style={{ flex: 1 }}
+              />
+              <button className="primary" onClick={donate} disabled={busy || remainingDonation <= 0 || !donateAmt}>
+                기부
+              </button>
+            </div>
+            {[10000, 100000, 1000000].map(v => (
+              <button key={v} onClick={() => setDonateAmt(String(Math.min(v, remainingDonation)))}
+                style={{ marginTop: 6, marginRight: 4, fontSize: 10, padding: '3px 8px' }}>
+                {v.toLocaleString()}G
+              </button>
+            ))}
+          </Card>
+
+          {/* 활성 스킬 요약 */}
+          <Card title="✨ 활성 길드 버프">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {my.skills.map(sk => (
+                <div key={sk.key} style={{
+                  padding: '8px 10px', background: 'var(--bg)',
+                  borderLeft: `3px solid ${SKILL_COLOR[sk.key]}`, borderRadius: 3,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: 12 }}>
+                    <span style={{ marginRight: 6 }}>{SKILL_ICON[sk.key]}</span>
+                    {sk.label}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: SKILL_COLOR[sk.key] }}>
+                    +{sk.currentPct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
+      )}
 
-        {/* 길드 스킬 */}
-        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
-            길드 스킬 {!my.isLeader && <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>(리더만 업그레이드 가능)</span>}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+      {tab === 'skills' && (
+        <Card title="✨ 길드 스킬" subtitle={my.isLeader ? '자금을 사용해 업그레이드' : '리더만 업그레이드 가능'}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
             {my.skills.map(sk => {
               const maxed = sk.level >= sk.max;
               const lvOk = my.level >= sk.nextReqLevel;
               const goldOk = my.treasury >= sk.nextCost;
               const canUpgrade = my.isLeader && !maxed && lvOk && goldOk && !busy;
+              const color = SKILL_COLOR[sk.key];
               return (
                 <div key={sk.key} style={{
-                  padding: 10, background: 'var(--bg)', border: '1px solid var(--border)',
-                  display: 'flex', flexDirection: 'column', gap: 4,
+                  padding: 12, background: 'var(--bg)',
+                  border: `1px solid ${color}40`, borderTop: `3px solid ${color}`,
+                  borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 8,
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)' }}>{sk.label}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>
+                      <span style={{ marginRight: 6, fontSize: 18 }}>{SKILL_ICON[sk.key]}</span>
+                      {sk.label}
+                    </span>
                     <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{sk.level}/{sk.max}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--success)' }}>
-                    현재 +{sk.currentPct}%
+
+                  {/* 단계 막대 */}
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    {Array.from({ length: sk.max }).map((_, i) => (
+                      <div key={i} style={{
+                        flex: 1, height: 6,
+                        background: i < sk.level ? color : 'var(--bg-panel)',
+                        border: `1px solid ${i < sk.level ? color : 'var(--border)'}`,
+                        borderRadius: 1,
+                      }} />
+                    ))}
                   </div>
-                  {!maxed && (
-                    <div style={{ fontSize: 10, color: lvOk && goldOk ? 'var(--text-dim)' : 'var(--danger)' }}>
-                      다음: 길드Lv.{sk.nextReqLevel}, {sk.nextCost.toLocaleString()}G
+
+                  <div style={{ fontSize: 12, color, fontWeight: 700, textAlign: 'center', padding: '4px 0', background: `${color}10`, borderRadius: 2 }}>
+                    현재 +{sk.currentPct}%
+                    {!maxed && <span style={{ color: 'var(--text-dim)', margin: '0 6px', fontWeight: 400 }}>→</span>}
+                    {!maxed && <span style={{ color: 'var(--success)' }}>+{sk.currentPct + sk.pctPerLevel}%</span>}
+                  </div>
+
+                  {!maxed ? (
+                    <>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.4 }}>
+                        다음 단계 요구사항<br />
+                        <span style={{ color: lvOk ? 'var(--text)' : 'var(--danger)' }}>길드 Lv.{sk.nextReqLevel}</span>
+                        {' · '}
+                        <span style={{ color: goldOk ? 'var(--text)' : 'var(--danger)' }}>{sk.nextCost.toLocaleString()}G</span>
+                      </div>
+                      {my.isLeader && (
+                        <button onClick={() => upgradeSkill(sk.key)} disabled={!canUpgrade}
+                          style={{
+                            fontSize: 11, fontWeight: 700, padding: '6px',
+                            background: canUpgrade ? color : 'transparent',
+                            color: canUpgrade ? '#000' : 'var(--text-dim)',
+                            border: `1px solid ${canUpgrade ? color : 'var(--border)'}`,
+                            cursor: canUpgrade ? 'pointer' : 'not-allowed',
+                            borderRadius: 3, opacity: canUpgrade ? 1 : 0.5,
+                          }}>
+                          {!lvOk ? '레벨 부족' : !goldOk ? '자금 부족' : '업그레이드'}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 11, color, textAlign: 'center', fontWeight: 700, padding: '6px 0' }}>
+                      ★ 최대 단계 ★
                     </div>
                   )}
-                  {my.isLeader && !maxed && (
-                    <button onClick={() => upgradeSkill(sk.key)} disabled={!canUpgrade}
-                      style={{ marginTop: 4, fontSize: 11, padding: '4px 6px' }}>
-                      {canUpgrade ? `+1 (${sk.nextCost.toLocaleString()}G)` : (!lvOk ? '레벨 부족' : !goldOk ? '자금 부족' : '업그레이드')}
-                    </button>
-                  )}
-                  {maxed && <div style={{ fontSize: 10, color: 'var(--accent)', textAlign: 'center' }}>최대 단계</div>}
                 </div>
               );
             })}
           </div>
-        </div>
-
-        {/* 영토 점령전 */}
-        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-               onClick={() => setShowTerritories(!showTerritories)}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
-              🏴 영토 점령전 <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>(매주 일요일 23:50 결산)</span>
-            </div>
-            <span style={{ color: 'var(--text-dim)' }}>{showTerritories ? '▲' : '▼'}</span>
-          </div>
-          {showTerritories && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8 }}>
-                점령 시 길드원이 해당 사냥터에서 EXP +15%, 드랍 +15%. 1주일간 누적 처치 1위 길드(100점 이상)가 점령.
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6 }}>
-                {territories.map(t => {
-                  const mine = myScores[t.fieldId];
-                  const owned = t.ownerGuildId === my.id;
-                  return (
-                    <div key={t.fieldId} style={{
-                      padding: 8, background: 'var(--bg)',
-                      border: `1px solid ${owned ? 'var(--accent)' : 'var(--border)'}`,
-                      borderRadius: 3,
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                        <span style={{ fontWeight: 700, fontSize: 12 }}>{t.fieldName}</span>
-                        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Lv.{t.requiredLevel}+</span>
-                      </div>
-                      <div style={{ fontSize: 10, color: t.ownerGuildName ? 'var(--accent)' : 'var(--text-dim)', marginTop: 2 }}>
-                        {t.ownerGuildName ? `🏴 ${t.ownerGuildName} 점령중` : '무점령'}
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
-                        이번 주 1위: {t.weekTopGuildName || '-'} ({t.weekTopScore.toLocaleString()}점)
-                      </div>
-                      {mine && (
-                        <div style={{ fontSize: 10, color: '#66ccff', marginTop: 2 }}>
-                          내 길드: {mine.score.toLocaleString()}점 ({mine.rank}위)
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 멤버 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {my.members.map(m => (
-            <div key={m.id} style={{
-              padding: '8px 12px', background: 'var(--bg-panel)', border: '1px solid var(--border)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                {m.role === 'leader' && <span style={{ color: 'var(--accent)', marginRight: 6 }}>★</span>}
-                <span style={{ fontWeight: 700 }}>{m.name}</span>
-                <span style={{ color: 'var(--text-dim)', marginLeft: 10, fontSize: 13 }}>
-                  Lv.{m.level} {CLASS_LABEL[m.className]}
-                </span>
-              </div>
-              <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>{m.role}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ color: 'var(--accent)' }}>길드</h2>
-        <button className="primary" onClick={() => setCreating(!creating)}>
-          {creating ? '취소' : '길드 생성 (5,000G)'}
-        </button>
-      </div>
-
-      {creating && (
-        <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--accent)', marginBottom: 12 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input placeholder="길드명 (2~20자)" value={name} onChange={e => setName(e.target.value)} maxLength={20} />
-            <input placeholder="소개 (선택)" value={desc} onChange={e => setDesc(e.target.value)} maxLength={200} />
-            {err && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{err}</div>}
-            <button className="primary" onClick={create} disabled={name.length < 2}>생성</button>
-          </div>
-        </div>
+        </Card>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {guilds.length === 0 && <div style={{ color: 'var(--text-dim)' }}>길드가 없다.</div>}
-        {guilds.map(g => (
-          <div key={g.id} style={{
-            padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <div>
-              <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{g.name}</div>
-              <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
-                길드장 {g.leaderName} · {g.memberCount}/{g.maxMembers} · 버프 +{g.statBuffPct}%
-              </div>
-              {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
-            </div>
-            <button onClick={() => join(g.id)} disabled={g.memberCount >= g.maxMembers}>가입</button>
+      {tab === 'territory' && (
+        <Card title="🏴 영토 점령전" subtitle="매주 일요일 23:50 (UTC) 결산 · 점령 시 EXP +15%, 드랍 +15%">
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10, padding: '8px 10px', background: 'var(--bg)', borderLeft: '3px solid var(--accent)', borderRadius: 2 }}>
+            1주일간 사냥터에서 가장 많이 사냥한 길드(100점 이상)가 점령. 매주 월요일 점수 리셋.
           </div>
-        ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8 }}>
+            {territories.map(t => {
+              const mine = myScores[t.fieldId];
+              const owned = t.ownerGuildId === my.id;
+              const occupied = !!t.ownerGuildName;
+              return (
+                <div key={t.fieldId} style={{
+                  padding: 10, background: 'var(--bg)',
+                  border: `1px solid ${owned ? 'var(--accent)' : occupied ? '#666' : 'var(--border)'}`,
+                  borderLeft: `3px solid ${owned ? 'var(--accent)' : occupied ? '#888' : 'var(--border)'}`,
+                  borderRadius: 3,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: owned ? 'var(--accent)' : 'var(--text)' }}>
+                      {t.fieldName}
+                    </span>
+                    <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>Lv.{t.requiredLevel}+</span>
+                  </div>
+                  <div style={{ fontSize: 10, marginTop: 4 }}>
+                    {occupied ? (
+                      <span style={{ color: owned ? 'var(--accent)' : '#daa520', fontWeight: 700 }}>
+                        🏴 {t.ownerGuildName} {owned && '(우리)'}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--text-dim)' }}>⚔️ 무점령</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dim)', marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+                    <span>1위: {t.weekTopGuildName || '-'}</span>
+                    <span>{t.weekTopScore.toLocaleString()}점</span>
+                  </div>
+                  {mine && (
+                    <div style={{ fontSize: 10, color: '#66ccff', marginTop: 3 }}>
+                      우리: {mine.score.toLocaleString()}점 ({mine.rank}위)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {territories.length === 0 && (
+              <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center', gridColumn: '1 / -1' }}>
+                영토 정보 로드 중...
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'members' && (
+        <Card title={`👥 길드원 (${my.members.length}/${my.maxMembers})`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {my.members.map(m => {
+              const cls = CLASS_COLOR[m.className] || 'var(--text-dim)';
+              return (
+                <div key={m.id} style={{
+                  padding: '10px 12px', background: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  borderLeft: `3px solid ${cls}`,
+                  borderRadius: 3,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {m.role === 'leader' && <span style={{ color: 'var(--accent)', fontSize: 16 }}>👑</span>}
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
+                    <span style={{
+                      fontSize: 10, padding: '1px 5px', borderRadius: 2,
+                      border: `1px solid ${cls}`, color: cls, fontWeight: 700,
+                    }}>
+                      Lv.{m.level} {CLASS_LABEL[m.className] || m.className}
+                    </span>
+                  </div>
+                  {m.role === 'leader' && (
+                    <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>리더</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── 보조 컴포넌트 ──
+function Stat({ icon, label, value, accent }: { icon: string; label: string; value: string; accent?: boolean }) {
+  return (
+    <div style={{
+      padding: '10px 12px', background: 'rgba(0,0,0,0.3)',
+      border: '1px solid var(--border)', borderRadius: 4,
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span style={{ fontSize: 22 }}>{icon}</span>
+      <div>
+        <div style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: accent ? 'var(--accent)' : 'var(--text)' }}>{value}</div>
       </div>
+    </div>
+  );
+}
+
+function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: 14, background: 'var(--bg-panel)',
+      border: '1px solid var(--border)', borderRadius: 4,
+    }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      {children}
     </div>
   );
 }
