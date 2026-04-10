@@ -7,9 +7,20 @@ interface GuildSummary {
   memberCount: number; leaderName: string; maxMembers: number; statBuffPct: number;
 }
 interface GuildMember { id: number; name: string; level: number; className: string; role: string }
+interface GuildSkill {
+  key: string; label: string;
+  level: number; max: number;
+  pctPerLevel: number; currentPct: number;
+  nextCost: number; nextReqLevel: number;
+}
 interface MyGuild {
   id: number; name: string; description: string; isLeader: boolean; role: string;
   maxMembers: number; statBuffPct: number; members: GuildMember[];
+  level: number; exp: number; expToNext: number; maxLevel: number;
+  treasury: number;
+  skills: GuildSkill[];
+  myDonationToday: number;
+  dailyDonationCap: number;
 }
 
 const CLASS_LABEL: Record<string, string> = {
@@ -26,6 +37,8 @@ export function GuildScreen() {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [err, setErr] = useState('');
+  const [donateAmt, setDonateAmt] = useState('');
+  const [busy, setBusy] = useState(false);
 
   async function load() {
     if (!active) return;
@@ -71,16 +84,39 @@ export function GuildScreen() {
     await api(`/guilds/disband/${active.id}`, { method: 'POST' });
     load();
   }
+  async function donate() {
+    if (!active || busy) return;
+    const amt = Number(donateAmt);
+    if (!amt || amt <= 0) return;
+    setBusy(true);
+    try {
+      await api('/guilds/donate', { method: 'POST', body: JSON.stringify({ characterId: active.id, amount: amt }) });
+      setDonateAmt('');
+      await refresh(); await load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
+  }
+  async function upgradeSkill(skillKey: string) {
+    if (!active || busy) return;
+    setBusy(true);
+    try {
+      await api('/guilds/skill/upgrade', { method: 'POST', body: JSON.stringify({ characterId: active.id, skillKey }) });
+      await load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
+  }
 
   if (my) {
+    const expPct = my.expToNext > 0 ? Math.min(100, Math.floor((my.exp / my.expToNext) * 100)) : 100;
+    const remainingDonation = Math.max(0, my.dailyDonationCap - my.myDonationToday);
     return (
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
           <div>
-            <h2 style={{ color: 'var(--accent)' }}>{my.name}</h2>
+            <h2 style={{ color: 'var(--accent)', marginBottom: 4 }}>
+              {my.name} <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>Lv.{my.level}</span>
+            </h2>
             <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{my.description}</div>
             <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
-              버프: 모든 스탯 +{my.statBuffPct}% · 인원 {my.members.length}/{my.maxMembers}
+              인원 {my.members.length}/{my.maxMembers}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -89,6 +125,84 @@ export function GuildScreen() {
           </div>
         </div>
 
+        {/* 길드 레벨 / EXP */}
+        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+            <span style={{ color: 'var(--text-dim)' }}>길드 EXP</span>
+            <span>
+              {my.level >= my.maxLevel
+                ? <span style={{ color: 'var(--accent)' }}>최대 레벨</span>
+                : <>{my.exp.toLocaleString()} / {my.expToNext.toLocaleString()} ({expPct}%)</>}
+            </span>
+          </div>
+          <div style={{ height: 8, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div style={{ width: `${expPct}%`, height: '100%', background: 'var(--accent)' }} />
+          </div>
+        </div>
+
+        {/* 자금 / 기부 */}
+        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>길드 자금</span>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>{my.treasury.toLocaleString()}G</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
+            오늘 내 기부 {my.myDonationToday.toLocaleString()}G / {my.dailyDonationCap.toLocaleString()}G (남음 {remainingDonation.toLocaleString()}G)
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              type="number" placeholder="기부 금액"
+              value={donateAmt} onChange={e => setDonateAmt(e.target.value)}
+              max={remainingDonation}
+              style={{ flex: 1 }}
+              disabled={remainingDonation <= 0}
+            />
+            <button onClick={donate} disabled={busy || remainingDonation <= 0}>기부</button>
+          </div>
+        </div>
+
+        {/* 길드 스킬 */}
+        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
+            길드 스킬 {!my.isLeader && <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>(리더만 업그레이드 가능)</span>}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {my.skills.map(sk => {
+              const maxed = sk.level >= sk.max;
+              const lvOk = my.level >= sk.nextReqLevel;
+              const goldOk = my.treasury >= sk.nextCost;
+              const canUpgrade = my.isLeader && !maxed && lvOk && goldOk && !busy;
+              return (
+                <div key={sk.key} style={{
+                  padding: 10, background: 'var(--bg)', border: '1px solid var(--border)',
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)' }}>{sk.label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{sk.level}/{sk.max}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--success)' }}>
+                    현재 +{sk.currentPct}%
+                  </div>
+                  {!maxed && (
+                    <div style={{ fontSize: 10, color: lvOk && goldOk ? 'var(--text-dim)' : 'var(--danger)' }}>
+                      다음: 길드Lv.{sk.nextReqLevel}, {sk.nextCost.toLocaleString()}G
+                    </div>
+                  )}
+                  {my.isLeader && !maxed && (
+                    <button onClick={() => upgradeSkill(sk.key)} disabled={!canUpgrade}
+                      style={{ marginTop: 4, fontSize: 11, padding: '4px 6px' }}>
+                      {canUpgrade ? `+1 (${sk.nextCost.toLocaleString()}G)` : (!lvOk ? '레벨 부족' : !goldOk ? '자금 부족' : '업그레이드')}
+                    </button>
+                  )}
+                  {maxed && <div style={{ fontSize: 10, color: 'var(--accent)', textAlign: 'center' }}>최대 단계</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 멤버 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {my.members.map(m => (
             <div key={m.id} style={{

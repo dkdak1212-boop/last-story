@@ -147,7 +147,12 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   for (const [k, v] of Object.entries(setBonus)) {
     combinedNodeBonus[k as keyof Stats] = (combinedNodeBonus[k as keyof Stats] ?? 0) + (v as number);
   }
-  return computeEffective(char.stats, char.max_hp, bonus, combinedNodeBonus);
+  // 길드 HP 버프 (1%/단계)
+  const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('./guild.js');
+  const gskills = await getGuildSkillsForCharacter(char.id);
+  const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
+  const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
+  return computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus);
 }
 
 // 노드의 패시브 효과 목록 (전투 엔진에서 사용)

@@ -2,6 +2,7 @@
 import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
+import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
@@ -48,6 +49,7 @@ interface CombatSnapshot {
   expMax?: number;
   serverTime: number;
   boosts?: { name: string; until: string }[];
+  guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
 }
 import { getIo } from '../ws/io.js';
 
@@ -231,11 +233,12 @@ async function getCharSkills(characterId: number, className: string, level: numb
 // 드롭률 배율: 기본 x0.1 (드롭 부스터로 1.5배)
 const DROP_RATE_MULT = 0.1;
 
-function rollDrops(m: MonsterDef, dropBoost: boolean = false): { itemId: number; qty: number }[] {
+function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   const boostMult = dropBoost ? 1.5 : 1.0;
+  const guildMult = 1 + guildDropPct / 100;
   for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance * DROP_RATE_MULT * boostMult) {
+    if (Math.random() < d.chance * DROP_RATE_MULT * boostMult * guildMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
@@ -1009,7 +1012,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
   const goldBoostActive = charBoost.rows[0]?.gold_boost_until && new Date(charBoost.rows[0].gold_boost_until) > new Date();
   const dropBoostActive = charBoost.rows[0]?.drop_boost_until && new Date(charBoost.rows[0].drop_boost_until) > new Date();
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (goldBoostActive ? 1.5 : 1.0));
+  // 길드 스킬 버프
+  const guildSkills = await getGuildSkillsForCharacter(s.characterId);
+  const guildGoldBonus = guildSkills.gold * GUILD_SKILL_PCT.gold;
+  const guildExpBonus = guildSkills.exp * GUILD_SKILL_PCT.exp;
+  const guildDropBonus = guildSkills.drop * GUILD_SKILL_PCT.drop;
+  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0));
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
 
@@ -1024,10 +1032,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 부스터 + 접두사 경험 보너스 (온라인 자동 보너스는 제거)
+  // 부스터 + 접두사 + 길드 경험 보너스
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100));
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100));
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
+  // 길드 EXP 5% 기여 (비동기 fire-and-forget)
+  contributeGuildExp(s.characterId, boostedExp).catch(() => {});
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
@@ -1056,7 +1066,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   await trackMonsterKill(s.characterId, s.monsterId!);
 
-  let drops = rollDrops(m, !!dropBoostActive);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus);
   // 자동분해 설정 체크
   const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
     'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
@@ -1324,6 +1334,17 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     if (b?.drop_boost_until && new Date(b.drop_boost_until) > now)
       boosts.push({ name: '드롭률 +50%', until: b.drop_boost_until });
     snapshot.boosts = boosts;
+  } catch {}
+
+  // 길드 버프 정보
+  try {
+    const gskills = await getGuildSkillsForCharacter(s.characterId);
+    snapshot.guildBuffs = {
+      hp: gskills.hp * GUILD_SKILL_PCT.hp,
+      gold: gskills.gold * GUILD_SKILL_PCT.gold,
+      exp: gskills.exp * GUILD_SKILL_PCT.exp,
+      drop: gskills.drop * GUILD_SKILL_PCT.drop,
+    };
   } catch {}
 
   // 해당 유저의 소켓에만 emit

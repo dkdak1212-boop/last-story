@@ -348,6 +348,31 @@ export function CombatScreen() {
         </div>
       </div>
 
+      {/* 길드 버프 */}
+      {(state as any).guildBuffs && (() => {
+        const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number };
+        const items: { label: string; pct: number; color: string }[] = [
+          { label: '체력', pct: gb.hp, color: '#e07070' },
+          { label: '골드', pct: gb.gold, color: '#e0a040' },
+          { label: '경험', pct: gb.exp, color: '#8b8bef' },
+          { label: '드랍', pct: gb.drop, color: '#66dd66' },
+        ].filter(x => x.pct > 0);
+        if (items.length === 0) return null;
+        return (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 700 }}>길드 버프</span>
+            {items.map((x, i) => (
+              <span key={i} style={{
+                padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 3,
+                background: `${x.color}15`, color: x.color, border: `1px solid ${x.color}40`,
+              }}>
+                {x.label} +{x.pct}%
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* 활성 버프 */}
       {(state as any).boosts && (state as any).boosts.length > 0 && (
         <div style={{
