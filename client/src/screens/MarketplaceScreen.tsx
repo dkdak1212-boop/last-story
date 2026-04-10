@@ -13,6 +13,8 @@ interface Listing {
   itemName: string; itemGrade: ItemGrade; itemType?: string; itemSlot?: string | null;
   itemStats?: Partial<Stats> | null; itemDescription?: string;
   enhanceLevel?: number; prefixStats?: Record<string, number> | null;
+  quality?: number; classRestriction?: string | null; prefixName?: string;
+  baseItemName?: string;
   settled?: boolean; cancelled?: boolean;
 }
 
@@ -143,10 +145,13 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
     }}>
       {/* 헤더: 아이콘 + 이름 + 가격 + 구매 버튼 */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <ItemIcon slot={a.itemSlot ?? null} grade={a.itemGrade} itemName={a.itemName} size={32} />
+        <ItemIcon slot={a.itemSlot ?? null} grade={a.itemGrade} itemName={a.baseItemName || a.itemName} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ color: gradeClr, fontWeight: 700, fontSize: 14 }}>{a.itemName}</span>
+            {a.prefixName && (
+              <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 14 }}>{a.prefixName}</span>
+            )}
+            <span style={{ color: gradeClr, fontWeight: 700, fontSize: 14 }}>{a.baseItemName || a.itemName}</span>
             {el > 0 && (
               <span style={{
                 color: '#000', background: 'var(--accent)', padding: '0 5px',
@@ -154,6 +159,27 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
               }}>+{el}</span>
             )}
             {a.itemQuantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>×{a.itemQuantity}</span>}
+            {a.quality !== undefined && a.quality > 0 && (() => {
+              const q = a.quality!;
+              const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
+              return (
+                <span style={{
+                  fontSize: 11, padding: '2px 7px', borderRadius: 3,
+                  background: color + '22', border: `1px solid ${color}`, color, fontWeight: 700,
+                }}>품질 {q}%</span>
+              );
+            })()}
+            {a.classRestriction && (() => {
+              const cls = a.classRestriction!;
+              const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
+              const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0' };
+              return (
+                <span style={{
+                  fontSize: 9, padding: '1px 5px', borderRadius: 2,
+                  border: `1px solid ${colorMap[cls]}`, color: colorMap[cls], fontWeight: 700,
+                }}>{krMap[cls]} 전용</span>
+              );
+            })()}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
             판매자: {a.sellerName} · 남은 시간 {h}시간 {m}분
@@ -176,7 +202,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
         {a.itemStats && Object.keys(a.itemStats).length > 0 && (
           <div style={{ marginBottom: 6 }}>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>아이템 스탯</div>
-            <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} />
+            <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} quality={a.quality || 0} />
           </div>
         )}
         {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (

@@ -26,12 +26,13 @@ router.get('/', async (req, res) => {
     item_name: string; item_grade: string; item_type: string; item_slot: string | null;
     item_stats: Record<string, number> | null; item_description: string;
     enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
+    quality: number; class_restriction: string | null;
   }>(
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at,
-            a.enhance_level, a.prefix_ids, a.prefix_stats,
+            a.enhance_level, a.prefix_ids, a.prefix_stats, COALESCE(a.quality, 0) AS quality,
             c.name AS seller_name,
             i.name AS item_name, i.grade AS item_grade, i.type AS item_type, i.slot AS item_slot,
-            i.stats AS item_stats, i.description AS item_description
+            i.stats AS item_stats, i.description AS item_description, i.class_restriction
      FROM auctions a JOIN characters c ON c.id = a.seller_id
                      JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
@@ -67,6 +68,8 @@ router.get('/', async (req, res) => {
       itemDescription: row.item_description,
       enhanceLevel: row.enhance_level || 0,
       prefixStats: row.prefix_stats || null,
+      quality: row.quality || 0,
+      classRestriction: row.class_restriction,
     };
   }));
 });
@@ -85,8 +88,8 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
+  const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
     [characterId, slotIndex]
   );
   if (inv.rowCount === 0) return res.status(404).json({ error: 'item not in slot' });
@@ -99,12 +102,13 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
 
   const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000).toISOString();
   await query(
-    `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb)`,
+    `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9)`,
     [characterId, invRow.item_id, quantity, price, endsAt,
      invRow.enhance_level || 0,
      invRow.prefix_ids || null,
-     invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null]
+     invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null,
+     invRow.quality || 0]
   );
   res.json({ ok: true });
 });
@@ -140,13 +144,15 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
   await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [sellerGet, au.seller_id]);
   await deliverToMailbox(au.seller_id, '판매 정산', `수수료 ${Math.round(FEE_PCT*100)}% 차감 후 ${sellerGet.toLocaleString()}G 수령.`, 0, 0);
 
-  // 아이템 지급 (강화/접두사 완전 보존)
-  const auctionDetail = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
-    'SELECT enhance_level, prefix_stats FROM auctions WHERE id = $1', [auctionId]
+  // 아이템 지급 (강화/접두사/품질 완전 보존)
+  const auctionDetail = await query<{ enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+    'SELECT enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM auctions WHERE id = $1', [auctionId]
   );
   const ad = auctionDetail.rows[0];
   const enhLv = ad?.enhance_level || 0;
+  const pIds = ad?.prefix_ids || [];
   const pStats = ad?.prefix_stats ? JSON.stringify(ad.prefix_stats) : '{}';
+  const qual = ad?.quality || 0;
 
   // 빈 인벤 슬롯 찾기
   const usedR = await query<{ slot_index: number }>(
@@ -158,12 +164,12 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
 
   if (freeSlot >= 0) {
     await query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_stats)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-      [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pStats]
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual]
     );
   } else {
-    await deliverToMailbox(parsed.data.characterId, '경매 즉시구매', '가방이 가득 차서 우편 발송', au.item_id, au.item_quantity);
+    await deliverToMailbox(parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송', au.item_id, au.item_quantity);
   }
 
   await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [auctionId]);
