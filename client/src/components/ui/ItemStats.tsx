@@ -64,7 +64,11 @@ export function formatStats(stats: Record<string, number> | null | undefined, en
   const lines: string[] = [];
   for (const key of STAT_ORDER) {
     const v = (stats as any)[key];
-    if (v) lines.push(`${STAT_LABEL[key] || key} +${Math.round(v * mult)}`);
+    if (v) {
+      const value = Math.round(v * mult);
+      const suffix = PCT_STATS.has(key) ? '%' : '';
+      lines.push(`${STAT_LABEL[key] || key} +${value}${suffix}`);
+    }
   }
   return lines;
 }

@@ -101,7 +101,10 @@ export function InventoryScreen() {
     e.stopPropagation(); if (!active || rerollBusy) return;
     setRerollBusy(true); setMsg('');
     try { const r = await api<{ success: boolean; prefixStats: Record<string, number> }>(`/enhance/${active.id}/reroll-prefix`, { method: 'POST', body: JSON.stringify({ kind, slotKey }) });
-      const statStr = Object.entries(r.prefixStats).map(([k, v]) => `${STAT_LABEL[k as keyof Stats] || k}+${v}`).join(', ');
+      const statStr = Object.entries(r.prefixStats).map(([k, v]) => {
+        const isPct = ['cri','def_reduce_pct','slow_pct','dot_amp_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
+        return `${STAT_LABEL[k as keyof Stats] || k}+${v}${isPct ? '%' : ''}`;
+      }).join(', ');
       setMsg(`재굴림! ${statStr || '없음'}`); await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '재굴림 실패'); } finally { setRerollBusy(false); }
   }
