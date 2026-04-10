@@ -385,21 +385,30 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
         // 접두사: 광전사 (HP 30% 이하)
         const berserk = s.equipPrefixes.berserk_pct || 0;
+        let berserkProc = false;
         if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
           dmg = Math.round(dmg * (1 + berserk / 100));
+          berserkProc = true;
         }
         // 접두사: 약점간파 (첫 공격)
         const firstStrike = s.equipPrefixes.first_strike_pct || 0;
+        let firstStrikeProc = false;
         if (firstStrike > 0 && s.hasFirstStrike) {
           dmg = Math.round(dmg * (1 + firstStrike / 100));
           s.hasFirstStrike = false;
+          firstStrikeProc = true;
         }
         // 접두사: 각성 (5초 이상 미피격 시)
         const ambush = s.equipPrefixes.ambush_pct || 0;
+        let ambushProc = false;
         if (ambush > 0 && s.ticksSinceLastHit >= 50) {
           dmg = Math.round(dmg * (1 + ambush / 100));
-          s.ticksSinceLastHit = 0; // 소비
+          s.ticksSinceLastHit = 0;
+          ambushProc = true;
         }
+        if (berserkProc) addLog(s, `[광전사] 데미지 +${berserk}%`);
+        if (firstStrikeProc) addLog(s, `[약점간파] 첫 공격 +${firstStrike}%`);
+        if (ambushProc) addLog(s, `[각성] 다음 공격 +${ambush}%`);
         // 패시브: crit_damage (치명타 추가 배율) + 접두사: 날카로움(crit_dmg_pct)
         if (d.crit) {
           const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
@@ -408,6 +417,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
           if (gaugeOnCrit > 0) {
             s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCrit / 100);
+            addLog(s, `[재충전] 게이지 +${gaugeOnCrit}%`);
           }
         }
         s.monsterHp -= dmg;
@@ -421,9 +431,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 접두사: 흡혈귀(lifesteal_pct)
         const prefixLifesteal = s.equipPrefixes.lifesteal_pct || 0;
         if (prefixLifesteal > 0 && dmg > 0) {
-          const heal = Math.round(dmg * prefixLifesteal / 1000); // 값이 5~20 → 0.5%~2.0%
+          const heal = Math.round(dmg * prefixLifesteal / 1000);
           if (heal > 0) {
             s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+            addLog(s, `[흡혈] HP +${heal}`);
           }
         }
 
@@ -895,9 +906,12 @@ function monsterAction(s: ActiveSession): void {
 
     // 접두사: 수호자 (HP 50% 이상)
     const guardian = s.equipPrefixes.guardian_pct || 0;
+    let guardianProc = false;
     if (guardian > 0 && dmg > 0 && s.playerHp / s.playerMaxHp >= 0.5) {
       dmg = Math.round(dmg * (1 - guardian / 100));
+      guardianProc = true;
     }
+    if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
     if (dmg > 0) {
       s.playerHp -= dmg;
