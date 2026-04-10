@@ -228,15 +228,14 @@ async function getCharSkills(characterId: number, className: string, level: numb
   return [...basicR.rows, ...slotR.rows];
 }
 
-// 드롭률 배율: 기본 x0.1 (대폭 하향), 온라인 보너스 +50%
+// 드롭률 배율: 기본 x0.1 (드롭 부스터로 1.5배)
 const DROP_RATE_MULT = 0.1;
-const ONLINE_DROP_BONUS = 1.5;
 
 function rollDrops(m: MonsterDef, dropBoost: boolean = false): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   const boostMult = dropBoost ? 1.5 : 1.0;
   for (const d of m.drop_table || []) {
-    if (Math.random() < d.chance * DROP_RATE_MULT * ONLINE_DROP_BONUS * boostMult) {
+    if (Math.random() < d.chance * DROP_RATE_MULT * boostMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
@@ -984,10 +983,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 온라인 보너스: 경험치 +50% + 접두사 경험 보너스
-  const ONLINE_EXP_BONUS = 1.5;
+  // 부스터 + 접두사 경험 보너스 (온라인 자동 보너스는 제거)
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * ONLINE_EXP_BONUS * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100));
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100));
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
 
   if (result.levelsGained > 0) {
