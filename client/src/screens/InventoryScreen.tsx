@@ -174,8 +174,8 @@ export function InventoryScreen() {
               </div>
               {item ? (
                 <>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: (GRADE_COLOR as any)[item.grade], lineHeight: 1.3 }}>
-                    {item.name}
+                  <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
+                    <span style={{ color: (GRADE_COLOR as any)[item.grade] }}>{item.name}</span>
                     {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{item.enhanceLevel}</span>}
                   </div>
                   <div style={{ marginTop: 3 }}>
@@ -310,10 +310,13 @@ export function InventoryScreen() {
                 >
                   {/* 헤더 행 */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={s.item.name} size={24} />
+                    <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
-                        <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{s.item.name}</span>
+                        {(s as any).prefixName && (
+                          <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
+                        )}
+                        <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{(s.item as any).baseName || s.item.name}</span>
                         {s.enhanceLevel > 0 && (
                           <span style={{
                             color: '#000', background: 'var(--accent)', padding: '0 4px',
