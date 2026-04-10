@@ -278,69 +278,99 @@ export function NodeTreeScreen() {
   }, []);
 
   // 터치 (모바일 pan + pinch zoom)
+  // touchmove/end는 document 레벨에서 받아서 손가락이 SVG 밖으로 나가도 안전
   const touchRef = useRef<{ x: number; y: number; vbX: number; vbY: number; dist?: number; vbW?: number; vbH?: number } | null>(null);
+
+  // viewBox sanity helper — NaN/Infinity 방지
+  function safeViewBox(vb: { x: number; y: number; w: number; h: number }) {
+    if (!isFinite(vb.x) || !isFinite(vb.y) || !isFinite(vb.w) || !isFinite(vb.h) || vb.w <= 0 || vb.h <= 0) {
+      return { x: -700, y: -700, w: 1400, h: 1400 };
+    }
+    return {
+      x: Math.max(-10000, Math.min(10000, vb.x)),
+      y: Math.max(-10000, Math.min(10000, vb.y)),
+      w: Math.min(4000, Math.max(400, vb.w)),
+      h: Math.min(4000, Math.max(400, vb.h)),
+    };
+  }
+
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
+
     function onTouchStart(e: TouchEvent) {
-      // multi-touch는 무조건 막아야 브라우저 pinch-zoom 차단됨
       if (e.touches.length >= 2) e.preventDefault();
       if (e.touches.length === 1) {
         touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: viewBox.x, vbY: viewBox.y };
       } else if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 10) return; // 너무 가까우면 무시
         touchRef.current = {
           x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
           y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
           vbX: viewBox.x, vbY: viewBox.y,
-          dist: Math.sqrt(dx * dx + dy * dy),
+          dist,
           vbW: viewBox.w, vbH: viewBox.h,
         };
       }
     }
-    // gesturestart/gesturechange 차단 (iOS Safari)
     function onGesture(e: Event) { e.preventDefault(); }
-    function onTouchMove(e: TouchEvent) {
-      e.preventDefault();
+
+    // document 레벨: 손가락이 SVG 밖으로 나가도 처리
+    function onDocTouchMove(e: TouchEvent) {
       if (!touchRef.current) return;
+      e.preventDefault();
       const rect = svg!.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
       if (e.touches.length === 1) {
         const dx = (e.touches[0].clientX - touchRef.current.x) * (viewBox.w / rect.width);
         const dy = (e.touches[0].clientY - touchRef.current.y) * (viewBox.h / rect.height);
-        setViewBox(v => ({ ...v, x: touchRef.current!.vbX - dx, y: touchRef.current!.vbY - dy }));
+        if (!isFinite(dx) || !isFinite(dy)) return;
+        setViewBox(v => safeViewBox({ ...v, x: touchRef.current!.vbX - dx, y: touchRef.current!.vbY - dy }));
       } else if (e.touches.length === 2 && touchRef.current.dist != null) {
         const ndx = e.touches[0].clientX - e.touches[1].clientX;
         const ndy = e.touches[0].clientY - e.touches[1].clientY;
         const newDist = Math.sqrt(ndx * ndx + ndy * ndy);
+        if (newDist < 10) return; // 0 나눗셈 방지
         const scale = touchRef.current.dist / newDist;
-        const newW = Math.min(4000, Math.max(400, touchRef.current.vbW! * scale));
-        const newH = newW * (touchRef.current.vbH! / touchRef.current.vbW!);
-        // 두 손가락 중점 기준 줌
+        if (!isFinite(scale) || scale <= 0) return;
+
+        const baseW = touchRef.current.vbW!;
+        const baseH = touchRef.current.vbH!;
+        const newW = Math.min(4000, Math.max(400, baseW * scale));
+        const newH = newW * (baseH / baseW);
+        if (!isFinite(newW) || !isFinite(newH)) return;
+
         const cx = touchRef.current.x - rect.left;
         const cy = touchRef.current.y - rect.top;
         const mxRatio = cx / rect.width;
         const myRatio = cy / rect.height;
-        const newX = touchRef.current.vbX + (touchRef.current.vbW! - newW) * mxRatio;
-        const newY = touchRef.current.vbY + (touchRef.current.vbH! - newH) * myRatio;
-        setViewBox({ x: newX, y: newY, w: newW, h: newH });
+        const newX = touchRef.current.vbX + (baseW - newW) * mxRatio;
+        const newY = touchRef.current.vbY + (baseH - newH) * myRatio;
+        setViewBox(safeViewBox({ x: newX, y: newY, w: newW, h: newH }));
       }
     }
-    function onTouchEnd() { touchRef.current = null; }
+    function onDocTouchEnd() { touchRef.current = null; }
+
     svg.addEventListener('touchstart', onTouchStart, { passive: false });
-    svg.addEventListener('touchmove', onTouchMove, { passive: false });
-    svg.addEventListener('touchend', onTouchEnd, { passive: false });
-    // iOS Safari 전용 gesture 이벤트 차단
     svg.addEventListener('gesturestart', onGesture as any);
     svg.addEventListener('gesturechange', onGesture as any);
     svg.addEventListener('gestureend', onGesture as any);
+    document.addEventListener('touchmove', onDocTouchMove, { passive: false });
+    document.addEventListener('touchend', onDocTouchEnd);
+    document.addEventListener('touchcancel', onDocTouchEnd);
+
     return () => {
       svg.removeEventListener('touchstart', onTouchStart);
-      svg.removeEventListener('touchmove', onTouchMove);
-      svg.removeEventListener('touchend', onTouchEnd);
       svg.removeEventListener('gesturestart', onGesture as any);
       svg.removeEventListener('gesturechange', onGesture as any);
       svg.removeEventListener('gestureend', onGesture as any);
+      document.removeEventListener('touchmove', onDocTouchMove);
+      document.removeEventListener('touchend', onDocTouchEnd);
+      document.removeEventListener('touchcancel', onDocTouchEnd);
     };
   }, [viewBox.x, viewBox.y, viewBox.w, viewBox.h]);
 
