@@ -169,8 +169,8 @@ function computeRadialLayout(nodes: NodeDefinition[]): Map<number, Position> {
 }
 
 /* ── 노드 스타일 ── */
-const TIER_RADIUS: Record<string, number> = { small: 18, medium: 26, large: 36 };
-const TIER_LABEL: Record<string, string> = { small: '소형', medium: '중형', large: '키스톤' };
+const TIER_RADIUS: Record<string, number> = { small: 18, medium: 26, large: 36, huge: 46 };
+const TIER_LABEL: Record<string, string> = { small: '소형', medium: '중형', large: '키스톤', huge: '초월' };
 
 /* ── 메인 컴포넌트 ── */
 export function NodeTreeScreen() {
@@ -521,7 +521,7 @@ export function NodeTreeScreen() {
                 style={{ cursor: 'pointer' }}
               >
                 {/* 글로우 (키스톤/선택/투자됨) */}
-                {(node.tier === 'large' || isSelected || status === 'invested') && (
+                {(node.tier === 'large' || node.tier === 'huge' || isSelected || status === 'invested') && (
                   <circle cx={pos.x} cy={pos.y} r={r + 8}
                     fill={colors.stroke} opacity={isSelected ? 0.4 : 0.15} />
                 )}
@@ -530,22 +530,22 @@ export function NodeTreeScreen() {
                   cx={pos.x} cy={pos.y} r={r}
                   fill={colors.fill}
                   stroke={colors.stroke}
-                  strokeWidth={node.tier === 'large' ? 3 : node.tier === 'medium' ? 2.5 : 2}
+                  strokeWidth={node.tier === 'large' || node.tier === 'huge' ? 3 : node.tier === 'medium' ? 2.5 : 2}
                 />
                 {/* 키스톤은 별 모양 마커 */}
-                {node.tier === 'large' && (
-                  <text x={pos.x} y={pos.y - 4} fill={colors.text} fontSize={14}
-                    textAnchor="middle" fontWeight={700}>★</text>
+                {(node.tier === 'large' || node.tier === 'huge') && (
+                  <text x={pos.x} y={pos.y - 4} fill={colors.text} fontSize={node.tier === 'huge' ? 18 : 14}
+                    textAnchor="middle" fontWeight={700}>{node.tier === 'huge' ? '★★' : '★'}</text>
                 )}
                 {/* 코스트 */}
-                <text x={pos.x} y={pos.y + (node.tier === 'large' ? 10 : 4)}
-                  fill={colors.text} fontSize={node.tier === 'large' ? 11 : 10}
+                <text x={pos.x} y={pos.y + (node.tier === 'large' || node.tier === 'huge' ? 10 : 4)}
+                  fill={colors.text} fontSize={node.tier === 'large' || node.tier === 'huge' ? 11 : 10}
                   fontWeight={700} textAnchor="middle">{node.cost}</text>
                 {/* 이름 (medium 이상만, 줌 인 시) */}
                 {(node.tier !== 'small' || viewBox.w < 1000) && (
                   <text x={pos.x} y={pos.y + r + 12}
-                    fill={colors.text} fontSize={node.tier === 'large' ? 11 : 9}
-                    textAnchor="middle" fontWeight={node.tier === 'large' ? 700 : 400}
+                    fill={colors.text} fontSize={node.tier === 'large' || node.tier === 'huge' ? 11 : 9}
+                    textAnchor="middle" fontWeight={node.tier === 'large' || node.tier === 'huge' ? 700 : 400}
                     style={{ pointerEvents: 'none' }}>
                     {node.name.length > 8 ? node.name.slice(0, 7) + '..' : node.name}
                   </text>
@@ -670,6 +670,15 @@ function NodeDetailPanel(props: NodeDetailPanelProps) {
         </span>
       </div>
       <div style={{ fontSize: 13, color: '#ccc', marginTop: 6, lineHeight: 1.4 }}>{selected.description}</div>
+      {selected.tier === 'huge' && !invested.has(selected.id) && (
+        <div style={{
+          fontSize: 12, marginTop: 8, padding: '6px 10px',
+          background: 'rgba(218,165,32,0.12)', border: '1px solid var(--accent)',
+          color: 'var(--accent)', fontWeight: 700, borderRadius: 3,
+        }}>
+          ★★ 초월 노드 · 투자 시 <span style={{ color: '#fff' }}>노드 스크롤 +8</span> 1개 소비
+        </div>
+      )}
       {!invested.has(selected.id) && selectedUnmetCount > 1 && (
         <div style={{ fontSize: 12, color: '#ff8800', marginTop: 8 }}>
           하위 노드 {selectedUnmetCount - 1}개 자동 습득 (총 {selectedTotalCost}pt 필요)

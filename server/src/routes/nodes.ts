@@ -65,8 +65,8 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const { nodeId } = parsed.data;
 
   // 노드 존재 체크
-  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[] }>(
-    'SELECT cost, class_exclusive, prerequisites FROM node_definitions WHERE id = $1', [nodeId]
+  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[]; tier: string }>(
+    'SELECT cost, class_exclusive, prerequisites, tier FROM node_definitions WHERE id = $1', [nodeId]
   );
   if (nodeR.rowCount === 0) return res.status(404).json({ error: 'node not found' });
   const node = nodeR.rows[0];
@@ -74,6 +74,20 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   // 직업 제한
   if (node.class_exclusive && node.class_exclusive !== char.class_name) {
     return res.status(400).json({ error: 'class restriction' });
+  }
+
+  // huge 티어(8pt) 노드는 노드 스크롤 +8 1개 소비
+  const NODE_SCROLL_ID = 321;
+  if (node.tier === 'huge') {
+    const scrollR = await query<{ id: number; quantity: number }>(
+      `SELECT id, quantity FROM character_inventory
+       WHERE character_id = $1 AND item_id = $2 AND quantity > 0
+       ORDER BY slot_index ASC LIMIT 1`,
+      [id, NODE_SCROLL_ID]
+    );
+    if (scrollR.rowCount === 0) {
+      return res.status(400).json({ error: '노드 스크롤 +8 1개가 필요합니다' });
+    }
   }
 
   // 이미 투자
@@ -118,6 +132,22 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
   if (char.node_points < totalCost) {
     return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
+  }
+
+  // huge 노드 → 스크롤 소비
+  if (node.tier === 'huge') {
+    const scrollR = await query<{ id: number; quantity: number }>(
+      `SELECT id, quantity FROM character_inventory
+       WHERE character_id = $1 AND item_id = $2 AND quantity > 0
+       ORDER BY slot_index ASC LIMIT 1`,
+      [id, NODE_SCROLL_ID]
+    );
+    if (scrollR.rowCount === 0) {
+      return res.status(400).json({ error: '노드 스크롤 +8 1개가 필요합니다' });
+    }
+    const slot = scrollR.rows[0];
+    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [slot.id]);
+    await query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [slot.id]);
   }
 
   for (const [nid] of toInvest) {
