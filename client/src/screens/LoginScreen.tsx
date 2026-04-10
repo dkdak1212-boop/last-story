@@ -2,35 +2,52 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { TermsModal } from '../components/ui/TermsModal';
+import { api } from '../api/client';
 
 export function LoginScreen() {
   const nav = useNavigate();
   const { login, register } = useAuthStore();
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
+    setError(''); setInfo('');
     if (mode === 'register' && !agreed) {
       setError('서비스 이용약관에 동의해 주세요');
       return;
     }
     setBusy(true);
     try {
-      if (mode === 'login') await login(username, password);
-      else await register(username, password);
-      nav('/characters');
+      if (mode === 'login') {
+        await login(username, password);
+        nav('/characters');
+      } else if (mode === 'register') {
+        await register(username, password, email);
+        nav('/characters');
+      } else if (mode === 'forgot') {
+        const r = await api<{ ok: boolean; message: string }>('/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ username, email }),
+        });
+        setInfo(r.message || '임시 비밀번호가 이메일로 발송되었습니다.');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '실패');
     } finally {
       setBusy(false);
     }
+  }
+
+  function changeMode(newMode: 'login' | 'register' | 'forgot') {
+    setMode(newMode); setError(''); setInfo('');
   }
 
   return (
@@ -69,14 +86,26 @@ export function LoginScreen() {
               minLength={3}
               maxLength={20}
             />
-            <input
-              type="password"
-              placeholder="비밀번호"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={4}
-            />
+            {mode !== 'forgot' && (
+              <input
+                type="password"
+                placeholder="비밀번호"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={4}
+              />
+            )}
+            {(mode === 'register' || mode === 'forgot') && (
+              <input
+                type="email"
+                placeholder={mode === 'register' ? '이메일 (비밀번호 찾기에 사용)' : '가입 시 등록한 이메일'}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                maxLength={100}
+              />
+            )}
             {mode === 'register' && (
               <label style={{
                 display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
@@ -101,19 +130,46 @@ export function LoginScreen() {
               </label>
             )}
             {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+            {info && <div style={{ color: 'var(--success)', fontSize: 13 }}>{info}</div>}
             <button type="submit" className="primary" disabled={busy}>
-              {busy ? '...' : mode === 'login' ? '로그인' : '회원가입'}
+              {busy ? '...' : mode === 'login' ? '로그인' : mode === 'register' ? '회원가입' : '임시 비밀번호 받기'}
             </button>
           </div>
         </form>
 
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <button
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-            style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13 }}
-          >
-            {mode === 'login' ? '계정이 없으신가요? 가입하기' : '이미 계정이 있으신가요? 로그인'}
-          </button>
+        <div style={{ marginTop: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {mode === 'login' && (
+            <>
+              <button
+                onClick={() => changeMode('register')}
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
+              >
+                계정이 없으신가요? 가입하기
+              </button>
+              <button
+                onClick={() => changeMode('forgot')}
+                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer' }}
+              >
+                비밀번호를 잊으셨나요?
+              </button>
+            </>
+          )}
+          {mode === 'register' && (
+            <button
+              onClick={() => changeMode('login')}
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
+            >
+              이미 계정이 있으신가요? 로그인
+            </button>
+          )}
+          {mode === 'forgot' && (
+            <button
+              onClick={() => changeMode('login')}
+              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
+            >
+              ← 로그인으로 돌아가기
+            </button>
+          )}
         </div>
 
         <div style={{ marginTop: 10, textAlign: 'center', fontSize: 11 }}>

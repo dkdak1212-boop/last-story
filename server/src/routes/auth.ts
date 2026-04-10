@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { signToken } from '../middleware/auth.js';
+import { sendMail } from '../lib/mailer.js';
 
 const router = Router();
 
@@ -11,20 +13,28 @@ const credSchema = z.object({
   password: z.string().min(4).max(64),
 });
 
-router.post('/register', async (req, res) => {
-  const parsed = credSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+const registerSchema = credSchema.extend({
+  email: z.string().email().max(100),
+});
 
-  const { username, password } = parsed.data;
+router.post('/register', async (req, res) => {
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input (email required)' });
+
+  const { username, password, email } = parsed.data;
   const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
   if (exists.rowCount && exists.rowCount > 0) {
     return res.status(409).json({ error: 'username taken' });
   }
+  const emailExists = await query('SELECT id FROM users WHERE email = $1', [email]);
+  if (emailExists.rowCount && emailExists.rowCount > 0) {
+    return res.status(409).json({ error: 'email already registered' });
+  }
 
   const hash = await bcrypt.hash(password, 10);
   const result = await query<{ id: number }>(
-    'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id',
-    [username, hash]
+    'INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3) RETURNING id',
+    [username, hash, email]
   );
   const userId = result.rows[0].id;
   const token = signToken(userId, username);
@@ -50,6 +60,51 @@ router.post('/login', async (req, res) => {
 
   const token = signToken(user.id, username);
   res.json({ token });
+});
+
+// 비밀번호 찾기 — 아이디 + 이메일 일치 시 임시 비밀번호 이메일 발송
+const forgotSchema = z.object({
+  username: z.string().min(3).max(20),
+  email: z.string().email().max(100),
+});
+
+router.post('/forgot-password', async (req, res) => {
+  const parsed = forgotSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: '입력값 확인' });
+  const { username, email } = parsed.data;
+
+  const r = await query<{ id: number; email: string | null }>(
+    'SELECT id, email FROM users WHERE username = $1',
+    [username]
+  );
+  if (r.rowCount === 0) return res.status(404).json({ error: '일치하는 계정 없음' });
+  if (!r.rows[0].email || r.rows[0].email.toLowerCase() !== email.toLowerCase()) {
+    return res.status(400).json({ error: '이메일이 일치하지 않습니다' });
+  }
+
+  // 임시 비밀번호 12자리 생성
+  const tempPassword = crypto.randomBytes(6).toString('base64url').slice(0, 12);
+  const hash = await bcrypt.hash(tempPassword, 10);
+  await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, r.rows[0].id]);
+
+  // 이메일 발송
+  const subject = '[마지막이야기] 임시 비밀번호 안내';
+  const text = `안녕하세요, 마지막이야기입니다.
+
+요청하신 임시 비밀번호는 아래와 같습니다.
+
+임시 비밀번호: ${tempPassword}
+
+보안을 위해 로그인 후 반드시 비밀번호를 변경해 주세요.
+
+— 마지막이야기 운영팀`;
+
+  const sent = await sendMail(r.rows[0].email, subject, text);
+  if (!sent) {
+    // SMTP 미설정 시 콘솔에만 찍히므로 에러로 응답
+    return res.status(500).json({ error: '메일 전송 실패 — 운영자에게 문의하세요' });
+  }
+  res.json({ ok: true, message: '등록된 이메일로 임시 비밀번호를 보냈습니다.' });
 });
 
 export default router;
