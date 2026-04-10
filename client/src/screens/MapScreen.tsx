@@ -107,13 +107,20 @@ export function MapScreen() {
                               const isUnique = d.grade === 'unique';
                               return (
                                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                  <span style={{
-                                    color: isUnique ? '#ff8c2a' : 'var(--text-dim)',
-                                    fontWeight: isUnique ? 700 : 400,
-                                    textShadow: isUnique ? '0 0 4px rgba(255,140,42,0.6)' : undefined,
-                                  }}>
-                                    {isUnique ? '★ ' : ''}{d.name}{isUnique ? ' [유니크]' : ''}
-                                  </span>
+                                  {isUnique ? (
+                                    <span style={{
+                                      fontWeight: 700,
+                                      background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+                                      WebkitBackgroundClip: 'text',
+                                      WebkitTextFillColor: 'transparent',
+                                      backgroundClip: 'text',
+                                      filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.3))',
+                                    }}>
+                                      ★ {d.name} [유니크]
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-dim)' }}>{d.name}</span>
+                                  )}
                                   <span style={{ color: isUnique ? '#ffb060' : '#88ccff', fontWeight: 700 }}>{d.chance.toFixed(2)}%</span>
                                 </div>
                               );
