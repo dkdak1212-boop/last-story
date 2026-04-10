@@ -168,7 +168,7 @@ export function InventoryScreen() {
                   <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
                     onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
                     onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                    style={{ width: 12, height: 12, imageRendering: 'pixelated', opacity: locked ? 0.8 : 0.2, cursor: 'pointer', marginLeft: 'auto' }}
+                    style={{ width: 20, height: 20, imageRendering: 'pixelated', opacity: locked ? 1 : 0.35, cursor: 'pointer', marginLeft: 'auto' }}
                   />
                 )}
               </div>
@@ -277,8 +277,21 @@ export function InventoryScreen() {
               );
             })}
           </div>
-          {/* 자동분해 토글 */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          {/* 자동분해 + 전체판매 */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 8 }}>
+            <button onClick={async () => {
+              if (!active || !confirm('잠금되지 않은 모든 장비를 판매하시겠습니까?')) return;
+              setMsg('');
+              try {
+                const res = await api<{ count: number; gold: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({}) });
+                setMsg(`${res.count}개 장비 판매 +${res.gold.toLocaleString()}G`);
+                await Promise.all([refresh(), refreshActive()]);
+              } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
+            }} style={{
+              fontSize: 11, padding: '5px 12px', borderRadius: 3,
+              background: 'rgba(218,165,32,0.15)', color: 'var(--accent)',
+              border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
+            }}>전체 판매</button>
             <button onClick={toggleAutoDismantle} style={{
               fontSize: 10, padding: '4px 8px', borderRadius: 3,
               background: autoDismantleCommon ? 'rgba(200,60,60,0.2)' : 'transparent',
@@ -378,7 +391,7 @@ export function InventoryScreen() {
                       <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
                         onClick={(e) => toggleLock(s.slotIndex, e)}
                         onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                        style={{ width: 12, height: 12, imageRendering: 'pixelated', opacity: locked ? 0.8 : 0.2, cursor: 'pointer', flexShrink: 0 }}
+                        style={{ width: 22, height: 22, imageRendering: 'pixelated', opacity: locked ? 1 : 0.35, cursor: 'pointer', flexShrink: 0 }}
                       />
                     )}
                   </div>

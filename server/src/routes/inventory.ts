@@ -373,22 +373,19 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
 });
 
 // 등급별 일괄 판매
+// 전체 장비 판매 (잠금 제외)
 router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const parsed = z.object({ grade: z.enum(['common', 'rare', 'epic', 'legendary']) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-
-  const { grade } = parsed.data;
-
-  // 해당 등급 + 잠금 안 된 아이템 조회
+  // 잠금 안 된 장비 (소모품/재료 제외)
   const items = await query<{ id: number; quantity: number; sell_price: number; name: string }>(
     `SELECT ci.id, ci.quantity, i.sell_price, i.name
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.grade = $2 AND ci.locked = FALSE AND i.sell_price > 0 AND i.type != 'consumable'`,
-    [id, grade]
+     WHERE ci.character_id = $1 AND ci.locked = FALSE AND i.sell_price > 0
+       AND i.type IN ('weapon','armor','accessory')`,
+    [id]
   );
 
   if (items.rowCount === 0) return res.status(400).json({ error: '판매할 아이템이 없습니다.' });
@@ -404,8 +401,7 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
 
   await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [totalGold, id]);
 
-  const GRADE_LABEL: Record<string, string> = { common: '일반', rare: '매직', epic: '에픽', legendary: '전설' };
-  res.json({ ok: true, grade: GRADE_LABEL[grade], count: totalCount, gold: totalGold });
+  res.json({ ok: true, count: totalCount, gold: totalGold });
 });
 
 export default router;
