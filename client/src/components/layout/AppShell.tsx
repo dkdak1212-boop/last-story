@@ -192,11 +192,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     padding: '8px 0',
                     fontSize: 12,
                     textAlign: 'center',
-                    color: '#ff6b9d',
+                    color: 'var(--text-dim)',
                     textDecoration: 'none',
                     borderRight: '1px solid var(--border)',
-                    background: 'rgba(255,107,157,0.1)',
-                    fontWeight: 700,
+                    background: 'transparent',
+                    fontWeight: 400,
                     whiteSpace: 'nowrap',
                   }}
                 >
