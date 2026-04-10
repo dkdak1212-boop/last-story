@@ -16,10 +16,10 @@ function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
     style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
 }
 
-// 주요 스탯 한줄 요약 (강화 + 품질 적용)
+// 주요 스탯 한줄 요약 (강화 배율 + 품질 보너스 덧셈)
 function StatSummary({ stats, enhanceLevel, quality = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel: number; quality?: number }) {
   if (!stats) return null;
-  const mult = getEnhanceMult(enhanceLevel) * (1 + quality / 100);
+  const mult = getEnhanceMult(enhanceLevel) + quality / 100;
   const parts: string[] = [];
   const map: Record<string, string> = { atk: '공', matk: '마공', def: '방', hp: 'HP', str: '힘', int: '지', vit: '체', spd: '속', cri: '크리' };
   for (const [k, v] of Object.entries(stats)) {

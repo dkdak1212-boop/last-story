@@ -78,13 +78,13 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     return stats;
   }
 
-  // 강화 배율 + 품질 적용된 스탯 반환
+  // 강화 배율 + 품질 보너스 (덧셈 합산)
   function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number, quality: number = 0): Record<string, number> | null {
     if (!baseStats) return null;
     const el = enhanceLevel || 0;
     const enhMult = 1 + el * 0.075;
-    const qualMult = 1 + (quality || 0) / 100;
-    const mult = enhMult * qualMult;
+    const qualBonus = (quality || 0) / 100;
+    const mult = enhMult + qualBonus;
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(baseStats)) {
       result[k] = Math.round((v as number) * mult);

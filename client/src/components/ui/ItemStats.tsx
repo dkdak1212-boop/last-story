@@ -57,12 +57,12 @@ export function getEnhanceMult(el: number): number {
   return 1 + el * 0.075;
 }
 
-// 스탯 jsonb → 라인 배열 (강화 + 품질 모두 적용)
+// 스탯 jsonb → 라인 배열 (강화 배율 + 품질 보너스 덧셈)
 export function formatStats(stats: Record<string, number> | null | undefined, enhanceLevel = 0, quality = 0): string[] {
   if (!stats) return [];
   const enhMult = getEnhanceMult(enhanceLevel);
-  const qualMult = 1 + (quality || 0) / 100;
-  const mult = enhMult * qualMult;
+  const qualBonus = (quality || 0) / 100;
+  const mult = enhMult + qualBonus;
   const lines: string[] = [];
   for (const key of STAT_ORDER) {
     const v = (stats as any)[key];

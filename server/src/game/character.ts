@@ -65,11 +65,11 @@ export async function getEquippedItems(characterId: number) {
   return r.rows.map(row => {
     const result: Partial<Stats> = {};
     if (row.stats) {
-      // 강화 배율: +7.5%/단계 + 품질 0~100% (1배~2배)
+      // 강화 배율 + 품질 보너스 (덧셈 합산: 강화로 품질이 두 배가 되지 않음)
       const el = row.enhance_level || 0;
       const enhMult = 1 + el * 0.075;
-      const qualMult = 1 + (row.quality || 0) / 100;
-      const mult = enhMult * qualMult;
+      const qualBonus = (row.quality || 0) / 100;
+      const mult = enhMult + qualBonus;
       for (const [k, v] of Object.entries(row.stats)) {
         result[k as keyof Stats] = Math.round((v as number) * mult);
       }
