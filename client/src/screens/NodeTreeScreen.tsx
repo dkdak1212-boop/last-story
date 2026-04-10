@@ -344,6 +344,18 @@ export function NodeTreeScreen() {
     };
   }, [viewBox.x, viewBox.y, viewBox.w, viewBox.h]);
 
+  // 노드트리 화면에서는 페이지 전체 overscroll/pull-to-refresh 차단
+  useEffect(() => {
+    const prevHtml = document.documentElement.style.overscrollBehavior;
+    const prevBody = document.body.style.overscrollBehavior;
+    document.documentElement.style.overscrollBehavior = 'none';
+    document.body.style.overscrollBehavior = 'none';
+    return () => {
+      document.documentElement.style.overscrollBehavior = prevHtml;
+      document.body.style.overscrollBehavior = prevBody;
+    };
+  }, []);
+
   function resetView() {
     setViewBox({ x: -700, y: -700, w: 1400, h: 1400 });
   }
