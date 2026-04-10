@@ -208,7 +208,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
         {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>접두사</div>
-            <PrefixDisplay prefixStats={a.prefixStats} />
+            <PrefixDisplay prefixStats={a.prefixStats} prefixTiers={(a as any).prefixTiers} />
           </div>
         )}
         {a.itemDescription && (
@@ -321,7 +321,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
             </div>
           )}
           {sel.prefixStats && Object.keys(sel.prefixStats).length > 0 && (
-            <PrefixDisplay prefixStats={sel.prefixStats} />
+            <PrefixDisplay prefixStats={sel.prefixStats} prefixTiers={(sel as any).prefixTiers} />
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>

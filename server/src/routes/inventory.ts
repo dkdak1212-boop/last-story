@@ -5,17 +5,36 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, loadCharacter, getEffectiveStats } from '../game/character.js';
 import { refreshSessionStats } from '../combat/engine.js';
 
-// 접두사 ID → 이름 매핑 (캐시)
-let prefixNameCache: Map<number, string> | null = null;
-async function getPrefixNames(): Promise<Map<number, string>> {
-  if (prefixNameCache) return prefixNameCache;
-  const r = await query<{ id: number; name: string }>('SELECT id, name FROM item_prefixes');
-  prefixNameCache = new Map(r.rows.map(row => [row.id, row.name]));
-  return prefixNameCache;
+// 접두사 ID → {name, tier, stat_key} 매핑 (캐시)
+interface PrefixInfo { name: string; tier: number; statKey: string; }
+let prefixCache: Map<number, PrefixInfo> | null = null;
+async function getPrefixCache(): Promise<Map<number, PrefixInfo>> {
+  if (prefixCache) return prefixCache;
+  const r = await query<{ id: number; name: string; tier: number; stat_key: string }>(
+    'SELECT id, name, tier, stat_key FROM item_prefixes'
+  );
+  prefixCache = new Map(r.rows.map(row => [row.id, { name: row.name, tier: row.tier, statKey: row.stat_key }]));
+  return prefixCache;
+}
+async function getPrefixNames(): Promise<Map<number, PrefixInfo>> {
+  return getPrefixCache();
 }
 
-function buildPrefixName(prefixIds: number[], names: Map<number, string>): string {
-  return prefixIds.map(id => names.get(id) || '').filter(Boolean).join(' ');
+function buildPrefixName(prefixIds: number[], cache: Map<number, PrefixInfo>): string {
+  return prefixIds.map(id => cache.get(id)?.name || '').filter(Boolean).join(' ');
+}
+
+// stat_key → 최대 tier 매핑 (같은 키가 여러 접두사에 있을 때 최대)
+function buildPrefixTiers(prefixIds: number[], cache: Map<number, PrefixInfo>): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const id of prefixIds) {
+    const info = cache.get(id);
+    if (!info) continue;
+    if (!result[info.statKey] || result[info.statKey] < info.tier) {
+      result[info.statKey] = info.tier;
+    }
+  }
+  return result;
 }
 
 // 전투 세션의 player_stats 갱신 (장비 변경 시)
@@ -95,6 +114,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   const inventory = invR.rows.map((r) => {
     const pIds = r.prefix_ids || [];
     const pName = buildPrefixName(pIds, prefixNames);
+    const pTiers = buildPrefixTiers(pIds, prefixNames);
     return {
       slotIndex: r.slot_index,
       quantity: r.quantity,
@@ -102,6 +122,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixIds: pIds,
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: pName,
+      prefixTiers: pTiers,
       locked: r.locked,
       quality: r.quality || 0,
       item: {
@@ -137,6 +158,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   for (const r of eqR.rows) {
     const pIds = r.prefix_ids || [];
     const pName = buildPrefixName(pIds, prefixNames);
+    const pTiers = buildPrefixTiers(pIds, prefixNames);
     equipped[r.slot] = {
       id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
       baseName: r.name,
@@ -147,6 +169,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
+      prefixTiers: pTiers,
       locked: r.locked,
       classRestriction: r.class_restriction,
       quality: r.quality || 0,

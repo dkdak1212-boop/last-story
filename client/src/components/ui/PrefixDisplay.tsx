@@ -31,9 +31,20 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
 
 interface Props {
   prefixStats: Record<string, number> | undefined | null;
+  prefixTiers?: Record<string, number> | null;
 }
 
-export function PrefixDisplay({ prefixStats }: Props) {
+// 티어별 색상/스타일
+function getTierStyle(tier: number): { color: string; glow: boolean; bg: string } {
+  switch (tier) {
+    case 4: return { color: '#ff4444', glow: true, bg: 'rgba(255,68,68,0.12)' };  // 빨강 + 발광
+    case 3: return { color: '#b060cc', glow: false, bg: 'transparent' };           // 보라
+    case 2: return { color: '#5b8ecc', glow: false, bg: 'transparent' };           // 파랑
+    default: return { color: '#66ccff', glow: false, bg: 'transparent' };          // T1 기본
+  }
+}
+
+export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
   if (!prefixStats || Object.keys(prefixStats).length === 0) return null;
 
   return (
@@ -41,9 +52,22 @@ export function PrefixDisplay({ prefixStats }: Props) {
       {Object.entries(prefixStats).map(([key, val]) => {
         const fmt = EFFECT_FORMATS[key];
         const text = fmt ? fmt(val) : `${key} +${val}`;
-        // 모든 접두사 통일: ◆ + 진한 하늘색
+        const tier = prefixTiers?.[key] || 1;
+        const s = getTierStyle(tier);
+        const isT4 = tier === 4;
         return (
-          <span key={key} style={{ color: '#66ccff', fontWeight: 600 }}>
+          <span key={key} style={{
+            color: s.color,
+            fontWeight: isT4 ? 800 : 600,
+            background: s.bg,
+            padding: isT4 ? '1px 5px' : 0,
+            borderRadius: isT4 ? 3 : 0,
+            border: isT4 ? `1px solid ${s.color}` : 'none',
+            textShadow: s.glow ? `0 0 6px ${s.color}, 0 0 2px ${s.color}` : undefined,
+            display: 'inline-block',
+            width: 'fit-content',
+          }}>
+            {isT4 && <span style={{ marginRight: 3, fontWeight: 900 }}>★T4</span>}
             ◆ {text}
           </span>
         );

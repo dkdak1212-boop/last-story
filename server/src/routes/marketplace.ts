@@ -42,16 +42,28 @@ router.get('/', async (req, res) => {
 
   // 접두사 이름 매핑 (모든 prefix_id 한꺼번에 조회)
   const allPrefixIds = [...new Set(r.rows.flatMap(row => row.prefix_ids || []))];
-  const prefixNameMap = new Map<number, string>();
+  const prefixInfoMap = new Map<number, { name: string; tier: number; statKey: string }>();
   if (allPrefixIds.length > 0) {
-    const pr = await query<{ id: number; name: string }>(
-      'SELECT id, name FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    const pr = await query<{ id: number; name: string; tier: number; stat_key: string }>(
+      'SELECT id, name, tier, stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
     );
-    for (const p of pr.rows) prefixNameMap.set(p.id, p.name);
+    for (const p of pr.rows) prefixInfoMap.set(p.id, { name: p.name, tier: p.tier, statKey: p.stat_key });
   }
   function buildPrefixName(ids: number[] | null): string {
     if (!ids || ids.length === 0) return '';
-    return ids.map(id => prefixNameMap.get(id)).filter(Boolean).join(' ');
+    return ids.map(id => prefixInfoMap.get(id)?.name).filter(Boolean).join(' ');
+  }
+  function buildPrefixTiers(ids: number[] | null): Record<string, number> {
+    const result: Record<string, number> = {};
+    if (!ids) return result;
+    for (const id of ids) {
+      const info = prefixInfoMap.get(id);
+      if (!info) continue;
+      if (!result[info.statKey] || result[info.statKey] < info.tier) {
+        result[info.statKey] = info.tier;
+      }
+    }
+    return result;
   }
 
   res.json(r.rows.map(row => {
@@ -68,6 +80,7 @@ router.get('/', async (req, res) => {
       itemDescription: row.item_description,
       enhanceLevel: row.enhance_level || 0,
       prefixStats: row.prefix_stats || null,
+      prefixTiers: buildPrefixTiers(row.prefix_ids),
       quality: row.quality || 0,
       classRestriction: row.class_restriction,
     };

@@ -112,7 +112,7 @@ export function EnhanceScreen() {
                   </div>
                   {it.prefixStats && Object.keys(it.prefixStats).length > 0 && (
                     <div style={{ marginTop: 4 }}>
-                      <PrefixDisplay prefixStats={it.prefixStats} />
+                      <PrefixDisplay prefixStats={it.prefixStats} prefixTiers={(it as any).prefixTiers} />
                     </div>
                   )}
                 </div>
@@ -246,7 +246,7 @@ export function EnhanceScreen() {
               {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 && (
                 <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사</div>
-                  <PrefixDisplay prefixStats={selected.prefixStats} />
+                  <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
                 </div>
               )}
             </div>

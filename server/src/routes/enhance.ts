@@ -90,6 +90,27 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const rerollCount = rerollR.rows[0]?.quantity || 0;
 
+  // stat_key → 최대 tier 매핑 (T4 강조용)
+  const prefixTierMap = new Map<number, { statKey: string; tier: number }>();
+  if (allPrefixIds.length > 0) {
+    const tr = await query<{ id: number; stat_key: string; tier: number }>(
+      'SELECT id, stat_key, tier FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    );
+    for (const row of tr.rows) prefixTierMap.set(row.id, { statKey: row.stat_key, tier: row.tier });
+  }
+  function buildPrefixTiers(ids: number[] | null): Record<string, number> {
+    const result: Record<string, number> = {};
+    if (!ids) return result;
+    for (const id of ids) {
+      const info = prefixTierMap.get(id);
+      if (!info) continue;
+      if (!result[info.statKey] || result[info.statKey] < info.tier) {
+        result[info.statKey] = info.tier;
+      }
+    }
+    return result;
+  }
+
   res.json({
     inventory: inv.rows.map(r => ({
       kind: 'inventory' as const, slotIndex: r.slot_index,
@@ -100,6 +121,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixIds: r.prefix_ids || [],
       prefixStats: r.prefix_stats || {},
       prefixName: buildPrefixName(r.prefix_ids),
+      prefixTiers: buildPrefixTiers(r.prefix_ids),
       quality: r.quality || 0,
     })),
     equipped: eq.rows.map(r => ({
@@ -111,6 +133,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixIds: r.prefix_ids || [],
       prefixStats: r.prefix_stats || {},
       prefixName: buildPrefixName(r.prefix_ids),
+      prefixTiers: buildPrefixTiers(r.prefix_ids),
       quality: r.quality || 0,
     })),
     scrollCount,
