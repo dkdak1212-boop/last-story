@@ -101,12 +101,12 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
      WHERE id = $2`,
     [expReward, id]
   );
-  const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 1);
+  const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 10);
   if (overflow > 0) {
     await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);
   }
 
-  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 1, boostHours: 3 });
+  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 10, boostHours: 3 });
 });
 
 export default router;

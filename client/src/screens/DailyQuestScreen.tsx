@@ -106,7 +106,7 @@ export function DailyQuestScreen() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--accent)' }}>찢어진 스크롤</span>
-            <span style={{ color: 'var(--accent)', fontWeight: 700 }}>x 1</span>
+            <span style={{ color: 'var(--accent)', fontWeight: 700 }}>x 10</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--success)' }}>EXP/골드/드랍 버프</span>
