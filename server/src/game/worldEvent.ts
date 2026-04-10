@@ -388,16 +388,38 @@ export async function checkAndSpawnWorldEvent(io?: Server) {
   const now = new Date();
   const hour = now.getUTCHours();
   const kstDay = new Date(now.getTime() + 9 * 3600000).getDay(); // 0=일 1=월 2=화 3=수 4=목 5=금 6=토
-  const sched = await query<{ boss_id: number }>(`SELECT boss_id FROM world_event_schedule WHERE hour_utc = $1 AND enabled = TRUE LIMIT 1`, [hour]);
-  if (sched.rowCount === 0) return;
-  // 아트라스(boss_id=2): 수(3), 토(6)에만 등장
-  if (sched.rows[0].boss_id === 2 && kstDay !== 3 && kstDay !== 6) return;
+
+  // 같은 시간대에 등록된 모든 보스 후보
+  const schedRows = await query<{ boss_id: number }>(
+    `SELECT boss_id FROM world_event_schedule WHERE hour_utc = $1 AND enabled = TRUE`, [hour]
+  );
+  if (schedRows.rowCount === 0) return;
+
+  // 요일별 스폰 가능 보스 결정
+  // - 아트라스(2): 토(6)/일(0)에만 등장
+  // - 카르나스(3): 아트라스 양보 — 토/일엔 스폰 안 함
+  let chosenBossId: number | null = null;
+  const isWeekend = kstDay === 0 || kstDay === 6;
+  const candidateIds = schedRows.rows.map(r => r.boss_id);
+  if (isWeekend && candidateIds.includes(2)) {
+    chosenBossId = 2; // 아트라스 우선
+  } else {
+    for (const bid of candidateIds) {
+      if (bid === 2) continue; // 주말이 아니면 아트라스는 스킵
+      chosenBossId = bid;
+      break;
+    }
+  }
+  if (!chosenBossId) return;
+
   const recent = await query(`SELECT id FROM world_event_active WHERE started_at > NOW() - INTERVAL '1 hour'`);
   if ((recent.rowCount ?? 0) > 0) return;
-  const bossR = await query<{ name: string; max_hp: number; time_limit_sec: number }>(`SELECT name, max_hp, time_limit_sec FROM world_event_bosses WHERE id = $1`, [sched.rows[0].boss_id]);
+  const bossR = await query<{ name: string; max_hp: number; time_limit_sec: number }>(
+    `SELECT name, max_hp, time_limit_sec FROM world_event_bosses WHERE id = $1`, [chosenBossId]
+  );
   if (bossR.rowCount === 0) return;
   const boss = bossR.rows[0];
-  await query(`INSERT INTO world_event_active (boss_id, current_hp, max_hp, ends_at) VALUES ($1, $2, $2, NOW() + INTERVAL '1 second' * $3)`, [sched.rows[0].boss_id, boss.max_hp, boss.time_limit_sec]);
+  await query(`INSERT INTO world_event_active (boss_id, current_hp, max_hp, ends_at) VALUES ($1, $2, $2, NOW() + INTERVAL '1 second' * $3)`, [chosenBossId, boss.max_hp, boss.time_limit_sec]);
   if (io) io.emit('world_event', { type: 'world_event_start', bossName: boss.name, endsAt: new Date(Date.now() + boss.time_limit_sec * 1000).toISOString() });
 }
 
