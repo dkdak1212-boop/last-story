@@ -131,7 +131,8 @@ export function StatusScreen() {
               const eq = (status.equipBonus[k] || 0) as number;
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
-              const spendable = k !== 'cri'; // 치명타 확률은 수동 분배 불가
+              // VIT/SPD/CRI는 고정값이므로 수동 분배 불가 (STR/DEX/INT만 분배 가능)
+              const spendable = k === 'str' || k === 'dex' || k === 'int';
               return (
                 <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
                   canSpend={spendable && status.statPoints > 0 && !busy}
@@ -161,16 +162,16 @@ export function StatusScreen() {
           <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.0 + 장비 ATK. 전사/도적 핵심 스탯</span>
           <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 30%) · 명중률 = 80% + 민첩 × 0.3% (상한 100%)</span>
           <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF</span>
-          <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 + 장비 DEF · 장비/노드 체력 1당 HP +10</span>
-          <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도. 300 이하 선형, 이후 소프트캡 + 평방근 감쇠</span>
-          <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률 % (상한 100%). 발동 시 데미지 2배. <span style={{ color: 'var(--danger)' }}>수동 분배 불가</span> — 노드/장비로만 상승</span>
+          <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 + 장비 DEF · <span style={{ color: 'var(--danger)' }}>기본 14 고정</span> (노드/장비로만 상승)</span>
+          <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도 · <span style={{ color: 'var(--danger)' }}>기본 200 고정</span> (노드/장비로만 상승)</span>
+          <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률 % (상한 100%). 발동 시 데미지 2배. <span style={{ color: 'var(--danger)' }}>기본 5% 고정</span> (노드/장비로만 상승)</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
           <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 ATK(물리), <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 MATK(마법) 고정 사용</div>
           <div>· 데미지 공식: <span style={{ color: 'var(--text)' }}>(ATK/MATK) × 스킬배율 − (DEF/MDEF × 0.5) + 고정피해 ± 10%</span></div>
           <div>· 게이지 MAX = 1000 · SPD 300 → 약 1.7초 주기 · 자동/수동 전환 가능</div>
-          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (힘/민/지/체/속 중 수동 분배, 치명타 제외)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (힘/민첩/지능만 수동 분배 — 체력/스피드/치명타는 고정)</div>
           <div>· <span style={{ color: 'var(--text)' }}>CC 면역</span>: 스턴/동결이 걸린 후 지속시간 + 3턴 동안 추가 CC 차단</div>
           <div>· <span style={{ color: 'var(--text)' }}>사망</span>: HP 100% 회복 후 마을 귀환, 패널티 없음</div>
           <div>· <span style={{ color: 'var(--text)' }}>품질</span>: 드롭 시 0~100% 랜덤, 기본 스탯에 추가 배율 (품질/100 만큼 덧셈)</div>

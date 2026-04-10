@@ -422,8 +422,8 @@ export function VillageScreen() {
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>성장</span>
             </div>
             <div>· 최대 레벨 100 · 레벨업 시 HP +25, 노드 포인트 +1, 스탯 포인트 +2</div>
-            <div>· 스탯 포인트는 <span style={{ color: 'var(--text)' }}>상태창</span>에서 수동 분배 (치명타는 분배 불가, 노드·장비로만 상승)</div>
-            <div>· 분배 가능 스탯: 힘 / 민첩 / 지능 / 체력 / 스피드</div>
+            <div>· <span style={{ color: 'var(--text)' }}>고정 스탯</span>: 전 직업 HP 200, 체력 14, 스피드 200, 치명타 5% 동일 시작</div>
+            <div>· 분배 가능 스탯: <span style={{ color: 'var(--text)' }}>힘 / 민첩 / 지능</span> (체력/스피드/치명타는 노드·장비로만 상승)</div>
             <div>· 노드 트리: 302개 노드, 5개 구역 (기본/공격/유틸/중앙/직업)</div>
             <div style={{ marginBottom: 14 }}>· 상위 노드 클릭 시 하위 선행 노드 자동 습득</div>
 

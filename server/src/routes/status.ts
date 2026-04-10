@@ -10,7 +10,7 @@ import { getCombatHp } from '../combat/engine.js';
 const router = Router();
 router.use(authRequired);
 
-const SPENDABLE_STATS = ['str', 'dex', 'int', 'vit', 'spd'] as const;
+const SPENDABLE_STATS = ['str', 'dex', 'int'] as const;
 
 // 스탯 포인트 분배
 router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response) => {
