@@ -179,7 +179,7 @@ export function InventoryScreen() {
                     {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{item.enhanceLevel}</span>}
                   </div>
                   <div style={{ marginTop: 3 }}>
-                    <StatSummary stats={item.stats} enhanceLevel={item.enhanceLevel || 0} />
+                    <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} />
                   </div>
                   <PrefixDisplay prefixStats={item.prefixStats} />
                   <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
@@ -326,7 +326,7 @@ export function InventoryScreen() {
                       {!isExpanded && (
                         <div style={{ marginTop: 1 }}>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <StatSummary stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                            <StatSummary stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
                             {isEquipment && (
                               <ItemComparison
                                 itemStats={s.item.stats} equippedStats={equipped[s.item.slot!]?.stats}
@@ -367,7 +367,7 @@ export function InventoryScreen() {
                           {/* 이 아이템 */}
                           <div style={{ padding: 8, background: 'rgba(76,175,80,0.05)', border: '1px solid rgba(76,175,80,0.2)', borderRadius: 4 }}>
                             <div style={{ fontSize: 10, color: 'var(--success)', fontWeight: 700, marginBottom: 4 }}>이 아이템</div>
-                            <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                            <ItemStatsBlock stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
                             <PrefixDisplay prefixStats={s.prefixStats} />
                           </div>
                           {/* 현재 장착 */}
@@ -380,7 +380,7 @@ export function InventoryScreen() {
                                 <div style={{ fontSize: 11, color: (GRADE_COLOR as any)[eqItem.grade], fontWeight: 700, marginBottom: 3 }}>
                                   {eqItem.name}{eqItem.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{eqItem.enhanceLevel}</span>}
                                 </div>
-                                <ItemStatsBlock stats={eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} />
+                                <ItemStatsBlock stats={(eqItem as any).baseStats || eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} />
                                 <PrefixDisplay prefixStats={eqItem.prefixStats} />
                               </>
                             ) : (

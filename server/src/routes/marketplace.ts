@@ -13,13 +13,11 @@ const LISTING_HOURS = 72; // 거래소 등록 기간 3일
 
 // 거래소 목록
 router.get('/', async (req, res) => {
-  const grade = req.query.grade as string | undefined;
-  const type = req.query.type as string | undefined;
+  const slot = req.query.slot as string | undefined; // 카테고리 필터 (weapon/helm/chest/boots/ring/amulet)
 
   const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()'];
   const params: unknown[] = [];
-  if (grade) { params.push(grade); filters.push(`i.grade = $${params.length}`); }
-  if (type)  { params.push(type);  filters.push(`i.type = $${params.length}`); }
+  if (slot) { params.push(slot); filters.push(`i.slot = $${params.length}`); }
 
   const r = await query<{
     id: number; item_id: number; item_quantity: number;
@@ -27,10 +25,10 @@ router.get('/', async (req, res) => {
     ends_at: string; seller_name: string;
     item_name: string; item_grade: string; item_type: string; item_slot: string | null;
     item_stats: Record<string, number> | null; item_description: string;
-    enhance_level: number; prefix_stats: Record<string, number> | null;
+    enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
   }>(
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at,
-            a.enhance_level, a.prefix_stats,
+            a.enhance_level, a.prefix_ids, a.prefix_stats,
             c.name AS seller_name,
             i.name AS item_name, i.grade AS item_grade, i.type AS item_type, i.slot AS item_slot,
             i.stats AS item_stats, i.description AS item_description
@@ -40,15 +38,37 @@ router.get('/', async (req, res) => {
      ORDER BY a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 100`,
     params
   );
-  res.json(r.rows.map(row => ({
-    id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
-    price: row.buyout_price ? Number(row.buyout_price) : 0,
-    endsAt: row.ends_at, sellerName: row.seller_name,
-    itemName: row.item_name, itemGrade: row.item_grade, itemType: row.item_type, itemSlot: row.item_slot,
-    itemStats: row.item_stats, itemDescription: row.item_description,
-    enhanceLevel: row.enhance_level || 0,
-    prefixStats: row.prefix_stats || null,
-  })));
+
+  // 접두사 이름 매핑 (모든 prefix_id 한꺼번에 조회)
+  const allPrefixIds = [...new Set(r.rows.flatMap(row => row.prefix_ids || []))];
+  const prefixNameMap = new Map<number, string>();
+  if (allPrefixIds.length > 0) {
+    const pr = await query<{ id: number; name: string }>(
+      'SELECT id, name FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    );
+    for (const p of pr.rows) prefixNameMap.set(p.id, p.name);
+  }
+  function buildPrefixName(ids: number[] | null): string {
+    if (!ids || ids.length === 0) return '';
+    return ids.map(id => prefixNameMap.get(id)).filter(Boolean).join(' ');
+  }
+
+  res.json(r.rows.map(row => {
+    const prefixName = buildPrefixName(row.prefix_ids);
+    return {
+      id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
+      price: row.buyout_price ? Number(row.buyout_price) : 0,
+      endsAt: row.ends_at, sellerName: row.seller_name,
+      itemName: prefixName ? `${prefixName} ${row.item_name}` : row.item_name,
+      baseItemName: row.item_name,
+      prefixName,
+      itemGrade: row.item_grade, itemType: row.item_type, itemSlot: row.item_slot,
+      itemStats: row.item_stats, // 강화 안 된 raw stats
+      itemDescription: row.item_description,
+      enhanceLevel: row.enhance_level || 0,
+      prefixStats: row.prefix_stats || null,
+    };
+  }));
 });
 
 // 아이템 등록 (즉시 구매가만)

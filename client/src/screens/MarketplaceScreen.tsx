@@ -23,10 +23,10 @@ export function MarketplaceScreen() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
-  const [gradeFilter, setGradeFilter] = useState<string>('');
+  const [slotFilter, setSlotFilter] = useState<string>(''); // '', weapon, helm, chest, boots, ring, amulet
 
   async function loadBrowse() {
-    const q = gradeFilter ? `?grade=${gradeFilter}` : '';
+    const q = slotFilter ? `?slot=${slotFilter}` : '';
     setListings(await api<Listing[]>(`/marketplace${q}`));
   }
   async function loadMine() {
@@ -43,7 +43,7 @@ export function MarketplaceScreen() {
     if (tab === 'browse') loadBrowse();
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
-  }, [tab, gradeFilter, active?.id]);
+  }, [tab, slotFilter, active?.id]);
 
   async function buy(a: Listing) {
     if (!active) return;
@@ -73,12 +73,23 @@ export function MarketplaceScreen() {
 
       {tab === 'browse' && (
         <>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>등급 필터:</span>
-            {['', 'common', 'rare', 'epic', 'legendary'].map(g => (
-              <button key={g} onClick={() => setGradeFilter(g)} className={gradeFilter === g ? 'primary' : ''} style={{ fontSize: 11, padding: '3px 10px' }}>
-                {g === '' ? '전체' : g === 'common' ? '일반' : g === 'rare' ? '희귀' : g === 'epic' ? '영웅' : '전설'}
-              </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+            {([
+              ['', '전체'],
+              ['weapon', '무기'],
+              ['helm', '투구'],
+              ['chest', '갑옷'],
+              ['boots', '신발'],
+              ['ring', '반지'],
+              ['amulet', '목걸이'],
+            ] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setSlotFilter(key)} style={{
+                fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
+                background: slotFilter === key ? 'var(--accent)' : 'var(--bg-panel)',
+                color: slotFilter === key ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${slotFilter === key ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: slotFilter === key ? 700 : 400,
+              }}>{label}</button>
             ))}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

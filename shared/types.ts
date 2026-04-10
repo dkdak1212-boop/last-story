@@ -46,7 +46,8 @@ export interface Item {
   type: ItemType;
   grade: ItemGrade;
   slot?: EquipSlot;
-  stats?: Partial<Stats>;
+  stats?: Partial<Stats>; // 강화 적용된 스탯
+  baseStats?: Partial<Stats>; // 강화 전 원본 스탯
   description: string;
   stackSize: number;
   sellPrice: number;
