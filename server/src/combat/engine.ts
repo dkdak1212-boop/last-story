@@ -674,13 +674,19 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'gauge_fill': {
-      s.playerGauge = GAUGE_MAX;
-      addLog(s, `[${skill.name}] 게이지 충전! 연속행동!`);
+      const fillAmt = skill.effect_value > 0 ? skill.effect_value : GAUGE_MAX;
+      s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + fillAmt);
+      addLog(s, `[${skill.name}] 게이지 +${fillAmt}!`);
       break;
     }
 
     case 'accuracy_debuff': {
-      s.monsterGauge = Math.round(s.monsterGauge * 0.5);
+      // 연막탄 전용: 적 게이지 25% 감소
+      if (skill.name === '연막탄') {
+        const before = s.monsterGauge;
+        s.monsterGauge = Math.round(s.monsterGauge * 0.75);
+        addLog(s, `[${skill.name}] 적 게이지 -${before - s.monsterGauge}`);
+      }
       const ctrlAmp = getPassive(s, 'control_amp');
       const smokeExt = getPassive(s, 'smoke_extend');
       const debuffVal = Math.round(skill.effect_value * (1 + ctrlAmp / 100));
