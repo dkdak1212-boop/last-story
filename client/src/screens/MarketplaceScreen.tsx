@@ -150,7 +150,6 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
           {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
             <div style={{ marginTop: 2, fontSize: 11, display: 'flex', flexDirection: 'column', gap: 1 }}>
               {Object.entries(a.prefixStats).map(([k, v]) => {
-                const special = ['def_reduce_pct','slow_pct','dot_amp_pct','hp_regen','lifesteal_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
                 const fmts: Record<string, (v: number) => string> = {
                   str: v => `힘 +${v}`, dex: v => `민첩 +${v}`, int: v => `지능 +${v}`, vit: v => `체력 +${v}`,
                   spd: v => `속도 +${v}`, cri: v => `치명타 확률 +${v}%`, accuracy: v => `명중 +${v}`, dodge: v => `회피 +${v}`,
@@ -160,7 +159,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
                   exp_bonus_pct: v => `경험치 획득 ${v}% 증가`, crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
                 };
                 const text = fmts[k] ? fmts[k](v) : `${STAT_LABEL[k]||k} +${v}`;
-                return <span key={k} style={{ color: special ? '#66ccff' : '#e0a040', fontWeight: 600 }}>{special ? '◆ ' : ''}{text}</span>;
+                return <span key={k} style={{ color: '#66ccff', fontWeight: 600 }}>◆ {text}</span>;
               })}
             </div>
           )}
@@ -259,8 +258,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
             <div style={{ fontSize: 11, marginBottom: 6 }}>
               {Object.entries(sel.prefixStats).map(([k, v]) => {
                 const fmt = EFFECT_FMTS[k];
-                const special = ['def_reduce_pct','slow_pct','dot_amp_pct','hp_regen','lifesteal_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
-                return <div key={k} style={{ color: special ? '#66ccff' : '#e0a040' }}>{special ? '◆ ' : ''}{fmt ? fmt(v) : `${k} +${v}`}</div>;
+                return <div key={k} style={{ color: '#66ccff' }}>◆ {fmt ? fmt(v) : `${k} +${v}`}</div>;
               })}
             </div>
           )}

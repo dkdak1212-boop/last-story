@@ -41,11 +41,10 @@ export function PrefixDisplay({ prefixStats }: Props) {
       {Object.entries(prefixStats).map(([key, val]) => {
         const fmt = EFFECT_FORMATS[key];
         const text = fmt ? fmt(val) : `${key} +${val}`;
-        // 기본 스탯은 골드색, 특수 효과는 하늘색
-        const isSpecial = ['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'hp_regen', 'lifesteal_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct', 'berserk_pct', 'guardian_pct', 'thorns_pct', 'gauge_on_crit_pct', 'ambush_pct', 'predator_pct', 'first_strike_pct'].includes(key);
+        // 모든 접두사 통일: ◆ + 진한 하늘색
         return (
-          <span key={key} style={{ color: isSpecial ? '#66ccff' : '#e0a040', fontWeight: 600 }}>
-            {isSpecial ? '◆ ' : ''}{text}
+          <span key={key} style={{ color: '#66ccff', fontWeight: 600 }}>
+            ◆ {text}
           </span>
         );
       })}
