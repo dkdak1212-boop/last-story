@@ -686,9 +686,30 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 }
 
 // ── 자동 행동 AI ──
+
+// 쿨다운이 끝난 사용 가능한 스킬인지 체크
+function isSkillReady(s: ActiveSession, sk: SkillDef): boolean {
+  if (sk.cooldown_actions === 0) return true;
+  const cd = s.skillCooldowns.get(sk.id);
+  return !cd || cd <= 0;
+}
+
+// 특정 effect_type 중 사용 가능한 첫 번째 스킬 반환
+function findReady(s: ActiveSession, ...types: string[]): SkillDef | undefined {
+  return s.skills.find(sk => types.includes(sk.effect_type) && isSkillReady(s, sk));
+}
+
+// 특정 이펙트가 이미 걸려있는지
+function hasActivePlayerBuff(s: ActiveSession, type: string): boolean {
+  return s.statusEffects.some(e => e.type === type && e.remainingActions > 0 &&
+    (e.source === 'monster' /* player self-buffs stored as monster source */));
+}
+
 async function autoAction(s: ActiveSession): Promise<void> {
-  // 1. HP 임계값 이하 → 포션 (3턴 쿨타임)
-  if (s.autoPotionEnabled && s.potionCooldown <= 0 && s.playerHp / s.playerMaxHp * 100 < s.autoPotionThreshold) {
+  const hpPct = s.playerHp / s.playerMaxHp;
+
+  // ── 1. HP 위험 (임계값 이하) → 포션 / 힐 / 무적 / 부활 ──
+  if (s.autoPotionEnabled && s.potionCooldown <= 0 && hpPct * 100 < s.autoPotionThreshold) {
     const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
     const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
     if (pot) {
@@ -700,32 +721,81 @@ async function autoAction(s: ActiveSession): Promise<void> {
       addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
       return;
     }
-    // 성직자 치유
-    const healSkill = s.skills.find(sk => sk.effect_type === 'heal_pct' && !s.skillCooldowns.has(sk.id));
-    if (healSkill) {
-      await executeSkill(s, healSkill);
-      return;
+    const healSkill = findReady(s, 'heal_pct');
+    if (healSkill) { await executeSkill(s, healSkill); return; }
+    // 무적 (HP 20% 이하)
+    if (hpPct < 0.2) {
+      const invSkill = findReady(s, 'invincible');
+      if (invSkill && !hasActivePlayerBuff(s, 'invincible')) { await executeSkill(s, invSkill); return; }
+    }
+    // 부활 준비 (HP 25% 이하, 아직 부활 버프 없으면)
+    if (hpPct < 0.25) {
+      const resSkill = findReady(s, 'resurrect');
+      if (resSkill && !hasActivePlayerBuff(s, 'resurrect')) { await executeSkill(s, resSkill); return; }
     }
   }
 
-  // 2. 가장 강한 스킬
-  const available = s.skills
-    .filter(sk => {
-      if (sk.cooldown_actions === 0) return true; // 기본기
-      const cd = s.skillCooldowns.get(sk.id);
-      return !cd || cd <= 0;
-    })
-    .sort((a, b) => b.damage_mult - a.damage_mult);
+  // ── 2. HP 60% 이하 → 방어 버프 (중복 방지) ──
+  if (hpPct < 0.6) {
+    // 실드
+    if (!hasActivePlayerBuff(s, 'shield')) {
+      const shieldSkill = findReady(s, 'shield');
+      if (shieldSkill && shieldSkill.damage_mult === 0) { await executeSkill(s, shieldSkill); return; }
+    }
+    // 데미지 감소
+    if (!hasActivePlayerBuff(s, 'damage_reduce')) {
+      const drSkill = findReady(s, 'damage_reduce');
+      if (drSkill) { await executeSkill(s, drSkill); return; }
+    }
+    // 데미지 반사
+    if (!hasActivePlayerBuff(s, 'damage_reflect')) {
+      const reflSkill = findReady(s, 'damage_reflect');
+      if (reflSkill && reflSkill.damage_mult === 0) { await executeSkill(s, reflSkill); return; }
+    }
+  }
 
-  // 기본기가 아닌 스킬 우선
-  const nonBasic = available.find(sk => sk.cooldown_actions > 0);
-  if (nonBasic) {
-    await executeSkill(s, nonBasic);
+  // ── 3. 유틸 디버프 (활성 효과 없을 때만) ──
+  if (!hasEffect(s, 'player', 'gauge_freeze')) {
+    const freezeSkill = findReady(s, 'gauge_freeze');
+    if (freezeSkill) { await executeSkill(s, freezeSkill); return; }
+  }
+  if (!hasEffect(s, 'player', 'accuracy_debuff')) {
+    const accSkill = findReady(s, 'accuracy_debuff');
+    if (accSkill) { await executeSkill(s, accSkill); return; }
+  }
+  // 게이지 리셋 (쿨 돌면 바로)
+  const grSkill = findReady(s, 'gauge_reset');
+  if (grSkill) { await executeSkill(s, grSkill); return; }
+
+  // ── 4. 자가 버프 (중복 방지) ──
+  if (!hasActivePlayerBuff(s, 'speed_mod')) {
+    const spdSkill = s.skills.find(sk => sk.effect_type === 'self_speed_mod' && sk.effect_value > 0 && isSkillReady(s, sk));
+    if (spdSkill) { await executeSkill(s, spdSkill); return; }
+  }
+  // 게이지 충전
+  const gfSkill = findReady(s, 'gauge_fill');
+  if (gfSkill) { await executeSkill(s, gfSkill); return; }
+
+  // ── 5. 독 폭발 (독 2중첩 이상일 때) ──
+  const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
+  if (poisonCount >= 2) {
+    const burstSkill = findReady(s, 'poison_burst');
+    if (burstSkill) { await executeSkill(s, burstSkill); return; }
+  }
+
+  // ── 6. 공격 스킬 (damage_mult 높은 순) ──
+  const attackSkills = s.skills
+    .filter(sk => sk.damage_mult > 0 && sk.cooldown_actions > 0 && isSkillReady(s, sk))
+    .sort((a, b) => b.damage_mult - a.damage_mult);
+  if (attackSkills.length > 0) {
+    await executeSkill(s, attackSkills[0]);
     return;
   }
 
-  // 3. 기본 공격 (첫 번째 스킬 = 기본기)
-  const basic = available[0];
+  // ── 7. 기본기 ──
+  const basic = s.skills
+    .filter(sk => sk.cooldown_actions === 0 && isSkillReady(s, sk))
+    .sort((a, b) => b.damage_mult - a.damage_mult)[0];
   if (basic) {
     await executeSkill(s, basic);
     return;
