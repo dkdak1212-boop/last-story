@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
+import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
 interface EnhanceItem {
   kind: 'inventory' | 'equipped';
@@ -251,12 +252,7 @@ export function EnhanceScreen() {
                 {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 ? (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>현재 접두사</div>
-                    {Object.entries(selected.prefixStats).map(([k, v]) => (
-                      <div key={k} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{STAT_LABEL[k as keyof Stats] || k}</span>
-                        <span style={{ color: '#64d2ff', fontWeight: 700 }}>+{v as number}</span>
-                      </div>
-                    ))}
+                    <PrefixDisplay prefixStats={selected.prefixStats} />
                   </div>
                 ) : (
                   <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>접두사 없음</div>
@@ -268,12 +264,7 @@ export function EnhanceScreen() {
                     fontSize: 12,
                   }}>
                     <div style={{ color: '#64d2ff', fontWeight: 700, marginBottom: 4 }}>새 접두사 적용!</div>
-                    {Object.entries(rerollResult).map(([k, v]) => (
-                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{STAT_LABEL[k as keyof Stats] || k}</span>
-                        <span style={{ color: '#64d2ff', fontWeight: 700 }}>+{v}</span>
-                      </div>
-                    ))}
+                    <PrefixDisplay prefixStats={rerollResult} />
                   </div>
                 )}
                 <button
