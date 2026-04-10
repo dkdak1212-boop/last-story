@@ -738,9 +738,47 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
+        let dmg = d.damage;
+        // effect_value > 0 → 내 maxHp의 X% 추가 데미지 (심판의 철퇴 등)
+        if (skill.effect_value > 0) {
+          const hpBonus = Math.round(s.playerMaxHp * skill.effect_value / 100);
+          dmg += hpBonus;
+          s.monsterHp -= dmg;
+          addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''} (HP ${skill.effect_value}% +${hpBonus})`);
+        } else {
+          s.monsterHp -= dmg;
+          addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''}`);
+        }
+      }
+      break;
+    }
+
+    case 'holy_strike': {
+      // 신성 타격 — 기본 데미지 + 방어력 비례 추가 데미지
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        const defBonus = Math.round(s.playerStats.def * (skill.effect_value || 100) / 100);
+        const total = d.damage + defBonus;
+        s.monsterHp -= total;
+        addLog(s, `[${skill.name}] ${total} 데미지${d.crit ? '!' : ''} (방어력 +${defBonus})`);
+      } else {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      }
+      break;
+    }
+
+    case 'judgment_day': {
+      // 심판의 날 — 실드 파괴 + 데미지 + 자신 방어력 50% 3턴 버프
+      s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] 실드 파괴 + ${d.damage} 데미지${d.crit ? '!' : ''}`);
       }
+      const buffPct = skill.effect_value || 50;
+      const buffDur = skill.effect_duration || 3;
+      addEffect(s, { type: 'def_buff', value: buffPct, remainingActions: buffDur, source: 'monster' });
+      addLog(s, `[${skill.name}] 방어력 +${buffPct}% ${buffDur}턴!`);
       break;
     }
 
@@ -910,6 +948,15 @@ function monsterAction(s: ActiveSession): void {
   const guardInstinct = getPassive(s, 'guard_instinct');
   if (guardInstinct > 0 && s.playerHp / s.playerMaxHp < 0.4) {
     playerDefStats = { ...s.playerStats, def: Math.round(s.playerStats.def * (1 + guardInstinct / 100)) };
+  }
+  // 스킬 def_buff (심판의 날 등)
+  const defBuff = s.statusEffects.find(e => e.type === 'def_buff' && e.source === 'monster' && e.remainingActions > 0);
+  if (defBuff) {
+    playerDefStats = {
+      ...playerDefStats,
+      def: Math.round(playerDefStats.def * (1 + defBuff.value / 100)),
+      mdef: Math.round(playerDefStats.mdef * (1 + defBuff.value / 100)),
+    };
   }
 
   const d = calcDamage(s.monsterStats, playerDefStats, 1.0, false);
