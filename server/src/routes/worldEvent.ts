@@ -1,31 +1,9 @@
 import { Router } from 'express';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { getActiveEvent, attackBoss, getLeaderboard, getCurrentRaidWeek, getRaidBossForWeek } from '../game/worldEvent.js';
+import { getActiveEvent, attackBoss, getLeaderboard } from '../game/worldEvent.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { query } from '../db/pool.js';
 
 const router = Router();
-
-// 다음 6주간 레이드 스케줄
-router.get('/upcoming', async (_req, res) => {
-  const now = new Date();
-  const currentWeek = getCurrentRaidWeek(now.getTime());
-  // 다음 토요일 18:00 KST 시작 시각 계산
-  const weekIdxStart = Math.max(0, currentWeek + (now.getUTCDay() >= 6 && now.getUTCHours() >= 9 ? 1 : 0));
-  const list: { weekIdx: number; startAt: string; bossId: number; bossName: string }[] = [];
-  const bossR = await query<{ id: number; name: string }>('SELECT id, name FROM world_event_bosses');
-  const nameMap = new Map(bossR.rows.map(r => [r.id, r.name]));
-  const EPOCH_MS = Date.UTC(2026, 3, 12, 15, 0, 0); // 4월 13일 월요일 00:00 KST
-  for (let i = 0; i < 6; i++) {
-    const wi = weekIdxStart + i;
-    const bossId = getRaidBossForWeek(wi);
-    if (!bossId) continue;
-    // 해당 주의 토요일 18:00 KST = 월 0시 + 5일 + 18시
-    const startMs = EPOCH_MS + wi * 7 * 86400000 + 5 * 86400000 + 18 * 3600000;
-    list.push({ weekIdx: wi, startAt: new Date(startMs).toISOString(), bossId, bossName: nameMap.get(bossId) || '?' });
-  }
-  res.json({ upcoming: list });
-});
 
 router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   const event = await getActiveEvent();
