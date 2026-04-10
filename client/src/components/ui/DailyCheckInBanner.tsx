@@ -3,7 +3,10 @@ import { motion } from 'framer-motion';
 import { api } from '../../api/client';
 import { useCharacterStore } from '../../stores/characterStore';
 
-interface Status { canCheckIn: boolean; currentStreak: number; nextStreak: number; nextIsWeekly: boolean }
+interface Status {
+  canCheckIn: boolean; currentStreak: number; nextStreak: number; nextIsWeekly: boolean;
+  nextReward?: { gold: number; items: string[]; label: string };
+}
 interface CheckResult { isWeekly: boolean; newStreak: number; rewards: { gold: number; items: string[] } }
 
 export function DailyCheckInBanner() {
@@ -48,11 +51,16 @@ export function DailyCheckInBanner() {
         }}>
         <div>
           <span style={{ fontWeight: 700, color: status.nextIsWeekly ? 'var(--accent)' : 'var(--text)' }}>
-            출석 체크 {status.nextIsWeekly && '🎁 7일 연속 보상!'}
+            출석 체크 {status.nextIsWeekly && '· 7일차 특별 보상'}
           </span>
           <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text-dim)' }}>
             연속 {status.currentStreak}일 → {status.nextStreak}일
           </span>
+          {status.nextReward && (
+            <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2 }}>
+              내일 보상: {status.nextReward.label}
+            </div>
+          )}
         </div>
         <button className="primary" onClick={checkIn} disabled={busy} style={{ fontSize: 12, padding: '4px 14px' }}>
           {busy ? '...' : status.nextIsWeekly ? '주간 보상 받기' : '체크인'}

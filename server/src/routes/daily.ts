@@ -8,57 +8,30 @@ import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 const router = Router();
 router.use(authRequired);
 
-// 랜덤 상자: 모든 아이템 등장 가능 (등급별 확률)
-// 일반 70%, 희귀 20%, 영웅 8%, 전설 2%
-let dailyBoxCache: { grade: string; itemId: number; name: string }[] | null = null;
+// 출석 보상 테이블 (7일 주기)
+// 1~6일차: 골드 보상, 7일차: 강화 성공률 스크롤 (id 286)
+const ENHANCE_SCROLL_ID = 286;
 
-async function getDailyBoxItems() {
-  if (dailyBoxCache) return dailyBoxCache;
-  const r = await query<{ id: number; name: string; grade: string }>(
-    `SELECT id, name, grade FROM items WHERE type != 'material' ORDER BY id`
-  );
-  dailyBoxCache = r.rows.map(row => ({ grade: row.grade, itemId: row.id, name: row.name }));
-  return dailyBoxCache;
-}
+interface DayReward { gold: number; items: { itemId: number; qty: number; label: string }[]; label: string }
 
-function pickGrade(): string {
-  const roll = Math.random() * 100;
-  if (roll < 2) return 'legendary';
-  if (roll < 10) return 'epic';
-  if (roll < 30) return 'rare';
-  return 'common';
-}
-
-async function rollDailyBox(): Promise<{ gold: number; items: { itemId: number; qty: number; label: string }[] }> {
-  const allItems = await getDailyBoxItems();
-  const result: { gold: number; items: { itemId: number; qty: number; label: string }[] } = { gold: 0, items: [] };
-
-  // 골드 보상 (항상)
-  result.gold = [200, 300, 500, 800, 1000, 1500, 2000][Math.floor(Math.random() * 7)];
-
-  // 아이템 1~2개
-  const itemCount = Math.random() < 0.2 ? 2 : 1;
-  for (let i = 0; i < itemCount; i++) {
-    const grade = pickGrade();
-    const candidates = allItems.filter(it => it.grade === grade);
-    if (candidates.length === 0) continue;
-    const picked = candidates[Math.floor(Math.random() * candidates.length)];
-    result.items.push({ itemId: picked.itemId, qty: 1, label: picked.name });
+function getDayReward(streakDay: number): DayReward {
+  // streakDay: 1~7 (연속 일수 % 7, 0이면 7)
+  const d = streakDay === 0 ? 7 : streakDay;
+  switch (d) {
+    case 1: return { gold: 10000, items: [], label: '1일차 · 10,000G' };
+    case 2: return { gold: 20000, items: [], label: '2일차 · 20,000G' };
+    case 3: return { gold: 30000, items: [], label: '3일차 · 30,000G' };
+    case 4: return { gold: 40000, items: [], label: '4일차 · 40,000G' };
+    case 5: return { gold: 50000, items: [], label: '5일차 · 50,000G' };
+    case 6: return { gold: 60000, items: [], label: '6일차 · 60,000G' };
+    case 7: return {
+      gold: 0,
+      items: [{ itemId: ENHANCE_SCROLL_ID, qty: 1, label: '강화 성공률 스크롤' }],
+      label: '7일차 · 강화 성공률 스크롤',
+    };
+    default: return { gold: 10000, items: [], label: '10,000G' };
   }
-
-  return result;
 }
-
-interface WeeklyReward { gold: number; items: { itemId: number; qty: number; label: string }[] }
-
-const WEEKLY_REWARD: WeeklyReward = {
-  gold: 10000,
-  items: [
-    { itemId: 104, qty: 5, label: '고급 체력 물약 ×5' },
-    { itemId: 105, qty: 5, label: '고급 마나 물약 ×5' },
-    { itemId: 106, qty: 2, label: '최상급 체력 물약 ×2' },
-  ],
-};
 
 // 상태 조회
 router.get('/status', async (req: AuthedRequest, res: Response) => {
@@ -80,11 +53,19 @@ router.get('/status', async (req: AuthedRequest, res: Response) => {
     }
   }
   const nextIs7 = nextConsecutive % 7 === 0 && nextConsecutive > 0;
+  const nextReward = getDayReward(nextConsecutive % 7);
+  // 7일 전체 보상 미리보기
+  const weekPreview = [1, 2, 3, 4, 5, 6, 7].map(d => {
+    const r = getDayReward(d);
+    return { day: d, label: r.label, gold: r.gold, items: r.items.map(i => `${i.label}×${i.qty}`) };
+  });
   res.json({
     canCheckIn,
     currentStreak: row.consecutive_days,
     nextStreak: nextConsecutive,
     nextIsWeekly: nextIs7,
+    nextReward: { gold: nextReward.gold, items: nextReward.items.map(i => `${i.label}×${i.qty}`), label: nextReward.label },
+    weekPreview,
   });
 });
 
@@ -107,18 +88,11 @@ router.post('/check-in', async (req: AuthedRequest, res: Response) => {
   const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const newConsec = (last === y) ? row.consecutive_days + 1 : 1;
 
-  // 보상 지급
-  const isWeekly = newConsec % 7 === 0;
-  let rewards: { gold: number; items: { itemId: number; qty: number; label: string }[] };
-  if (isWeekly) {
-    rewards = { gold: WEEKLY_REWARD.gold, items: [...WEEKLY_REWARD.items] };
-    // 7일 연속 보너스: 추가 랜덤 상자
-    const bonus = await rollDailyBox();
-    rewards.gold += bonus.gold;
-    rewards.items.push(...bonus.items);
-  } else {
-    rewards = await rollDailyBox();
-  }
+  // 보상 지급 — 7일 주기로 순환
+  const dayInCycle = newConsec % 7; // 1~6 + 0(=7일차)
+  const isWeekly = dayInCycle === 0;
+  const reward = getDayReward(dayInCycle);
+  const rewards = { gold: reward.gold, items: [...reward.items] };
 
   // 적용
   if (rewards.gold > 0) {
