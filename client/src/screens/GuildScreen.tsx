@@ -176,7 +176,7 @@ export function GuildScreen() {
               </div>
             </div>
             <button className="primary" onClick={() => setCreating(!creating)}>
-              {creating ? '취소' : '길드 생성 (5,000G)'}
+              {creating ? '취소' : '길드 생성 (100,000G)'}
             </button>
           </div>
         </div>

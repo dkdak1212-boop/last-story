@@ -17,7 +17,7 @@ import {
 const router = Router();
 router.use(authRequired);
 
-const GUILD_COST = 5000;
+const GUILD_COST = 100000;
 
 // 길드 목록
 router.get('/', async (_req, res) => {
