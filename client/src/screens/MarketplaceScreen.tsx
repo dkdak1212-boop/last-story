@@ -159,7 +159,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
               }}>+{el}</span>
             )}
             {a.itemQuantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>×{a.itemQuantity}</span>}
-            {a.quality !== undefined && a.quality > 0 && (() => {
+            {a.quality !== undefined && (() => {
               const q = a.quality!;
               const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
               return (
@@ -273,6 +273,11 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
                       }}>+{s.enhanceLevel}</span>
                     )}
                   </div>
+                  {(s as any).quality !== undefined && (() => {
+                    const q = (s as any).quality;
+                    const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
+                    return <div style={{ fontSize: 9, color, fontWeight: 700, marginTop: 1 }}>품질 {q}%</div>;
+                  })()}
                 </div>
               </div>
             </div>
@@ -288,19 +293,31 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
           {/* 선택 아이템 상세 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <ItemIcon slot={sel.item.slot ?? null} grade={sel.item.grade} itemName={sel.item.name} size={32} />
-            <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15 }}>
-              {sel.item.name}
-              {sel.enhanceLevel > 0 && (
-                <span style={{
-                  color: '#000', background: 'var(--accent)', padding: '0 5px',
-                  borderRadius: 2, fontSize: 11, fontWeight: 900, marginLeft: 6,
-                }}>+{sel.enhanceLevel}</span>
-              )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15 }}>
+                {sel.item.name}
+                {sel.enhanceLevel > 0 && (
+                  <span style={{
+                    color: '#000', background: 'var(--accent)', padding: '0 5px',
+                    borderRadius: 2, fontSize: 11, fontWeight: 900, marginLeft: 6,
+                  }}>+{sel.enhanceLevel}</span>
+                )}
+              </div>
+              {(sel as any).quality !== undefined && (() => {
+                const q = (sel as any).quality;
+                const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
+                return (
+                  <span style={{
+                    fontSize: 11, padding: '2px 7px', borderRadius: 3, marginTop: 4, display: 'inline-block',
+                    background: color + '22', border: `1px solid ${color}`, color, fontWeight: 700,
+                  }}>품질 {q}%</span>
+                );
+              })()}
             </div>
           </div>
           {sel.item.stats && (
             <div style={{ marginBottom: 6 }}>
-              <ItemStatsBlock stats={sel.item.stats} enhanceLevel={sel.enhanceLevel || 0} />
+              <ItemStatsBlock stats={(sel.item as any).baseStats || sel.item.stats} enhanceLevel={sel.enhanceLevel || 0} quality={(sel as any).quality || 0} />
             </div>
           )}
           {sel.prefixStats && Object.keys(sel.prefixStats).length > 0 && (
