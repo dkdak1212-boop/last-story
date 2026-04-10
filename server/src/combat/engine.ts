@@ -363,6 +363,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'self_damage_pct':
     case 'lifesteal':
     case 'crit_bonus':
+    case 'self_hp_dmg':
     case 'hp_pct_damage': {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
@@ -466,6 +467,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
           s.monsterHp -= extra;
           addLog(s, `[${skill.name}] 추가 고정 ${extra} 데미지`);
+        }
+        if (skill.effect_type === 'self_hp_dmg') {
+          const extra = Math.round(s.playerMaxHp * skill.effect_value / 100);
+          s.monsterHp -= extra;
+          addLog(s, `[${skill.name}] 자신 HP ${skill.effect_value}% 추가 ${extra} 데미지`);
         }
 
         // 패시브: extra_hit (추가 타격 확률)
