@@ -382,45 +382,56 @@ export async function finishEvent(eventId: number, status: 'defeated' | 'expired
   if (io) io.emit('world_event', { type: 'world_event_end', bossName: boss.rows[0]?.name ?? '???', result: status });
 }
 
-// ─── 스케줄러 ───
+// ─── 주간 레이드 로테이션 ───
+// 첫 레이드 주: 2026-04-18 토요일 18:00 KST → 발라카스
+// 이후 매주 토요일 18:00 KST에 스폰, 발라카스 ↔ 아트라스 교대
+// 에폭: 2026-04-13 (월) 00:00 KST = 2026-04-12T15:00Z
+const RAID_EPOCH_MS = Date.UTC(2026, 3, 12, 15, 0, 0); // 4월 13일 월요일 00:00 KST
+const RAID_HOUR_UTC = 9; // 18:00 KST
+const RAID_DAY_KST = 6; // 토요일
+
+// 주차 인덱스(0부터) → 보스 ID
+// week 0: 발라카스(1) / week 1: 아트라스(2) / week 2: 발라카스 / ...
+export function getRaidBossForWeek(weekIdx: number): number {
+  if (weekIdx < 0) return 0; // 에폭 이전엔 보스 없음
+  return weekIdx % 2 === 0 ? 1 : 2;
+}
+
+export function getCurrentRaidWeek(nowMs: number = Date.now()): number {
+  return Math.floor((nowMs - RAID_EPOCH_MS) / (7 * 86400000));
+}
+
 export async function checkAndSpawnWorldEvent(io?: Server) {
   const active = await getActiveEvent(); if (active) return;
   const now = new Date();
   const hour = now.getUTCHours();
-  const kstDay = new Date(now.getTime() + 9 * 3600000).getDay(); // 0=일 1=월 2=화 3=수 4=목 5=금 6=토
+  const kstDay = new Date(now.getTime() + 9 * 3600000).getDay(); // 0=일 1=월 ... 6=토
 
-  // 같은 시간대에 등록된 모든 보스 후보
-  const schedRows = await query<{ boss_id: number }>(
-    `SELECT boss_id FROM world_event_schedule WHERE hour_utc = $1 AND enabled = TRUE`, [hour]
-  );
-  if (schedRows.rowCount === 0) return;
+  // 주간 레이드: 토요일 18:00 KST (9 UTC)
+  if (hour !== RAID_HOUR_UTC || kstDay !== RAID_DAY_KST) return;
 
-  // 요일별 스폰 가능 보스 결정
-  // - 아트라스(2): 토(6)/일(0)에만 등장
-  // - 카르나스(3): 아트라스 양보 — 토/일엔 스폰 안 함
-  let chosenBossId: number | null = null;
-  const isWeekend = kstDay === 0 || kstDay === 6;
-  const candidateIds = schedRows.rows.map(r => r.boss_id);
-  if (isWeekend && candidateIds.includes(2)) {
-    chosenBossId = 2; // 아트라스 우선
-  } else {
-    for (const bid of candidateIds) {
-      if (bid === 2) continue; // 주말이 아니면 아트라스는 스킵
-      chosenBossId = bid;
-      break;
-    }
-  }
+  const weekIdx = getCurrentRaidWeek(now.getTime());
+  const chosenBossId = getRaidBossForWeek(weekIdx);
   if (!chosenBossId) return;
 
+  // 중복 방지 — 1시간 내 스폰된 이력 있으면 스킵
   const recent = await query(`SELECT id FROM world_event_active WHERE started_at > NOW() - INTERVAL '1 hour'`);
   if ((recent.rowCount ?? 0) > 0) return;
+
   const bossR = await query<{ name: string; max_hp: number; time_limit_sec: number }>(
     `SELECT name, max_hp, time_limit_sec FROM world_event_bosses WHERE id = $1`, [chosenBossId]
   );
   if (bossR.rowCount === 0) return;
   const boss = bossR.rows[0];
-  await query(`INSERT INTO world_event_active (boss_id, current_hp, max_hp, ends_at) VALUES ($1, $2, $2, NOW() + INTERVAL '1 second' * $3)`, [chosenBossId, boss.max_hp, boss.time_limit_sec]);
-  if (io) io.emit('world_event', { type: 'world_event_start', bossName: boss.name, endsAt: new Date(Date.now() + boss.time_limit_sec * 1000).toISOString() });
+  await query(
+    `INSERT INTO world_event_active (boss_id, current_hp, max_hp, ends_at)
+     VALUES ($1, $2, $2, NOW() + INTERVAL '1 second' * $3)`,
+    [chosenBossId, boss.max_hp, boss.time_limit_sec]
+  );
+  if (io) io.emit('world_event', {
+    type: 'world_event_start', bossName: boss.name,
+    endsAt: new Date(Date.now() + boss.time_limit_sec * 1000).toISOString(),
+  });
 }
 
 export async function checkExpiredWorldEvents(io?: Server) {

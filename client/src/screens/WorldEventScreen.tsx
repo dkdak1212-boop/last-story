@@ -59,46 +59,15 @@ export function WorldEventScreen() {
       </div>
 
       <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
-        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 15, marginBottom: 12 }}>레이드 보스 등장 시간표</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(68,204,68,0.3)', background: 'rgba(68,204,68,0.04)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontWeight: 700, color: '#44cc44', fontSize: 14 }}>태고의 용왕 발라카스</span>
-              <span style={{ fontSize: 11, color: '#44cc44', padding: '2px 8px', border: '1px solid #44cc44', borderRadius: 3 }}>Lv.80 · 쉬움</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 5,000,000 · 1시간</div>
-            <div style={{ fontSize: 13, color: '#44cc44', fontWeight: 700, marginTop: 4 }}>
-              매일 <span style={{ color: '#fff' }}>10:00</span> · <span style={{ color: '#fff' }}>15:00</span> · <span style={{ color: '#fff' }}>22:00</span>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>하루 3회</span>
-            </div>
-          </div>
-          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(255,136,0,0.3)', background: 'rgba(255,136,0,0.04)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontWeight: 700, color: '#ff8800', fontSize: 14 }}>심연의 히드라 카르나스</span>
-              <span style={{ fontSize: 11, color: '#ff8800', padding: '2px 8px', border: '1px solid #ff8800', borderRadius: 3 }}>Lv.90 · 보통</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 15,000,000 · 1시간</div>
-            <div style={{ fontSize: 13, color: '#ff8800', fontWeight: 700, marginTop: 4 }}>
-              매일 <span style={{ color: '#fff' }}>20:00</span>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>하루 1회</span>
-            </div>
-          </div>
-          <div style={{ padding: 10, borderRadius: 6, border: '1px solid rgba(255,51,51,0.3)', background: 'rgba(255,51,51,0.04)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontWeight: 700, color: '#ff3333', fontSize: 14 }}>천벌의 거신 아트라스</span>
-              <span style={{ fontSize: 11, color: '#ff3333', padding: '2px 8px', border: '1px solid #ff3333', borderRadius: 3 }}>Lv.100 · 최강</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>HP 50,000,000 · 1시간</div>
-            <div style={{ fontSize: 13, color: '#ff3333', fontWeight: 700, marginTop: 4 }}>
-              <span style={{ color: '#fff' }}>수요일</span> · <span style={{ color: '#fff' }}>토요일</span> <span style={{ color: '#ff3333' }}>0:00</span>
-              <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>주 2회</span>
-            </div>
-          </div>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 15, marginBottom: 6 }}>주간 레이드 로테이션</div>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 12 }}>
+          매주 <span style={{ color: '#fff' }}>토요일 18:00 (KST)</span> · 발라카스 ↔ 아트라스 교대
         </div>
+        <UpcomingRaids />
         <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-dim)' }}>
           · 시간은 한국 시간(KST) 기준<br/>
-          · 이전 레이드 종료 후 1시간 내 중복 소환 없음<br/>
-          · 보스 처치 시 기여도 순위별 S/A/B/C 보상
+          · 레이드 지속 시간 1시간<br/>
+          · 기여도 순위별 S/A/B/C 보상
         </div>
       </div>
     </div>
@@ -216,6 +185,52 @@ function Row({ label, value }: { label: string; value: string }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
       <span style={{ color: 'var(--text-dim)' }}>{label}</span>
       <span style={{ fontWeight: 700 }}>{value}</span>
+    </div>
+  );
+}
+
+interface UpcomingItem { weekIdx: number; startAt: string; bossId: number; bossName: string; }
+
+function UpcomingRaids() {
+  const [list, setList] = useState<UpcomingItem[]>([]);
+  useEffect(() => {
+    api<{ upcoming: UpcomingItem[] }>('/world-event/upcoming').then(r => setList(r.upcoming || [])).catch(() => {});
+  }, []);
+
+  const now = Date.now();
+  const labels = ['이번 주', '다음 주', '2주 뒤', '3주 뒤', '4주 뒤', '5주 뒤'];
+  const BOSS_COLOR: Record<number, string> = { 1: '#44cc44', 2: '#ff3333' };
+  const BOSS_BG: Record<number, string> = { 1: 'rgba(68,204,68,0.08)', 2: 'rgba(255,51,51,0.08)' };
+  const BOSS_TIER: Record<number, string> = { 1: 'Lv.80 · 쉬움', 2: 'Lv.100 · 최강' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {list.length === 0 && <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>로드 중...</div>}
+      {list.map((r, i) => {
+        const start = new Date(r.startAt);
+        const color = BOSS_COLOR[r.bossId] || 'var(--accent)';
+        const diff = start.getTime() - now;
+        const days = Math.floor(diff / 86400000);
+        const hours = Math.floor((diff % 86400000) / 3600000);
+        const countdown = diff > 0 ? (days > 0 ? `${days}일 ${hours}시간 후` : `${hours}시간 후`) : '진행 중';
+        return (
+          <div key={r.weekIdx} style={{
+            padding: 10, borderRadius: 6,
+            border: `1px solid ${color}50`, background: BOSS_BG[r.bossId],
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, color, fontSize: 14 }}>{r.bossName}</span>
+              <span style={{ fontSize: 11, color, padding: '2px 8px', border: `1px solid ${color}`, borderRadius: 3 }}>
+                {BOSS_TIER[r.bossId] || ''}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+              {labels[i] || `${i}주 뒤`} · {start.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit', weekday: 'short' })} <span style={{ color: '#fff' }}>18:00</span>
+              <span style={{ marginLeft: 8, color }}>{countdown}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
