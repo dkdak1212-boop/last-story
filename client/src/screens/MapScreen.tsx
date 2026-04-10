@@ -79,8 +79,10 @@ export function MapScreen() {
                             fontSize: 10, padding: '1px 6px', borderRadius: 3,
                             background: 'rgba(218,165,32,0.15)', border: '1px solid var(--accent)',
                             color: 'var(--accent)', fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
                           }}>
-                            🏴 {owner} 점령중
+                            <img src="/images/skills/spells/shields.png" alt="" width={11} height={11} style={{ imageRendering: 'pixelated' }} />
+                            {owner} 점령중
                           </span>
                         );
                       }
@@ -89,8 +91,10 @@ export function MapScreen() {
                           fontSize: 10, padding: '1px 6px', borderRadius: 3,
                           background: 'rgba(150,150,150,0.1)', border: '1px solid var(--border)',
                           color: 'var(--text-dim)', fontWeight: 700,
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
                         }}>
-                          🏴 무점령
+                          <img src="/images/skills/spells/shields.png" alt="" width={11} height={11} style={{ imageRendering: 'pixelated', opacity: 0.5 }} />
+                          무점령
                         </span>
                       );
                     })()}
@@ -156,17 +160,20 @@ export function MapScreen() {
                             {drops.map((d, i) => {
                               const isUnique = d.grade === 'unique';
                               return (
-                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   {isUnique ? (
-                                    <span style={{
-                                      fontWeight: 700,
-                                      background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
-                                      WebkitBackgroundClip: 'text',
-                                      WebkitTextFillColor: 'transparent',
-                                      backgroundClip: 'text',
-                                      filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.3))',
-                                    }}>
-                                      ★ {d.name} [유니크]
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                      <img src="/images/skills/spells/starburst.png" alt="" width={11} height={11} style={{ imageRendering: 'pixelated' }} />
+                                      <span style={{
+                                        fontWeight: 700,
+                                        background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+                                        WebkitBackgroundClip: 'text',
+                                        WebkitTextFillColor: 'transparent',
+                                        backgroundClip: 'text',
+                                        filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.3))',
+                                      }}>
+                                        {d.name} [유니크]
+                                      </span>
                                     </span>
                                   ) : (
                                     <span style={{ color: 'var(--text-dim)' }}>{d.name}</span>

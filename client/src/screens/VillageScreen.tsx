@@ -229,13 +229,17 @@ export function VillageScreen() {
                   <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{d.characterName}</span>
                   {' '}
                   {isUnique ? (
-                    <span style={{
-                      fontWeight: 700,
-                      background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                    }}>★ {d.itemName}</span>
+                    <>
+                      <img src="/images/skills/spells/starburst.png" alt="" width={14} height={14}
+                        style={{ imageRendering: 'pixelated', verticalAlign: 'middle', marginRight: 3 }} />
+                      <span style={{
+                        fontWeight: 700,
+                        background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                      }}>{d.itemName}</span>
+                    </>
                   ) : (
                     <span style={{ color: GRADE_COLOR[d.itemGrade] || 'var(--text)', fontWeight: 700 }}>{d.itemName}</span>
                   )}
@@ -379,14 +383,14 @@ export function VillageScreen() {
             {/* 클래스 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <Px src="/images/classes/warrior.png" size={20} />
-              <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>클래스</span>
+              <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>클래스 (4종)</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 14 }}>
               {[
-                { c: 'warrior', n: '전사', d: '힘15 체14 속300 — 물리 딜러, 흡혈 참격으로 생존' },
-                { c: 'mage', n: '마법사', d: '지16 체10 속300 — 원소 파괴, 게이지 제어, 높은 마법배율' },
-                { c: 'cleric', n: '성직자', d: '지14 체12 속250 — 힐/실드 + 심판 공격' },
-                { c: 'rogue', n: '도적', d: '민14 치8% 속350 — 독/연쇄, 빠른 속도' },
+                { c: 'warrior', n: '전사', d: '물리 근접 딜탱. 흡혈/강타/수호 계열 스킬 중심' },
+                { c: 'mage', n: '마법사', d: '원소 마법 딜러. 동결/기절 게이지 제어 가능' },
+                { c: 'cleric', n: '성직자', d: '신성 힐/실드 + 심판 계열 광역 공격' },
+                { c: 'rogue', n: '도적', d: '독/연막/백스텝, 빠른 속도와 명중 디버프' },
               ].map(cl => (
                 <div key={cl.c} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: 6, background: 'var(--bg)', borderRadius: 4 }}>
                   <Px src={`/images/classes/${cl.c}.png`} size={24} />
@@ -403,11 +407,13 @@ export function VillageScreen() {
               <Px src="/images/monsters/knight.png" size={20} />
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>전투 시스템</span>
             </div>
-            <div>· 게이지 기반: 속도(SPD)가 높을수록 빠르게 행동 (게이지 MAX=1000)</div>
-            <div>· 자동/수동 전환 가능, 수동 시 3초 내 스킬 미선택 시 자동 행동</div>
-            <div>· 데미지 = (ATK 또는 MATK) - (DEF 또는 MDEF x 0.5), 크리 2배</div>
-            <div>· 회피 최대 30%, 명중 기본 80% + 민첩 보정</div>
-            <div>· 사망 시 HP 25% 회복 후 마을 귀환 (패널티 없음)</div>
+            <div>· 게이지 기반: SPD가 높을수록 빠르게 행동 (게이지 MAX=1000)</div>
+            <div>· 자동/수동 전환 가능, 수동 시 3초 내 스킬 미선택 시 자동 실행</div>
+            <div>· 데미지 = (ATK 또는 MATK) × 스킬배율 − (DEF 또는 MDEF × 0.5) ± 10%</div>
+            <div>· 회피 상한 30% / 명중 기본 80% + 민첩 보정 (상한 100%)</div>
+            <div>· 치명타 상한 100%, 발동 시 데미지 2배</div>
+            <div>· CC 면역: 스턴/동결이 성공적으로 걸린 뒤 지속시간 + 3턴 간 추가 CC 차단</div>
+            <div>· 사망 시 HP 100% 회복 후 마을 귀환 (패널티 없음)</div>
             <div style={{ marginBottom: 14 }}>· 오프라인 사냥: 최대 24시간, 효율 90%</div>
 
             {/* 성장 */}
@@ -415,10 +421,11 @@ export function VillageScreen() {
               <Px src="/images/monsters/phoenix.png" size={20} />
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>성장</span>
             </div>
-            <div>· 최대 레벨: 100 | 레벨당 +8 HP, +2 노드 포인트</div>
-            <div>· 스탯 성장: 전사(힘+2/체+1.5) 마법사(지+2) 도적(민+1.5/속+3)</div>
+            <div>· 최대 레벨 100 · 레벨업 시 HP +25, 노드 포인트 +1, 스탯 포인트 +2</div>
+            <div>· 스탯 포인트는 <span style={{ color: 'var(--text)' }}>상태창</span>에서 수동 분배 (치명타는 분배 불가, 노드·장비로만 상승)</div>
+            <div>· 분배 가능 스탯: 힘 / 민첩 / 지능 / 체력 / 스피드</div>
             <div>· 노드 트리: 302개 노드, 5개 구역 (기본/공격/유틸/중앙/직업)</div>
-            <div style={{ marginBottom: 14 }}>· 4포인트 노드: 투자 시 하위 선행 노드 자동 습득</div>
+            <div style={{ marginBottom: 14 }}>· 상위 노드 클릭 시 하위 선행 노드 자동 습득</div>
 
             {/* 장비 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
@@ -426,26 +433,48 @@ export function VillageScreen() {
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>장비 & 강화</span>
             </div>
             <div>· 장착 부위: 무기/투구/갑옷/장화/반지/목걸이 (6슬롯)</div>
-            <div>· 등급: <span style={{ color: '#9a8b75' }}>일반</span> / <span style={{ color: '#5b8ecc' }}>매직</span> / <span style={{ color: '#b060cc' }}>에픽</span> / <span style={{ color: '#e08030' }}>전설</span></div>
-            <div>· 접두사: 1옵(90%) / 2옵(9%) / 3옵(1%), 등급 1~4단계</div>
-            <div>· 강화: +1~3 100% | +4~6 80% | +7~9 50%</div>
-            <div>· +10~12 30% (파괴10%) | +13~15 20% (파괴20%)</div>
-            <div>· +16~18 10% (파괴30%) | +19~20 5% (파괴40%)</div>
-            <div>· 강화 스크롤: 성공률 +10% (소비 아이템)</div>
+            <div>· 등급: <span style={{ color: '#9a8b75' }}>일반</span> / <span style={{ color: '#ff8c2a', fontWeight: 700 }}>유니크</span> (사냥터 드롭)</div>
+            <div>· 품질 0~100%: 드롭 시 랜덤 결정, 기본 스탯을 최대 2배까지 증가</div>
+            <div>· 접두사 옵션 수: 1옵(90%) / 2옵(9%) / 3옵(1%)</div>
+            <div>· 접두사 등급: T1(90%) / T2(9%) / T3(0.9%) / T4(0.1%), 강화당 +5% 수치 상승</div>
+            <div>· 강화 공식: +1~3 100% / +4~6 80% / +7~9 50%</div>
+            <div>· +10~12 30%(파괴10%) / +13~15 20%(파괴20%)</div>
+            <div>· +16~18 10%(파괴30%) / +19~20 5%(파괴40%)</div>
+            <div>· 강화당 기본 스탯 +7.5% 스케일링 (최대 +20)</div>
             <div style={{ marginBottom: 14 }}>· 자동분해: 일반 등급 장비 자동 골드 변환</div>
 
-            {/* 기타 */}
+            {/* 유니크 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <Px src="/images/skills/spells/starburst.png" size={20} />
+              <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>유니크 아이템</span>
+            </div>
+            <div>· 11종 유니크가 사냥터별로 드롭 (Lv 5~100 구간)</div>
+            <div>· 같은 레벨대 일반 장비의 약 1.5배 능력치 + 고정 특수 옵션</div>
+            <div>· 저렙 사냥터일수록 드롭률 ↑ (0.12% → 0.015%)</div>
+            <div style={{ marginBottom: 14 }}>· 접두사도 함께 붙으며, 품질/강화 모두 적용</div>
+
+            {/* 길드 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <Px src="/images/items/weapon/double_sword.png" size={20} />
+              <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>길드</span>
+            </div>
+            <div>· 생성 비용 100,000G · 최대 길드 레벨 20 · 멤버 사냥 EXP의 5%가 자동 기여</div>
+            <div>· 길드 스킬 4종 (각 최대 10단계): 체력 / 골드 / 경험 / 드랍</div>
+            <div>· 일일 기부 한도: 캐릭터당 1,000,000G · 리더만 자금 사용 가능</div>
+            <div style={{ marginBottom: 14 }}>· 영토 점령전: 21개 사냥터에서 주 단위 사냥 점수 1위 길드가 점령 → EXP+15% / 드랍+15%</div>
+
+            {/* 기타 콘텐츠 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <Px src="/images/monsters/lich.png" size={20} />
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13 }}>콘텐츠</span>
             </div>
-            <div>· 사냥터: 21개 필드 (Lv.1~70), 36종 몬스터 (보스 5종)</div>
-            <div>· 스킬: 클래스당 7개, 레벨 도달 시 자동 습득 (최대 6개 자동)</div>
-            <div>· 월드 보스: 하루 2회, 기여도 순위별 S/A/B/C 등급 보상</div>
-            <div>· 길드: 가입 시 전체 전투 스탯 +5% 버프</div>
+            <div>· 사냥터: 21개 필드 (Lv 1~100)</div>
+            <div>· 일일 임무: 매일 자정(KST) 초기화, 3개 랜덤 배정, 완료 시 EXP/골드/드랍 +50% 3시간 버프 + 찢어진 스크롤 1개</div>
+            <div>· 일일 퀘스트: 골드/EXP/찢어진 스크롤 보상 (퀘스트 탭)</div>
+            <div>· 월드 보스 / 월드 이벤트 / 레이드 진행 가능</div>
             <div>· 거래소: 즉시 구매가 등록, 수수료 10%, 등록 72시간</div>
-            <div>· PvP: 하루 10회, ELO 기반 매칭</div>
-            <div>· 출석 체크: 매일 랜덤 상자 (전설 2%), 7일 연속 보너스</div>
+            <div>· PvP: ELO 기반 매칭</div>
+            <div>· 출석 체크: 매일 랜덤 보상 + 7일 연속 보너스</div>
           </div>
         )}
       </div>

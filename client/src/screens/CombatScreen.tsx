@@ -352,7 +352,7 @@ export function CombatScreen() {
       {(() => {
         const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number } | undefined;
         const tb = (state as any).territoryBuffs as { expPct: number; dropPct: number } | undefined;
-        const items: { label: string; pct: number; color: string }[] = [];
+        const items: { label: string; pct: number; color: string; icon?: string }[] = [];
         if (gb) {
           if (gb.hp > 0) items.push({ label: '길드 체력', pct: gb.hp, color: '#e07070' });
           if (gb.gold > 0) items.push({ label: '길드 골드', pct: gb.gold, color: '#e0a040' });
@@ -360,8 +360,8 @@ export function CombatScreen() {
           if (gb.drop > 0) items.push({ label: '길드 드랍', pct: gb.drop, color: '#66dd66' });
         }
         if (tb) {
-          if (tb.expPct > 0) items.push({ label: '🏴 영토 경험', pct: tb.expPct, color: '#daa520' });
-          if (tb.dropPct > 0) items.push({ label: '🏴 영토 드랍', pct: tb.dropPct, color: '#daa520' });
+          if (tb.expPct > 0) items.push({ label: '영토 경험', pct: tb.expPct, color: '#daa520', icon: '/images/skills/spells/shields.png' });
+          if (tb.dropPct > 0) items.push({ label: '영토 드랍', pct: tb.dropPct, color: '#daa520', icon: '/images/skills/spells/shields.png' });
         }
         if (items.length === 0) return null;
         return (
@@ -370,7 +370,9 @@ export function CombatScreen() {
               <span key={i} style={{
                 padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 3,
                 background: `${x.color}15`, color: x.color, border: `1px solid ${x.color}40`,
+                display: 'inline-flex', alignItems: 'center', gap: 3,
               }}>
+                {x.icon && <img src={x.icon} alt="" width={10} height={10} style={{ imageRendering: 'pixelated' }} />}
                 {x.label} +{x.pct}%
               </span>
             ))}

@@ -157,25 +157,27 @@ export function StatusScreen() {
 
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
-        <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 8px' }}>
-          <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.0. 전사(+2/Lv), 도적(+1/Lv) 핵심 스탯</span>
-          <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 30%) | 명중률 = 80% + 민첩 × 0.3% (상한 100%). 도적(+1.5/Lv)</span>
-          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 | 마법 방어 = 지능 × 0.5. 마법사(+2/Lv), 성직자(+1.5/Lv)</span>
-          <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 | 장비/노드 체력 1당 HP +10. 전사(+1.5/Lv)</span>
-          <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도. 매 100ms마다 SPD × 0.2 충전 → MAX 1000 시 행동. 도적(+3/Lv) {'>'} 전사(+2/Lv)</span>
-          <span style={{ color: 'var(--text)' }}>치명타 확률 (CRI)</span><span>크리 확률% (상한 100%). 발동 시 데미지 2배. 도적(+0.2/Lv), 나머지(+0.1/Lv)</span>
+        <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px 8px' }}>
+          <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.0 + 장비 ATK. 전사/도적 핵심 스탯</span>
+          <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 30%) · 명중률 = 80% + 민첩 × 0.3% (상한 100%)</span>
+          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF</span>
+          <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 + 장비 DEF · 장비/노드 체력 1당 HP +10</span>
+          <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 속도. 300 이하 선형, 이후 소프트캡 + 평방근 감쇠</span>
+          <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률 % (상한 100%). 발동 시 데미지 2배. <span style={{ color: 'var(--danger)' }}>수동 분배 불가</span> — 노드/장비로만 상승</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
           <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 ATK(물리), <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 MATK(마법) 고정 사용</div>
-          <div>· 데미지 = <span style={{ color: 'var(--text)' }}>(ATK or MATK) - (DEF or MDEF × 0.5)</span> × 스킬배율 + 고정피해 ± 10%</div>
-          <div>· 게이지 MAX=1000 도달 시 행동. <span style={{ color: 'var(--text)' }}>SPD 300 → 약 1.7초</span>, SPD 400 → 약 1.25초</div>
-          <div>· <span style={{ color: 'var(--text)' }}>수동 모드</span>: 게이지 충전 후 3초 내 스킬 미선택 시 자동 행동</div>
-          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (수동 분배, 치명타 제외)</div>
-          <div>· <span style={{ color: 'var(--text)' }}>장비 접두사</span>: 기본 스탯 + 특수 효과 (약화/저주/흡혈/확산/재생/황금/경험/날카로움)</div>
-          <div>· <span style={{ color: 'var(--text)' }}>접두사 강화</span>: 장비 강화당 접두사 수치 +8% 스케일링</div>
-          <div>· <span style={{ color: 'var(--text)' }}>노드 트리</span>: 302개 노드 (5구역), 상위 노드 클릭 시 하위 자동 습득</div>
-          <div>· <span style={{ color: 'var(--text)' }}>강화</span>: +1~3(100%) +4~6(80%) +7~9(50%) +10~12(30%/파괴10%) ~ +19~20(5%/파괴40%)</div>
+          <div>· 데미지 공식: <span style={{ color: 'var(--text)' }}>(ATK/MATK) × 스킬배율 − (DEF/MDEF × 0.5) + 고정피해 ± 10%</span></div>
+          <div>· 게이지 MAX = 1000 · SPD 300 → 약 1.7초 주기 · 자동/수동 전환 가능</div>
+          <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (힘/민/지/체/속 중 수동 분배, 치명타 제외)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>CC 면역</span>: 스턴/동결이 걸린 후 지속시간 + 3턴 동안 추가 CC 차단</div>
+          <div>· <span style={{ color: 'var(--text)' }}>사망</span>: HP 100% 회복 후 마을 귀환, 패널티 없음</div>
+          <div>· <span style={{ color: 'var(--text)' }}>품질</span>: 드롭 시 0~100% 랜덤, 기본 스탯에 추가 배율 (품질/100 만큼 덧셈)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>강화</span>: 단계당 +7.5% 스탯 / +1~3(100%) → +19~20(5%/파괴 40%)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>접두사</span>: 1~3옵(1옵 90%/2옵 9%/3옵 1%), T1~T4 등급 (T4 0.1%), 강화당 수치 +5%</div>
+          <div>· <span style={{ color: 'var(--text)' }}>길드 버프</span>: 체력/골드/경험/드랍 4종 스킬, 영토 점령 시 경험/드랍 +15% 추가</div>
+          <div>· <span style={{ color: 'var(--text)' }}>일일 임무</span>: 3개 완료 시 EXP/골드/드랍 +50% 3시간 + 찢어진 스크롤 1개 (KST 자정 초기화)</div>
         </div>
       </div>
     </div>
