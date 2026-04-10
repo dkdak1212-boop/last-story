@@ -81,6 +81,7 @@ export function InventoryScreen() {
   }
   async function enhanceItem(_si: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active || enhanceBusy) return;
+    if (!confirm('강화하시겠습니까?')) return;
     setEnhanceBusy(true); setMsg('');
     try { const r = await api<{ success: boolean; newLevel: number; cost: number; destroyed?: boolean }>(`/enhance/${active.id}/attempt`, { method: 'POST', body: JSON.stringify({ kind, slotKey, useScroll: false }) });
       if (r.destroyed) setMsg(`강화 실패 — 파괴! (-${r.cost.toLocaleString()}G)`);
