@@ -364,6 +364,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'lifesteal':
     case 'crit_bonus':
     case 'self_hp_dmg':
+    case 'double_chance':
     case 'hp_pct_damage': {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
@@ -472,6 +473,21 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const extra = Math.round(s.playerMaxHp * skill.effect_value / 100);
           s.monsterHp -= extra;
           addLog(s, `[${skill.name}] 자신 HP ${skill.effect_value}% 추가 ${extra} 데미지`);
+        }
+        if (skill.effect_type === 'double_chance') {
+          if (Math.random() * 100 < skill.effect_value) {
+            const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
+            if (!d2.miss) {
+              let dmg2 = d2.damage;
+              if (spellAmp > 0) dmg2 = Math.round(dmg2 * (1 + spellAmp / 100));
+              if (d2.crit) {
+                const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+                if (critDmgBonus > 0) dmg2 = Math.round(dmg2 * (1 + critDmgBonus / 100));
+              }
+              s.monsterHp -= dmg2;
+              addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
+            }
+          }
         }
 
         // 패시브: extra_hit (추가 타격 확률)
