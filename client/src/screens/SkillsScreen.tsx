@@ -28,12 +28,20 @@ export function SkillsScreen() {
 
   async function refresh() {
     if (!active) return;
-    const [data, presetData] = await Promise.all([
-      api<Skill[]>(`/characters/${active.id}/skills`),
-      api<SkillPreset[]>(`/characters/${active.id}/skill-presets`),
-    ]);
-    setSkills(data);
-    setPresets(presetData);
+    // 스킬은 필수, 프리셋은 실패해도 무시
+    try {
+      const data = await api<Skill[]>(`/characters/${active.id}/skills`);
+      setSkills(data);
+    } catch (e) {
+      console.error('skills fetch failed', e);
+    }
+    try {
+      const presetData = await api<SkillPreset[]>(`/characters/${active.id}/skill-presets`);
+      setPresets(presetData);
+    } catch (e) {
+      console.error('presets fetch failed (마이그레이션 미적용 가능)', e);
+      setPresets([1, 2, 3].map(idx => ({ idx, name: `프리셋 ${idx}`, skillIds: [], empty: true })));
+    }
   }
 
   useEffect(() => {
