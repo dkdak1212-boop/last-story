@@ -2,9 +2,12 @@ import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
+import { addItemToInventoryPlain, deliverToMailbox } from '../game/inventory.js';
 
 const router = Router();
 router.use(authRequired);
+
+const TORN_SCROLL_ID = 320; // 찢어진 스크롤
 
 async function todayFromDB(): Promise<string> {
   const r = await query<{ d: string }>("SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d");
@@ -18,13 +21,13 @@ async function ensureDailyQuests(characterId: number): Promise<void> {
   if (existing.rowCount && existing.rowCount > 0) return;
 
   // 랜덤 3개 선택
-  const pool = await query<{ id: number; kind: string; target_count: number }>(
-    'SELECT id, kind, target_count FROM daily_quest_pool ORDER BY RANDOM() LIMIT 3'
+  const pool = await query<{ id: number; kind: string; target_count: number; target_field_id: number | null }>(
+    'SELECT id, kind, target_count, target_field_id FROM daily_quest_pool ORDER BY RANDOM() LIMIT 3'
   );
   for (const q of pool.rows) {
     await query(
-      'INSERT INTO character_daily_quests (character_id, quest_pool_id, kind, target_count, assigned_date) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',
-      [characterId, q.id, q.kind, q.target_count, today]
+      'INSERT INTO character_daily_quests (character_id, quest_pool_id, kind, target_count, target_field_id, assigned_date) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',
+      [characterId, q.id, q.kind, q.target_count, q.target_field_id, today]
     );
   }
 }
@@ -87,23 +90,36 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
     return res.status(400).json({ error: '이미 보상을 수령했습니다.' });
   }
 
-  // 보상: 레벨*500 EXP, 레벨*200 골드, 드롭률 3시간
+  // 보상: 레벨*500 EXP + 찢어진 스크롤 1개
   const expReward = char.level * 500;
-  const goldReward = char.level * 200;
-  await query(
-    `UPDATE characters SET exp = exp + $1, gold = gold + $2,
-     drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
-     WHERE id = $3`,
-    [expReward, goldReward, id]);
+  await query('UPDATE characters SET exp = exp + $1 WHERE id = $2', [expReward, id]);
+  const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 1);
+  if (overflow > 0) {
+    await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);
+  }
 
-  res.json({ exp: expReward, gold: goldReward, dropBoostHours: 3 });
+  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 1 });
 });
 
 export default router;
 
 // 외부에서 호출: 진행도 업데이트
-export async function trackDailyQuestProgress(characterId: number, kind: string, amount: number = 1): Promise<void> {
+// fieldId가 주어지면 kind='kill_field' 중 target_field_id가 일치하는 퀘스트만 카운트
+export async function trackDailyQuestProgress(
+  characterId: number, kind: string, amount: number = 1, fieldId?: number
+): Promise<void> {
   const today = await todayFromDB();
+  if (kind === 'kill_field' && fieldId !== undefined) {
+    await query(
+      `UPDATE character_daily_quests
+       SET progress = LEAST(progress + $1, target_count),
+           completed = (progress + $1 >= target_count)
+       WHERE character_id = $2 AND assigned_date = $3 AND kind = 'kill_field'
+         AND target_field_id = $4 AND completed = FALSE`,
+      [amount, characterId, today, fieldId]
+    );
+    return;
+  }
   await query(
     `UPDATE character_daily_quests
      SET progress = LEAST(progress + $1, target_count),

@@ -27,10 +27,10 @@ export function DailyQuestScreen() {
     if (!active || claiming) return;
     setClaiming(true); setMsg('');
     try {
-      const r = await api<{ exp: number; gold: number; dropBoostHours: number }>(
+      const r = await api<{ exp: number; scrollId: number; scrollQty: number }>(
         `/characters/${active.id}/daily-quests/claim`, { method: 'POST' }
       );
-      setMsg(`보상 수령! EXP +${r.exp.toLocaleString()}, Gold +${r.gold.toLocaleString()}, 드롭률 +50% ${r.dropBoostHours}시간`);
+      setMsg(`보상 수령! EXP +${r.exp.toLocaleString()}, 찢어진 스크롤 x${r.scrollQty}`);
       await load();
       await refreshActive();
     } catch (e) { setMsg(e instanceof Error ? e.message : '수령 실패'); }
@@ -98,21 +98,18 @@ export function DailyQuestScreen() {
         background: status.allCompleted ? 'rgba(218,165,32,0.08)' : 'var(--bg-panel)',
         border: `1px solid ${status.allCompleted ? 'var(--accent)' : 'var(--border)'}`,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>임무 완료 보상</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>임무 완료 보상 (하루 1회)</div>
         <div style={{ fontSize: 12, marginBottom: 8, lineHeight: 1.8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: '#8b8bef' }}>경험치</span>
             <span style={{ color: '#8b8bef', fontWeight: 700 }}>레벨 x 500 EXP</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#e0a040' }}>골드</span>
-            <span style={{ color: '#e0a040', fontWeight: 700 }}>레벨 x 200 G</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--success)' }}>드롭률 버프</span>
-            <span style={{ color: 'var(--success)', fontWeight: 700 }}>+50% (3시간)</span>
+            <span style={{ color: 'var(--accent)' }}>찢어진 스크롤</span>
+            <span style={{ color: 'var(--accent)', fontWeight: 700 }}>x 1</span>
           </div>
         </div>
+        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>매일 자정(KST) 초기화</div>
         {status.rewardClaimed ? (
           <div style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 700 }}>오늘 보상을 수령했습니다</div>
         ) : status.allCompleted ? (
