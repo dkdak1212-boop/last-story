@@ -4,12 +4,12 @@ import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, InventorySlot, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
 
-interface Auction {
+interface Listing {
   id: number; itemId: number; itemQuantity: number;
-  startPrice: number; buyoutPrice: number | null;
-  currentBid: number | null; endsAt: string; sellerName: string;
-  itemName: string; itemGrade: ItemGrade; itemType: string; itemSlot: string | null;
-  itemStats: Partial<Stats> | null; itemDescription: string;
+  price: number;
+  endsAt: string; sellerName?: string;
+  itemName: string; itemGrade: ItemGrade; itemType?: string; itemSlot?: string | null;
+  itemStats?: Partial<Stats> | null; itemDescription?: string;
   enhanceLevel?: number; prefixStats?: Record<string, number> | null;
   settled?: boolean; cancelled?: boolean;
 }
@@ -18,18 +18,18 @@ export function MarketplaceScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [tab, setTab] = useState<'browse' | 'list' | 'mine'>('browse');
-  const [auctions, setAuctions] = useState<Auction[]>([]);
-  const [mine, setMine] = useState<Auction[]>([]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [gradeFilter, setGradeFilter] = useState<string>('');
 
   async function loadBrowse() {
     const q = gradeFilter ? `?grade=${gradeFilter}` : '';
-    setAuctions(await api<Auction[]>(`/marketplace${q}`));
+    setListings(await api<Listing[]>(`/marketplace${q}`));
   }
   async function loadMine() {
     if (!active) return;
-    setMine(await api<Auction[]>(`/marketplace/mine/${active.id}`));
+    setMine(await api<Listing[]>(`/marketplace/mine/${active.id}`));
   }
   async function loadInv() {
     if (!active) return;
@@ -43,21 +43,9 @@ export function MarketplaceScreen() {
     if (tab === 'mine') loadMine();
   }, [tab, gradeFilter, active?.id]);
 
-  async function bid(a: Auction) {
+  async function buy(a: Listing) {
     if (!active) return;
-    const min = a.currentBid ? a.currentBid + 1 : a.startPrice;
-    const input = prompt(`입찰가 (최소 ${min}G)`, String(min));
-    if (!input) return;
-    const n = Number(input);
-    if (!Number.isFinite(n) || n < min) return alert('잘못된 금액');
-    try {
-      await api(`/marketplace/${a.id}/bid`, { method: 'POST', body: JSON.stringify({ characterId: active.id, bid: n }) });
-      await refreshActive(); loadBrowse();
-    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
-  }
-  async function buyout(a: Auction) {
-    if (!active || !a.buyoutPrice) return;
-    if (!confirm(`${a.buyoutPrice}G에 즉시구매?`)) return;
+    if (!confirm(`${a.price.toLocaleString()}G에 구매하시겠습니까?`)) return;
     try {
       await api(`/marketplace/${a.id}/buyout`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
       await refreshActive(); loadBrowse();
@@ -65,6 +53,7 @@ export function MarketplaceScreen() {
   }
   async function cancel(id: number) {
     if (!active) return;
+    if (!confirm('등록을 취소하시겠습니까?')) return;
     try {
       await api(`/marketplace/${id}/cancel`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
       loadMine();
@@ -73,11 +62,11 @@ export function MarketplaceScreen() {
 
   return (
     <div>
-      <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>경매소</h2>
+      <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>거래소</h2>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <button className={tab === 'browse' ? 'primary' : ''} onClick={() => setTab('browse')}>둘러보기</button>
         <button className={tab === 'list' ? 'primary' : ''} onClick={() => setTab('list')}>등록</button>
-        <button className={tab === 'mine' ? 'primary' : ''} onClick={() => setTab('mine')}>내 경매</button>
+        <button className={tab === 'mine' ? 'primary' : ''} onClick={() => setTab('mine')}>내 등록</button>
       </div>
 
       {tab === 'browse' && (
@@ -91,9 +80,9 @@ export function MarketplaceScreen() {
             ))}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {auctions.length === 0 && <div style={{ color: 'var(--text-dim)' }}>경매 없음</div>}
-            {auctions.map(a => (
-              <AuctionRow key={a.id} a={a} onBid={() => bid(a)} onBuyout={() => buyout(a)} />
+            {listings.length === 0 && <div style={{ color: 'var(--text-dim)' }}>등록된 아이템이 없습니다</div>}
+            {listings.map(a => (
+              <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />
             ))}
           </div>
         </>
@@ -103,20 +92,20 @@ export function MarketplaceScreen() {
 
       {tab === 'mine' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {mine.length === 0 && <div style={{ color: 'var(--text-dim)' }}>내 경매 없음</div>}
+          {mine.length === 0 && <div style={{ color: 'var(--text-dim)' }}>등록한 아이템이 없습니다</div>}
           {mine.map(a => (
             <div key={a.id} style={{ padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <span style={{ color: GRADE_COLOR[a.itemGrade], fontWeight: 700 }}>{a.itemName}</span>
                   <span style={{ marginLeft: 6, color: 'var(--text-dim)', fontSize: 12 }}>×{a.itemQuantity}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-                  {a.settled ? '정산 완료' : a.cancelled ? '취소됨' : `현재가: ${a.currentBid ?? a.startPrice}G`}
+                <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 700 }}>
+                  {a.settled ? '판매완료/만료' : a.cancelled ? '취소됨' : `${a.price.toLocaleString()}G`}
                 </div>
               </div>
-              {!a.settled && !a.cancelled && !a.currentBid && (
-                <button onClick={() => cancel(a.id)} style={{ marginTop: 6, fontSize: 12 }}>취소</button>
+              {!a.settled && !a.cancelled && (
+                <button onClick={() => cancel(a.id)} style={{ marginTop: 6, fontSize: 12 }}>등록 취소</button>
               )}
             </div>
           ))}
@@ -126,8 +115,7 @@ export function MarketplaceScreen() {
   );
 }
 
-function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onBuyout: () => void }) {
-  const cur = a.currentBid ?? a.startPrice;
+function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
   const timeLeft = Math.max(0, new Date(a.endsAt).getTime() - Date.now());
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
   const el = a.enhanceLevel || 0;
@@ -182,12 +170,10 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ color: 'var(--accent)', fontWeight: 700 }}>{cur.toLocaleString()}G</div>
-          {a.buyoutPrice && <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>즉구: {a.buyoutPrice.toLocaleString()}G</div>}
+          <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 14 }}>{a.price.toLocaleString()}G</div>
         </div>
-        <div className="auction-actions" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <button className="primary" onClick={onBid} style={{ fontSize: 12, padding: '4px 12px' }}>입찰</button>
-          {a.buyoutPrice && <button onClick={onBuyout} style={{ fontSize: 12, padding: '4px 12px' }}>즉구</button>}
+        <div className="auction-actions">
+          <button className="primary" onClick={onBuy} style={{ fontSize: 13, padding: '6px 16px', fontWeight: 700 }}>구매</button>
         </div>
       </div>
     </div>
@@ -197,22 +183,20 @@ function AuctionRow({ a, onBid, onBuyout }: { a: Auction; onBid: () => void; onB
 function ListItemPanel({ active, inv, onDone }: { active: number | undefined; inv: InventorySlot[]; onDone: () => void }) {
   const [slotIndex, setSlotIndex] = useState<number | null>(null);
   const [qty, setQty] = useState(1);
-  const [startPrice, setStartPrice] = useState('');
-  const [buyout, setBuyout] = useState('');
+  const [price, setPrice] = useState('');
 
   const sel = slotIndex !== null ? inv.find(s => s.slotIndex === slotIndex) : null;
   const maxQty = sel?.quantity ?? 1;
 
   async function submit() {
     if (!active || slotIndex === null) return;
-    const sp = Number(startPrice);
-    if (!sp || sp < 1) { alert('시작가를 입력하세요'); return; }
+    const p = Number(price);
+    if (!p || p < 1) { alert('판매가를 입력하세요'); return; }
     try {
       await api('/marketplace/list', {
         method: 'POST',
         body: JSON.stringify({
-          characterId: active, slotIndex, quantity: qty, startPrice: sp,
-          buyoutPrice: buyout ? Number(buyout) : null,
+          characterId: active, slotIndex, quantity: qty, price: p,
         }),
       });
       onDone();
@@ -231,11 +215,11 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
 
   return (
     <div>
-      <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 (수수료 10%, 24시간)</div>
+      <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6, marginBottom: 16 }}>
         {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>인벤토리 비어있음</div>}
         {inv.map(s => (
-          <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); setStartPrice(''); }}
+          <div key={s.slotIndex} onClick={() => { setSlotIndex(s.slotIndex); setQty(1); setPrice(''); }}
             style={{
               padding: 8, background: slotIndex === s.slotIndex ? 'var(--bg-elev)' : 'var(--bg-panel)',
               border: `1px solid ${slotIndex === s.slotIndex ? 'var(--accent)' : GRADE_COLOR[s.item.grade] || 'var(--border)'}`,
@@ -286,16 +270,18 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
               <input type="number" min="1" max={maxQty} value={qty} onChange={e => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
                 style={{ marginLeft: 8, width: 80 }} />
             </label>
-            <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>시작가
-              <input type="text" value={startPrice} onChange={e => setStartPrice(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="금액 입력 (필수)"
-                style={{ marginLeft: 8, width: 120 }} />G
+            <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>판매가
+              <input type="text" value={price} onChange={e => setPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="금액 입력"
+                style={{ marginLeft: 8, width: 140 }} />G
             </label>
-            <label style={{ fontSize: 12, color: 'var(--text-dim)' }}>즉시구매가 (선택)
-              <input type="text" value={buyout} onChange={e => setBuyout(e.target.value.replace(/[^0-9]/g, ''))}
-                style={{ marginLeft: 8, width: 120 }} placeholder="없음" />G
-            </label>
-            <button className="primary" onClick={submit} disabled={!startPrice}>등록</button>
+            {price && Number(price) > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                판매 시 수령액: <b style={{ color: 'var(--accent)' }}>{Math.floor(Number(price) * 0.9).toLocaleString()}G</b>
+                <span style={{ marginLeft: 6 }}>(수수료 10% 차감)</span>
+              </div>
+            )}
+            <button className="primary" onClick={submit} disabled={!price}>등록</button>
           </div>
         </div>
       )}
