@@ -51,10 +51,12 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
+    class_restriction: string | null;
   }>(
     `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
-            i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level
+            i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
+            i.class_restriction
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
     [id]
@@ -107,6 +109,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
         baseStats: r.stats,
         description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
         requiredLevel: (r as any).required_level || 1,
+        classRestriction: r.class_restriction,
       },
     };
   });
@@ -116,9 +119,10 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     name: string; type: string; grade: string;
     item_slot: string | null; stats: Record<string, number> | null; description: string;
+    class_restriction: string | null;
   }>(
     `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats, ce.locked,
-            i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description
+            i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description, i.class_restriction
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
   );
@@ -140,6 +144,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixIds: pIds,
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       locked: r.locked,
+      classRestriction: r.class_restriction,
     };
   }
 

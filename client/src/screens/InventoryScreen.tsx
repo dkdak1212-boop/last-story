@@ -317,6 +317,23 @@ export function InventoryScreen() {
                           <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
                         )}
                         <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{(s.item as any).baseName || s.item.name}</span>
+                        {(s.item as any).classRestriction && (() => {
+                          const cls = (s.item as any).classRestriction;
+                          const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
+                          const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0' };
+                          const charClass = active?.className;
+                          const wrong = charClass && cls !== charClass;
+                          return (
+                            <span style={{
+                              fontSize: 9, padding: '1px 5px', borderRadius: 2,
+                              border: `1px solid ${colorMap[cls]}`,
+                              color: wrong ? 'var(--danger)' : colorMap[cls],
+                              fontWeight: 700,
+                            }}>
+                              {krMap[cls] || cls} 전용{wrong ? ' ✗' : ''}
+                            </span>
+                          );
+                        })()}
                         {s.enhanceLevel > 0 && (
                           <span style={{
                             color: '#000', background: 'var(--accent)', padding: '0 4px',
