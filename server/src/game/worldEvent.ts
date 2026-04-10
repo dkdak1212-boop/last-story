@@ -322,7 +322,7 @@ export async function getLeaderboard(eventId: number, limit = 20) {
 }
 
 // ─── 보상 분배 ───
-async function distributeRewards(eventId: number) {
+async function distributeRewards(eventId: number, mult: number = 1.0) {
   const boss = await query<{ reward_table: unknown }>(
     `SELECT b.reward_table FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id WHERE e.id = $1`, [eventId]
   );
@@ -347,11 +347,13 @@ async function distributeRewards(eventId: number) {
       if (t.minPct != null && t.maxPct != null && topPct >= t.minPct && topPct < t.maxPct) { matched = t; break; }
     }
     const rw = matched.rewards;
-    if (rw.gold) await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [rw.gold, p.character_id]);
-    if (rw.exp) {
+    const goldAmt = rw.gold ? Math.round(rw.gold * mult) : 0;
+    const expAmt = rw.exp ? Math.round(rw.exp * mult) : 0;
+    if (goldAmt) await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [goldAmt, p.character_id]);
+    if (expAmt) {
       const cr = await query<{ level: number; exp: string; class_name: string }>('SELECT level, exp, class_name FROM characters WHERE id = $1', [p.character_id]);
       if (cr.rows[0]) {
-        const result = applyExpGain(cr.rows[0].level, Number(cr.rows[0].exp), rw.exp, cr.rows[0].class_name);
+        const result = applyExpGain(cr.rows[0].level, Number(cr.rows[0].exp), expAmt, cr.rows[0].class_name);
         const g = result.statGrowth;
         await query(
           `UPDATE characters SET level=$1, exp=$2, max_hp=max_hp+$3, node_points=node_points+$4,
@@ -368,8 +370,9 @@ async function distributeRewards(eventId: number) {
       const { overflow } = await addItemToInventory(p.character_id, rw.itemId, rw.qty);
       if (overflow > 0) await deliverToMailbox(p.character_id, `레이드 보상 (${matched.tier})`, '우편 발송', rw.itemId, overflow);
     }
-    await deliverToMailbox(p.character_id, `레이드 보상 (${matched.tier}등급)`,
-      `순위 ${rank}위 · 데미지 ${p.total_damage.toLocaleString()}\n보상: ${rw.gold?.toLocaleString() ?? 0}G, 경험치 ${rw.exp?.toLocaleString() ?? 0}`, 0, 0, 0);
+    const partial = mult < 1.0 ? ' [시간만료 50%]' : '';
+    await deliverToMailbox(p.character_id, `레이드 보상 (${matched.tier}등급)${partial}`,
+      `순위 ${rank}위 · 데미지 ${p.total_damage.toLocaleString()}\n보상: ${goldAmt.toLocaleString()}G, 경험치 ${expAmt.toLocaleString()}`, 0, 0, 0);
   }
 }
 
@@ -377,7 +380,8 @@ async function distributeRewards(eventId: number) {
 export async function finishEvent(eventId: number, status: 'defeated' | 'expired', io?: Server) {
   await query(`UPDATE world_event_active SET status = $1, finished_at = NOW() WHERE id = $2`, [status, eventId]);
   const boss = await query<{ name: string }>(`SELECT b.name FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id WHERE e.id = $1`, [eventId]);
-  if (status === 'defeated') await distributeRewards(eventId);
+  // 처치/만료 모두 참여자에게 보상 (만료는 50% 감소)
+  await distributeRewards(eventId, status === 'expired' ? 0.5 : 1.0);
   if (io) io.emit('world_event', { type: 'world_event_end', bossName: boss.rows[0]?.name ?? '???', result: status });
 }
 
