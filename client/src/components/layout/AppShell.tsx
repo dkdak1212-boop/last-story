@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react';
 import { useMeStore } from '../../stores/meStore';
 import { io as socketIo } from 'socket.io-client';
 
-const NAV = [
+interface NavItem { to: string; label: string; external?: boolean; }
+const NAV: NavItem[] = [
   { to: '/village', label: '메인' },
   { to: '/status', label: '상태' },
   { to: '/map', label: '사냥터' },
@@ -27,6 +28,7 @@ const NAV = [
   { to: '/pvp', label: 'PvP' },
   { to: '/mailbox', label: '우편함' },
   { to: '/ranking', label: '랭킹' },
+  { to: 'https://ko-fi.com/dkdak1212', label: '♥ 후원', external: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -177,26 +179,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             background: 'var(--bg-panel)',
           }}
         >
-          {NAV.map((n) => (
-            <Link
-              key={n.to}
-              to={n.to}
-              style={{
-                flex: 1,
-                padding: '8px 0',
-                fontSize: 12,
-                textAlign: 'center',
-                color: loc.pathname === n.to ? 'var(--accent)' : 'var(--text-dim)',
-                textDecoration: 'none',
-                borderRight: '1px solid var(--border)',
-                background: loc.pathname === n.to ? 'rgba(201,162,77,0.1)' : 'transparent',
-                fontWeight: loc.pathname === n.to ? 700 : 400,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {n.label}
-            </Link>
-          ))}
+          {NAV.map((n) => {
+            if (n.external) {
+              return (
+                <a
+                  key={n.to}
+                  href={n.to}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    flex: 1,
+                    padding: '8px 0',
+                    fontSize: 12,
+                    textAlign: 'center',
+                    color: '#ff6b9d',
+                    textDecoration: 'none',
+                    borderRight: '1px solid var(--border)',
+                    background: 'rgba(255,107,157,0.1)',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {n.label}
+                </a>
+              );
+            }
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                style={{
+                  flex: 1,
+                  padding: '8px 0',
+                  fontSize: 12,
+                  textAlign: 'center',
+                  color: loc.pathname === n.to ? 'var(--accent)' : 'var(--text-dim)',
+                  textDecoration: 'none',
+                  borderRight: '1px solid var(--border)',
+                  background: loc.pathname === n.to ? 'rgba(201,162,77,0.1)' : 'transparent',
+                  fontWeight: loc.pathname === n.to ? 700 : 400,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {n.label}
+              </Link>
+            );
+          })}
         </nav>
       )}
 
