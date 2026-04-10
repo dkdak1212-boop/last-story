@@ -960,6 +960,20 @@ async function runMigrations() {
       await query(`UPDATE skills SET effect_type = 'hp_pct_damage', effect_value = 10, description = 'ATK x150% + 적 HP 10% 추가 데미지' WHERE class_name = 'warrior' AND name = '강타' AND effect_type = 'damage'`);
     } catch (e) { console.error('[patch] 강타 error:', e); }
   }
+  // 스킬 프리셋 테이블
+  {
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS character_skill_presets (
+          character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+          preset_idx   INTEGER NOT NULL CHECK (preset_idx BETWEEN 1 AND 3),
+          name         TEXT NOT NULL DEFAULT '',
+          skill_ids    INTEGER[] NOT NULL DEFAULT '{}',
+          PRIMARY KEY (character_id, preset_idx)
+        )
+      `);
+    } catch (e) { console.error('[migration] skill_presets error:', e); }
+  }
   // 깨진 prefix_stats 데이터 정리
   {
     try {

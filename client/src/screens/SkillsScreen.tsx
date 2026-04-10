@@ -13,14 +13,27 @@ interface Skill {
   autoUse: boolean;
 }
 
+interface SkillPreset {
+  idx: number;
+  name: string;
+  skillIds: number[];
+  empty: boolean;
+}
+
 export function SkillsScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [presets, setPresets] = useState<SkillPreset[]>([]);
+  const [presetBusy, setPresetBusy] = useState(false);
 
   async function refresh() {
     if (!active) return;
-    const data = await api<Skill[]>(`/characters/${active.id}/skills`);
+    const [data, presetData] = await Promise.all([
+      api<Skill[]>(`/characters/${active.id}/skills`),
+      api<SkillPreset[]>(`/characters/${active.id}/skill-presets`),
+    ]);
     setSkills(data);
+    setPresets(presetData);
   }
 
   useEffect(() => {
@@ -28,6 +41,54 @@ export function SkillsScreen() {
   }, [active]);
 
   const [msg, setMsg] = useState('');
+
+  async function savePreset(idx: number) {
+    if (!active || presetBusy) return;
+    setPresetBusy(true); setMsg('');
+    try {
+      const r = await api<{ savedCount: number; name: string }>(
+        `/characters/${active.id}/skill-presets/${idx}/save`,
+        { method: 'POST', body: JSON.stringify({ name: presets.find(p => p.idx === idx)?.name }) }
+      );
+      setMsg(`프리셋 ${idx} 저장 (${r.savedCount}개)`);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '저장 실패');
+    }
+    setPresetBusy(false);
+  }
+
+  async function loadPreset(idx: number) {
+    if (!active || presetBusy) return;
+    setPresetBusy(true); setMsg('');
+    try {
+      const r = await api<{ loadedCount: number; name: string }>(
+        `/characters/${active.id}/skill-presets/${idx}/load`, { method: 'POST' }
+      );
+      setMsg(`프리셋 ${idx} 적용 (${r.loadedCount}개)`);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '불러오기 실패');
+    }
+    setPresetBusy(false);
+  }
+
+  async function renamePreset(idx: number) {
+    if (!active || presetBusy) return;
+    const cur = presets.find(p => p.idx === idx);
+    const newName = prompt('프리셋 이름', cur?.name || `프리셋 ${idx}`);
+    if (!newName || newName === cur?.name) return;
+    setPresetBusy(true); setMsg('');
+    try {
+      await api(`/characters/${active.id}/skill-presets/${idx}/rename`, {
+        method: 'POST', body: JSON.stringify({ name: newName }),
+      });
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '이름변경 실패');
+    }
+    setPresetBusy(false);
+  }
 
   const [toggling, setToggling] = useState(false);
   async function toggleAuto(skillId: number, skillName: string, currentState: boolean) {
@@ -55,7 +116,47 @@ export function SkillsScreen() {
           전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 6 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/6
         </div>
       </div>
-      {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}
+      {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') || msg.includes('저장') || msg.includes('적용') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}
+
+      {/* 프리셋 슬롯 */}
+      <div style={{ marginBottom: 14, padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8, fontWeight: 700 }}>스킬 프리셋</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          {presets.map(p => (
+            <div key={p.idx} style={{
+              padding: 8, background: p.empty ? 'var(--bg)' : 'rgba(218,165,32,0.08)',
+              border: `1px solid ${p.empty ? 'var(--border)' : 'rgba(218,165,32,0.4)'}`,
+              borderRadius: 4,
+            }}>
+              <div
+                onClick={() => renamePreset(p.idx)}
+                style={{ fontSize: 12, fontWeight: 700, color: p.empty ? 'var(--text-dim)' : 'var(--accent)', cursor: 'pointer', marginBottom: 4 }}
+                title="클릭하여 이름 변경"
+              >
+                {p.name} <span style={{ fontSize: 9, opacity: 0.5 }}>✎</span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>
+                {p.empty ? '비어있음' : `${p.skillIds.length}개 스킬`}
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => savePreset(p.idx)} disabled={presetBusy} style={{
+                  flex: 1, padding: '5px', fontSize: 10, fontWeight: 700,
+                  background: 'var(--bg)', color: 'var(--accent)',
+                  border: '1px solid var(--accent)', cursor: 'pointer', borderRadius: 3,
+                }}>저장</button>
+                <button onClick={() => loadPreset(p.idx)} disabled={presetBusy || p.empty} style={{
+                  flex: 1, padding: '5px', fontSize: 10, fontWeight: 700,
+                  background: p.empty ? 'transparent' : 'var(--success)',
+                  color: p.empty ? 'var(--text-dim)' : '#000',
+                  border: `1px solid ${p.empty ? 'var(--border)' : 'var(--success)'}`,
+                  cursor: p.empty ? 'not-allowed' : 'pointer', borderRadius: 3,
+                }}>불러오기</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {skills.map((s) => (
           <div
