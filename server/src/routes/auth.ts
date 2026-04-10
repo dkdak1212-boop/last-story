@@ -17,11 +17,25 @@ const registerSchema = credSchema.extend({
   email: z.string().email().max(100),
 });
 
+function getClientIp(req: any): string {
+  // x-forwarded-for 우선 (Railway 등 프록시 뒤)
+  const xff = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+  return xff || req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
 router.post('/register', async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input (email required)' });
 
   const { username, password, email } = parsed.data;
+  const ip = getClientIp(req);
+
+  // IP 당 1계정 제한
+  const ipExists = await query('SELECT id, username FROM users WHERE registered_ip = $1', [ip]);
+  if (ipExists.rowCount && ipExists.rowCount > 0) {
+    return res.status(409).json({ error: '이 IP에서 이미 가입된 계정이 있습니다' });
+  }
+
   const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
   if (exists.rowCount && exists.rowCount > 0) {
     return res.status(409).json({ error: 'username taken' });
@@ -33,8 +47,8 @@ router.post('/register', async (req, res) => {
 
   const hash = await bcrypt.hash(password, 10);
   const result = await query<{ id: number }>(
-    'INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3) RETURNING id',
-    [username, hash, email]
+    'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 2) RETURNING id',
+    [username, hash, email, ip]
   );
   const userId = result.rows[0].id;
   const token = signToken(userId, username);

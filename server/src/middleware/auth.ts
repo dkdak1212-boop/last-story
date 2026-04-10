@@ -28,3 +28,16 @@ export function authRequired(req: AuthedRequest, res: Response, next: NextFuncti
     res.status(401).json({ error: 'invalid token' });
   }
 }
+
+// 토큰 있으면 식별, 없거나 유효하지 않아도 통과 (다음 미들웨어에서 판단)
+export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (header?.startsWith('Bearer ')) {
+    try {
+      const payload = jwt.verify(header.slice(7), SECRET) as { userId: number; username: string };
+      req.userId = payload.userId;
+      req.username = payload.username;
+    } catch { /* 무시 */ }
+  }
+  next();
+}

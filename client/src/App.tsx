@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Suspense, lazy, Component, type ReactNode } from 'react';
+import { Suspense, lazy, Component, type ReactNode, useEffect, useState } from 'react';
 import { useAuthStore } from './stores/authStore';
 import { AppShell } from './components/layout/AppShell';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import { MaintenanceScreen } from './components/ui/MaintenanceScreen';
+import { api } from './api/client';
 
 // lazy import에 자동 재시도 (chunk 로드 실패 대응)
 function lazyRetry(factory: () => Promise<any>, retries = 3): ReturnType<typeof lazy> {
@@ -70,11 +72,35 @@ function Protected({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function MaintenanceGate({ children }: { children: ReactNode }) {
+  const isAdmin = useAuthStore((s) => s.username === 'admin');
+  const [until, setUntil] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  const check = async () => {
+    try {
+      const s = await api<{ maintenance: boolean; until: string | null }>('/server-status');
+      setUntil(s.maintenance && s.until ? s.until : null);
+    } catch { /* 무시 */ }
+    setChecked(true);
+  };
+  useEffect(() => {
+    check();
+    const id = setInterval(check, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!checked) return null;
+  if (until && !isAdmin) return <MaintenanceScreen until={until} onRetry={check} />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
         <Suspense fallback={<LoadingSpinner message="불러오는 중..." />}>
+          <MaintenanceGate>
           <Routes>
             <Route path="/login" element={<LoginScreen />} />
             <Route
@@ -112,6 +138,7 @@ export default function App() {
               }
             />
           </Routes>
+          </MaintenanceGate>
         </Suspense>
       </ErrorBoundary>
     </BrowserRouter>

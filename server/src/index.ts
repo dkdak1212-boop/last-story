@@ -56,11 +56,18 @@ const PORT = Number(process.env.PORT || 4000);
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
+app.set('trust proxy', true); // Railway 등 프록시 뒤에서 req.ip 정확히 추출
 
 app.use('/api/migrate-force', migrateForceRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
+});
+
+// 유지보수 상태 공개 조회
+app.get('/api/server-status', async (_req, res) => {
+  const { getServerStatus } = await import('./middleware/maintenance.js');
+  res.json(await getServerStatus());
 });
 
 // 디버그: 마이그레이션 상태 + 아이템 수 확인
@@ -83,7 +90,13 @@ app.get('/api/debug/status', async (_req, res) => {
   }
 });
 
+// 유지보수 게이트 (auth 이후 적용 — admin은 토큰으로 식별)
+import { maintenanceGate } from './middleware/maintenance.js';
+import { optionalAuth } from './middleware/auth.js';
+
 app.use('/api/auth', authRoutes);
+// 로그인 이후 모든 API에 유지보수 게이트 적용
+app.use('/api', optionalAuth, maintenanceGate);
 app.use('/api/characters', characterRoutes);
 app.use('/api/characters', combatRoutes);
 app.use('/api/characters', inventoryRoutes);

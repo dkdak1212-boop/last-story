@@ -77,6 +77,20 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   const { name, className } = parsed.data;
 
+  // 캐릭터 슬롯 한도 체크
+  const u = await query<{ max_character_slots: number }>(
+    'SELECT COALESCE(max_character_slots, 2) AS max_character_slots FROM users WHERE id = $1',
+    [req.userId]
+  );
+  const maxSlots = u.rows[0]?.max_character_slots || 2;
+  const curCount = await query<{ cnt: string }>(
+    'SELECT COUNT(*)::text AS cnt FROM characters WHERE user_id = $1',
+    [req.userId]
+  );
+  if (Number(curCount.rows[0].cnt) >= maxSlots) {
+    return res.status(400).json({ error: `계정당 최대 ${maxSlots}개 캐릭터만 생성 가능` });
+  }
+
   const dup = await query('SELECT 1 FROM characters WHERE name = $1', [name]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(409).json({ error: 'name taken' });
 
