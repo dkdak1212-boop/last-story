@@ -37,6 +37,9 @@ function rollTier(): number {
 // 1옵 90%, 2옵 9%, 3옵 1%
 // itemLevel: 아이템 요구 레벨 (1~70). 접두사 값을 레벨 비례 스케일링
 //   저렙(~10): 0.4~0.7배, 중렙(~35): 1.0배(기준), 고렙(50+): 1.3~1.8배
+// 중복 접두사 발생 확률 (2옵/3옵 아이템에서 각 추가 옵션이 기존 stat_key와 겹칠 확률)
+const DUPLICATE_PREFIX_CHANCE = 15; // %
+
 export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
   const prefixes = await loadPrefixes();
   // 레벨 스케일 팩터: lv35 = 1.0 기준
@@ -56,7 +59,11 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
 
   for (let i = 0; i < count; i++) {
     const tier = rollTier();
-    const candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
+    // 첫 번째는 무조건 새 스탯, 이후는 확률적으로 중복 허용
+    const allowDuplicate = i > 0 && Math.random() * 100 < DUPLICATE_PREFIX_CHANCE;
+    const candidates = allowDuplicate
+      ? prefixes.filter(p => p.tier === tier)
+      : prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
     if (candidates.length === 0) continue;
 
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
