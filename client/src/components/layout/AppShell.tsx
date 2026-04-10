@@ -27,7 +27,6 @@ const NAV = [
   { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },
   { to: '/pvp', label: 'PvP' },
-  { to: '/premium', label: '프리미엄' },
   { to: '/mailbox', label: '우편함' },
   { to: '/ranking', label: '랭킹' },
 ];

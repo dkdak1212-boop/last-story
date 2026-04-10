@@ -33,7 +33,6 @@ const GuildScreen = lazyRetry(() => import('./screens/GuildScreen').then((m) => 
 const NodeTreeScreen = lazyRetry(() => import('./screens/NodeTreeScreen').then((m) => ({ default: m.NodeTreeScreen })));
 const MarketplaceScreen = lazyRetry(() => import('./screens/MarketplaceScreen').then((m) => ({ default: m.MarketplaceScreen })));
 const PvPScreen = lazyRetry(() => import('./screens/PvPScreen').then((m) => ({ default: m.PvPScreen })));
-const PremiumShopScreen = lazyRetry(() => import('./screens/PremiumShopScreen').then((m) => ({ default: m.PremiumShopScreen })));
 const AnnouncementScreen = lazyRetry(() => import('./screens/AnnouncementScreen').then((m) => ({ default: m.AnnouncementScreen })));
 const FeedbackScreen = lazyRetry(() => import('./screens/FeedbackScreen').then((m) => ({ default: m.FeedbackScreen })));
 const AdminScreen = lazyRetry(() => import('./screens/AdminScreen').then((m) => ({ default: m.AdminScreen })));
@@ -100,7 +99,6 @@ export default function App() {
                       <Route path="/nodes" element={<NodeTreeScreen />} />
                       <Route path="/marketplace" element={<MarketplaceScreen />} />
                       <Route path="/pvp" element={<PvPScreen />} />
-                      <Route path="/premium" element={<PremiumShopScreen />} />
                       <Route path="/announcements" element={<AnnouncementScreen />} />
                       <Route path="/daily-quests" element={<DailyQuestScreen />} />
                       <Route path="/achievements" element={<AchievementScreen />} />

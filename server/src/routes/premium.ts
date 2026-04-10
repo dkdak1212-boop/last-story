@@ -20,7 +20,6 @@ const ITEMS: PremiumItem[] = [
   { code: 'gold_boost_3d', name: '골드 부스터 +50% (3일)', description: '3일간 사냥 골드가 50% 증가합니다.', priceKrw: 0, requireCharacter: true },
   { code: 'drop_boost_3d', name: '드롭률 부스터 +30% (3일)', description: '3일간 장비 드롭 확률이 30% 증가합니다.', priceKrw: 0, requireCharacter: true },
   { code: 'enhance_scroll_5', name: '강화 성공률 스크롤 ×5', description: '강화 시 성공 확률 +10% 스크롤 5개를 지급합니다.', priceKrw: 0, requireCharacter: true },
-  { code: 'prefix_reroll', name: '접두사 재굴림권', description: '장비의 접두사를 새로 랜덤 생성합니다. (인벤토리에서 사용)', priceKrw: 0, requireCharacter: true },
   { code: 'nick_highlight', name: '닉네임 강조 (채팅창 적용)', description: '채팅에서 닉네임이 금색으로 빛납니다. 영구 적용.', priceKrw: 0, requireCharacter: true },
 ];
 
@@ -68,12 +67,6 @@ router.post('/purchase', async (req: AuthedRequest, res: Response) => {
     case 'enhance_scroll_5': {
       const { addItemToInventoryPlain } = await import('../game/inventory.js');
       await addItemToInventoryPlain(characterId!, 286, 5);
-      break;
-    }
-    case 'prefix_reroll': {
-      // 접두사 재굴림권 아이템 인벤토리에 지급
-      const { addItemToInventoryPlain: addReroll } = await import('../game/inventory.js');
-      await addReroll(characterId!, 322, 1);
       break;
     }
     case 'nick_highlight':
