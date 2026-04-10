@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { InventorySlot, Equipped, Stats } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, STAT_LABEL, getEnhanceMult } from '../components/ui/ItemStats';
+import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, getEnhanceMult } from '../components/ui/ItemStats';
 import { ItemComparison } from '../components/ui/ItemComparison';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 import { ItemIcon } from '../components/ui/ItemIcon';
@@ -36,11 +36,10 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
-  const [sortMode, setSortMode] = useState<'latest' | 'level' | 'enhance' | 'slot'>('latest');
+  const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
-  const [rerollBusy, setRerollBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
-  const [tab, setTab] = useState<'equip' | 'bag' | 'etc'>('bag');
+  const [tab, setTab] = useState<'equip' | 'bag'>('bag');
 
   async function refresh() {
     if (!active) return;
@@ -72,13 +71,6 @@ export function InventoryScreen() {
       setMsg(`${res.sold} x${res.quantity} 판매 +${res.gold}G`); await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
   }
-  async function dismantle(slotIndex: number, e: React.MouseEvent) {
-    e.stopPropagation(); if (!active) return;
-    if (!confirm('분해하시겠습니까?')) return; setMsg('');
-    try { const res = await api<{ name: string; gold: number }>(`/characters/${active.id}/dismantle`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
-      setMsg(`${res.name} 분해 +${res.gold}G`); await Promise.all([refresh(), refreshActive()]);
-    } catch (e) { setMsg(e instanceof Error ? e.message : '분해 실패'); }
-  }
   async function toggleLock(slotIndex: number, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
     await api(`/characters/${active.id}/lock`, { method: 'POST', body: JSON.stringify({ slotIndex }) }); refresh();
@@ -97,17 +89,6 @@ export function InventoryScreen() {
       await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '강화 실패'); } finally { setEnhanceBusy(false); }
   }
-  async function rerollPrefix(_si: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent) {
-    e.stopPropagation(); if (!active || rerollBusy) return;
-    setRerollBusy(true); setMsg('');
-    try { const r = await api<{ success: boolean; prefixStats: Record<string, number> }>(`/enhance/${active.id}/reroll-prefix`, { method: 'POST', body: JSON.stringify({ kind, slotKey }) });
-      const statStr = Object.entries(r.prefixStats).map(([k, v]) => {
-        const isPct = ['cri','def_reduce_pct','slow_pct','dot_amp_pct','gold_bonus_pct','exp_bonus_pct','crit_dmg_pct'].includes(k);
-        return `${STAT_LABEL[k as keyof Stats] || k}+${v}${isPct ? '%' : ''}`;
-      }).join(', ');
-      setMsg(`재굴림! ${statStr || '없음'}`); await Promise.all([refresh(), refreshActive()]);
-    } catch (e) { setMsg(e instanceof Error ? e.message : '재굴림 실패'); } finally { setRerollBusy(false); }
-  }
   async function toggleAutoDismantle() {
     if (!active) return;
     try { const res = await api<{ autoDismantleCommon: boolean }>(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ enabled: !autoDismantleCommon }) });
@@ -119,24 +100,21 @@ export function InventoryScreen() {
   const equipmentItems = inv.filter(s => !!s.item.slot);
   const etcItems = inv.filter(s => !s.item.slot);
 
-  const sortedInv = [...equipmentItems].sort((a, b) => {
-    if (sortMode === 'enhance') return (b.enhanceLevel || 0) - (a.enhanceLevel || 0);
-    if (sortMode === 'level') return ((b.item as any).requiredLevel || 0) - ((a.item as any).requiredLevel || 0);
-    if (sortMode === 'slot') {
-      const order: Record<string, number> = { weapon: 0, helm: 1, chest: 2, boots: 3, ring: 4, amulet: 5 };
-      return (a.item.slot ? order[a.item.slot] ?? 6 : 7) - (b.item.slot ? order[b.item.slot] ?? 6 : 7) || b.slotIndex - a.slotIndex;
-    }
-    return b.slotIndex - a.slotIndex;
-  });
+  // 카테고리 필터링
+  function filterByCategory(items: typeof inv) {
+    if (categoryTab === 'recent') return [...items].sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'weapon') return items.filter(s => s.item.slot === 'weapon').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'helm') return items.filter(s => s.item.slot === 'helm').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'chest') return items.filter(s => s.item.slot === 'chest').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'boots') return items.filter(s => s.item.slot === 'boots').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'consumable') return items.filter(s => (s.item as any).type === 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'etc') return items.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
+    return items;
+  }
 
-  // 기타: 종류별 그룹핑
-  const sortedEtc = [...etcItems].sort((a, b) => {
-    // type 우선 (consumable → material → 기타)
-    const typeOrd: Record<string, number> = { consumable: 0, material: 1 };
-    const ta = typeOrd[(a.item as any).type] ?? 9;
-    const tb = typeOrd[(b.item as any).type] ?? 9;
-    return ta - tb || b.slotIndex - a.slotIndex;
-  });
+  // 최근/장비 슬롯 → equipmentItems + 악세도 포함
+  const allInv = [...equipmentItems, ...etcItems];
+  const sortedInv = filterByCategory(allInv);
 
   const isGood = (m: string) => m.includes('성공') || m.includes('판매') || m.includes('분해') || m.includes('재굴림');
 
@@ -158,16 +136,16 @@ export function InventoryScreen() {
         }}>{msg}</div>
       )}
 
-      {/* 탭 */}
+      {/* 메인 탭 */}
       <div style={{ display: 'flex', marginBottom: 10, borderBottom: '2px solid var(--border)' }}>
-        {([['equip', '장착'], ['bag', '장비'], ['etc', '기타']] as const).map(([key, label]) => (
+        {([['equip', '장착'], ['bag', '가방']] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             flex: 1, padding: '10px 0', fontSize: 14, fontWeight: 700, border: 'none', cursor: 'pointer',
             background: tab === key ? 'var(--bg-panel)' : 'transparent',
             color: tab === key ? 'var(--accent)' : 'var(--text-dim)',
             borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
             marginBottom: -2,
-          }}>{label}{key === 'bag' ? ` (${equipmentItems.length})` : key === 'etc' ? ` (${etcItems.length})` : ''}</button>
+          }}>{label}{key === 'bag' ? ` (${inv.length})` : ''}</button>
         ))}
       </div>
 
@@ -263,42 +241,46 @@ export function InventoryScreen() {
       {/* ═══ 가방 탭 ═══ */}
       {tab === 'bag' && (
         <>
-          {/* 툴바 */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, alignItems: 'center' }}>
-            {/* 정렬 */}
-            <div style={{ display: 'flex', gap: 1, background: 'var(--bg)', borderRadius: 4, padding: 1 }}>
-              {([['latest', '최신'], ['level', '레벨'], ['enhance', '강화'], ['slot', '부위']] as const).map(([key, label]) => (
-                <button key={key} onClick={() => setSortMode(key)} style={{
-                  fontSize: 11, padding: '4px 10px', borderRadius: 3, border: 'none', cursor: 'pointer',
-                  background: sortMode === key ? 'var(--accent)' : 'transparent',
-                  color: sortMode === key ? '#000' : 'var(--text-dim)',
-                  fontWeight: sortMode === key ? 700 : 400,
-                }}>{label}</button>
-              ))}
-            </div>
-            <div style={{ flex: 1 }} />
-            {/* 일괄 액션 */}
+          {/* 카테고리 탭 */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {([
+              ['recent', '최근'],
+              ['weapon', '무기'],
+              ['helm', '투구'],
+              ['chest', '갑옷'],
+              ['boots', '신발'],
+              ['consumable', '소모품'],
+              ['etc', '기타'],
+            ] as const).map(([key, label]) => {
+              const count = (() => {
+                if (key === 'recent') return inv.length;
+                if (key === 'weapon') return inv.filter(s => s.item.slot === 'weapon').length;
+                if (key === 'helm') return inv.filter(s => s.item.slot === 'helm').length;
+                if (key === 'chest') return inv.filter(s => s.item.slot === 'chest').length;
+                if (key === 'boots') return inv.filter(s => s.item.slot === 'boots').length;
+                if (key === 'consumable') return inv.filter(s => (s.item as any).type === 'consumable').length;
+                if (key === 'etc') return inv.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').length;
+                return 0;
+              })();
+              return (
+                <button key={key} onClick={() => setCategoryTab(key)} style={{
+                  fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
+                  background: categoryTab === key ? 'var(--accent)' : 'var(--bg-panel)',
+                  color: categoryTab === key ? '#000' : 'var(--text-dim)',
+                  border: `1px solid ${categoryTab === key ? 'var(--accent)' : 'var(--border)'}`,
+                  fontWeight: categoryTab === key ? 700 : 400,
+                }}>{label} {count > 0 && `(${count})`}</button>
+              );
+            })}
+          </div>
+          {/* 자동분해 토글 */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
             <button onClick={toggleAutoDismantle} style={{
               fontSize: 10, padding: '4px 8px', borderRadius: 3,
               background: autoDismantleCommon ? 'rgba(200,60,60,0.2)' : 'transparent',
               color: autoDismantleCommon ? 'var(--danger)' : 'var(--text-dim)',
               border: `1px solid ${autoDismantleCommon ? 'var(--danger)' : 'var(--border)'}`, cursor: 'pointer',
             }}>자동분해 {autoDismantleCommon ? 'ON' : 'OFF'}</button>
-            {(['common', 'rare', 'epic', 'legendary'] as const).map(g => {
-              const lbl: Record<string, string> = { common: '일반', rare: '매직', epic: '에픽', legendary: '전설' };
-              const clr: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
-              return (
-                <button key={g} onClick={async () => {
-                  if (!active || !confirm(`${lbl[g]} 일괄 판매?`)) return; setMsg('');
-                  try { const res = await api<{ grade: string; count: number; gold: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({ grade: g }) });
-                    setMsg(`${res.grade} ${res.count}개 판매 +${res.gold.toLocaleString()}G`); await Promise.all([refresh(), refreshActive()]);
-                  } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
-                }} style={{
-                  fontSize: 10, padding: '4px 6px', background: 'transparent',
-                  color: clr[g], border: `1px solid ${clr[g]}30`, cursor: 'pointer', borderRadius: 3,
-                }}>{lbl[g]}</button>
-              );
-            })}
           </div>
 
           {/* 아이템 목록 */}
@@ -439,15 +421,15 @@ export function InventoryScreen() {
                         {isEquipment && !locked && (
                           <button onClick={(e) => enhanceItem(s.slotIndex, 'inventory', s.slotIndex, e)}
                             disabled={enhanceBusy || (s.enhanceLevel || 0) >= 20}
-                            style={{ ...actionBtn('var(--accent)'), opacity: (s.enhanceLevel || 0) >= 20 ? 0.3 : 1 }}>강화</button>
-                        )}
-                        {isEquipment && !locked && (
-                          <button onClick={(e) => rerollPrefix(s.slotIndex, 'inventory', s.slotIndex, e)}
-                            disabled={rerollBusy} style={actionBtn('#64d2ff')}>재굴림</button>
-                        )}
-                        {isEquipment && !locked && (
-                          <button onClick={(e) => dismantle(s.slotIndex, e)}
-                            style={{ ...actionBtn('#886666'), fontSize: 10 }}>분해</button>
+                            style={{
+                              padding: '8px 18px', fontSize: 12, fontWeight: 700,
+                              background: 'rgba(218,165,32,0.15)',
+                              color: 'var(--accent)',
+                              border: '2px solid var(--accent)',
+                              cursor: 'pointer', borderRadius: 4,
+                              opacity: (s.enhanceLevel || 0) >= 20 ? 0.3 : 1,
+                              boxShadow: '0 0 6px rgba(218,165,32,0.3)',
+                            }}>강화</button>
                         )}
                       </div>
                       {locked && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 6 }}>잠김</div>}
@@ -461,58 +443,6 @@ export function InventoryScreen() {
         </>
       )}
 
-      {/* ═══ 기타 탭 (소모품/재료) ═══ */}
-      {tab === 'etc' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {sortedEtc.length === 0 && <div style={{ color: 'var(--text-dim)', padding: 30, textAlign: 'center' }}>아이템이 없다.</div>}
-          {sortedEtc.map((s) => {
-            const gradeClr = GRADE_COLOR[s.item.grade];
-            const itemType = (s.item as any).type;
-            const typeLabel: Record<string, string> = { consumable: '소모품', material: '재료', quest: '퀘스트' };
-            const isExpanded = expandedSlot === s.slotIndex;
-            return (
-              <div key={s.slotIndex}
-                onClick={() => setExpandedSlot(isExpanded ? null : s.slotIndex)}
-                style={{
-                  padding: '8px 12px', borderRadius: 4, cursor: 'pointer',
-                  background: 'var(--bg-panel)',
-                  borderLeft: `3px solid ${gradeClr}`,
-                  borderTop: '1px solid transparent', borderRight: '1px solid transparent',
-                  borderBottom: `1px solid ${isExpanded ? 'var(--accent)30' : 'var(--border)'}`,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <ItemIcon slot={null} grade={s.item.grade} itemName={s.item.name} size={24} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
-                      <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{s.item.name}</span>
-                      {s.quantity > 1 && (
-                        <span style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 700 }}>x{s.quantity}</span>
-                      )}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>{typeLabel[itemType] || ''}</span>
-                  <span style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
-                </div>
-
-                {isExpanded && (
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                    <div style={{ color: 'var(--text-dim)', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>
-                      {s.item.description}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {s.item.sellPrice > 0 && (
-                        <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel || 0, s.item.name, e)}
-                          style={actionBtn('#e0a040')}>판매 {s.item.sellPrice}G</button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
