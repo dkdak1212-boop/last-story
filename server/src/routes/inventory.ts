@@ -156,16 +156,22 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   // 슬롯에서 아이템 찾기
-  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number }>(
-    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked, COALESCE(i.required_level, 1) AS required_level FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+  const invR = await query<{ item_id: number; slot: string | null; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number; class_restriction: string | null }>(
+    `SELECT ci.item_id, i.slot, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
+            COALESCE(i.required_level, 1) AS required_level, i.class_restriction
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.slot_index = $2`,
     [id, parsed.data.slotIndex]
   );
   if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
   if (invR.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
-  const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level } = invR.rows[0];
+  const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level, class_restriction } = invR.rows[0];
   if (!slot) return res.status(400).json({ error: 'not equippable' });
   if (char.level < required_level) return res.status(400).json({ error: `Lv.${required_level} 이상만 장착 가능` });
+  if (class_restriction && class_restriction !== char.class_name) {
+    const classKr: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
+    return res.status(400).json({ error: `${classKr[class_restriction] || class_restriction} 전용 무기입니다.` });
+  }
 
   // 해제 먼저 (인벤토리로 돌려보내기)
   const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
