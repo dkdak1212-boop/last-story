@@ -20,7 +20,6 @@ const NAV = [
   { to: '/shop', label: '상점' },
   { to: '/enhance', label: '강화' },
   { to: '/craft', label: '제작' },
-  { to: '/quests', label: '퀘스트' },
   { to: '/daily-quests', label: '일일임무' },
   { to: '/achievements', label: '업적' },
   { to: '/marketplace', label: '거래소' },

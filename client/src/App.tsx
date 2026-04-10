@@ -28,7 +28,6 @@ const SkillsScreen = lazyRetry(() => import('./screens/SkillsScreen').then((m) =
 const ShopScreen = lazyRetry(() => import('./screens/ShopScreen').then((m) => ({ default: m.ShopScreen })));
 const MailboxScreen = lazyRetry(() => import('./screens/MailboxScreen').then((m) => ({ default: m.MailboxScreen })));
 const RankingScreen = lazyRetry(() => import('./screens/RankingScreen').then((m) => ({ default: m.RankingScreen })));
-const QuestScreen = lazyRetry(() => import('./screens/QuestScreen').then((m) => ({ default: m.QuestScreen })));
 const GuildScreen = lazyRetry(() => import('./screens/GuildScreen').then((m) => ({ default: m.GuildScreen })));
 const NodeTreeScreen = lazyRetry(() => import('./screens/NodeTreeScreen').then((m) => ({ default: m.NodeTreeScreen })));
 const MarketplaceScreen = lazyRetry(() => import('./screens/MarketplaceScreen').then((m) => ({ default: m.MarketplaceScreen })));
@@ -94,7 +93,6 @@ export default function App() {
                       <Route path="/shop" element={<ShopScreen />} />
                       <Route path="/mailbox" element={<MailboxScreen />} />
                       <Route path="/ranking" element={<RankingScreen />} />
-                      <Route path="/quests" element={<QuestScreen />} />
                       <Route path="/guild" element={<GuildScreen />} />
                       <Route path="/nodes" element={<NodeTreeScreen />} />
                       <Route path="/marketplace" element={<MarketplaceScreen />} />
