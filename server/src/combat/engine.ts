@@ -619,10 +619,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const stunChance = skill.effect_value * (1 + gcAmp / 100);
       addLog(s, `[${skill.name}] 적 게이지 리셋!`);
       if (Math.random() * 100 < stunChance) {
-        if (Math.random() < 0.5) {
+        if (hasEffect(s, 'player', 'cc_immune')) {
+          addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        } else if (Math.random() < 0.5) {
           addLog(s, `[${skill.name}] 몬스터가 기절에 저항!`);
         } else {
           addEffect(s, { type: 'stun', value: 0, remainingActions: 1, source: 'player' });
+          addEffect(s, { type: 'cc_immune', value: 0, remainingActions: 1 + 3, source: 'player' });
           addLog(s, `[${skill.name}] 조작불능!`);
         }
       }
@@ -634,12 +637,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
-        if (Math.random() < 0.5) {
+        if (hasEffect(s, 'player', 'cc_immune')) {
+          addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        } else if (Math.random() < 0.5) {
           addLog(s, `[${skill.name}] 몬스터가 기절에 저항!`);
         } else {
           const stunExt = getPassive(s, 'stun_extend');
-          addEffect(s, { type: 'stun', value: 0, remainingActions: skill.effect_duration + stunExt, source: 'player' });
-          addLog(s, `[${skill.name}] 스턴 ${skill.effect_duration + stunExt}행동!`);
+          const stunDur = skill.effect_duration + stunExt;
+          addEffect(s, { type: 'stun', value: 0, remainingActions: stunDur, source: 'player' });
+          addEffect(s, { type: 'cc_immune', value: 0, remainingActions: stunDur + 3, source: 'player' });
+          addLog(s, `[${skill.name}] 스턴 ${stunDur}행동!`);
         }
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
@@ -648,10 +655,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'gauge_freeze': {
+      if (hasEffect(s, 'player', 'cc_immune')) {
+        addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        break;
+      }
       const freezeExt = getPassive(s, 'freeze_extend');
       const gcAmp2 = getPassive(s, 'gauge_control_amp');
       const freezeDur = Math.round((skill.effect_duration + freezeExt) * (1 + gcAmp2 / 100));
       addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: freezeDur, source: 'player' });
+      addEffect(s, { type: 'cc_immune', value: 0, remainingActions: freezeDur + 3, source: 'player' });
       addLog(s, `[${skill.name}] 적 게이지 동결 ${freezeDur}행동!`);
       break;
     }
