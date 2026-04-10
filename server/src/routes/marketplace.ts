@@ -85,8 +85,8 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_stats: Record<string, number> | null }>(
-    'SELECT id, item_id, quantity, enhance_level, prefix_stats FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
+  const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
+    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
     [characterId, slotIndex]
   );
   if (inv.rowCount === 0) return res.status(404).json({ error: 'item not in slot' });
@@ -98,12 +98,13 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
   await query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [invRow.id]);
 
   const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000).toISOString();
-  // start_price도 동일하게 저장 (DB 호환). 입찰 제거.
   await query(
-    `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_stats)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7::jsonb)`,
+    `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb)`,
     [characterId, invRow.item_id, quantity, price, endsAt,
-     invRow.enhance_level || 0, invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null]
+     invRow.enhance_level || 0,
+     invRow.prefix_ids || null,
+     invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null]
   );
   res.json({ ok: true });
 });
