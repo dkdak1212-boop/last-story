@@ -32,20 +32,34 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 인벤토리
-  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats
+  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
   // 장착
-  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
-    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats
+  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [cid]
   );
+
+  // 접두사 이름 조회 (한꺼번에)
+  const allPrefixIds = [...new Set([...inv.rows, ...eq.rows].flatMap(r => r.prefix_ids || []))];
+  const prefixNameMap = new Map<number, string>();
+  if (allPrefixIds.length > 0) {
+    const pr = await query<{ id: number; name: string }>(
+      'SELECT id, name FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    );
+    for (const p of pr.rows) prefixNameMap.set(p.id, p.name);
+  }
+  function buildPrefixName(ids: number[] | null): string {
+    if (!ids || ids.length === 0) return '';
+    return ids.map(id => prefixNameMap.get(id)).filter(Boolean).join(' ');
+  }
 
   function enhancedStats(baseStats: Record<string, number> | null, enhLevel: number): Record<string, number> | null {
     if (!baseStats) return null;
@@ -85,6 +99,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
       prefixStats: r.prefix_stats || {},
+      prefixName: buildPrefixName(r.prefix_ids),
+      quality: r.quality || 0,
     })),
     equipped: eq.rows.map(r => ({
       kind: 'equipped' as const, equipSlot: r.slot,
@@ -94,6 +110,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
       prefixStats: r.prefix_stats || {},
+      prefixName: buildPrefixName(r.prefix_ids),
+      quality: r.quality || 0,
     })),
     scrollCount,
     rerollCount,

@@ -13,6 +13,8 @@ interface EnhanceItem {
   baseStats: Partial<Stats> | null; // 원본(강화 전) 스탯
   enhanceLevel: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
+  prefixName?: string;
+  quality?: number;
 }
 
 const SLOT_LABEL: Record<string, string> = {
@@ -78,26 +80,44 @@ export function EnhanceScreen() {
           {(() => {
             const equipped = items.filter(it => it.kind === 'equipped');
             const inventory = items.filter(it => it.kind !== 'equipped');
-            const renderItem = (it: EnhanceItem, idx: number) => (
-              <div key={`${it.kind}-${idx}`} onClick={() => { setSelected(it); setResult(null); }}
-                style={{
-                  padding: 10, background: 'var(--bg-panel)',
-                  border: `1px solid ${selected === it ? 'var(--accent)' : GRADE_COLOR[it.grade]}`,
-                  cursor: 'pointer',
-                }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span style={{ color: GRADE_COLOR[it.grade], fontWeight: 700 }}>
+            const renderItem = (it: EnhanceItem, idx: number) => {
+              const q = it.quality || 0;
+              const qColor = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
+              return (
+                <div key={`${it.kind}-${idx}`} onClick={() => { setSelected(it); setResult(null); }}
+                  style={{
+                    padding: 10, background: 'var(--bg-panel)',
+                    border: `1px solid ${selected === it ? 'var(--accent)' : GRADE_COLOR[it.grade]}`,
+                    borderLeft: `3px solid ${GRADE_COLOR[it.grade]}`,
+                    cursor: 'pointer',
+                  }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {it.prefixName && (
+                      <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{it.prefixName}</span>
+                    )}
+                    <span style={{ color: GRADE_COLOR[it.grade], fontWeight: 700, fontSize: 13 }}>
                       {it.name}
                       {it.enhanceLevel > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>+{it.enhanceLevel}</span>}
                     </span>
-                    <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-dim)' }}>
+                    {it.itemSlot && (
+                      <span style={{
+                        fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                        background: qColor + '22', border: `1px solid ${qColor}`,
+                        color: qColor, fontWeight: 700,
+                      }}>품질 {q}%</span>
+                    )}
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-dim)' }}>
                       [{GRADE_LABEL[it.grade]}] {SLOT_LABEL[it.itemSlot || '']}
                     </span>
                   </div>
+                  {it.prefixStats && Object.keys(it.prefixStats).length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <PrefixDisplay prefixStats={it.prefixStats} />
+                    </div>
+                  )}
                 </div>
-              </div>
-            );
+              );
+            };
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 600, overflowY: 'auto' }}>
                 {equipped.length > 0 && (
@@ -135,8 +155,9 @@ export function EnhanceScreen() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
                   {Object.entries(selected.baseStats).map(([k, v]) => {
-                    // 강화 배율: +7.5%/단계
-                    const getMult = (el: number) => 1 + el * 0.075;
+                    // 강화 배율: +7.5%/단계 + 품질 보너스
+                    const qBonus = (selected.quality || 0) / 100;
+                    const getMult = (el: number) => 1 + el * 0.075 + qBonus;
                     const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
                     const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
                     return (

@@ -16,6 +16,21 @@ function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
     style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
 }
 
+// 강화 비용/확률 (서버 enhance.ts와 동일 공식)
+function getEnhanceInfo(currentLevel: number, charLevel: number) {
+  const next = currentLevel + 1;
+  const lv = Math.max(1, charLevel);
+  let cost: number; let chance: number; let destroyRate = 0;
+  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
+  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
+  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
+  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
+  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
+  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
+  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
+  return { cost, chance, destroyRate };
+}
+
 // 주요 스탯 한줄 요약 (강화 배율 + 품질 보너스 덧셈)
 function StatSummary({ stats, enhanceLevel, quality = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel: number; quality?: number }) {
   if (!stats) return null;
@@ -79,9 +94,12 @@ export function InventoryScreen() {
     e.stopPropagation(); if (!active) return;
     await api(`/characters/${active.id}/lock-equipped`, { method: 'POST', body: JSON.stringify({ slot }) }); refresh();
   }
-  async function enhanceItem(_si: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent) {
+  async function enhanceItem(_si: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent, currentEnhLevel: number = 0) {
     e.stopPropagation(); if (!active || enhanceBusy) return;
-    if (!confirm('강화하시겠습니까?')) return;
+    const info = getEnhanceInfo(currentEnhLevel, active.level);
+    const ratePct = Math.round(info.chance * 100);
+    const destroyTxt = info.destroyRate > 0 ? `\n파괴 확률: ${Math.round(info.destroyRate * 100)}%` : '';
+    if (!confirm(`+${currentEnhLevel + 1} 강화 시도\n비용: ${info.cost.toLocaleString()}G\n성공 확률: ${ratePct}%${destroyTxt}`)) return;
     setEnhanceBusy(true); setMsg('');
     try { const r = await api<{ success: boolean; newLevel: number; cost: number; destroyed?: boolean }>(`/enhance/${active.id}/attempt`, { method: 'POST', body: JSON.stringify({ kind, slotKey, useScroll: false }) });
       if (r.destroyed) setMsg(`강화 실패 — 파괴! (-${r.cost.toLocaleString()}G)`);
@@ -187,9 +205,14 @@ export function InventoryScreen() {
                   <PrefixDisplay prefixStats={item.prefixStats} />
                   <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                     {!locked && <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>}
-                    {!locked && (item.enhanceLevel || 0) < 20 && (
-                      <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e)} style={btnStyle('var(--accent)', 'var(--accent)')}>강화</button>
-                    )}
+                    {!locked && (item.enhanceLevel || 0) < 20 && (() => {
+                      const eInfo = getEnhanceInfo(item.enhanceLevel || 0, active?.level || 1);
+                      return (
+                        <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e, item.enhanceLevel || 0)} style={btnStyle('var(--accent)', 'var(--accent)')}>
+                          강화 {Math.round(eInfo.chance * 100)}% · {eInfo.cost.toLocaleString()}G
+                        </button>
+                      );
+                    })()}
                   </div>
                 </>
               ) : (
@@ -472,19 +495,28 @@ export function InventoryScreen() {
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, e)}
                             style={actionBtn('#e0a040')}>판매 {s.item.sellPrice}G</button>
                         )}
-                        {isEquipment && !locked && (
-                          <button onClick={(e) => enhanceItem(s.slotIndex, 'inventory', s.slotIndex, e)}
-                            disabled={enhanceBusy || (s.enhanceLevel || 0) >= 20}
-                            style={{
-                              padding: '8px 18px', fontSize: 12, fontWeight: 700,
-                              background: 'rgba(218,165,32,0.15)',
-                              color: 'var(--accent)',
-                              border: '2px solid var(--accent)',
-                              cursor: 'pointer', borderRadius: 4,
-                              opacity: (s.enhanceLevel || 0) >= 20 ? 0.3 : 1,
-                              boxShadow: '0 0 6px rgba(218,165,32,0.3)',
-                            }}>강화</button>
-                        )}
+                        {isEquipment && !locked && (() => {
+                          const eInfo = getEnhanceInfo(s.enhanceLevel || 0, active?.level || 1);
+                          const maxed = (s.enhanceLevel || 0) >= 20;
+                          return (
+                            <button onClick={(e) => enhanceItem(s.slotIndex, 'inventory', s.slotIndex, e, s.enhanceLevel || 0)}
+                              disabled={enhanceBusy || maxed}
+                              style={{
+                                padding: '8px 14px', fontSize: 12, fontWeight: 700,
+                                background: 'rgba(218,165,32,0.15)',
+                                color: 'var(--accent)',
+                                border: '2px solid var(--accent)',
+                                cursor: 'pointer', borderRadius: 4,
+                                opacity: maxed ? 0.3 : 1,
+                                boxShadow: '0 0 6px rgba(218,165,32,0.3)',
+                                lineHeight: 1.3,
+                              }}>
+                              {maxed ? '최대' : (
+                                <span>강화 +{(s.enhanceLevel || 0) + 1}<br/><span style={{ fontSize: 10, fontWeight: 400 }}>{Math.round(eInfo.chance * 100)}% · {eInfo.cost.toLocaleString()}G</span></span>
+                              )}
+                            </button>
+                          );
+                        })()}
                       </div>
                       {locked && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 6 }}>잠김</div>}
                     </div>
