@@ -81,6 +81,57 @@ router.get('/opponents/:characterId', async (req: AuthedRequest, res: Response) 
   })));
 });
 
+// 상대 상세 정보 (공격 전 프리뷰)
+router.get('/inspect/:characterId', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+
+  const charR = await query<{ name: string; class_name: string; level: number; max_hp: number }>(
+    'SELECT name, class_name, level, max_hp FROM characters WHERE id = $1', [cid]
+  );
+  if (charR.rowCount === 0) return res.status(404).json({ error: 'not found' });
+  const ch = charR.rows[0];
+
+  // 스탯
+  const { getEffectiveStats, loadCharacter } = await import('../game/character.js');
+  const fullChar = await loadCharacter(cid);
+  const eff = fullChar ? await getEffectiveStats(fullChar) : null;
+
+  // PVP 전적
+  const pvpR = await query<{ wins: number; losses: number; elo: number }>(
+    'SELECT wins, losses, elo FROM pvp_stats WHERE character_id = $1', [cid]
+  );
+  const pvp = pvpR.rows[0] || { wins: 0, losses: 0, elo: 1000 };
+
+  // 장비
+  const eqR = await query<{ slot: string; item_name: string; enhance_level: number }>(
+    `SELECT ce.slot, i.name AS item_name, ce.enhance_level
+     FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+     WHERE ce.character_id = $1`, [cid]
+  );
+
+  // 길드
+  const guildR = await query<{ guild_name: string }>(
+    `SELECT g.name AS guild_name FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`, [cid]
+  );
+
+  // 스킬
+  const skillR = await query<{ name: string; effect_type: string }>(
+    `SELECT s.name, s.effect_type FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0
+     ORDER BY s.required_level ASC LIMIT 6`, [cid]
+  );
+
+  res.json({
+    name: ch.name, className: ch.class_name, level: ch.level,
+    maxHp: ch.max_hp,
+    stats: eff ? { atk: Math.round(eff.atk), matk: Math.round(eff.matk), def: Math.round(eff.def), mdef: Math.round(eff.mdef), spd: eff.spd, cri: eff.cri, dodge: eff.dodge, accuracy: eff.accuracy } : null,
+    pvp: { wins: pvp.wins, losses: pvp.losses, elo: pvp.elo },
+    equipment: eqR.rows.map(e => ({ slot: e.slot, name: e.item_name, enhance: e.enhance_level })),
+    guild: guildR.rows[0]?.guild_name || null,
+    skills: skillR.rows.map(s => s.name),
+  });
+});
+
 // 공격
 router.post('/attack', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({

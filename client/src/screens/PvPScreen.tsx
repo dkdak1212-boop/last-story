@@ -7,6 +7,14 @@ interface Opponent { id: number; name: string; className: string; level: number;
 interface MyStats { wins: number; losses: number; elo: number; dailyAttacks: number; dailyLimit: number }
 interface BattleResult { winner: 'attacker' | 'defender'; log: string[]; eloChange: number; goldGained: number; turns: number }
 interface HistoryRow { id: number; amAttacker: boolean; attackerName: string; defenderName: string; won: boolean; eloChange: number; log: string[]; createdAt: string }
+interface InspectData {
+  name: string; className: string; level: number; maxHp: number;
+  stats: { atk: number; matk: number; def: number; mdef: number; spd: number; cri: number; dodge: number; accuracy: number } | null;
+  pvp: { wins: number; losses: number; elo: number };
+  equipment: { slot: string; name: string; enhance: number }[];
+  guild: string | null;
+  skills: string[];
+}
 
 const CLASS_LABEL: Record<string, string> = {
   warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
@@ -31,6 +39,17 @@ export function PvPScreen() {
   const [ranking, setRanking] = useState<RankRow[]>([]);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [result, setResult] = useState<(BattleResult & { opponent: string }) | null>(null);
+  const [inspect, setInspect] = useState<InspectData | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+
+  async function loadInspect(targetId: number) {
+    setInspectLoading(true);
+    try {
+      const data = await api<InspectData>(`/pvp/inspect/${targetId}`);
+      setInspect(data);
+    } catch { alert('정보 조회 실패'); }
+    setInspectLoading(false);
+  }
 
   async function loadStats() {
     if (!active) return;
@@ -92,6 +111,7 @@ export function PvPScreen() {
       </div>
 
       {result && <BattleResultModal result={result} onClose={() => setResult(null)} />}
+      {inspect && <InspectModal data={inspect} onClose={() => setInspect(null)} />}
 
       {tab === 'opponents' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -107,9 +127,12 @@ export function PvPScreen() {
                   Lv.{o.level} {CLASS_LABEL[o.className]} · ELO {o.elo}
                 </span>
               </div>
-              <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown}>
-                {o.onCooldown ? '쿨다운' : '공격'}
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => loadInspect(o.id)} disabled={inspectLoading} style={{ fontSize: 12 }}>정보</button>
+                <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown}>
+                  {o.onCooldown ? '쿨다운' : '공격'}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -190,6 +213,92 @@ function BattleResultModal({ result, onClose }: { result: BattleResult & { oppon
           ))}
         </div>
         <button className="primary" onClick={onClose} style={{ marginTop: 14 }}>확인</button>
+      </div>
+    </div>
+  );
+}
+
+const SLOT_LABEL: Record<string, string> = {
+  weapon: '무기', head: '머리', body: '갑옷', legs: '다리', feet: '신발', ring: '반지', necklace: '목걸이',
+};
+
+function InspectModal({ data, onClose }: { data: InspectData; onClose: () => void }) {
+  const grade = getEloGrade(data.pvp.elo);
+  const winRate = data.pvp.wins + data.pvp.losses > 0
+    ? Math.round(data.pvp.wins / (data.pvp.wins + data.pvp.losses) * 100) : 0;
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }} onClick={onClose}>
+      <div style={{
+        width: 420, maxHeight: '85vh', overflowY: 'auto', padding: 20, background: 'var(--bg-panel)',
+        border: '1px solid var(--accent)',
+      }} onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>{data.name}</span>
+            <span style={{ color: 'var(--text-dim)', marginLeft: 8, fontSize: 13 }}>
+              Lv.{data.level} {CLASS_LABEL[data.className]}
+            </span>
+          </div>
+          {data.guild && <span style={{ fontSize: 12, color: 'var(--accent)' }}>[{data.guild}]</span>}
+        </div>
+
+        {/* PVP 전적 */}
+        <div style={{ padding: '8px 12px', background: 'var(--bg)', border: '1px solid var(--border)', marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <span style={{ fontWeight: 700, color: grade.color }}>{grade.name} ({data.pvp.elo})</span>
+            <span>{data.pvp.wins}승 {data.pvp.losses}패 ({winRate}%)</span>
+          </div>
+        </div>
+
+        {/* 스탯 */}
+        {data.stats && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700 }}>전투 스탯</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 16px', fontSize: 12,
+              padding: '8px 12px', background: 'var(--bg)', border: '1px solid var(--border)' }}>
+              <div>HP <b style={{ color: '#66cc66' }}>{data.maxHp.toLocaleString()}</b></div>
+              <div>SPD <b style={{ color: '#ffcc44' }}>{data.stats.spd}</b></div>
+              <div>ATK <b style={{ color: '#ff6644' }}>{data.stats.atk}</b></div>
+              <div>MATK <b style={{ color: '#6688ff' }}>{data.stats.matk}</b></div>
+              <div>DEF <b>{data.stats.def}</b></div>
+              <div>MDEF <b>{data.stats.mdef}</b></div>
+              <div>CRI <b style={{ color: '#ff8800' }}>{data.stats.cri}%</b></div>
+              <div>회피 <b>{data.stats.dodge}%</b></div>
+            </div>
+          </div>
+        )}
+
+        {/* 장비 */}
+        {data.equipment.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700 }}>장비</div>
+            <div style={{ padding: '6px 12px', background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 12 }}>
+              {data.equipment.map((eq, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+                  <span style={{ color: 'var(--text-dim)' }}>{SLOT_LABEL[eq.slot] || eq.slot}</span>
+                  <span>{eq.name}{eq.enhance > 0 ? ` +${eq.enhance}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 스킬 */}
+        {data.skills.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 4, fontWeight: 700 }}>등록 스킬</div>
+            <div style={{ padding: '6px 12px', background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 12 }}>
+              {data.skills.join(' · ')}
+            </div>
+          </div>
+        )}
+
+        <button className="primary" onClick={onClose} style={{ width: '100%' }}>닫기</button>
       </div>
     </div>
   );
