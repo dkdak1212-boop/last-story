@@ -172,7 +172,7 @@ async function loadEquipPrefixes(characterId: number): Promise<Record<string, nu
   for (const row of r.rows) {
     if (!row.prefix_stats) continue;
     const el = row.enhance_level || 0;
-    const mult = 1 + el * 0.08;
+    const mult = 1 + el * 0.05; // 강화당 접두사 +5%
     for (const [k, v] of Object.entries(row.prefix_stats)) {
       totals[k] = (totals[k] || 0) + Math.round((v as number) * mult);
     }
