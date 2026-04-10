@@ -16,10 +16,10 @@ function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
     style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
 }
 
-// 주요 스탯 한줄 요약
-function StatSummary({ stats, enhanceLevel }: { stats: Partial<Stats> | null | undefined; enhanceLevel: number }) {
+// 주요 스탯 한줄 요약 (강화 + 품질 적용)
+function StatSummary({ stats, enhanceLevel, quality = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel: number; quality?: number }) {
   if (!stats) return null;
-  const mult = getEnhanceMult(enhanceLevel);
+  const mult = getEnhanceMult(enhanceLevel) * (1 + quality / 100);
   const parts: string[] = [];
   const map: Record<string, string> = { atk: '공', matk: '마공', def: '방', hp: 'HP', str: '힘', int: '지', vit: '체', spd: '속', cri: '크리' };
   for (const [k, v] of Object.entries(stats)) {
@@ -182,7 +182,7 @@ export function InventoryScreen() {
                     )}
                   </div>
                   <div style={{ marginTop: 3 }}>
-                    <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} />
+                    <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} quality={(item as any).quality || 0} />
                   </div>
                   <PrefixDisplay prefixStats={item.prefixStats} />
                   <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
@@ -373,7 +373,7 @@ export function InventoryScreen() {
                       {!isExpanded && (
                         <div style={{ marginTop: 1 }}>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <StatSummary stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                            <StatSummary stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} quality={(s as any).quality || 0} />
                             {isEquipment && (
                               <ItemComparison
                                 itemStats={s.item.stats} equippedStats={equipped[s.item.slot!]?.stats}
@@ -414,7 +414,7 @@ export function InventoryScreen() {
                           {/* 이 아이템 */}
                           <div style={{ padding: 8, background: 'rgba(76,175,80,0.05)', border: '1px solid rgba(76,175,80,0.2)', borderRadius: 4 }}>
                             <div style={{ fontSize: 10, color: 'var(--success)', fontWeight: 700, marginBottom: 4 }}>이 아이템</div>
-                            <ItemStatsBlock stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
+                            <ItemStatsBlock stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} quality={(s as any).quality || 0} />
                             <PrefixDisplay prefixStats={s.prefixStats} />
                           </div>
                           {/* 현재 장착 */}
@@ -427,7 +427,7 @@ export function InventoryScreen() {
                                 <div style={{ fontSize: 11, color: (GRADE_COLOR as any)[eqItem.grade], fontWeight: 700, marginBottom: 3 }}>
                                   {eqItem.name}{eqItem.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{eqItem.enhanceLevel}</span>}
                                 </div>
-                                <ItemStatsBlock stats={(eqItem as any).baseStats || eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} />
+                                <ItemStatsBlock stats={(eqItem as any).baseStats || eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} quality={(eqItem as any).quality || 0} />
                                 <PrefixDisplay prefixStats={eqItem.prefixStats} />
                               </>
                             ) : (

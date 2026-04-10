@@ -57,10 +57,12 @@ export function getEnhanceMult(el: number): number {
   return 1 + el * 0.075;
 }
 
-// 스탯 jsonb → 라인 배열
-export function formatStats(stats: Record<string, number> | null | undefined, enhanceLevel = 0): string[] {
+// 스탯 jsonb → 라인 배열 (강화 + 품질 모두 적용)
+export function formatStats(stats: Record<string, number> | null | undefined, enhanceLevel = 0, quality = 0): string[] {
   if (!stats) return [];
-  const mult = getEnhanceMult(enhanceLevel);
+  const enhMult = getEnhanceMult(enhanceLevel);
+  const qualMult = 1 + (quality || 0) / 100;
+  const mult = enhMult * qualMult;
   const lines: string[] = [];
   for (const key of STAT_ORDER) {
     const v = (stats as any)[key];
@@ -74,8 +76,8 @@ export function formatStats(stats: Record<string, number> | null | undefined, en
 }
 
 // 인라인 스탯 표시 (한 줄)
-export function ItemStatsInline({ stats, enhanceLevel = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number }) {
-  const lines = formatStats(stats, enhanceLevel);
+export function ItemStatsInline({ stats, enhanceLevel = 0, quality = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number; quality?: number }) {
+  const lines = formatStats(stats, enhanceLevel, quality);
   if (lines.length === 0) return null;
   return (
     <span style={{ fontSize: 11, color: 'var(--success)' }}>
@@ -85,8 +87,8 @@ export function ItemStatsInline({ stats, enhanceLevel = 0 }: { stats: Partial<St
 }
 
 // 블록형 스탯 표시 (여러 줄)
-export function ItemStatsBlock({ stats, enhanceLevel = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number }) {
-  const lines = formatStats(stats, enhanceLevel);
+export function ItemStatsBlock({ stats, enhanceLevel = 0, quality = 0 }: { stats: Partial<Stats> | null | undefined; enhanceLevel?: number; quality?: number }) {
+  const lines = formatStats(stats, enhanceLevel, quality);
   if (lines.length === 0) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: 'var(--success)' }}>
