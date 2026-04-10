@@ -40,7 +40,7 @@ export function InventoryScreen() {
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [rerollBusy, setRerollBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
-  const [tab, setTab] = useState<'equip' | 'bag'>('bag');
+  const [tab, setTab] = useState<'equip' | 'bag' | 'etc'>('bag');
 
   async function refresh() {
     if (!active) return;
@@ -112,7 +112,11 @@ export function InventoryScreen() {
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
 
-  const sortedInv = [...inv].sort((a, b) => {
+  // 장비/기타 분리
+  const equipmentItems = inv.filter(s => !!s.item.slot);
+  const etcItems = inv.filter(s => !s.item.slot);
+
+  const sortedInv = [...equipmentItems].sort((a, b) => {
     if (sortMode === 'enhance') return (b.enhanceLevel || 0) - (a.enhanceLevel || 0);
     if (sortMode === 'level') return ((b.item as any).requiredLevel || 0) - ((a.item as any).requiredLevel || 0);
     if (sortMode === 'slot') {
@@ -120,6 +124,15 @@ export function InventoryScreen() {
       return (a.item.slot ? order[a.item.slot] ?? 6 : 7) - (b.item.slot ? order[b.item.slot] ?? 6 : 7) || b.slotIndex - a.slotIndex;
     }
     return b.slotIndex - a.slotIndex;
+  });
+
+  // 기타: 종류별 그룹핑
+  const sortedEtc = [...etcItems].sort((a, b) => {
+    // type 우선 (consumable → material → 기타)
+    const typeOrd: Record<string, number> = { consumable: 0, material: 1 };
+    const ta = typeOrd[(a.item as any).type] ?? 9;
+    const tb = typeOrd[(b.item as any).type] ?? 9;
+    return ta - tb || b.slotIndex - a.slotIndex;
   });
 
   const isGood = (m: string) => m.includes('성공') || m.includes('판매') || m.includes('분해') || m.includes('재굴림');
@@ -144,14 +157,14 @@ export function InventoryScreen() {
 
       {/* 탭 */}
       <div style={{ display: 'flex', marginBottom: 10, borderBottom: '2px solid var(--border)' }}>
-        {([['equip', '장착'], ['bag', '가방']] as const).map(([key, label]) => (
+        {([['equip', '장착'], ['bag', '장비'], ['etc', '기타']] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             flex: 1, padding: '10px 0', fontSize: 14, fontWeight: 700, border: 'none', cursor: 'pointer',
             background: tab === key ? 'var(--bg-panel)' : 'transparent',
             color: tab === key ? 'var(--accent)' : 'var(--text-dim)',
             borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
             marginBottom: -2,
-          }}>{label}{key === 'bag' ? ` (${inv.length})` : ''}</button>
+          }}>{label}{key === 'bag' ? ` (${equipmentItems.length})` : key === 'etc' ? ` (${etcItems.length})` : ''}</button>
         ))}
       </div>
 
@@ -443,6 +456,59 @@ export function InventoryScreen() {
             })}
           </div>
         </>
+      )}
+
+      {/* ═══ 기타 탭 (소모품/재료) ═══ */}
+      {tab === 'etc' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {sortedEtc.length === 0 && <div style={{ color: 'var(--text-dim)', padding: 30, textAlign: 'center' }}>아이템이 없다.</div>}
+          {sortedEtc.map((s) => {
+            const gradeClr = GRADE_COLOR[s.item.grade];
+            const itemType = (s.item as any).type;
+            const typeLabel: Record<string, string> = { consumable: '소모품', material: '재료', quest: '퀘스트' };
+            const isExpanded = expandedSlot === s.slotIndex;
+            return (
+              <div key={s.slotIndex}
+                onClick={() => setExpandedSlot(isExpanded ? null : s.slotIndex)}
+                style={{
+                  padding: '8px 12px', borderRadius: 4, cursor: 'pointer',
+                  background: 'var(--bg-panel)',
+                  borderLeft: `3px solid ${gradeClr}`,
+                  borderTop: '1px solid transparent', borderRight: '1px solid transparent',
+                  borderBottom: `1px solid ${isExpanded ? 'var(--accent)30' : 'var(--border)'}`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ItemIcon slot={null} grade={s.item.grade} itemName={s.item.name} size={24} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
+                      <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{s.item.name}</span>
+                      {s.quantity > 1 && (
+                        <span style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 700 }}>x{s.quantity}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>{typeLabel[itemType] || ''}</span>
+                  <span style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                    <div style={{ color: 'var(--text-dim)', fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>
+                      {s.item.description}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {s.item.sellPrice > 0 && (
+                        <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel || 0, s.item.name, e)}
+                          style={actionBtn('#e0a040')}>판매 {s.item.sellPrice}G</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
