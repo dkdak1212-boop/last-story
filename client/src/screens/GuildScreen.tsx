@@ -22,6 +22,11 @@ interface MyGuild {
   myDonationToday: number;
   dailyDonationCap: number;
 }
+interface TerritoryInfo {
+  fieldId: number; fieldName: string; requiredLevel: number;
+  ownerGuildId: number | null; ownerGuildName: string | null;
+  weekTopGuildName: string | null; weekTopScore: number;
+}
 
 const CLASS_LABEL: Record<string, string> = {
   warrior: '전사', swordsman: '검사', archer: '궁수', rogue: '도적',
@@ -39,6 +44,9 @@ export function GuildScreen() {
   const [err, setErr] = useState('');
   const [donateAmt, setDonateAmt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [territories, setTerritories] = useState<TerritoryInfo[]>([]);
+  const [myScores, setMyScores] = useState<Record<number, { score: number; rank: number }>>({});
+  const [showTerritories, setShowTerritories] = useState(false);
 
   async function load() {
     if (!active) return;
@@ -103,6 +111,19 @@ export function GuildScreen() {
       await load();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
   }
+
+  async function loadTerritories() {
+    if (!active) return;
+    try {
+      const t = await api<{ fields: TerritoryInfo[] }>('/guilds/territories');
+      setTerritories(t.fields);
+      const mine = await api<{ scores: { fieldId: number; score: number; rank: number }[] }>(`/guilds/territories/my/${active.id}`);
+      const m: Record<number, { score: number; rank: number }> = {};
+      for (const s of mine.scores) m[s.fieldId] = { score: s.score, rank: s.rank };
+      setMyScores(m);
+    } catch (e) { /* silent */ }
+  }
+  useEffect(() => { if (showTerritories) loadTerritories(); }, [showTerritories, active?.id]);
 
   if (my) {
     const expPct = my.expToNext > 0 ? Math.min(100, Math.floor((my.exp / my.expToNext) * 100)) : 100;
@@ -200,6 +221,53 @@ export function GuildScreen() {
               );
             })}
           </div>
+        </div>
+
+        {/* 영토 점령전 */}
+        <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+               onClick={() => setShowTerritories(!showTerritories)}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
+              🏴 영토 점령전 <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>(매주 일요일 23:50 결산)</span>
+            </div>
+            <span style={{ color: 'var(--text-dim)' }}>{showTerritories ? '▲' : '▼'}</span>
+          </div>
+          {showTerritories && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8 }}>
+                점령 시 길드원이 해당 사냥터에서 EXP +15%, 드랍 +15%. 1주일간 누적 처치 1위 길드(100점 이상)가 점령.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6 }}>
+                {territories.map(t => {
+                  const mine = myScores[t.fieldId];
+                  const owned = t.ownerGuildId === my.id;
+                  return (
+                    <div key={t.fieldId} style={{
+                      padding: 8, background: 'var(--bg)',
+                      border: `1px solid ${owned ? 'var(--accent)' : 'var(--border)'}`,
+                      borderRadius: 3,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <span style={{ fontWeight: 700, fontSize: 12 }}>{t.fieldName}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Lv.{t.requiredLevel}+</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: t.ownerGuildName ? 'var(--accent)' : 'var(--text-dim)', marginTop: 2 }}>
+                        {t.ownerGuildName ? `🏴 ${t.ownerGuildName} 점령중` : '무점령'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                        이번 주 1위: {t.weekTopGuildName || '-'} ({t.weekTopScore.toLocaleString()}점)
+                      </div>
+                      {mine && (
+                        <div style={{ fontSize: 10, color: '#66ccff', marginTop: 2 }}>
+                          내 길드: {mine.score.toLocaleString()}점 ({mine.rank}위)
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 멤버 */}

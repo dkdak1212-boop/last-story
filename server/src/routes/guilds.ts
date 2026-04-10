@@ -9,6 +9,10 @@ import {
   expToNextGuild, getGuildSkillUpgradeCost, getGuildSkillReqLevel,
   invalidateGuildSkillCache,
 } from '../game/guild.js';
+import {
+  getCurrentWeekStart, settleTerritoriesNow,
+  TERRITORY_EXP_BONUS_PCT, TERRITORY_DROP_BONUS_PCT, MIN_OCCUPATION_SCORE,
+} from '../game/territory.js';
 
 const router = Router();
 router.use(authRequired);
@@ -293,6 +297,91 @@ router.post('/disband/:characterId', async (req: AuthedRequest, res: Response) =
   if (r.rowCount === 0) return res.status(400).json({ error: 'not in guild' });
   if (r.rows[0].role !== 'leader') return res.status(403).json({ error: 'not leader' });
   await query('DELETE FROM guilds WHERE id = $1', [r.rows[0].guild_id]);
+  res.json({ ok: true });
+});
+
+// === 영토 점령전 ===
+
+// 모든 필드 + 점령자 + 이번 주 1위
+router.get('/territories', async (_req: AuthedRequest, res: Response) => {
+  const week = getCurrentWeekStart();
+  const fr = await query<{ id: number; name: string; required_level: number }>(
+    'SELECT id, name, required_level FROM fields ORDER BY id'
+  );
+  const tr = await query<{ field_id: number; owner_guild_id: number | null; owner_name: string | null; occupied_at: string | null }>(
+    `SELECT t.field_id, t.owner_guild_id, g.name AS owner_name, t.occupied_at
+     FROM guild_territories t LEFT JOIN guilds g ON g.id = t.owner_guild_id`
+  );
+  const ownerMap = new Map<number, { id: number | null; name: string | null; at: string | null }>();
+  for (const r of tr.rows) ownerMap.set(r.field_id, { id: r.owner_guild_id, name: r.owner_name, at: r.occupied_at });
+
+  // 이번 주 모든 점수 (1위만)
+  const sr = await query<{ field_id: number; guild_id: number; guild_name: string; score: string }>(
+    `SELECT s.field_id, s.guild_id, g.name AS guild_name, s.score
+     FROM guild_territory_scores s JOIN guilds g ON g.id = s.guild_id
+     WHERE s.week_start = $1::date
+     ORDER BY s.field_id, s.score DESC`,
+    [week]
+  );
+  const topMap = new Map<number, { guildId: number; guildName: string; score: number }>();
+  for (const r of sr.rows) {
+    if (!topMap.has(r.field_id)) topMap.set(r.field_id, { guildId: r.guild_id, guildName: r.guild_name, score: Number(r.score) });
+  }
+
+  res.json({
+    weekStart: week,
+    expBonusPct: TERRITORY_EXP_BONUS_PCT,
+    dropBonusPct: TERRITORY_DROP_BONUS_PCT,
+    minScore: MIN_OCCUPATION_SCORE,
+    fields: fr.rows.map(f => {
+      const owner = ownerMap.get(f.id);
+      const top = topMap.get(f.id);
+      return {
+        fieldId: f.id, fieldName: f.name, requiredLevel: f.required_level,
+        ownerGuildId: owner?.id ?? null,
+        ownerGuildName: owner?.name ?? null,
+        occupiedAt: owner?.at ?? null,
+        weekTopGuildId: top?.guildId ?? null,
+        weekTopGuildName: top?.guildName ?? null,
+        weekTopScore: top?.score ?? 0,
+      };
+    }),
+  });
+});
+
+// 내 길드의 필드별 점수/순위
+router.get('/territories/my/:characterId', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const gm = await query<{ guild_id: number }>('SELECT guild_id FROM guild_members WHERE character_id = $1', [cid]);
+  if (gm.rowCount === 0) return res.json({ scores: [] });
+  const guildId = gm.rows[0].guild_id;
+  const week = getCurrentWeekStart();
+
+  const r = await query<{ field_id: number; score: string; rank: string }>(
+    `SELECT s.field_id, s.score,
+            (SELECT COUNT(*) FROM guild_territory_scores s2
+             WHERE s2.field_id = s.field_id AND s2.week_start = s.week_start AND s2.score > s.score)::text AS rank
+     FROM guild_territory_scores s
+     WHERE s.guild_id = $1 AND s.week_start = $2::date
+     ORDER BY s.field_id`,
+    [guildId, week]
+  );
+  res.json({
+    scores: r.rows.map(row => ({
+      fieldId: row.field_id,
+      score: Number(row.score),
+      rank: Number(row.rank) + 1,
+    })),
+  });
+});
+
+// 관리자 강제 결산 (테스트용)
+router.post('/territories/settle-now', async (req: AuthedRequest, res: Response) => {
+  const ur = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [req.userId!]);
+  if (ur.rows[0]?.username !== 'admin') return res.status(403).json({ error: 'admin only' });
+  await settleTerritoriesNow();
   res.json({ ok: true });
 });
 

@@ -1275,4 +1275,12 @@ setInterval(() => {
   checkAndSpawnWorldEvent(io).catch((e) => console.error('[world-event] spawn error', e));
   checkExpiredWorldEvents(io).catch((e) => console.error('[world-event] expire error', e));
 }, 60_000);
+
+// 길드 영토 결산 체크 (1분마다, 일요일 23:50~ 1회 실행)
+setInterval(async () => {
+  try {
+    const { settleTerritoriesIfNeeded } = await import('./game/territory.js');
+    await settleTerritoriesIfNeeded();
+  } catch (e) { console.error('[territory] settle error', e); }
+}, 60_000);
 // cache-bust 1775586457

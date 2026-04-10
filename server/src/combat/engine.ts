@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
 import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
+import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
@@ -50,6 +51,7 @@ interface CombatSnapshot {
   serverTime: number;
   boosts?: { name: string; until: string }[];
   guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
+  territoryBuffs?: { expPct: number; dropPct: number };
 }
 import { getIo } from '../ws/io.js';
 
@@ -1017,6 +1019,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const guildGoldBonus = guildSkills.gold * GUILD_SKILL_PCT.gold;
   const guildExpBonus = guildSkills.exp * GUILD_SKILL_PCT.exp;
   const guildDropBonus = guildSkills.drop * GUILD_SKILL_PCT.drop;
+  // 영토 점령 보너스 (점령 길드원 한정)
+  const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0));
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
@@ -1032,12 +1036,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 부스터 + 접두사 + 길드 경험 보너스
+  // 부스터 + 접두사 + 길드 + 영토 경험 보너스
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100));
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100));
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp).catch(() => {});
+  // 영토 점수 +1 (사냥 처치 횟수 누적)
+  addTerritoryScore(s.characterId, s.fieldId).catch(() => {});
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
@@ -1066,7 +1072,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   await trackMonsterKill(s.characterId, s.monsterId!);
 
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct);
   // 자동분해 설정 체크
   const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
     'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
@@ -1345,6 +1351,11 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
       exp: gskills.exp * GUILD_SKILL_PCT.exp,
       drop: gskills.drop * GUILD_SKILL_PCT.drop,
     };
+  } catch {}
+
+  // 영토 점령 보너스 정보
+  try {
+    snapshot.territoryBuffs = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   } catch {}
 
   // 해당 유저의 소켓에만 emit

@@ -348,19 +348,24 @@ export function CombatScreen() {
         </div>
       </div>
 
-      {/* 길드 버프 */}
-      {(state as any).guildBuffs && (() => {
-        const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number };
-        const items: { label: string; pct: number; color: string }[] = [
-          { label: '체력', pct: gb.hp, color: '#e07070' },
-          { label: '골드', pct: gb.gold, color: '#e0a040' },
-          { label: '경험', pct: gb.exp, color: '#8b8bef' },
-          { label: '드랍', pct: gb.drop, color: '#66dd66' },
-        ].filter(x => x.pct > 0);
+      {/* 길드 + 영토 버프 */}
+      {(() => {
+        const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number } | undefined;
+        const tb = (state as any).territoryBuffs as { expPct: number; dropPct: number } | undefined;
+        const items: { label: string; pct: number; color: string }[] = [];
+        if (gb) {
+          if (gb.hp > 0) items.push({ label: '길드 체력', pct: gb.hp, color: '#e07070' });
+          if (gb.gold > 0) items.push({ label: '길드 골드', pct: gb.gold, color: '#e0a040' });
+          if (gb.exp > 0) items.push({ label: '길드 경험', pct: gb.exp, color: '#8b8bef' });
+          if (gb.drop > 0) items.push({ label: '길드 드랍', pct: gb.drop, color: '#66dd66' });
+        }
+        if (tb) {
+          if (tb.expPct > 0) items.push({ label: '🏴 영토 경험', pct: tb.expPct, color: '#daa520' });
+          if (tb.dropPct > 0) items.push({ label: '🏴 영토 드랍', pct: tb.dropPct, color: '#daa520' });
+        }
         if (items.length === 0) return null;
         return (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 700 }}>길드 버프</span>
             {items.map((x, i) => (
               <span key={i} style={{
                 padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 3,

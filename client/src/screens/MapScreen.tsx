@@ -11,6 +11,7 @@ interface MonsterInfo {
 interface FieldData {
   id: number; name: string; requiredLevel: number; description: string;
   monsters: MonsterInfo[];
+  ownerGuildName?: string | null;
 }
 
 export function MapScreen() {
@@ -49,11 +50,20 @@ export function MapScreen() {
                 cursor: 'pointer',
               }} onClick={() => setExpanded(isOpen ? null : f.id)}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     {f.name}
                     <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}>
                       Lv.{f.requiredLevel}+
                     </span>
+                    {f.ownerGuildName && (
+                      <span style={{
+                        fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                        background: 'rgba(218,165,32,0.15)', border: '1px solid var(--accent)',
+                        color: 'var(--accent)', fontWeight: 700,
+                      }}>
+                        🏴 {f.ownerGuildName} 점령
+                      </span>
+                    )}
                   </div>
                   <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>
                     {f.description}

@@ -34,11 +34,20 @@ router.get('/', async (_req, res) => {
     for (const i of ir.rows) itemNames.set(i.id, { name: i.name, grade: i.grade });
   }
 
+  // 영토 점령 정보
+  const tr = await query<{ field_id: number; owner_name: string | null }>(
+    `SELECT t.field_id, g.name AS owner_name
+     FROM guild_territories t LEFT JOIN guilds g ON g.id = t.owner_guild_id`
+  );
+  const ownerMap = new Map<number, string | null>();
+  for (const row of tr.rows) ownerMap.set(row.field_id, row.owner_name);
+
   const result = r.rows.map(f => ({
     id: f.id,
     name: f.name,
     requiredLevel: f.requiredLevel,
     description: f.description,
+    ownerGuildName: ownerMap.get(f.id) || null,
     monsters: (f.monsterPool || []).map(mid => {
       const m = monsterMap.get(mid);
       if (!m) return null;

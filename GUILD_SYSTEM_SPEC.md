@@ -91,3 +91,49 @@ CREATE TABLE guild_donations_daily (
 ## 사냥 화면 (CombatScreen)
 - 상단 또는 사이드에 길드 버프 작은 배지
   - 예: "길드 버프: HP+5% / 골드+10% / EXP+8% / 드랍+3%"
+
+---
+
+# 길드 시스템 3단계 — 영토 점령전
+
+## 결정사항
+- 점령 대상: **21개 사냥터 전체**, 모두 동일 보너스
+- 점령 보너스: 점령 길드원이 해당 사냥터에서 사냥 시 **EXP +15%, 드랍 +15%**
+- 진행 방식: **사냥 점수제** — 멤버가 해당 사냥터에서 처치한 몬스터 수로 길드 누적 점수
+- 점수 가산: 처치 1당 1점 (단순)
+- 결산: 매주 일요일 23:59 자동 → 1위 길드(최소 100점) 점령
+- 점수 리셋: 매주 월요일 00:00 (모든 점수 0)
+- 점령 길드 우대 없음 (매주 동일 출발선)
+
+## DB
+```sql
+CREATE TABLE guild_territories (
+  field_id INT PRIMARY KEY REFERENCES fields(id) ON DELETE CASCADE,
+  owner_guild_id INT REFERENCES guilds(id) ON DELETE SET NULL,
+  occupied_at TIMESTAMPTZ
+);
+CREATE TABLE guild_territory_scores (
+  field_id INT NOT NULL,
+  guild_id INT NOT NULL,
+  week_start DATE NOT NULL,
+  score BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (field_id, guild_id, week_start)
+);
+```
+
+## 서버 로직
+- 사냥 처치 hook → 캐릭터의 길드가 있으면 `(field_id, guild_id, this_week_monday)` 점수 +1
+- 결산 cron (10분마다 체크, 일요일 23:59~24:00 사이 1회 실행):
+  1. 각 field_id 별로 이번 주 점수 1위 길드 조회
+  2. 점수 ≥ 100이면 territories.owner_guild_id 갱신 + occupied_at = NOW()
+  3. 점수 < 100이면 owner_guild_id = NULL (무점령)
+- 보너스 적용: 사냥 보상 계산 시 캐릭터 길드가 해당 필드 점령자면 exp/drop +15%
+
+## API
+- GET /guilds/territories — 21개 필드 + 점령 길드 + 이번 주 1위 길드/점수
+- GET /guilds/territories/my — 내 길드의 필드별 점수/순위
+
+## UX
+- GuildScreen: "영토" 섹션 추가 (21개 카드, 점령자/내 점수/내 순위)
+- MapScreen: 각 필드 카드에 점령 길드명 작게 표시
+- CombatScreen: 점령지에서 사냥 시 길드 버프 배지에 "영토 +15%" 추가
