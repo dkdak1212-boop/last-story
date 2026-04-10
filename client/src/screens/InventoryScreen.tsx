@@ -335,10 +335,11 @@ export function InventoryScreen() {
                         <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{(s.item as any).baseName || s.item.name}</span>
                         {(s as any).quality !== undefined && (s.item as any).slot && (() => {
                           const q = (s as any).quality;
-                          const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : '#888';
+                          const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
                           return (
                             <span style={{
-                              fontSize: 9, padding: '1px 5px', borderRadius: 2,
+                              fontSize: 11, padding: '2px 7px', borderRadius: 3,
+                              background: color + '22',
                               border: `1px solid ${color}`, color, fontWeight: 700,
                             }}>품질 {q}%</span>
                           );
