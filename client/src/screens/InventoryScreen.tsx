@@ -387,6 +387,12 @@ export function InventoryScreen() {
                         </div>
                       )}
                     </div>
+                    {isEquipment && (
+                      <span style={{
+                        fontSize: 9, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)',
+                        opacity: 0.85, fontWeight: 700, flexShrink: 0,
+                      }}>Lv.{requiredLevel}</span>
+                    )}
                     <span style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
                     {isEquipment && (
                       <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
