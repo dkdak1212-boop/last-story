@@ -1397,7 +1397,6 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     const now = new Date();
     const b = br.rows[0];
     const boosts: { name: string; until: string }[] = [];
-    boosts.push({ name: 'EXP +50%', until: '' });
     if (b?.exp_boost_until && new Date(b.exp_boost_until) > now)
       boosts.push({ name: 'EXP 부스터 +50%', until: b.exp_boost_until });
     if (b?.gold_boost_until && new Date(b.gold_boost_until) > now)
