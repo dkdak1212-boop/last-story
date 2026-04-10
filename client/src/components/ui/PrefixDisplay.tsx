@@ -19,6 +19,14 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   gold_bonus_pct: v => `골드 획득 ${v}% 증가`,
   exp_bonus_pct: v => `경험치 획득 ${v}% 증가`,
   crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
+  // 신규 7종
+  berserk_pct: v => `HP 30% 이하 시 데미지 +${v}%`,
+  guardian_pct: v => `HP 50% 이상 시 받는 데미지 -${v}%`,
+  thorns_pct: v => `받는 데미지 ${v}% 반사`,
+  gauge_on_crit_pct: v => `치명타 시 게이지 +${v}%`,
+  ambush_pct: v => `5초 미피격 시 다음 공격 +${v}%`,
+  predator_pct: v => `적 처치 시 HP ${v}% 회복`,
+  first_strike_pct: v => `첫 공격 데미지 +${v}%`,
 };
 
 interface Props {
@@ -34,7 +42,7 @@ export function PrefixDisplay({ prefixStats }: Props) {
         const fmt = EFFECT_FORMATS[key];
         const text = fmt ? fmt(val) : `${key} +${val}`;
         // 기본 스탯은 골드색, 특수 효과는 하늘색
-        const isSpecial = ['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'hp_regen', 'lifesteal_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct'].includes(key);
+        const isSpecial = ['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'hp_regen', 'lifesteal_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct', 'berserk_pct', 'guardian_pct', 'thorns_pct', 'gauge_on_crit_pct', 'ambush_pct', 'predator_pct', 'first_strike_pct'].includes(key);
         return (
           <span key={key} style={{ color: isSpecial ? '#66ccff' : '#e0a040', fontWeight: 600 }}>
             {isSpecial ? '◆ ' : ''}{text}

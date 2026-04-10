@@ -127,6 +127,8 @@ interface ActiveSession {
   equipPrefixes: Record<string, number>;
   fieldName: string;
   dirty: boolean;
+  ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
+  hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
   userId: number;
 }
 
@@ -381,10 +383,32 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
         const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
+        // 접두사: 광전사 (HP 30% 이하)
+        const berserk = s.equipPrefixes.berserk_pct || 0;
+        if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
+          dmg = Math.round(dmg * (1 + berserk / 100));
+        }
+        // 접두사: 약점간파 (첫 공격)
+        const firstStrike = s.equipPrefixes.first_strike_pct || 0;
+        if (firstStrike > 0 && s.hasFirstStrike) {
+          dmg = Math.round(dmg * (1 + firstStrike / 100));
+          s.hasFirstStrike = false;
+        }
+        // 접두사: 각성 (5초 이상 미피격 시)
+        const ambush = s.equipPrefixes.ambush_pct || 0;
+        if (ambush > 0 && s.ticksSinceLastHit >= 50) {
+          dmg = Math.round(dmg * (1 + ambush / 100));
+          s.ticksSinceLastHit = 0; // 소비
+        }
         // 패시브: crit_damage (치명타 추가 배율) + 접두사: 날카로움(crit_dmg_pct)
         if (d.crit) {
           const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+          // 접두사: 재충전 (치명타 시 게이지 충전)
+          const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
+          if (gaugeOnCrit > 0) {
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCrit / 100);
+          }
         }
         s.monsterHp -= dmg;
         if (d.crit) {
@@ -869,10 +893,26 @@ function monsterAction(s: ActiveSession): void {
       dmg = Math.round(dmg * (1 - reduce.value / 100));
     }
 
+    // 접두사: 수호자 (HP 50% 이상)
+    const guardian = s.equipPrefixes.guardian_pct || 0;
+    if (guardian > 0 && dmg > 0 && s.playerHp / s.playerMaxHp >= 0.5) {
+      dmg = Math.round(dmg * (1 - guardian / 100));
+    }
+
     if (dmg > 0) {
       s.playerHp -= dmg;
       const defUsed = Math.round(playerDefStats.def);
       addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? '!' : ''} (방어 ${defUsed})`);
+      // 피격 → 각성 카운터 리셋
+      s.ticksSinceLastHit = 0;
+    }
+
+    // 접두사: 가시 반사 (thorns_pct)
+    const thorns = s.equipPrefixes.thorns_pct || 0;
+    if (thorns > 0 && d.damage > 0) {
+      const thornDmg = Math.round(d.damage * thorns / 100);
+      s.monsterHp -= thornDmg;
+      addLog(s, `가시 반사! ${thornDmg} 데미지`);
     }
 
     // 반사 (패시브: reflect_amp)
@@ -898,6 +938,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   );
   const m = mr.rows[0];
   if (!m) return;
+
+  // 접두사: 포식 (처치 시 HP 회복)
+  const predator = s.equipPrefixes.predator_pct || 0;
+  if (predator > 0 && s.playerHp < s.playerMaxHp) {
+    const heal = Math.round(s.playerMaxHp * predator / 100);
+    s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+    addLog(s, `[포식] HP +${heal} 회복`);
+  }
 
   // 접두사 + 프리미엄 부스터
   const charBoost = await query<{ gold_boost_until: string | null; drop_boost_until: string | null }>(
@@ -1009,6 +1057,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterStats = monsterToEffective(m);
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;
+  s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
   // 몬스터 관련 디버프 초기화
   s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
   addLog(s, `${m.name}이(가) 나타났다!`);
@@ -1060,6 +1109,9 @@ async function combatTick(): Promise<void> {
   for (const [charId, s] of activeSessions) {
     try {
       if (!s.monsterId) continue;
+
+      // 각성 카운터: 매 틱마다 +1 (피격 시 0으로 리셋)
+      s.ticksSinceLastHit++;
 
       // 스피드 수정 적용
       let effectivePlayerSpeed = s.playerSpeed;
@@ -1324,6 +1376,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     fieldName,
     dirty: true,
     userId: char.user_id,
+    ticksSinceLastHit: 0,
+    hasFirstStrike: true,
   };
 
   // 패시브: counter_incarnation (상시 반사)
