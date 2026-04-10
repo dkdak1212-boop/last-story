@@ -283,6 +283,8 @@ export function NodeTreeScreen() {
     const svg = svgRef.current;
     if (!svg) return;
     function onTouchStart(e: TouchEvent) {
+      // multi-touch는 무조건 막아야 브라우저 pinch-zoom 차단됨
+      if (e.touches.length >= 2) e.preventDefault();
       if (e.touches.length === 1) {
         touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, vbX: viewBox.x, vbY: viewBox.y };
       } else if (e.touches.length === 2) {
@@ -297,6 +299,8 @@ export function NodeTreeScreen() {
         };
       }
     }
+    // gesturestart/gesturechange 차단 (iOS Safari)
+    function onGesture(e: Event) { e.preventDefault(); }
     function onTouchMove(e: TouchEvent) {
       e.preventDefault();
       if (!touchRef.current) return;
@@ -326,10 +330,17 @@ export function NodeTreeScreen() {
     svg.addEventListener('touchstart', onTouchStart, { passive: false });
     svg.addEventListener('touchmove', onTouchMove, { passive: false });
     svg.addEventListener('touchend', onTouchEnd, { passive: false });
+    // iOS Safari 전용 gesture 이벤트 차단
+    svg.addEventListener('gesturestart', onGesture as any);
+    svg.addEventListener('gesturechange', onGesture as any);
+    svg.addEventListener('gestureend', onGesture as any);
     return () => {
       svg.removeEventListener('touchstart', onTouchStart);
       svg.removeEventListener('touchmove', onTouchMove);
       svg.removeEventListener('touchend', onTouchEnd);
+      svg.removeEventListener('gesturestart', onGesture as any);
+      svg.removeEventListener('gesturechange', onGesture as any);
+      svg.removeEventListener('gestureend', onGesture as any);
     };
   }, [viewBox.x, viewBox.y, viewBox.w, viewBox.h]);
 
@@ -410,6 +421,7 @@ export function NodeTreeScreen() {
         border: '1px solid var(--border)',
         background: 'radial-gradient(ellipse at center, #1a1a2a 0%, #050505 70%)',
         overflow: 'hidden', marginBottom: 12,
+        touchAction: 'none',
       }}>
         <svg
           ref={svgRef}
