@@ -59,9 +59,10 @@ async function loadSide(characterId: number): Promise<Side | null> {
      LIMIT 6`,
     [characterId, char.level]
   );
+  const pvpHp = char.max_hp * 10; // PVP HP 10배 보정
   return {
     id: char.id, name: char.name, className: char.class_name,
-    stats: eff, hp: char.max_hp, maxHp: char.max_hp,
+    stats: eff, hp: pvpHp, maxHp: pvpHp,
     gauge: 0, skills: sr.rows, cooldowns: new Map(), actionCount: 0,
     effects: [],
   };
