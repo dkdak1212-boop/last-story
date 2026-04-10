@@ -37,7 +37,7 @@ function rollTier(): number {
 // 1옵 90%, 2옵 9%, 3옵 1%
 // itemLevel: 아이템 요구 레벨 (1~70). 접두사 값을 레벨 비례 스케일링
 //   저렙(~10): 0.4~0.7배, 중렙(~35): 1.0배(기준), 고렙(50+): 1.3~1.8배
-export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
+export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
   const prefixes = await loadPrefixes();
   // 레벨 스케일 팩터: lv35 = 1.0 기준
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
@@ -52,6 +52,7 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
   const prefixIds: number[] = [];
   const bonusStats: Record<string, number> = {};
   const usedStatKeys = new Set<string>();
+  let maxTier = 0;
 
   for (let i = 0; i < count; i++) {
     const tier = rollTier();
@@ -65,9 +66,10 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
     prefixIds.push(picked.id);
     bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;
     usedStatKeys.add(picked.stat_key);
+    if (picked.tier > maxTier) maxTier = picked.tier;
   }
 
-  return { prefixIds, bonusStats };
+  return { prefixIds, bonusStats, maxTier };
 }
 
 // prefix ID 배열 → 접두사 정보 조회

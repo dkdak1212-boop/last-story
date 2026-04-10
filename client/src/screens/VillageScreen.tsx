@@ -7,6 +7,8 @@ interface DropLog {
   itemName: string;
   itemGrade: string;
   prefixCount: number;
+  quality: number;
+  maxPrefixTier: number;
   createdAt: string;
 }
 
@@ -214,19 +216,38 @@ export function VillageScreen() {
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {dropLog.length === 0 && <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>아직 기록이 없습니다.</div>}
             {dropLog.map((d, i) => {
-              const reason = d.itemGrade === 'legendary' && d.prefixCount >= 3 ? '전설 3옵' : d.itemGrade === 'legendary' ? '전설' : `${d.prefixCount}옵`;
+              // 태그 수집: 유니크 / 품질100% / 3옵 / T4
+              const tags: { label: string; color: string }[] = [];
+              if (d.itemGrade === 'unique') tags.push({ label: '유니크', color: '#ff8c2a' });
+              if (d.quality >= 100) tags.push({ label: '품질 100%', color: '#ff8800' });
+              if (d.prefixCount >= 3) tags.push({ label: '3옵', color: '#b060cc' });
+              if (d.maxPrefixTier >= 4) tags.push({ label: 'T4', color: '#ff4444' });
+              const isUnique = d.itemGrade === 'unique';
               return (
                 <div key={i} style={{ padding: '4px 0', fontSize: 12, borderBottom: i < dropLog.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                   <span style={{ color: 'var(--text-dim)', fontSize: 10, marginRight: 6 }}>{fmtTime(d.createdAt)}</span>
                   <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{d.characterName}</span>
                   {' '}
-                  <span style={{ color: GRADE_COLOR[d.itemGrade], fontWeight: 700 }}>{d.itemName}</span>
-                  <span style={{
-                    fontSize: 10, padding: '1px 5px', marginLeft: 4, borderRadius: 3,
-                    background: d.itemGrade === 'legendary' ? 'rgba(224,128,48,0.15)' : 'rgba(176,96,204,0.15)',
-                    color: d.itemGrade === 'legendary' ? '#e08030' : '#b060cc',
-                    border: `1px solid ${d.itemGrade === 'legendary' ? '#e08030' : '#b060cc'}`,
-                  }}>{reason}</span>
+                  {isUnique ? (
+                    <span style={{
+                      fontWeight: 700,
+                      background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                    }}>★ {d.itemName}</span>
+                  ) : (
+                    <span style={{ color: GRADE_COLOR[d.itemGrade] || 'var(--text)', fontWeight: 700 }}>{d.itemName}</span>
+                  )}
+                  {tags.map((t, ti) => (
+                    <span key={ti} style={{
+                      fontSize: 10, padding: '1px 5px', marginLeft: 4, borderRadius: 3,
+                      background: `${t.color}22`,
+                      color: t.color,
+                      border: `1px solid ${t.color}`,
+                      fontWeight: 700,
+                    }}>{t.label}</span>
+                  ))}
                 </div>
               );
             })}
