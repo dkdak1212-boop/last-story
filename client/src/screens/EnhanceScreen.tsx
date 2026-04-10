@@ -8,7 +8,9 @@ interface EnhanceItem {
   kind: 'inventory' | 'equipped';
   slotIndex?: number; equipSlot?: string;
   itemId: number; name: string; grade: ItemGrade; itemSlot: string | null;
-  stats: Partial<Stats> | null; enhanceLevel: number;
+  stats: Partial<Stats> | null; // 강화 적용된 현재 스탯
+  baseStats: Partial<Stats> | null; // 원본(강화 전) 스탯
+  enhanceLevel: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
 }
 
@@ -153,11 +155,11 @@ export function EnhanceScreen() {
                 {GRADE_LABEL[selected.grade]} · {SLOT_LABEL[selected.itemSlot || '']}
               </div>
 
-              {selected.stats && (
+              {selected.baseStats && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
-                  {Object.entries(selected.stats).map(([k, v]) => {
-                    // 서버와 동일한 배율: 1~6강 +15%/단계, 7강+ +25%/단계
+                  {Object.entries(selected.baseStats).map(([k, v]) => {
+                    // baseStats는 강화 전 원본. 1~6강 +15%/단계, 7강+ +25%/단계
                     const getMult = (el: number) => el <= 6 ? (1 + el * 0.15) : (1 + 6 * 0.15 + (el - 6) * 0.25);
                     const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
                     const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
