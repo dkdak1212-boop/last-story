@@ -91,7 +91,7 @@ export function ShopScreen() {
   return (
     <div>
       <h2 style={{ marginBottom: 6, color: 'var(--accent)' }}>상점</h2>
-      <p style={{ color: 'var(--text-dim)', marginBottom: 20 }}>소모품 · 부스터 · 특수 아이템</p>
+      <p style={{ color: 'var(--text-dim)', marginBottom: 20 }}>소모품 · 부스터</p>
       {msg && <div style={{ color: msg.includes('구매') || msg.includes('완료') ? 'var(--success)' : 'var(--danger)', marginBottom: 12, fontWeight: 700, fontSize: 14 }}>{msg}</div>}
 
       {/* 프리미엄 아이템 섹션 */}
