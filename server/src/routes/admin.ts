@@ -403,6 +403,66 @@ router.post('/blocked-ips/unblock', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== 유저 감사: 전체 스캔 (빠른 버전) ==========
+router.get('/audit/all', async (_req, res) => {
+  // 캐릭터 컬럼만으로 빠른 스캔 (장비/강화 join 없음)
+  const r = await query<{
+    id: number; user_id: number; username: string; name: string; class_name: string;
+    level: number; gold: string; total_kills: string | null; total_gold_earned: string | null;
+    created_at: string; banned: boolean; registered_ip: string | null;
+  }>(
+    `SELECT c.id, c.user_id, u.username, c.name, c.class_name, c.level, c.gold,
+            c.total_kills, c.total_gold_earned, c.created_at, u.banned, u.registered_ip
+     FROM characters c JOIN users u ON u.id = c.user_id
+     WHERE u.is_admin = FALSE`
+  );
+
+  const items = r.rows.map(row => {
+    const level = row.level;
+    const totalKills = Number(row.total_kills || 0);
+    const totalGoldEarned = Number(row.total_gold_earned || 0);
+    const currentGold = Number(row.gold);
+    const ageDays = (Date.now() - new Date(row.created_at).getTime()) / 86400000;
+    const expectedKills = Math.max(1, level * 30);
+
+    const flags: { severity: 'low' | 'med' | 'high'; label: string }[] = [];
+    if (level >= 30 && totalKills < expectedKills * 0.3) {
+      flags.push({ severity: 'high', label: 'EXP 핵 의심' });
+    }
+    if (currentGold > totalGoldEarned * 1.5 && totalGoldEarned > 0) {
+      flags.push({ severity: 'high', label: '골드 핵 의심' });
+    }
+    if (level >= 20 && ageDays < 0.5) {
+      flags.push({ severity: 'high', label: '비정상 빠른 레벨업' });
+    }
+    if (currentGold >= 10_000_000 && level < 30) {
+      flags.push({ severity: 'high', label: '저레벨 거액' });
+    }
+    const score = flags.reduce((sum, f) => sum + (f.severity === 'high' ? 3 : f.severity === 'med' ? 2 : 1), 0);
+
+    return {
+      characterId: row.id,
+      userId: row.user_id,
+      username: row.username,
+      characterName: row.name,
+      className: row.class_name,
+      level,
+      currentGold,
+      totalKills,
+      totalGoldEarned,
+      ageDays: Math.round(ageDays * 10) / 10,
+      banned: row.banned,
+      registeredIp: row.registered_ip,
+      flags,
+      suspicionScore: score,
+    };
+  });
+
+  // 점수 내림차순 정렬, 점수 0인 건 제외
+  const ranked = items.filter(i => i.suspicionScore > 0).sort((a, b) => b.suspicionScore - a.suspicionScore);
+  res.json({ total: items.length, suspicious: ranked.length, ranked: ranked.slice(0, 100) });
+});
+
 // ========== 유저 감사 (의심 지표 계산) ==========
 router.get('/audit/character/:id', async (req, res) => {
   const cid = Number(req.params.id);

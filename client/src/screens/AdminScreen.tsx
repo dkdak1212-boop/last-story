@@ -853,11 +853,21 @@ interface AuditResult {
   flags: AuditFlag[];
   suspicionScore: number;
 }
+interface BulkAuditItem {
+  characterId: number; userId: number; username: string; characterName: string;
+  className: string; level: number; currentGold: number; totalKills: number;
+  totalGoldEarned: number; ageDays: number; banned: boolean; registeredIp: string | null;
+  flags: { severity: 'low' | 'med' | 'high'; label: string }[];
+  suspicionScore: number;
+}
+
 function AuditTab() {
   const [cidInput, setCidInput] = useState('');
   const [result, setResult] = useState<AuditResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ total: number; suspicious: number; ranked: BulkAuditItem[] } | null>(null);
 
   async function audit() {
     const cid = Number(cidInput);
@@ -870,11 +880,20 @@ function AuditTab() {
     setLoading(false);
   }
 
+  async function scanAll() {
+    setBulkLoading(true); setErr('');
+    try {
+      const r = await api<{ total: number; suspicious: number; ranked: BulkAuditItem[] }>('/admin/audit/all');
+      setBulkResult(r);
+    } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
+    setBulkLoading(false);
+  }
+
   const sevColor = (s: 'low' | 'med' | 'high') => s === 'high' ? '#ff4444' : s === 'med' ? '#ffaa00' : '#888';
 
   return (
     <div>
-      <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 14, display: 'flex', gap: 8 }}>
+      <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           placeholder="캐릭터 ID 입력"
           value={cidInput}
@@ -882,9 +901,58 @@ function AuditTab() {
           onKeyDown={e => e.key === 'Enter' && audit()}
           style={{ flex: 1, maxWidth: 200 }}
         />
-        <button className="primary" onClick={audit} disabled={loading}>감사</button>
+        <button className="primary" onClick={audit} disabled={loading}>개별 감사</button>
+        <span style={{ width: 1, height: 24, background: 'var(--border)' }}></span>
+        <button onClick={scanAll} disabled={bulkLoading} style={{ background: '#2a1a00', color: '#ffcc00', border: '1px solid #ffcc00' }}>
+          {bulkLoading ? '스캔 중...' : '🔍 전체 스캔 (의심 점수 순)'}
+        </button>
       </div>
       {err && <div style={{ color: 'var(--danger)', marginBottom: 10 }}>{err}</div>}
+
+      {bulkResult && (
+        <div style={{ marginBottom: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+          <div style={{ marginBottom: 10, fontSize: 13 }}>
+            전체 <b>{bulkResult.total}</b>명 중 의심 캐릭터 <b style={{ color: '#ffcc00' }}>{bulkResult.suspicious}</b>명 (상위 100명 표시)
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 500, overflowY: 'auto' }}>
+            {bulkResult.ranked.map(item => (
+              <div key={item.characterId}
+                onClick={() => { setCidInput(String(item.characterId)); audit(); }}
+                style={{
+                  padding: '8px 10px', background: 'var(--bg)',
+                  border: `1px solid ${item.suspicionScore >= 6 ? '#ff4444' : '#ffaa00'}`,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+                  opacity: item.banned ? 0.5 : 1,
+                }}
+                title="클릭해서 상세 보기"
+              >
+                <div style={{
+                  minWidth: 32, height: 32, borderRadius: 4,
+                  background: item.suspicionScore >= 6 ? '#ff4444' : '#ffaa00',
+                  color: '#000', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {item.suspicionScore}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>
+                    {item.characterName} <span style={{ color: 'var(--text-dim)', fontWeight: 400 }}>(ID:{item.characterId} · {item.username})</span>
+                    {item.banned && <span style={{ color: '#ff4444', marginLeft: 6, fontSize: 10 }}>[정지됨]</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                    Lv.{item.level} {item.className} · {item.currentGold.toLocaleString()}G · {item.totalKills.toLocaleString()}킬 · {item.ageDays}일
+                  </div>
+                  <div style={{ fontSize: 10, color: '#ffaa00', marginTop: 2 }}>
+                    {item.flags.map(f => f.label).join(' · ')}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {bulkResult.ranked.length === 0 && (
+              <div style={{ color: 'var(--success)', textAlign: 'center', padding: 20 }}>의심스러운 캐릭터가 없습니다 ✓</div>
+            )}
+          </div>
+        </div>
+      )}
       {result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* 의심 점수 */}
