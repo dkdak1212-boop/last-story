@@ -13,11 +13,26 @@ const CLASSES: { name: ClassName; label: string; desc: string }[] = [
 
 export function CharacterSelectScreen() {
   const nav = useNavigate();
-  const { characters, fetchCharacters, selectCharacter, createCharacter } = useCharacterStore();
+  const { characters, fetchCharacters, selectCharacter, createCharacter, deleteCharacter } = useCharacterStore();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [pickedClass, setPickedClass] = useState<ClassName>('warrior');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleDelete(id: number, charName: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (busy) return;
+    if (!confirm(`정말로 "${charName}" 캐릭터를 삭제하시겠습니까?\n\n레벨, 아이템, 골드, 진행도 등 모든 데이터가 영구적으로 삭제되며 복구할 수 없습니다.`)) return;
+    setBusy(true);
+    try {
+      await deleteCharacter(id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '삭제 실패');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     fetchCharacters().catch(() => {});
@@ -96,9 +111,11 @@ export function CharacterSelectScreen() {
               cursor: 'pointer',
               display: 'flex',
               justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
               <ClassIcon className={c.className as ClassName} size={28} />
               <div>
                 <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{c.name}</div>
@@ -107,9 +124,18 @@ export function CharacterSelectScreen() {
                 </div>
               </div>
             </div>
-            <div style={{ color: 'var(--text-dim)', fontSize: 13, alignSelf: 'center' }}>
+            <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
               {c.gold}G
             </div>
+            <button
+              onClick={(e) => handleDelete(c.id, c.name, e)}
+              disabled={busy}
+              style={{
+                padding: '5px 10px', fontSize: 11, fontWeight: 700,
+                background: 'transparent', color: 'var(--danger)',
+                border: '1px solid var(--danger)', cursor: 'pointer', borderRadius: 3,
+              }}
+            >삭제</button>
           </div>
         ))}
       </div>

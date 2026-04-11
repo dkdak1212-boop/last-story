@@ -108,4 +108,42 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   res.json(r.rows[0]);
 });
 
+// 캐릭터 삭제 (관련 데이터 cascade 정리)
+router.delete('/:characterId', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const own = await query<{ id: number }>(
+    'SELECT id FROM characters WHERE id = $1 AND user_id = $2',
+    [cid, req.userId]
+  );
+  if (own.rowCount === 0) return res.status(404).json({ error: 'not found' });
+
+  // FK 참조 정리
+  const tables = [
+    'character_inventory', 'character_equipped', 'character_nodes', 'character_skills',
+    'character_skill_presets', 'character_daily_quests', 'character_quests',
+    'character_achievements', 'combat_sessions', 'offline_reports', 'mailbox',
+    'item_drop_log', 'enhance_log', 'guestbook',
+    'guild_members', 'guild_contributions', 'guild_donations_daily',
+    'world_event_participants', 'daily_quest_rewards', 'pvp_stats',
+  ];
+  for (const t of tables) {
+    try {
+      await query(`DELETE FROM ${t} WHERE character_id = $1`, [cid]);
+    } catch { /* 테이블 없으면 스킵 */ }
+  }
+  // 특수 테이블
+  try { await query('DELETE FROM auctions WHERE seller_id = $1', [cid]); } catch {}
+  try { await query('UPDATE auctions SET current_bidder_id = NULL WHERE current_bidder_id = $1', [cid]); } catch {}
+  try { await query('DELETE FROM pvp_battles WHERE attacker_id = $1 OR defender_id = $1 OR winner_id = $1', [cid]); } catch {}
+  try { await query('DELETE FROM pvp_cooldowns WHERE attacker_id = $1 OR defender_id = $1', [cid]); } catch {}
+  try { await query('DELETE FROM party_invites WHERE from_id = $1 OR to_id = $1', [cid]); } catch {}
+  try { await query('DELETE FROM feedback WHERE character_id = $1', [cid]); } catch {}
+  try { await query('DELETE FROM premium_purchases WHERE character_id = $1', [cid]); } catch {}
+  // 길드장이면 길드 해산
+  try { await query('DELETE FROM guilds WHERE leader_id = $1', [cid]); } catch {}
+
+  await query('DELETE FROM characters WHERE id = $1', [cid]);
+  res.json({ ok: true });
+});
+
 export default router;

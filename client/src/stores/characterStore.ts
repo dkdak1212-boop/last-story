@@ -11,6 +11,7 @@ interface CharacterState {
   fetchCharacters: () => Promise<void>;
   selectCharacter: (id: number) => Promise<void>;
   createCharacter: (name: string, className: string) => Promise<Character>;
+  deleteCharacter: (id: number) => Promise<void>;
   ackReport: () => Promise<void>;
   refreshActive: () => Promise<void>;
   clear: () => void;
@@ -62,6 +63,19 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
     });
     set((s) => ({ characters: [...s.characters, char] }));
     return char;
+  },
+
+  deleteCharacter: async (id) => {
+    await api(`/characters/${id}`, { method: 'DELETE' });
+    set((s) => {
+      const filtered = s.characters.filter(c => c.id !== id);
+      const wasActive = s.activeCharacter?.id === id;
+      if (wasActive) localStorage.removeItem('activeCharacterId');
+      return {
+        characters: filtered,
+        activeCharacter: wasActive ? null : s.activeCharacter,
+      };
+    });
   },
 
   ackReport: async () => {
