@@ -4,6 +4,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { generatePrefixes } from '../game/prefix.js';
+import { refreshSessionStats } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -242,6 +243,8 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
       const { checkAndUnlockAchievements } = await import('../game/achievements.js');
       await checkAndUnlockAchievements(cid);
     } catch {}
+    // 전투 세션 인메모리 스탯 갱신 (강화로 인한 atk/def 변화 즉시 반영)
+    await refreshSessionStats(cid).catch(() => {});
     res.json({
       success: true, destroyed: false, cost: info.cost, chance: finalChance,
       destroyRate: info.destroyRate, newLevel: currentLevel + 1,
@@ -270,6 +273,8 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, char.name, itemName, itemGrade, currentLevel, destroyed]
       );
     }
+    // 파괴 시에도 장비 변동이 있으므로 세션 갱신
+    if (destroyed) await refreshSessionStats(cid).catch(() => {});
     res.json({
       success: false, destroyed, cost: info.cost, chance: finalChance,
       destroyRate: info.destroyRate, newLevel: currentLevel,

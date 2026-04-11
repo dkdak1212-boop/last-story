@@ -336,7 +336,12 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
   const useMatk = MATK_CLASSES.has(s.className);
   let defReduce = 0;
   if (target === 'monster') {
-    const monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
+    // 패시브 armor_pierce + 접두사 def_reduce_pct 도트에도 적용
+    const armorPierce = getPassive(s, 'armor_pierce');
+    const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
+    const totalPierce = Math.min(80, armorPierce + prefixDefReduce);
+    let monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
+    if (totalPierce > 0) monsterDef = Math.round(monsterDef * (1 - totalPierce / 100));
     defReduce = Math.round(monsterDef * 0.5 * (1 - DOT_DEF_IGNORE_PCT));
   } else {
     // 플레이어가 받는 도트 — 플레이어 방어로 차감
@@ -929,24 +934,18 @@ async function autoAction(s: ActiveSession): Promise<void> {
     }
   }
 
-  // ── 1.5. 실드는 쿨다운 풀리는 즉시 항상 유지 (HP 무관) ──
+  // ── 1.5. 방어 버프(실드/철벽/반격의 의지)는 쿨다운 풀리는 즉시 항상 유지 (HP 무관) ──
   if (!hasActivePlayerBuff(s, 'shield')) {
     const shieldSkill = findReady(s, 'shield');
     if (shieldSkill && shieldSkill.damage_mult === 0) { await executeSkill(s, shieldSkill); return; }
   }
-
-  // ── 2. HP 60% 이하 → 방어 버프 (중복 방지) ──
-  if (hpPct < 0.6) {
-    // 데미지 감소
-    if (!hasActivePlayerBuff(s, 'damage_reduce')) {
-      const drSkill = findReady(s, 'damage_reduce');
-      if (drSkill) { await executeSkill(s, drSkill); return; }
-    }
-    // 데미지 반사
-    if (!hasActivePlayerBuff(s, 'damage_reflect')) {
-      const reflSkill = findReady(s, 'damage_reflect');
-      if (reflSkill && reflSkill.damage_mult === 0) { await executeSkill(s, reflSkill); return; }
-    }
+  if (!hasActivePlayerBuff(s, 'damage_reduce')) {
+    const drSkill = findReady(s, 'damage_reduce');
+    if (drSkill) { await executeSkill(s, drSkill); return; }
+  }
+  if (!hasActivePlayerBuff(s, 'damage_reflect')) {
+    const reflSkill = findReady(s, 'damage_reflect');
+    if (reflSkill && reflSkill.damage_mult === 0) { await executeSkill(s, reflSkill); return; }
   }
 
   // ── 3. 유틸 디버프 (활성 효과 없을 때만) ──
