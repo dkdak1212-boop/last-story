@@ -679,6 +679,16 @@ function UsersTab() {
     load();
   }
 
+  async function resetPassword(u: UserRow) {
+    const newPassword = prompt(`'${u.username}' 새 비밀번호 입력 (4자 이상)`);
+    if (!newPassword || newPassword.length < 4) return;
+    if (!confirm(`'${u.username}' 비밀번호를 변경합니다. 계속?`)) return;
+    try {
+      await api(`/admin/users/${u.id}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) });
+      alert('비밀번호 변경 완료');
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -705,11 +715,18 @@ function UsersTab() {
                 {u.last_login_at && ` · 접속: ${new Date(u.last_login_at).toLocaleDateString('ko-KR')}`}
               </div>
             </div>
-            <button onClick={() => toggleBan(u)} style={{
-              fontSize: 11, padding: '3px 10px',
-              color: u.banned ? 'var(--success)' : 'var(--danger)',
-              border: `1px solid ${u.banned ? 'var(--success)' : 'var(--danger)'}`,
-            }}>{u.banned ? '정지 해제' : '정지'}</button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => resetPassword(u)} style={{
+                fontSize: 11, padding: '3px 10px',
+                color: 'var(--accent)',
+                border: '1px solid var(--accent)',
+              }}>비번 변경</button>
+              <button onClick={() => toggleBan(u)} style={{
+                fontSize: 11, padding: '3px 10px',
+                color: u.banned ? 'var(--success)' : 'var(--danger)',
+                border: `1px solid ${u.banned ? 'var(--success)' : 'var(--danger)'}`,
+              }}>{u.banned ? '정지 해제' : '정지'}</button>
+            </div>
           </div>
         ))}
       </div>

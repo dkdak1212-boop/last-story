@@ -353,6 +353,20 @@ router.post('/users/:id/ban', async (req, res) => {
   res.json({ ok: true });
 });
 
+// 어드민 비번 재설정
+router.post('/users/:id/reset-password', async (req, res) => {
+  const userId = Number(req.params.id);
+  const parsed = z.object({
+    newPassword: z.string().min(4).max(100),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const bcrypt = (await import('bcryptjs')).default;
+  const hash = await bcrypt.hash(parsed.data.newPassword, 10);
+  const r = await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'user not found' });
+  res.json({ ok: true });
+});
+
 // ========== 캐릭터 검색/상세 ==========
 router.get('/characters/search', async (req, res) => {
   const search = (req.query.name as string) || '';
