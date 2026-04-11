@@ -320,6 +320,8 @@ function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster') {
 }
 
 // ── 도트 데미지 처리 ──
+// 도트는 방어력의 50%만 무시 (= 방어력의 25%만큼 차감)
+const DOT_DEF_IGNORE_PCT = 0.5; // 50% 무시
 function processDots(s: ActiveSession, target: 'player' | 'monster') {
   const dots = s.statusEffects.filter(e =>
     (e.type === 'dot' || e.type === 'poison') &&
@@ -328,6 +330,19 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
   );
   if (dots.length === 0) return;
   let total = 0;
+  // 방어 차감량: 일반 데미지 공식의 def × 0.5 중 50%만 적용 → def × 0.25
+  // 마법 클래스는 mdef, 일반은 def 사용
+  const useMatk = MATK_CLASSES.has(s.className);
+  let defReduce = 0;
+  if (target === 'monster') {
+    const monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
+    defReduce = Math.round(monsterDef * 0.5 * (1 - DOT_DEF_IGNORE_PCT));
+  } else {
+    // 플레이어가 받는 도트 — 플레이어 방어로 차감
+    const playerDef = s.playerStats.def;
+    defReduce = Math.round(playerDef * 0.5 * (1 - DOT_DEF_IGNORE_PCT));
+  }
+
   for (const dot of dots) {
     let dmg = Math.round(dot.value);
     if (dmg <= 0) continue;
@@ -337,19 +352,21 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
         + getPassive(s, 'elemental_storm') // 원소 폭주 노드: 도트 데미지 증가
         + (s.equipPrefixes.dot_amp_pct || 0);
       if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
+      dmg = Math.max(1, dmg - defReduce);
     } else {
       const resist = getPassive(s, 'dot_resist');
       if (resist > 0) dmg = Math.round(dmg * (1 - resist / 100));
+      dmg = Math.max(1, dmg - defReduce);
     }
     total += dmg;
   }
   if (total > 0) {
     if (target === 'monster') {
       s.monsterHp -= total;
-      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩, 방어무시)`);
+      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩, 방어 50% 무시)`);
     } else {
       s.playerHp -= total;
-      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩, 방어무시)`);
+      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩, 방어 50% 무시)`);
     }
   }
 }
@@ -474,7 +491,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const bleedBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
           const bleedDmg = Math.round(bleedBase * 0.75);
           addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
-          addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어무시)`);
+          addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어 50% 무시)`);
         }
 
         if (skill.effect_type === 'lifesteal') {
@@ -567,10 +584,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-        const dotDmg = Math.round(dotBase * 1.5);
+        const dotDmg = Math.round(dotBase * 1.1);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
-        addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어무시)`);
+        addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어 50% 무시)`);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
@@ -586,7 +603,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const dotDmg = Math.round(dotBase * 1.2);
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
-      addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어무시)`);
+      addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어 50% 무시)`);
       // 스피드 감소
       if (skill.effect_value > 0) {
         addEffect(s, { type: 'speed_mod', value: -skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
