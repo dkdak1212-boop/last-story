@@ -143,6 +143,8 @@ export async function attackBoss(characterId: number) {
   const combatLog: string[] = [];
   // 보스에게 걸린 도트/상태이상 (플레이어→보스 단방향)
   let bossEffects: StatusEffect[] = [];
+  // 시뮬 1회에 이미 발동된 버프 — cd=0 버프가 매 액션 반복 발동하는 걸 방지
+  const usedBuffs = new Set<string>();
 
   for (let t = 0; t < TICKS; t++) {
     // 게이지 충전
@@ -203,6 +205,8 @@ export async function attackBoss(characterId: number) {
           if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
           // HP 여유 있으면 힐 스킬은 스킵 (낭비 방지)
           if (sk.effect_type === 'heal_pct') continue;
+          // 버프 스킬은 시뮬 1회만 발동 (cd=0 버프가 슬롯 1에서 무한 루프 나는 것 방지)
+          if (sk.kind === 'buff' && usedBuffs.has(sk.name)) continue;
 
           // 쿨다운 설정 (노드 쿨감 적용)
           if (sk.cooldown_actions > 0) {
@@ -213,6 +217,7 @@ export async function attackBoss(characterId: number) {
           // ── 스킬 유형별 처리 ──
           if (sk.kind === 'buff') {
             // 버프는 레이드 시뮬에서 간략 처리 (로그만)
+            usedBuffs.add(sk.name);
             if (combatLog.length < 20) combatLog.push(`[${sk.name}] 버프 발동!`);
           } else if (sk.effect_type === 'multi_hit' || sk.effect_type === 'multi_hit_poison') {
             // 다단 타격
