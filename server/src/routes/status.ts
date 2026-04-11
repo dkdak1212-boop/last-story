@@ -12,7 +12,7 @@ const router = Router();
 router.use(authRequired);
 
 const SPENDABLE_STATS = ['str', 'dex', 'int', 'vit'] as const;
-const HP_PER_VIT = 10;
+const HP_PER_VIT = 20;
 
 // 스탯 포인트 분배
 router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response) => {

@@ -998,6 +998,25 @@ async function runMigrations() {
       `);
     } catch (e) { console.error('[migration] skill_presets error:', e); }
   }
+  // VIT 1당 HP +10 → +20 변경에 따른 소급 보너스 (1회만)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'vit_hp_per_vit_20_v1'`);
+      if (!(applied.rowCount && applied.rowCount > 0)) {
+        console.log('[migration] vit_hp_per_vit_20_v1: 기존 분배한 VIT에 소급 보너스 +10/point 적용...');
+        // 시작 vit는 모든 직업 14, 분배한 vit = base.vit - 14
+        // 추가로 줘야 할 hp = (분배한 vit) * 10 (이미 +10 줬으니 +10 더 = 총 +20)
+        await query(`
+          UPDATE characters
+          SET max_hp = max_hp + GREATEST(0, COALESCE((stats->>'vit')::int, 14) - 14) * 10,
+              hp = hp + GREATEST(0, COALESCE((stats->>'vit')::int, 14) - 14) * 10
+          WHERE COALESCE((stats->>'vit')::int, 14) > 14
+        `);
+        await query(`INSERT INTO _migrations (name) VALUES ('vit_hp_per_vit_20_v1')`);
+        console.log('[migration] vit_hp_per_vit_20_v1: 완료');
+      }
+    } catch (e) { console.error('[migration] vit_hp_per_vit_20_v1 error:', e); }
+  }
   // IP 차단 목록
   {
     try {
