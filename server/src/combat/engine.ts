@@ -899,13 +899,14 @@ async function autoAction(s: ActiveSession): Promise<void> {
     }
   }
 
+  // ── 1.5. 실드는 쿨다운 풀리는 즉시 항상 유지 (HP 무관) ──
+  if (!hasActivePlayerBuff(s, 'shield')) {
+    const shieldSkill = findReady(s, 'shield');
+    if (shieldSkill && shieldSkill.damage_mult === 0) { await executeSkill(s, shieldSkill); return; }
+  }
+
   // ── 2. HP 60% 이하 → 방어 버프 (중복 방지) ──
   if (hpPct < 0.6) {
-    // 실드
-    if (!hasActivePlayerBuff(s, 'shield')) {
-      const shieldSkill = findReady(s, 'shield');
-      if (shieldSkill && shieldSkill.damage_mult === 0) { await executeSkill(s, shieldSkill); return; }
-    }
     // 데미지 감소
     if (!hasActivePlayerBuff(s, 'damage_reduce')) {
       const drSkill = findReady(s, 'damage_reduce');

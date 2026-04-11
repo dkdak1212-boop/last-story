@@ -25,17 +25,21 @@ export function ChatPanel() {
   const socketRef = useRef<Socket | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  // 길드/파티 스코프 ID 가져오기
-  useEffect(() => {
+  // 길드/파티 스코프 ID 가져오기 (활성 캐릭터 변경 또는 채팅 패널 열림 시 새로고침)
+  const refreshScopes = async () => {
     if (!activeId) return;
-    (async () => {
-      try {
-        const g = await api<{ guild: { id: number } | null }>(`/guilds/my/${activeId}`);
-        const p = await api<{ party: { id: number } | null }>(`/party/my/${activeId}`);
-        setScopeIds({ guild: g.guild?.id ?? null, party: p.party?.id ?? null });
-      } catch {}
-    })();
-  }, [activeId]);
+    try {
+      const g = await api<{ guild: { id: number } | null }>(`/guilds/my/${activeId}`);
+      const p = await api<{ party: { id: number } | null }>(`/party/my/${activeId}`).catch(() => ({ party: null }));
+      setScopeIds({ guild: g.guild?.id ?? null, party: p.party?.id ?? null });
+    } catch {}
+  };
+  useEffect(() => { refreshScopes(); }, [activeId]);
+  useEffect(() => { if (open) refreshScopes(); }, [open]);
+  // 길드/파티 탭 클릭 시에도 새로고침
+  useEffect(() => {
+    if (channel === 'guild' || channel === 'party') refreshScopes();
+  }, [channel]);
 
   useEffect(() => {
     if (!token) return;

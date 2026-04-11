@@ -135,52 +135,13 @@ export function MarketplaceScreen() {
             </div>
           )}
 
-          {(() => {
-            // 1. 무기 직업 필터 적용
-            let filtered = listings;
-            if (slotFilter === 'weapon' && weaponClass) {
-              filtered = listings.filter(a => {
-                const cls = a.classRestriction || inferWeaponClass(a.baseItemName || a.itemName || '');
-                return cls === weaponClass;
-              });
-            }
-            // 2. 레벨 구간별 그룹화
-            const groups = new Map<string, { label: string; sort: number; items: Listing[] }>();
-            for (const a of filtered) {
-              const lv = a.requiredLevel || 1;
-              const b = levelBracket(lv);
-              if (!groups.has(b.key)) groups.set(b.key, { label: b.label, sort: b.sort, items: [] });
-              groups.get(b.key)!.items.push(a);
-            }
-            const sorted = [...groups.values()].sort((a, b) => a.sort - b.sort);
-
-            if (filtered.length === 0) {
-              return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 아이템이 없습니다</div>;
-            }
-
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {sorted.map(g => (
-                  <div key={g.label}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 700, color: 'var(--accent)',
-                      padding: '6px 10px', marginBottom: 4,
-                      background: 'rgba(218,165,32,0.08)',
-                      borderLeft: '3px solid var(--accent)',
-                      borderRadius: 2,
-                    }}>
-                      {g.label} · {g.items.length}개
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {g.items.map(a => (
-                        <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+          <BrowseListings
+            listings={listings}
+            slotFilter={slotFilter}
+            weaponClass={weaponClass}
+            myLevel={active?.level || 1}
+            onBuy={(a) => buy(a)}
+          />
         </>
       )}
 
@@ -207,6 +168,94 @@ export function MarketplaceScreen() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// 거래소 목록 (필터 + 그룹 + 접기 + 내 레벨 우선 정렬)
+function BrowseListings({ listings, slotFilter, weaponClass, myLevel, onBuy }: {
+  listings: Listing[]; slotFilter: string; weaponClass: string; myLevel: number;
+  onBuy: (a: Listing) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  // 1. 무기 직업 필터
+  let filtered = listings;
+  if (slotFilter === 'weapon' && weaponClass) {
+    filtered = listings.filter(a => {
+      const cls = a.classRestriction || inferWeaponClass(a.baseItemName || a.itemName || '');
+      return cls === weaponClass;
+    });
+  }
+
+  // 2. 레벨 구간별 그룹화
+  const groups = new Map<string, { label: string; sort: number; items: Listing[] }>();
+  for (const a of filtered) {
+    const lv = a.requiredLevel || 1;
+    const b = levelBracket(lv);
+    if (!groups.has(b.key)) groups.set(b.key, { label: b.label, sort: b.sort, items: [] });
+    groups.get(b.key)!.items.push(a);
+  }
+
+  // 3. 정렬: 내 레벨 구간 우선, 그 다음 가까운 순
+  const myBracket = levelBracket(myLevel);
+  const sorted = [...groups.values()].sort((a, b) => {
+    const aMine = a.sort === myBracket.sort ? -1 : 0;
+    const bMine = b.sort === myBracket.sort ? -1 : 0;
+    if (aMine !== bMine) return aMine - bMine;
+    // 그 다음: 내 레벨에서 가까운 순 (높은 레벨 먼저)
+    const aDist = Math.abs(a.sort - myBracket.sort);
+    const bDist = Math.abs(b.sort - myBracket.sort);
+    if (aDist !== bDist) return aDist - bDist;
+    return b.sort - a.sort;
+  });
+
+  if (filtered.length === 0) {
+    return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 아이템이 없습니다</div>;
+  }
+
+  function toggle(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {sorted.map(g => {
+        const isMine = g.sort === myBracket.sort;
+        const isCollapsed = collapsed.has(g.label);
+        return (
+          <div key={g.label}>
+            <div
+              onClick={() => toggle(g.label)}
+              style={{
+                fontSize: 12, fontWeight: 700,
+                color: isMine ? 'var(--success)' : 'var(--accent)',
+                padding: '8px 12px', marginBottom: 4,
+                background: isMine ? 'rgba(107,163,104,0.12)' : 'rgba(218,165,32,0.08)',
+                borderLeft: `3px solid ${isMine ? 'var(--success)' : 'var(--accent)'}`,
+                borderRadius: 3, cursor: 'pointer', userSelect: 'none',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}
+            >
+              <span>
+                {isCollapsed ? '▶' : '▼'} {g.label} · {g.items.length}개
+                {isMine && <span style={{ marginLeft: 6, fontSize: 10 }}>★ 내 레벨</span>}
+              </span>
+            </div>
+            {!isCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {g.items.map(a => (
+                  <ListingRow key={a.id} a={a} onBuy={() => onBuy(a)} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -51,8 +51,8 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
   if (r.rowCount === 0) return res.json({ guild: null });
   const g = r.rows[0];
 
-  const mr = await query<{ character_id: number; role: string; name: string; level: number; class_name: string }>(
-    `SELECT gm.character_id, gm.role, c.name, c.level, c.class_name
+  const mr = await query<{ character_id: number; role: string; name: string; level: number; class_name: string; last_online_at: string | null }>(
+    `SELECT gm.character_id, gm.role, c.name, c.level, c.class_name, c.last_online_at
      FROM guild_members gm JOIN characters c ON c.id = gm.character_id
      WHERE gm.guild_id = $1 ORDER BY gm.role, gm.joined_at`,
     [g.guild_id]
@@ -100,9 +100,30 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
       skills,
       myDonationToday,
       dailyDonationCap: DAILY_DONATION_CAP,
-      members: mr.rows.map(m => ({ id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role })),
+      members: mr.rows.map(m => ({ id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role, lastOnlineAt: m.last_online_at })),
     },
   });
+});
+
+// 길드 소개글 수정 (리더만)
+router.post('/description', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterId: z.number().int().positive(),
+    description: z.string().max(200).default(''),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const gm = await query<{ guild_id: number; role: string }>(
+    'SELECT guild_id, role FROM guild_members WHERE character_id = $1', [char.id]
+  );
+  if (gm.rowCount === 0) return res.status(400).json({ error: '길드 없음' });
+  if (gm.rows[0].role !== 'leader') return res.status(403).json({ error: '리더만 수정 가능' });
+
+  await query('UPDATE guilds SET description = $1 WHERE id = $2', [parsed.data.description, gm.rows[0].guild_id]);
+  res.json({ ok: true });
 });
 
 // 길드 자금 기부

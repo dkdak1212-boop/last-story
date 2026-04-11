@@ -6,7 +6,7 @@ interface GuildSummary {
   id: number; name: string; description: string;
   memberCount: number; leaderName: string; maxMembers: number; statBuffPct: number;
 }
-interface GuildMember { id: number; name: string; level: number; className: string; role: string }
+interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null }
 interface GuildSkill {
   key: string; label: string;
   level: number; max: number;
@@ -79,6 +79,8 @@ export function GuildScreen() {
   const [tab, setTab] = useState<Tab>('overview');
   const [territories, setTerritories] = useState<TerritoryInfo[]>([]);
   const [myScores, setMyScores] = useState<Record<number, { score: number; rank: number }>>({});
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
 
   async function load() {
     if (!active) return;
@@ -140,6 +142,15 @@ export function GuildScreen() {
     setBusy(true);
     try {
       await api('/guilds/skill/upgrade', { method: 'POST', body: JSON.stringify({ characterId: active.id, skillKey }) });
+      await load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
+  }
+  async function saveDescription() {
+    if (!active || busy) return;
+    setBusy(true);
+    try {
+      await api('/guilds/description', { method: 'POST', body: JSON.stringify({ characterId: active.id, description: descDraft }) });
+      setEditingDesc(false);
       await load();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
   }
@@ -259,8 +270,28 @@ export function GuildScreen() {
                 }}><PxIcon src={ICON.leader} size={12} /> 길드장</span>
               )}
             </div>
-            {my.description && (
-              <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6, fontStyle: 'italic' }}>"{my.description}"</div>
+            {!editingDesc ? (
+              <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 6, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {my.description ? `"${my.description}"` : <span style={{ opacity: 0.5 }}>(소개글 없음)</span>}
+                {my.isLeader && (
+                  <button
+                    onClick={() => { setDescDraft(my.description || ''); setEditingDesc(true); }}
+                    style={{ fontSize: 10, padding: '2px 8px', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 3, cursor: 'pointer' }}
+                  >수정</button>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                <input
+                  value={descDraft}
+                  onChange={e => setDescDraft(e.target.value)}
+                  maxLength={200}
+                  placeholder="길드 소개글 (최대 200자)"
+                  style={{ flex: 1, fontSize: 12 }}
+                />
+                <button onClick={saveDescription} disabled={busy} className="primary" style={{ fontSize: 11 }}>저장</button>
+                <button onClick={() => setEditingDesc(false)} style={{ fontSize: 11 }}>취소</button>
+              </div>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -517,6 +548,18 @@ export function GuildScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {my.members.map(m => {
               const cls = CLASS_COLOR[m.className] || 'var(--text-dim)';
+              const lastOnline = m.lastOnlineAt ? new Date(m.lastOnlineAt).getTime() : 0;
+              const diffMs = Date.now() - lastOnline;
+              const diffH = Math.floor(diffMs / 3600000);
+              const diffD = Math.floor(diffMs / 86400000);
+              let onlineLabel: string; let onlineColor: string;
+              if (!lastOnline) { onlineLabel = '-'; onlineColor = 'var(--text-dim)'; }
+              else if (diffMs < 5 * 60000) { onlineLabel = '온라인'; onlineColor = 'var(--success)'; }
+              else if (diffH < 1) { onlineLabel = `${Math.floor(diffMs/60000)}분 전`; onlineColor = 'var(--accent)'; }
+              else if (diffH < 24) { onlineLabel = `${diffH}시간 전`; onlineColor = '#88ccff'; }
+              else if (diffD < 7) { onlineLabel = `${diffD}일 전`; onlineColor = 'var(--text-dim)'; }
+              else { onlineLabel = `${diffD}일 전`; onlineColor = 'var(--danger)'; }
+
               return (
                 <div key={m.id} style={{
                   padding: '10px 12px', background: 'var(--bg)',
@@ -525,7 +568,7 @@ export function GuildScreen() {
                   borderRadius: 3,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     {m.role === 'leader' && <PxIcon src={ICON.leader} size={18} />}
                     <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
                     <span style={{
@@ -535,9 +578,12 @@ export function GuildScreen() {
                       Lv.{m.level} {CLASS_LABEL[m.className] || m.className}
                     </span>
                   </div>
-                  {m.role === 'leader' && (
-                    <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>리더</span>
-                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 10, color: onlineColor, fontWeight: 600 }}>{onlineLabel}</span>
+                    {m.role === 'leader' && (
+                      <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>리더</span>
+                    )}
+                  </div>
                 </div>
               );
             })}
