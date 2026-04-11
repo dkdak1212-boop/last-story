@@ -6,6 +6,7 @@ import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, getEnhanceMult } from '../com
 import { ItemComparison } from '../components/ui/ItemComparison';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 import { ItemIcon } from '../components/ui/ItemIcon';
+import { StorageModal } from '../components/storage/StorageModal';
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
@@ -55,6 +56,7 @@ export function InventoryScreen() {
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
+  const [storageOpen, setStorageOpen] = useState(false);
 
   async function refresh() {
     if (!active) return;
@@ -142,8 +144,19 @@ export function InventoryScreen() {
       {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: 18 }}>인벤토리</h2>
-        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{inv.length}/300</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setStorageOpen(true)} title="계정 창고" style={{
+            fontSize: 11, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: 'var(--bg-panel)', border: '1px solid var(--accent)', color: 'var(--accent)',
+            fontWeight: 700, borderRadius: 3, cursor: 'pointer',
+          }}>📦 창고</button>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{inv.length}/300</span>
+        </div>
       </div>
+
+      {storageOpen && (
+        <StorageModal inventory={inv} onClose={() => setStorageOpen(false)} onChange={refresh} />
+      )}
 
       {/* 메시지 */}
       {msg && (
