@@ -984,6 +984,19 @@ async function runMigrations() {
       await query(`UPDATE skills SET effect_type = 'hp_pct_damage', effect_value = 10, description = 'ATK x150% + 적 HP 10% 추가 데미지' WHERE class_name = 'warrior' AND name = '강타' AND effect_type = 'damage'`);
     } catch (e) { console.error('[patch] 강타 error:', e); }
   }
+  // 스킬 설명/동작 일치 패치
+  {
+    try {
+      // 별의 종말: effect_duration 0 → 2 (스피드 -30% 2행동 적용 위해)
+      await query(`UPDATE skills SET effect_duration = 2 WHERE name = '별의 종말' AND class_name = 'mage' AND effect_duration = 0`);
+      // 빛의 심판: 설명에서 "실드파괴" 제거 (실제 동작은 dot)
+      await query(`UPDATE skills SET description = 'ATK x350% + 80, 신성 도트 4행동' WHERE name = '빛의 심판' AND class_name = 'cleric'`);
+      // 심판의 날: 설명에서 "스턴" 제거 (실제 동작은 shield_break)
+      await query(`UPDATE skills SET description = 'ATK x380%, 자기 실드량 400%만큼 추가 데미지' WHERE name = '심판의 날' AND class_name = 'cleric'`);
+      // 심판의 철퇴: 설명에서 "적 실드 파괴" → 정확한 설명
+      await query(`UPDATE skills SET description = 'ATK x170% + 40, 자기 실드량 400%만큼 추가 데미지' WHERE name = '심판의 철퇴' AND class_name = 'cleric'`);
+    } catch (e) { console.error('[patch] skill desc fix error:', e); }
+  }
   // 스킬 프리셋 테이블
   {
     try {
