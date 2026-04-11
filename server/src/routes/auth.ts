@@ -30,11 +30,11 @@ router.post('/register', async (req, res) => {
   const { username, password, email } = parsed.data;
   const ip = getClientIp(req);
 
-  // IP 당 1계정 제한
-  const ipExists = await query('SELECT id, username FROM users WHERE registered_ip = $1', [ip]);
-  if (ipExists.rowCount && ipExists.rowCount > 0) {
-    return res.status(409).json({ error: '이 IP에서 이미 가입된 계정이 있습니다' });
-  }
+  // IP 당 1계정 제한 — 해제됨
+  // const ipExists = await query('SELECT id, username FROM users WHERE registered_ip = $1', [ip]);
+  // if (ipExists.rowCount && ipExists.rowCount > 0) {
+  //   return res.status(409).json({ error: '이 IP에서 이미 가입된 계정이 있습니다' });
+  // }
 
   const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
   if (exists.rowCount && exists.rowCount > 0) {
