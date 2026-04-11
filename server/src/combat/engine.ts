@@ -11,6 +11,7 @@ import { trackMonsterKill } from '../routes/quests.js';
 import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
+import { getActiveGlobalEvent } from '../game/globalEvent.js';
 // StatusEffect and CombatSnapshot types defined locally to avoid import path issues
 
 interface StatusEffect {
@@ -1192,8 +1193,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const territoryBonus = { expPct: 0, dropPct: 0 };
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   // 글로벌 이벤트 배율 (서버 전체 공용)
-  const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
   const ge = await getActiveGlobalEvent();
+  if (ge.active) {
+    addLog(s, `[이벤트] ${ge.name} 적용 — EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop}`);
+  }
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);

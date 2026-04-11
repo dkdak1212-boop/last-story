@@ -27,16 +27,17 @@ export async function getActiveGlobalEvent(): Promise<GlobalEventMults> {
     }
     const row = r.rows[0];
     const mults: GlobalEventMults = {
-      exp: Number(row.exp_mult),
-      gold: Number(row.gold_mult),
-      drop: Number(row.drop_mult),
+      exp: Number(row.exp_mult) || 1,
+      gold: Number(row.gold_mult) || 1,
+      drop: Number(row.drop_mult) || 1,
       active: true,
       name: row.name,
       endsAt: row.ends_at,
     };
     cache = { mults, loadedAt: Date.now() };
     return mults;
-  } catch {
+  } catch (e) {
+    console.error('[globalEvent] query failed:', e);
     return NEUTRAL;
   }
 }

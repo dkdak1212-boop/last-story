@@ -62,6 +62,17 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
+// 글로벌 이벤트 활성 여부 (공개)
+app.get('/api/global-event/active', async (_req, res) => {
+  try {
+    const { getActiveGlobalEvent } = await import('./game/globalEvent.js');
+    const ge = await getActiveGlobalEvent();
+    res.json(ge);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
 // 유지보수 상태 공개 조회
 app.get('/api/server-status', async (_req, res) => {
   const { getServerStatus } = await import('./middleware/maintenance.js');
