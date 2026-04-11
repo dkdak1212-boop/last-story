@@ -152,7 +152,20 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   const gskills = await getGuildSkillsForCharacter(char.id);
   const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
   const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
-  return computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus);
+  const eff = computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus);
+  // 길드 stat_buff_pct: 모든 전투 능력치 % 증가 (atk/matk/def/mdef)
+  const gbr = await query<{ stat_buff_pct: number }>(
+    `SELECT g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
+    [char.id]
+  );
+  if (gbr.rowCount && gbr.rowCount > 0 && Number(gbr.rows[0].stat_buff_pct) > 0) {
+    const mult = 1 + Number(gbr.rows[0].stat_buff_pct) / 100;
+    eff.atk = Math.round(eff.atk * mult);
+    eff.matk = Math.round(eff.matk * mult);
+    eff.def = Math.round(eff.def * mult);
+    eff.mdef = Math.round(eff.mdef * mult);
+  }
+  return eff;
 }
 
 // 노드의 패시브 효과 목록 (전투 엔진에서 사용)

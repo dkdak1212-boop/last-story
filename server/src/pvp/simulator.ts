@@ -40,16 +40,7 @@ interface SkillDef {
 async function loadSide(characterId: number): Promise<Side | null> {
   const char = await loadCharacter(characterId);
   if (!char) return null;
-  const eff = await getEffectiveStats(char);
-  // 길드 버프
-  const gr = await query<{ stat_buff_pct: number }>(
-    `SELECT g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
-    [characterId]
-  );
-  if (gr.rowCount && gr.rowCount > 0) {
-    const mult = 1 + Number(gr.rows[0].stat_buff_pct) / 100;
-    eff.atk *= mult; eff.matk *= mult; eff.def *= mult; eff.mdef *= mult;
-  }
+  const eff = await getEffectiveStats(char); // 길드 stat_buff_pct는 getEffectiveStats에서 자동 적용
   const sr = await query<SkillDef>(
     `SELECT s.id, s.name, s.cooldown_actions, s.damage_mult, s.kind, s.flat_damage,
             s.effect_type, s.effect_value, s.effect_duration
