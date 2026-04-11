@@ -123,6 +123,7 @@ interface ActiveSession {
   autoPotionThreshold: number; // HP% 이하일 때 물약 사용
   potionCooldown: number; // 물약 쿨타임 (남은 행동 수)
   skillCooldowns: Map<number, number>;  // skillId → remaining actions
+  skillLastUsed: Map<number, number>;  // skillId → actionCount when last used (LRU)
   statusEffects: StatusEffect[];
   actionCount: number;
   log: string[];
@@ -390,6 +391,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);
   }
+  // LRU: 마지막 사용 액션 카운트 기록
+  s.skillLastUsed.set(skill.id, s.actionCount);
 
   // 일일퀘 스킬 사용 트래킹
   try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
@@ -969,10 +972,22 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (burstSkill) { await executeSkill(s, burstSkill); return; }
   }
 
-  // ── 6. 공격 스킬 (damage_mult 높은 순) ──
+  // ── 6. 공격 스킬 (LRU: 가장 오래 안 쓴 것 우선, self-damage 스킬은 HP 낮으면 회피) ──
   const attackSkills = s.skills
-    .filter(sk => sk.damage_mult > 0 && sk.cooldown_actions > 0 && isSkillReady(s, sk))
-    .sort((a, b) => b.damage_mult - a.damage_mult);
+    .filter(sk => {
+      if (!(sk.damage_mult > 0 && sk.cooldown_actions > 0 && isSkillReady(s, sk))) return false;
+      // self_damage_pct: HP 50% 미만이면 사용 회피 (자살 방지)
+      if (sk.effect_type === 'self_damage_pct' && hpPct < 0.5) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // 1순위: 가장 오래 안 쓴 스킬 (LRU)
+      const lastA = s.skillLastUsed.get(a.id) ?? -1;
+      const lastB = s.skillLastUsed.get(b.id) ?? -1;
+      if (lastA !== lastB) return lastA - lastB;
+      // 2순위: 데미지 배율 높은 순
+      return b.damage_mult - a.damage_mult;
+    });
   if (attackSkills.length > 0) {
     await executeSkill(s, attackSkills[0]);
     return;
@@ -1359,11 +1374,13 @@ async function combatTick(): Promise<void> {
           s.playerGauge = 0;
           s.actionCount++;
 
-          // 쿨다운 감소
+          // 쿨다운 감소 (안전한 새 맵 생성)
+          const newCd = new Map<number, number>();
           for (const [skId, cd] of s.skillCooldowns) {
-            if (cd > 0) s.skillCooldowns.set(skId, cd - 1);
-            if (cd <= 1) s.skillCooldowns.delete(skId);
+            const next = cd - 1;
+            if (next > 0) newCd.set(skId, next);
           }
+          s.skillCooldowns = newCd;
           if (s.potionCooldown > 0) s.potionCooldown--;
 
           await autoAction(s);
@@ -1587,6 +1604,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     autoPotionThreshold: char.auto_potion_threshold ?? 30,
     potionCooldown: 0,
     skillCooldowns: new Map(),
+    skillLastUsed: new Map(),
     statusEffects: [],
     actionCount: 0,
     log: [],
@@ -1687,11 +1705,13 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   s.playerGauge = 0;
   s.actionCount++;
 
-  // 쿨다운 감소
+  // 쿨다운 감소 (안전한 새 맵 생성)
+  const newCdMap = new Map<number, number>();
   for (const [skId, cdVal] of s.skillCooldowns) {
-    if (cdVal > 0) s.skillCooldowns.set(skId, cdVal - 1);
-    if (cdVal <= 1) s.skillCooldowns.delete(skId);
+    const next = cdVal - 1;
+    if (next > 0) newCdMap.set(skId, next);
   }
+  s.skillCooldowns = newCdMap;
 
   await executeSkill(s, skill);
   processDots(s, 'player');
