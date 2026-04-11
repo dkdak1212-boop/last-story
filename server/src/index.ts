@@ -1518,6 +1518,53 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 유니크 드롭 확률 재조정 — 기울기 2배 유지, 기본률 추가 1.5배 완화 (최종 확정)
+  // Tier0(Lv1-9)=0.0036 기준, Tier n = base / 2^n
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'unique_drop_tier_scale_v4'`);
+      if (applied.rowCount === 0) {
+        const uniques = await query<{ id: number; required_level: number }>(
+          `SELECT id, required_level FROM items WHERE grade = 'unique'`
+        );
+        const uniqueLevels = new Map<number, number>();
+        for (const u of uniques.rows) uniqueLevels.set(u.id, u.required_level || 1);
+
+        const BASE = 0.0036;
+        const TIER_DIVISOR = 2;
+        const tierChance = (lv: number): number => {
+          const tier = Math.floor(lv / 10);
+          return BASE / Math.pow(TIER_DIVISOR, tier);
+        };
+
+        const monsters = await query<{ id: number; drop_table: any }>(`SELECT id, drop_table FROM monsters`);
+        let updated = 0;
+        for (const m of monsters.rows) {
+          const dt = Array.isArray(m.drop_table) ? m.drop_table : [];
+          let changed = false;
+          const newDt = dt.map((d: any) => {
+            const lv = uniqueLevels.get(d.itemId);
+            if (lv === undefined) return d; // 유니크 아님
+            const newChance = tierChance(lv);
+            if (Math.abs(newChance - (d.chance || 0)) > 1e-12) {
+              changed = true;
+              return { ...d, chance: newChance };
+            }
+            return d;
+          });
+          if (changed) {
+            await query(`UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2`, [JSON.stringify(newDt), m.id]);
+            updated++;
+          }
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('unique_drop_tier_scale_v4')`);
+        console.log(`[migration] unique_drop_tier_scale_v4: ${updated}개 몬스터 드롭률 재조정 완료 (base 0.0036, 2배 기울기)`);
+      }
+    } catch (e) {
+      console.error('[migration] unique_drop_tier_scale_v4 error:', e);
+    }
+  }
+
   // 클래스별 스킬 계수 상향: 전사 +20%, 성직자 +50%, 마법사 +10%
   // damage_mult를 곱셈으로 조정 (0은 그대로 0 유지 — 버프/힐 스킬 영향 없음)
   // + description 안의 "xNNN%" 문자열도 같은 배율로 동기화
