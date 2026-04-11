@@ -15,13 +15,32 @@ interface Listing {
   enhanceLevel?: number; prefixStats?: Record<string, number> | null;
   quality?: number; classRestriction?: string | null; prefixName?: string;
   baseItemName?: string;
+  requiredLevel?: number;
   settled?: boolean; cancelled?: boolean;
+}
+
+// 무기 이름 → 직업 추론 (검=전사, 단검/대검=도적/전사, 지팡이=마법사, 홀=성직자)
+function inferWeaponClass(name: string): string | null {
+  if (name.includes('지팡이')) return 'mage';
+  if (name.includes('홀')) return 'cleric';
+  if (name.includes('단검')) return 'rogue';
+  if (name.includes('대검')) return 'warrior';
+  if (name.includes('검')) return 'warrior';
+  return null;
+}
+
+// 레벨 → 구간 라벨 (1~10, 11~20, ...)
+function levelBracket(level: number): { key: string; label: string; sort: number } {
+  const lo = Math.floor((level - 1) / 10) * 10 + 1;
+  const hi = lo + 9;
+  return { key: `${lo}-${hi}`, label: `Lv ${lo}~${hi}`, sort: lo };
 }
 
 export function MarketplaceScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [tab, setTab] = useState<'browse' | 'list' | 'mine'>('browse');
+  const [weaponClass, setWeaponClass] = useState<string>(''); // '' = 전체, warrior/mage/cleric/rogue
   const [listings, setListings] = useState<Listing[]>([]);
   const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
@@ -75,7 +94,7 @@ export function MarketplaceScreen() {
 
       {tab === 'browse' && (
         <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
             {([
               ['', '전체'],
               ['weapon', '무기'],
@@ -85,7 +104,7 @@ export function MarketplaceScreen() {
               ['ring', '반지'],
               ['amulet', '목걸이'],
             ] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setSlotFilter(key)} style={{
+              <button key={key} onClick={() => { setSlotFilter(key); if (key !== 'weapon') setWeaponClass(''); }} style={{
                 fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
                 background: slotFilter === key ? 'var(--accent)' : 'var(--bg-panel)',
                 color: slotFilter === key ? '#000' : 'var(--text-dim)',
@@ -94,12 +113,74 @@ export function MarketplaceScreen() {
               }}>{label}</button>
             ))}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {listings.length === 0 && <div style={{ color: 'var(--text-dim)' }}>등록된 아이템이 없습니다</div>}
-            {listings.map(a => (
-              <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />
-            ))}
-          </div>
+
+          {/* 무기 선택 시 직업별 서브 탭 */}
+          {slotFilter === 'weapon' && (
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+              {([
+                ['', '전체', 'var(--accent)'],
+                ['warrior', '전사 (검/대검)', '#e04040'],
+                ['mage', '마법사 (지팡이)', '#4080e0'],
+                ['cleric', '성직자 (홀)', '#daa520'],
+                ['rogue', '도적 (단검)', '#a060c0'],
+              ] as const).map(([key, label, color]) => (
+                <button key={key} onClick={() => setWeaponClass(key)} style={{
+                  fontSize: 10, padding: '4px 9px', borderRadius: 3, cursor: 'pointer',
+                  background: weaponClass === key ? color : 'transparent',
+                  color: weaponClass === key ? '#000' : color,
+                  border: `1px solid ${color}`,
+                  fontWeight: 700,
+                }}>{label}</button>
+              ))}
+            </div>
+          )}
+
+          {(() => {
+            // 1. 무기 직업 필터 적용
+            let filtered = listings;
+            if (slotFilter === 'weapon' && weaponClass) {
+              filtered = listings.filter(a => {
+                const cls = a.classRestriction || inferWeaponClass(a.baseItemName || a.itemName || '');
+                return cls === weaponClass;
+              });
+            }
+            // 2. 레벨 구간별 그룹화
+            const groups = new Map<string, { label: string; sort: number; items: Listing[] }>();
+            for (const a of filtered) {
+              const lv = a.requiredLevel || 1;
+              const b = levelBracket(lv);
+              if (!groups.has(b.key)) groups.set(b.key, { label: b.label, sort: b.sort, items: [] });
+              groups.get(b.key)!.items.push(a);
+            }
+            const sorted = [...groups.values()].sort((a, b) => a.sort - b.sort);
+
+            if (filtered.length === 0) {
+              return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 아이템이 없습니다</div>;
+            }
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {sorted.map(g => (
+                  <div key={g.label}>
+                    <div style={{
+                      fontSize: 12, fontWeight: 700, color: 'var(--accent)',
+                      padding: '6px 10px', marginBottom: 4,
+                      background: 'rgba(218,165,32,0.08)',
+                      borderLeft: '3px solid var(--accent)',
+                      borderRadius: 2,
+                    }}>
+                      {g.label} · {g.items.length}개
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {g.items.map(a => (
+                        <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -180,6 +261,13 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
                 }}>{krMap[cls]} 전용</span>
               );
             })()}
+            {a.requiredLevel && a.requiredLevel > 1 && (
+              <span style={{
+                fontSize: 10, padding: '1px 5px', borderRadius: 2,
+                background: 'rgba(102,204,255,0.12)', border: '1px solid #66ccff',
+                color: '#66ccff', fontWeight: 700,
+              }}>Lv.{a.requiredLevel}+</span>
+            )}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
             판매자: {a.sellerName} · 남은 시간 {h}시간 {m}분

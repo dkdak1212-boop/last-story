@@ -26,17 +26,18 @@ router.get('/', async (req, res) => {
     item_name: string; item_grade: string; item_type: string; item_slot: string | null;
     item_stats: Record<string, number> | null; item_description: string;
     enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
-    quality: number; class_restriction: string | null;
+    quality: number; class_restriction: string | null; required_level: number;
   }>(
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at,
             a.enhance_level, a.prefix_ids, a.prefix_stats, COALESCE(a.quality, 0) AS quality,
             c.name AS seller_name,
             i.name AS item_name, i.grade AS item_grade, i.type AS item_type, i.slot AS item_slot,
-            i.stats AS item_stats, i.description AS item_description, i.class_restriction
+            i.stats AS item_stats, i.description AS item_description, i.class_restriction,
+            COALESCE(i.required_level, 1) AS required_level
      FROM auctions a JOIN characters c ON c.id = a.seller_id
                      JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
-     ORDER BY a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 100`,
+     ORDER BY COALESCE(i.required_level, 1) ASC, a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 200`,
     params
   );
 
@@ -83,6 +84,7 @@ router.get('/', async (req, res) => {
       prefixTiers: buildPrefixTiers(row.prefix_ids),
       quality: row.quality || 0,
       classRestriction: row.class_restriction,
+      requiredLevel: row.required_level || 1,
     };
   }));
 });
