@@ -740,6 +740,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
+        if (skill.name === '방패 강타') {
+          const bonus = Math.round(s.playerMaxHp * 0.15);
+          s.monsterHp -= bonus;
+          addLog(s, `[${skill.name}] 체력 비례 고정 +${bonus} 데미지`);
+        }
         if (hasEffect(s, 'player', 'cc_immune')) {
           addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
         } else if (Math.random() < 0.5) {
@@ -750,6 +756,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'stun', value: 0, remainingActions: stunDur, source: 'player' });
           addEffect(s, { type: 'cc_immune', value: 0, remainingActions: stunDur + 3, source: 'player' });
           addLog(s, `[${skill.name}] 스턴 ${stunDur}행동!`);
+        }
+        // 방패 강타: 적이 받는 데미지 20% 증가 3턴
+        if (skill.name === '방패 강타') {
+          addEffect(s, { type: 'damage_taken_up', value: 20, remainingActions: 3, source: 'player' });
+          addLog(s, `[${skill.name}] 적 받는 데미지 +20% 3턴!`);
         }
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
@@ -853,6 +864,35 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
+      break;
+    }
+
+    case 'holy_strike': {
+      // 신성 타격 — 기본 데미지 + 방어력 비례 추가 데미지
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        const defBonus = Math.round(s.playerStats.def * (skill.effect_value || 100) / 100);
+        const total = d.damage + defBonus;
+        s.monsterHp -= total;
+        addLog(s, `[${skill.name}] ${total} 데미지${d.crit ? '!' : ''} (방어력 +${defBonus})`);
+      } else {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      }
+      break;
+    }
+
+    case 'judgment_day': {
+      // 심판의 날 — 실드 파괴 + 데미지 + 자신 방어력 50% 3턴 버프
+      s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        s.monsterHp -= d.damage;
+        addLog(s, `[${skill.name}] 실드 파괴 + ${d.damage} 데미지${d.crit ? '!' : ''}`);
+      }
+      const buffPct = skill.effect_value || 50;
+      const buffDur = skill.effect_duration || 3;
+      addEffect(s, { type: 'def_buff', value: buffPct, remainingActions: buffDur, source: 'monster' });
+      addLog(s, `[${skill.name}] 방어력 +${buffPct}% ${buffDur}턴!`);
       break;
     }
 
