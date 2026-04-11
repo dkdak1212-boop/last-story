@@ -44,7 +44,7 @@ interface CombatSnapshot {
   };
   skills: CombatSkillInfoLocal[];
   log: string[];
-  potions?: { hpSmall: number; hpMid: number };
+  potions?: { small: number; mid: number; high: number; max: number };
   autoPotion: { enabled: boolean; threshold: number };
   exp?: number;
   expMax?: number;
@@ -1385,7 +1385,6 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
       usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
     })),
     log: s.log,
-    potions: undefined,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
     exp,
     expMax,
@@ -1407,6 +1406,20 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     if (b?.drop_boost_until && new Date(b.drop_boost_until) > now)
       boosts.push({ name: '드롭률 +50%', until: b.drop_boost_until });
     snapshot.boosts = boosts;
+  } catch {}
+
+  // 보유 물약 수량 (HP 물약 4종)
+  try {
+    const pr = await query<{ item_id: number; total: string }>(
+      `SELECT item_id, COALESCE(SUM(quantity),0)::text AS total
+       FROM character_inventory
+       WHERE character_id = $1 AND item_id IN (100, 102, 104, 106)
+       GROUP BY item_id`,
+      [s.characterId]
+    );
+    const map: Record<number, number> = { 100: 0, 102: 0, 104: 0, 106: 0 };
+    for (const row of pr.rows) map[row.item_id] = Number(row.total);
+    snapshot.potions = { small: map[100], mid: map[102], high: map[104], max: map[106] };
   } catch {}
 
   // 길드 버프 정보

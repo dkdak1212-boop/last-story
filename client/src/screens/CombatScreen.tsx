@@ -417,6 +417,42 @@ export function CombatScreen() {
       {/* 딜미터기 */}
       <DamageMeter log={state.log} />
 
+      {/* 보유 물약 */}
+      {(state as any).potions && (() => {
+        const p = (state as any).potions as { small: number; mid: number; high: number; max: number };
+        const items: { label: string; qty: number; src: string }[] = [
+          { label: '소', qty: p.small, src: '/images/items/potion/ruby.png' },
+          { label: '중', qty: p.mid, src: '/images/items/potion/ruby.png' },
+          { label: '고', qty: p.high, src: '/images/items/potion/ruby.png' },
+          { label: '최', qty: p.max, src: '/images/items/potion/ruby.png' },
+        ];
+        return (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', marginTop: 8,
+            background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 11,
+            flexWrap: 'wrap',
+          }}>
+            <span style={{ color: 'var(--accent)', fontWeight: 700 }}>HP 물약</span>
+            {items.map((it, i) => (
+              <span key={i} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                color: it.qty > 0 ? 'var(--text)' : 'var(--text-dim)',
+                opacity: it.qty > 0 ? 1 : 0.4,
+              }}>
+                <img src={it.src} alt="" width={16} height={16}
+                  style={{ imageRendering: 'pixelated' }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{it.label}</span>
+                <span style={{ fontWeight: 700 }}>{it.qty}</span>
+              </span>
+            ))}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 10 }}>
+              총 {items.reduce((s, x) => s + x.qty, 0)}개
+            </span>
+          </div>
+        );
+      })()}
+
       {/* Auto potion settings */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', marginTop: 8,
