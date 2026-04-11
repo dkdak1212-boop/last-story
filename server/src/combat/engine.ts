@@ -1121,7 +1121,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const guildExpBonus = guildSkills.exp * GUILD_SKILL_PCT.exp;
   const guildDropBonus = guildSkills.drop * GUILD_SKILL_PCT.drop;
   // 영토 점령 보너스 (점령 길드원 한정)
-  const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
+  // 영토 점령전 일시 비활성 — 보너스 0
+  const territoryBonus = { expPct: 0, dropPct: 0 };
+  // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0));
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
@@ -1143,7 +1145,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp).catch(() => {});
   // 영토 점수 +1 (사냥 처치 횟수 누적)
-  addTerritoryScore(s.characterId, s.fieldId).catch(() => {});
+  // 영토 점령전 일시 비활성 — 점수 적립 중단
+  // addTerritoryScore(s.characterId, s.fieldId).catch(() => {});
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
@@ -1474,7 +1477,8 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
 
   // 영토 점령 보너스 정보
   try {
-    snapshot.territoryBuffs = await getTerritoryBonusForChar(s.characterId, s.fieldId);
+    snapshot.territoryBuffs = { expPct: 0, dropPct: 0 }; // 일시 비활성
+    // snapshot.territoryBuffs = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   } catch {}
 
   // 해당 유저의 소켓에만 emit

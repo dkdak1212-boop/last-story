@@ -183,7 +183,7 @@ export function GuildScreen() {
                 <PxIcon src={ICON.guild} size={28} /> 길드
               </h2>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
-                길드에 가입해 동료들과 함께 강해지세요. 길드 스킬, 영토 점령전, 일일 기여로 큰 보너스를 얻습니다.
+                길드에 가입해 동료들과 함께 강해지세요. 길드 스킬과 일일 기여로 큰 보너스를 얻습니다.
               </div>
             </div>
             <button className="primary" onClick={() => setCreating(!creating)}>
@@ -333,7 +333,7 @@ export function GuildScreen() {
         {([
           ['overview', '개요', ICON.overview],
           ['skills', '스킬', ICON.skills],
-          ['territory', '영토', ICON.territory],
+          // ['territory', '영토', ICON.territory], // 영토 점령전 일시 비활성
           ['members', '멤버', ICON.members],
         ] as [Tab, string, string][]).map(([k, label, icon]) => (
           <button key={k} onClick={() => setTab(k)} style={{

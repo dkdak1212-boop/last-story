@@ -14,29 +14,15 @@ interface FieldData {
   ownerGuildName?: string | null;
 }
 
-interface TerritoryRow {
-  fieldId: number;
-  ownerGuildName: string | null;
-  weekTopGuildName: string | null;
-  weekTopScore: number;
-}
-
 export function MapScreen() {
   const nav = useNavigate();
   const [fields, setFields] = useState<FieldData[]>([]);
-  const [territories, setTerritories] = useState<Map<number, TerritoryRow>>(new Map());
   const [expanded, setExpanded] = useState<number | null>(null);
   const active = useCharacterStore((s) => s.activeCharacter);
 
   useEffect(() => {
     api<FieldData[]>('/fields').then(setFields).catch(() => {});
-    api<{ minScore: number; expBonusPct: number; dropBonusPct: number; fields: TerritoryRow[] }>('/guilds/territories')
-      .then(d => {
-        const map = new Map<number, TerritoryRow>();
-        for (const t of d.fields) map.set(t.fieldId, t);
-        setTerritories(map);
-      })
-      .catch(() => {});
+    // 영토 점령전 일시 비활성화 — fetch 제거
   }, []);
 
   async function enter(fieldId: number) {
@@ -70,45 +56,7 @@ export function MapScreen() {
                     <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}>
                       Lv.{f.requiredLevel}+
                     </span>
-                    {(() => {
-                      const t = territories.get(f.id);
-                      const owner = t?.ownerGuildName || f.ownerGuildName || null;
-                      if (owner) {
-                        return (
-                          <span style={{
-                            fontSize: 10, padding: '1px 6px', borderRadius: 3,
-                            background: 'rgba(218,165,32,0.15)', border: '1px solid var(--accent)',
-                            color: 'var(--accent)', fontWeight: 700,
-                            display: 'inline-flex', alignItems: 'center', gap: 3,
-                          }}>
-                            <img src="/images/skills/spells/shields.png" alt="" width={11} height={11} style={{ imageRendering: 'pixelated' }} />
-                            {owner} 점령중
-                          </span>
-                        );
-                      }
-                      return (
-                        <span style={{
-                          fontSize: 10, padding: '1px 6px', borderRadius: 3,
-                          background: 'rgba(150,150,150,0.1)', border: '1px solid var(--border)',
-                          color: 'var(--text-dim)', fontWeight: 700,
-                          display: 'inline-flex', alignItems: 'center', gap: 3,
-                        }}>
-                          <img src="/images/skills/spells/shields.png" alt="" width={11} height={11} style={{ imageRendering: 'pixelated', opacity: 0.5 }} />
-                          무점령
-                        </span>
-                      );
-                    })()}
                   </div>
-                  {(() => {
-                    const t = territories.get(f.id);
-                    if (!t) return null;
-                    return (
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 3 }}>
-                        이번 주 1위: {t.weekTopGuildName ? `${t.weekTopGuildName} (${t.weekTopScore.toLocaleString()}점)` : '없음'}
-                        <span style={{ marginLeft: 8, color: '#daa520' }}>점령 시 경험 +15% / 드랍 +15%</span>
-                      </div>
-                    );
-                  })()}
                   <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>
                     {f.description}
                     {f.monsters.length > 0 && (
