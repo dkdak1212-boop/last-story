@@ -12,18 +12,9 @@ import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 import { getActiveGlobalEvent } from '../game/globalEvent.js';
-// StatusEffect and CombatSnapshot types defined locally to avoid import path issues
-
-interface StatusEffect {
-  id: string;
-  type: string;
-  value: number;
-  remainingActions: number;
-  source: 'player' | 'monster';
-  // 도트류 재계산용: 적용 시점의 배율과 사용 스탯 (장비 변경 시 refreshSessionStats가 이걸로 value 갱신)
-  dotMult?: number;
-  dotUseMatk?: boolean;
-}
+// StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
+import type { StatusEffect } from './shared.js';
+import { calcDotTickDamage } from './shared.js';
 
 interface CombatSkillInfoLocal {
   id: number;
@@ -362,59 +353,40 @@ function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActio
 }
 
 // ── 도트 데미지 처리 ──
-// 도트는 방어력의 50%만 무시 (= 방어력의 25%만큼 차감)
-const DOT_DEF_IGNORE_PCT = 0.5; // 50% 무시
+// 계산식은 combat/shared.ts의 calcDotTickDamage에 있음 (레이드와 공유).
+// 여기서는 세션에서 컨텍스트(방어/증폭/저항)를 수집해서 호출하고, 결과를 HP에 반영한다.
 function processDots(s: ActiveSession, target: 'player' | 'monster') {
-  const dots = s.statusEffects.filter(e =>
-    (e.type === 'dot' || e.type === 'poison') &&
-    ((target === 'monster' && e.source === 'player') || (target === 'player' && e.source === 'monster')) &&
-    e.remainingActions > 0
-  );
-  if (dots.length === 0) return;
-  let total = 0;
-  // 방어 차감량: 일반 데미지 공식의 def × 0.5 중 50%만 적용 → def × 0.25
-  // 마법 클래스는 mdef, 일반은 def 사용
   const useMatk = MATK_CLASSES.has(s.className);
-  let defReduce = 0;
+
+  let defenderDef: number;
+  let dotAmpPct = 0;
+  let dotResistPct = 0;
+
   if (target === 'monster') {
-    // 패시브 armor_pierce + 접두사 def_reduce_pct 도트에도 적용
     const armorPierce = getPassive(s, 'armor_pierce');
     const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
     const totalPierce = Math.min(80, armorPierce + prefixDefReduce);
     let monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
     if (totalPierce > 0) monsterDef = Math.round(monsterDef * (1 - totalPierce / 100));
-    defReduce = Math.round(monsterDef * 0.5 * (1 - DOT_DEF_IGNORE_PCT));
+    defenderDef = monsterDef;
+    dotAmpPct = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
+      + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
+      + getPassive(s, 'elemental_storm')
+      + (s.equipPrefixes.dot_amp_pct || 0);
   } else {
-    // 플레이어가 받는 도트 — 플레이어 방어로 차감
-    const playerDef = s.playerStats.def;
-    defReduce = Math.round(playerDef * 0.5 * (1 - DOT_DEF_IGNORE_PCT));
+    defenderDef = s.playerStats.def;
+    dotResistPct = getPassive(s, 'dot_resist');
   }
 
-  for (const dot of dots) {
-    let dmg = Math.round(dot.value);
-    if (dmg <= 0) continue;
-    if (target === 'monster') {
-      const dotAmp = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
-        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
-        + getPassive(s, 'elemental_storm') // 원소 폭주 노드: 도트 데미지 증가
-        + (s.equipPrefixes.dot_amp_pct || 0);
-      if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
-      dmg = Math.max(1, dmg - defReduce);
-    } else {
-      const resist = getPassive(s, 'dot_resist');
-      if (resist > 0) dmg = Math.round(dmg * (1 - resist / 100));
-      dmg = Math.max(1, dmg - defReduce);
-    }
-    total += dmg;
-  }
-  if (total > 0) {
-    if (target === 'monster') {
-      s.monsterHp -= total;
-      addLog(s, `[도트] 몬스터에게 ${total} 데미지 (${dots.length}중첩, 방어 50% 무시)`);
-    } else {
-      s.playerHp -= total;
-      addLog(s, `[도트] ${total} 데미지를 받았다 (${dots.length}중첩, 방어 50% 무시)`);
-    }
+  const result = calcDotTickDamage(s.statusEffects, target, { defenderDef, dotAmpPct, dotResistPct });
+  if (result.totalDamage <= 0) return;
+
+  if (target === 'monster') {
+    s.monsterHp -= result.totalDamage;
+    addLog(s, `[도트] 몬스터에게 ${result.totalDamage} 데미지 (${result.count}중첩, 방어 50% 무시)`);
+  } else {
+    s.playerHp -= result.totalDamage;
+    addLog(s, `[도트] ${result.totalDamage} 데미지를 받았다 (${result.count}중첩, 방어 50% 무시)`);
   }
 }
 

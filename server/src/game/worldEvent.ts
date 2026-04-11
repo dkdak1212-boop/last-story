@@ -3,6 +3,8 @@ import { loadCharacter, getEffectiveStats } from './character.js';
 import { addItemToInventory, deliverToMailbox } from './inventory.js';
 import { applyExpGain } from './leveling.js';
 import type { Server } from 'socket.io';
+import type { StatusEffect } from '../combat/shared.js';
+import { calcDotTickDamage, buildDotEntry, decrementEffects } from '../combat/shared.js';
 
 const ATTACK_COOLDOWN_MS = 10_000; // 10초 쿨다운
 const DEATH_COOLDOWN_MS = 60_000; // 사망 시 1분 쿨다운
@@ -86,8 +88,8 @@ export async function attackBoss(characterId: number) {
   const prefixHpRegen = equipPrefixes.hp_regen || 0;
 
   // 스킬 로드 (auto_use ON인 스킬 전부)
-  const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number }>(
-    `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value
+  const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number; effect_duration: number }>(
+    `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value, s.effect_duration
      FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
      WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
      ORDER BY s.damage_mult DESC`,
@@ -97,6 +99,17 @@ export async function attackBoss(characterId: number) {
   const dmgSkills = allSkills.filter(s => s.kind === 'damage');
   const healSkills = allSkills.filter(s => s.effect_type === 'heal_pct');
   const buffSkills = allSkills.filter(s => s.kind === 'buff' && s.effect_type !== 'heal_pct');
+
+  // 도트 증폭 (패시브 + 접두사) — 필드 전투 processDots와 동일 합산식
+  const dotAmpPct = (passiveMap.get('dot_amp') || 0)
+    + (passiveMap.get('poison_amp') || 0)
+    + (passiveMap.get('bleed_amp') || 0)
+    + (passiveMap.get('burn_amp') || 0)
+    + (passiveMap.get('holy_dot_amp') || 0)
+    + (passiveMap.get('elemental_storm') || 0)
+    + (equipPrefixes.dot_amp_pct || 0);
+  const elementalStormExt = (passiveMap.get('elemental_storm') || 0) > 0 ? 1 : 0;
+  const bleedOnHitChance = passiveMap.get('bleed_on_hit') || 0;
 
   // 보스 스탯 (플레이어 maxHp 기준으로 밸런싱 — 10초에 3~4대 맞으면 죽을 정도)
   const bossAtk = Math.round((eff.maxHp * 0.08 + event.level * 2) * 1.5);
@@ -127,6 +140,8 @@ export async function attackBoss(characterId: number) {
   let playerDead = false;
   const cooldowns = new Map<string, number>();
   const combatLog: string[] = [];
+  // 보스에게 걸린 도트/상태이상 (플레이어→보스 단방향)
+  let bossEffects: StatusEffect[] = [];
 
   for (let t = 0; t < TICKS; t++) {
     // 게이지 충전
@@ -194,6 +209,27 @@ export async function attackBoss(characterId: number) {
             cooldowns.set(sk.name, cd);
           }
           if (combatLog.length < 20) combatLog.push(`[${sk.name}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
+
+          // ── 도트 부여 (effect_type에 따라, 필드 전투와 동일 수치) ──
+          const dotBase = mageClass ? eff.matk : eff.atk;
+          if (sk.effect_type === 'dot') {
+            const dur = (sk.effect_duration || 3) + elementalStormExt;
+            bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: dur, source: 'player', useMatk: mageClass }));
+          } else if (sk.effect_type === 'poison') {
+            const dur = sk.effect_duration || 3;
+            bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: dur, source: 'player', useMatk: mageClass }));
+          } else if (sk.effect_type === 'multi_hit_poison') {
+            const hits = Math.max(1, Math.round(sk.effect_value));
+            for (let h = 0; h < hits; h++) {
+              bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: 3, source: 'player', useMatk: mageClass }));
+            }
+          }
+
+          // 패시브: bleed_on_hit — 타격 시 출혈
+          if (bleedOnHitChance > 0 && Math.random() * 100 < bleedOnHitChance) {
+            bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: 3, source: 'player', useMatk: mageClass }));
+          }
+
           used = true;
           break;
         }
@@ -217,6 +253,20 @@ export async function attackBoss(characterId: number) {
       // 접두사: 재생 (틱당 회복은 행동 시 적용)
       if (prefixHpRegen > 0 && playerHp < eff.maxHp) {
         playerHp = Math.min(eff.maxHp, playerHp + prefixHpRegen);
+      }
+
+      // ── 도트 틱 (플레이어 행동 시) — 필드 전투 processDots와 동일 ──
+      if (bossEffects.length > 0) {
+        const dotResult = calcDotTickDamage(bossEffects, 'monster', {
+          defenderDef: bossDef,
+          dotAmpPct,
+          dotResistPct: 0,
+        });
+        if (dotResult.totalDamage > 0) {
+          totalDmgDealt += dotResult.totalDamage;
+          if (combatLog.length < 20) combatLog.push(`[도트] ${dotResult.totalDamage.toLocaleString()} 데미지 (${dotResult.count}중첩)`);
+        }
+        bossEffects = decrementEffects(bossEffects);
       }
     }
 
