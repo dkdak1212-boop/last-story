@@ -824,24 +824,62 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'shield_break': {
       // 심판의 철퇴 등 — 자신의 쉴드는 유지, 쉴드량의 400%를 추가 데미지로 변환
+      // case 'damage'와 동일한 증폭 파이프라인 적용 (judge_amp/spell_amp/크리 추가배율 등)
       const myShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
       const shieldBonus = myShield ? Math.round(myShield.value * 4.0) : 0;
-      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
-      if (!d.miss) {
-        let dmg = d.damage + shieldBonus;
+      // armor_pierce 적용 (일반 damage와 동일)
+      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+      const defModStats = totalDefReduce > 0 ? {
+        ...s.monsterStats,
+        def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
+        mdef: Math.round(s.monsterStats.mdef * (1 - totalDefReduce / 100)),
+      } : s.monsterStats;
+      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (d.miss) {
+        addLog(s, `[${skill.name}] 빗나감!`);
+      } else {
         const parts: string[] = [];
+        // 베이스 데미지 + 실드 보너스 + HP% 보너스 — 증폭 전에 모두 합산
+        let dmg = d.damage + shieldBonus;
         if (shieldBonus > 0) parts.push(`실드 비례 +${shieldBonus}`);
-        // effect_value > 0 → 내 maxHp의 X% 추가 데미지 (심판의 철퇴 등)
         if (skill.effect_value > 0) {
           const hpBonus = Math.round(s.playerMaxHp * skill.effect_value / 100);
           dmg += hpBonus;
           parts.push(`HP ${skill.effect_value}% +${hpBonus}`);
         }
+        // 디버프: damage_taken_up (적이 받는 데미지 증가)
+        const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+        if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+        // 패시브: spell_amp (마법 증폭)
+        if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+        // 패시브: judge_amp / holy_judge (성직자 공격 스킬 증폭) — 심판계열 핵심
+        const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
+        if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
+        // 접두사: 광전사 (HP 30% 이하)
+        const berserk = s.equipPrefixes.berserk_pct || 0;
+        if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
+          dmg = Math.round(dmg * (1 + berserk / 100));
+        }
+        // 접두사: 약점간파 (첫 공격)
+        const firstStrike = s.equipPrefixes.first_strike_pct || 0;
+        if (firstStrike > 0 && s.hasFirstStrike) {
+          dmg = Math.round(dmg * (1 + firstStrike / 100));
+          s.hasFirstStrike = false;
+        }
+        // 접두사: 각성 (5초 이상 미피격)
+        const ambush = s.equipPrefixes.ambush_pct || 0;
+        if (ambush > 0 && s.ticksSinceLastHit >= 50) {
+          dmg = Math.round(dmg * (1 + ambush / 100));
+          s.ticksSinceLastHit = 0;
+        }
+        // 크리 추가 배율: crit_damage 패시브 + 접두사 crit_dmg_pct
+        if (d.crit) {
+          const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+        }
         s.monsterHp -= dmg;
         const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}${suffix}`);
-      } else {
-        addLog(s, `[${skill.name}] 빗나감!`);
       }
       break;
     }
