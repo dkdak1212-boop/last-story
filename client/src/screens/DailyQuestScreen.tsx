@@ -113,7 +113,9 @@ export function DailyQuestScreen() {
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>+50% (3시간)</span>
           </div>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>매일 자정(KST) 초기화</div>
+        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>
+          매일 자정(KST) 초기화 · 찢어진 스크롤 보유량은 인벤토리 "기타" 탭에서 확인 가능
+        </div>
         {status.rewardClaimed ? (
           <div style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 700 }}>오늘 보상을 수령했습니다</div>
         ) : status.allCompleted ? (

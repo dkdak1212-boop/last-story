@@ -263,7 +263,13 @@ export function CombatScreen() {
             {active?.className && <ClassIcon className={active.className as ClassName} size={22} />}
             {active?.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{active?.level}</span>
           </div>
-          <Bar cur={state.player.hp} max={state.player.maxHp} color="var(--success)" label="HP" />
+          <Bar
+            cur={state.player.hp}
+            max={state.player.maxHp}
+            color="var(--success)"
+            label="HP"
+            shield={(state.player.effects || []).filter(e => e.type === 'shield' && e.value > 0).reduce((sum, e) => sum + e.value, 0)}
+          />
           {/* 경험치바 */}
           <div style={{ marginBottom: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8b8bef' }}>
@@ -493,16 +499,35 @@ export function CombatScreen() {
   );
 }
 
-function Bar({ cur, max, color, label }: { cur: number; max: number; color: string; label: string }) {
+function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: number; color: string; label: string; shield?: number }) {
   const pct = Math.max(0, Math.min(100, (cur / max) * 100));
+  // 쉴드는 HP 위에 추가 게이지로 표시 (HP를 초과해도 비례 폭으로 표시)
+  const shieldPct = shield > 0 ? Math.max(0, Math.min(100, (shield / max) * 100)) : 0;
   return (
     <div style={{ marginBottom: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-dim)' }}>
-        <span>{label}</span><span>{cur} / {max}</span>
+        <span>
+          {label}
+          {shield > 0 && (
+            <span style={{ marginLeft: 6, color: '#66ccff', fontWeight: 700 }}>
+              + 쉴드 {shield.toLocaleString()}
+            </span>
+          )}
+        </span>
+        <span>{cur} / {max}</span>
       </div>
-      <div style={{ height: 8, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: 10, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
         <motion.div animate={{ width: `${pct}%` }} transition={{ duration: 0.3 }}
           style={{ height: '100%', background: color }} />
+        {/* 쉴드 오버레이 — HP 바 위에 푸른 줄무늬 */}
+        {shield > 0 && (
+          <div style={{
+            position: 'absolute', left: `${pct}%`, top: 0,
+            width: `${Math.min(100 - pct, shieldPct)}%`, height: '100%',
+            background: 'repeating-linear-gradient(45deg, rgba(102,204,255,0.7), rgba(102,204,255,0.7) 4px, rgba(102,204,255,0.4) 4px, rgba(102,204,255,0.4) 8px)',
+            borderLeft: '1px solid #66ccff',
+          }} />
+        )}
       </div>
     </div>
   );
