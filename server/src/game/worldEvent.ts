@@ -99,7 +99,16 @@ export async function attackBoss(characterId: number) {
      ORDER BY cs.slot_order ASC, s.required_level ASC`,
     [characterId, char.level, char.class_name]
   );
-  const allSkills = skillsR.rows;
+  // 레이드 우선순위: 쿨다운 있는 "진짜" 스킬 먼저, cd=0 기본기는 폴백.
+  // 같은 그룹 내에서는 slot_order 유지 — 유저 슬롯 세팅 존중.
+  // 필드 전투는 지속 전투라 cd=0 기본기 스팸이 자연스럽지만, 레이드는
+  // 10초 스냅샷이라 슬롯 1이 기본기면 고위 버스트 스킬이 한 번도 안 나감.
+  const allSkills = [...skillsR.rows].sort((a, b) => {
+    const aFiller = a.cooldown_actions <= 0 ? 1 : 0;
+    const bFiller = b.cooldown_actions <= 0 ? 1 : 0;
+    if (aFiller !== bFiller) return aFiller - bFiller;
+    return (a.slot_order ?? 9999) - (b.slot_order ?? 9999);
+  });
 
   // 도트 증폭 (패시브 + 접두사) — 필드 전투 processDots와 동일 합산식
   const dotAmpPct = (passiveMap.get('dot_amp') || 0)
