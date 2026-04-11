@@ -131,8 +131,8 @@ export function StatusScreen() {
               const eq = (status.equipBonus[k] || 0) as number;
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
-              // VIT/SPD/CRI는 고정값이므로 수동 분배 불가 (STR/DEX/INT만 분배 가능)
-              const spendable = k === 'str' || k === 'dex' || k === 'int';
+              // STR/DEX/INT/VIT 분배 가능 (SPD/CRI는 노드/장비 전용)
+              const spendable = k === 'str' || k === 'dex' || k === 'int' || k === 'vit';
               return (
                 <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
                   canSpend={spendable && status.statPoints > 0 && !busy}

@@ -5,12 +5,13 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects } from '../game/character.js';
 import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
-import { getCombatHp } from '../combat/engine.js';
+import { getCombatHp, refreshSessionStats } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
 
-const SPENDABLE_STATS = ['str', 'dex', 'int'] as const;
+const SPENDABLE_STATS = ['str', 'dex', 'int', 'vit'] as const;
+const HP_PER_VIT = 10;
 
 // 스탯 포인트 분배
 router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response) => {
@@ -29,13 +30,27 @@ router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response
 
   const statKey = parsed.data.stat;
   const amt = parsed.data.amount;
-  await query(
-    `UPDATE characters
-       SET stat_points = stat_points - $1,
-           stats = jsonb_set(stats, $2::text[], (COALESCE((stats->>$3)::int,0) + $1)::text::jsonb)
-     WHERE id = $4`,
-    [amt, `{${statKey}}`, statKey, cid]
-  );
+  if (statKey === 'vit') {
+    // VIT는 max_hp도 함께 +10/point (현재 HP는 그대로 — 회복 효과 없음)
+    await query(
+      `UPDATE characters
+         SET stat_points = stat_points - $1,
+             stats = jsonb_set(stats, '{vit}', (COALESCE((stats->>'vit')::int,0) + $1)::text::jsonb),
+             max_hp = max_hp + $1 * $2
+       WHERE id = $3`,
+      [amt, HP_PER_VIT, cid]
+    );
+  } else {
+    await query(
+      `UPDATE characters
+         SET stat_points = stat_points - $1,
+             stats = jsonb_set(stats, $2::text[], (COALESCE((stats->>$3)::int,0) + $1)::text::jsonb)
+       WHERE id = $4`,
+      [amt, `{${statKey}}`, statKey, cid]
+    );
+  }
+  // 활성 전투 세션 즉시 갱신
+  await refreshSessionStats(cid).catch(() => {});
   res.json({ ok: true });
 });
 
