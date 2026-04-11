@@ -277,14 +277,14 @@ export async function loadUniqueItemIds() {
   console.log(`[drop] 유니크 ${uniqueItemIds.size}개 캐시`);
 }
 
-function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0): { itemId: number; qty: number }[] {
+function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0, globalDropMult: number = 1): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   const boostMult = dropBoost ? 1.5 : 1.0;
   const guildMult = 1 + guildDropPct / 100;
   for (const d of m.drop_table || []) {
     // 유니크는 DROP_RATE_MULT 제외 (DB 확률 그대로)
     const rateMult = uniqueItemIds.has(d.itemId) ? 1.0 : DROP_RATE_MULT;
-    if (Math.random() < d.chance * rateMult * boostMult * guildMult) {
+    if (Math.random() < d.chance * rateMult * boostMult * guildMult * globalDropMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
@@ -1191,7 +1191,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 영토 점령전 일시 비활성 — 보너스 0
   const territoryBonus = { expPct: 0, dropPct: 0 };
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0));
+  // 글로벌 이벤트 배율 (서버 전체 공용)
+  const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
+  const ge = await getActiveGlobalEvent();
+  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
 
   addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
 
@@ -1205,9 +1208,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 부스터 + 접두사 + 길드 + 영토 경험 보너스
+  // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100));
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp).catch(() => {});
@@ -1242,7 +1245,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   await trackMonsterKill(s.characterId, s.monsterId!);
 
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
   // 자동분해 설정 체크
   const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
     'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',

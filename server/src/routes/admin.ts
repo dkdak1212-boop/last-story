@@ -86,6 +86,48 @@ router.post('/announcements/:id/delete', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== 글로벌 이벤트 (서버 전체 EXP/골드/드랍 배율) ==========
+router.get('/global-events', async (_req, res) => {
+  const r = await query(
+    `SELECT id, name, exp_mult, gold_mult, drop_mult, starts_at, ends_at, created_at,
+            (ends_at > NOW()) AS is_active
+     FROM global_events ORDER BY created_at DESC LIMIT 50`
+  );
+  res.json(r.rows);
+});
+
+router.post('/global-events', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    name: z.string().min(1).max(100),
+    expMult: z.number().min(0.1).max(10),
+    goldMult: z.number().min(0.1).max(10),
+    dropMult: z.number().min(0.1).max(10),
+    durationMinutes: z.number().int().min(1).max(10080), // 최대 7일
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const r = await query<{ id: number; ends_at: string }>(
+    `INSERT INTO global_events (name, exp_mult, gold_mult, drop_mult, ends_at)
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 minute' * $5)
+     RETURNING id, ends_at`,
+    [parsed.data.name, parsed.data.expMult, parsed.data.goldMult, parsed.data.dropMult, parsed.data.durationMinutes]
+  );
+  // 캐시 무효화
+  try {
+    const { invalidateGlobalEventCache } = await import('../game/globalEvent.js');
+    invalidateGlobalEventCache();
+  } catch {}
+  res.json({ ok: true, id: r.rows[0].id, endsAt: r.rows[0].ends_at });
+});
+
+router.post('/global-events/:id/end', async (req, res) => {
+  await query(`UPDATE global_events SET ends_at = NOW() WHERE id = $1`, [Number(req.params.id)]);
+  try {
+    const { invalidateGlobalEventCache } = await import('../game/globalEvent.js');
+    invalidateGlobalEventCache();
+  } catch {}
+  res.json({ ok: true });
+});
+
 // ========== 피드백 관리 ==========
 router.get('/feedback', async (req, res) => {
   const status = (req.query.status as string) || '';

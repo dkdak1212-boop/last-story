@@ -987,6 +987,24 @@ async function runMigrations() {
       `);
     } catch (e) { console.error('[migration] skill_presets error:', e); }
   }
+  // 글로벌 이벤트 (서버 전체 EXP/골드/드랍 배율)
+  {
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS global_events (
+          id          SERIAL PRIMARY KEY,
+          name        TEXT NOT NULL,
+          exp_mult    NUMERIC NOT NULL DEFAULT 1.0,
+          gold_mult   NUMERIC NOT NULL DEFAULT 1.0,
+          drop_mult   NUMERIC NOT NULL DEFAULT 1.0,
+          starts_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          ends_at     TIMESTAMPTZ NOT NULL,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_global_events_active ON global_events(ends_at) WHERE ends_at > NOW()`);
+    } catch (e) { console.error('[migration] global_events error:', e); }
+  }
   // 스킬 슬롯 순서 컬럼 (idempotent — 매번 실행, 안전하게 재진입 가능)
   {
     try {

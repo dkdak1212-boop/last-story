@@ -176,20 +176,22 @@ export async function generateAndApplyOfflineReport(
     killCount = Math.floor(effectiveSec / Math.max(0.5, killTimeSec));
   }
 
-  // 보상 계산
+  // 보상 계산 + 글로벌 이벤트 배율
+  const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
+  const ge = await getActiveGlobalEvent();
   const avgExp = avg(monsters.map(m => m.exp_reward));
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
   const boostMult = boostActive ? 1.5 : 1.0;
-  const expGained = Math.floor(killCount * avgExp * boostMult);
-  const goldGained = Math.floor(killCount * avgGold);
+  const expGained = Math.floor(killCount * avgExp * boostMult * ge.exp);
+  const goldGained = Math.floor(killCount * avgGold * ge.gold);
 
   // 드랍 계산
   const drops: Record<number, number> = {};
   for (const m of monsters) {
     for (const d of m.drop_table || []) {
       const expectedKills = killCount / monsters.length;
-      const expectedQty = expectedKills * d.chance * ((d.minQty + d.maxQty) / 2);
+      const expectedQty = expectedKills * d.chance * ((d.minQty + d.maxQty) / 2) * ge.drop;
       const qty = Math.floor(expectedQty);
       if (qty > 0) drops[d.itemId] = (drops[d.itemId] || 0) + qty;
     }

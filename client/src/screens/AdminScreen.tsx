@@ -41,7 +41,7 @@ interface ItemSearchResult {
 interface BossInfo { id: number; name: string; level: number; max_hp: number; }
 interface ActiveEvent { id: number; name: string; current_hp: number; max_hp: number; ends_at: string; status: string; }
 
-type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantAll' | 'users' | 'worldEvent' | 'systemMsg' | 'announcements' | 'feedback';
+type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantAll' | 'users' | 'worldEvent' | 'globalEvent' | 'systemMsg' | 'announcements' | 'feedback';
 
 const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
 const CLASS_LABEL: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
@@ -57,6 +57,7 @@ export function AdminScreen() {
     { id: 'grantAll', label: '전체 보상' },
     { id: 'users', label: '유저 관리' },
     { id: 'worldEvent', label: '월드이벤트' },
+    { id: 'globalEvent', label: '글로벌 이벤트' },
     { id: 'systemMsg', label: '시스템 공지' },
     { id: 'announcements', label: '공지 관리' },
     { id: 'feedback', label: '피드백' },
@@ -81,6 +82,7 @@ export function AdminScreen() {
       {tab === 'grantAll' && <GrantAllTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'worldEvent' && <WorldEventTab />}
+      {tab === 'globalEvent' && <GlobalEventTab />}
       {tab === 'systemMsg' && <SystemMsgTab />}
       {tab === 'announcements' && <AnnouncementsTab />}
       {tab === 'feedback' && <FeedbackTab />}
@@ -793,6 +795,92 @@ function SystemMsgTab() {
         try { await api('/admin/system-message', { method: 'POST', body: JSON.stringify({ text: text.trim(), channel }) }); setMsg('전송 완료!'); setText(''); } catch (e) { setMsg(String(e)); }
       }} disabled={!text.trim()}>전송</button>
       {msg && <div style={{ marginTop: 8, fontSize: 13, color: 'var(--accent)' }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ========== 글로벌 이벤트 ==========
+interface GlobalEvent {
+  id: number; name: string; exp_mult: string; gold_mult: string; drop_mult: string;
+  starts_at: string; ends_at: string; is_active: boolean;
+}
+function GlobalEventTab() {
+  const [items, setItems] = useState<GlobalEvent[]>([]);
+  const [name, setName] = useState('2배 이벤트');
+  const [expMult, setExpMult] = useState(2);
+  const [goldMult, setGoldMult] = useState(2);
+  const [dropMult, setDropMult] = useState(2);
+  const [hours, setHours] = useState(3);
+  const [minutes, setMinutes] = useState(30);
+  const [busy, setBusy] = useState(false);
+  async function load() { setItems(await api<GlobalEvent[]>('/admin/global-events')); }
+  useEffect(() => { load(); }, []);
+  async function start() {
+    setBusy(true);
+    try {
+      const totalMin = hours * 60 + minutes;
+      const r = await api<{ ok: boolean; endsAt: string }>('/admin/global-events', {
+        method: 'POST',
+        body: JSON.stringify({ name, expMult, goldMult, dropMult, durationMinutes: totalMin }),
+      });
+      alert(`이벤트 시작!\n종료: ${new Date(r.endsAt).toLocaleString()}`);
+      load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+    setBusy(false);
+  }
+  async function endNow(id: number) {
+    if (!confirm('이벤트를 즉시 종료할까요?')) return;
+    await api(`/admin/global-events/${id}/end`, { method: 'POST' });
+    load();
+  }
+  return (
+    <div>
+      <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 14 }}>
+        <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--accent)' }}>새 이벤트 시작</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label style={{ fontSize: 12 }}>이름
+            <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', marginTop: 4 }} />
+          </label>
+          <div></div>
+          <label style={{ fontSize: 12 }}>EXP 배율
+            <input type="number" step="0.1" min="0.1" max="10" value={expMult} onChange={e => setExpMult(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 12 }}>골드 배율
+            <input type="number" step="0.1" min="0.1" max="10" value={goldMult} onChange={e => setGoldMult(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 12 }}>드랍 배율
+            <input type="number" step="0.1" min="0.1" max="10" value={dropMult} onChange={e => setDropMult(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }} />
+          </label>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+            <label style={{ fontSize: 12, flex: 1 }}>시간
+              <input type="number" min="0" max="168" value={hours} onChange={e => setHours(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }} />
+            </label>
+            <label style={{ fontSize: 12, flex: 1 }}>분
+              <input type="number" min="0" max="59" value={minutes} onChange={e => setMinutes(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }} />
+            </label>
+          </div>
+        </div>
+        <button className="primary" onClick={start} disabled={busy} style={{ marginTop: 10 }}>이벤트 시작</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {items.map(e => (
+          <div key={e.id} style={{ padding: 10, background: 'var(--bg-panel)', border: `1px solid ${e.is_active ? 'var(--accent)' : 'var(--border)'}`, opacity: e.is_active ? 1 : 0.55 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontWeight: 700, marginRight: 8 }}>{e.name}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  EXP×{e.exp_mult} 골드×{e.gold_mult} 드랍×{e.drop_mult}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>~{new Date(e.ends_at).toLocaleString()}</span>
+                {e.is_active && <button onClick={() => endNow(e.id)} style={{ fontSize: 11, padding: '3px 8px' }}>즉시 종료</button>}
+              </div>
+            </div>
+          </div>
+        ))}
+        {items.length === 0 && <div style={{ color: 'var(--text-dim)' }}>이벤트 기록이 없습니다.</div>}
+      </div>
     </div>
   );
 }
