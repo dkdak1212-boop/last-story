@@ -5,6 +5,7 @@ export const GRADE_COLOR: Record<ItemGrade, string> = {
   rare: 'var(--grade-rare)',
   epic: 'var(--grade-epic)',
   legendary: 'var(--grade-legendary)',
+  unique: '#ff8c2a',
 };
 
 export const GRADE_LABEL: Record<ItemGrade, string> = {
@@ -12,6 +13,7 @@ export const GRADE_LABEL: Record<ItemGrade, string> = {
   rare: '희귀',
   epic: '영웅',
   legendary: '전설',
+  unique: '유니크',
 };
 
 export const STAT_LABEL: Record<string, string> = {

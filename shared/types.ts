@@ -2,7 +2,7 @@
 
 export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue';
 
-export type ItemGrade = 'common' | 'rare' | 'epic' | 'legendary';
+export type ItemGrade = 'common' | 'rare' | 'epic' | 'legendary' | 'unique';
 
 export type ItemType = 'weapon' | 'armor' | 'accessory' | 'consumable' | 'material';
 
