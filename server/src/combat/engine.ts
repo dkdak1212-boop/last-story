@@ -579,7 +579,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const dotDmg = Math.round(dotBase * 1.05);
+      const dotDmg = Math.round(dotBase * 1.9);
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
         if (!d.miss) {
@@ -588,6 +588,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player' });
         }
       }
+      addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
       break;
     }
 
@@ -614,7 +615,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] ${d.damage} 데미지`);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const dotDmg = Math.round(dotBase * 1.2);
+      const dotDmg = Math.round(dotBase * 1.9);
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어 50% 무시)`);
       // 스피드 감소
@@ -636,8 +637,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (burstAmp > 0) totalBurst = Math.round(totalBurst * (1 + burstAmp / 100));
       if (totalBurst > 0) {
         s.monsterHp -= totalBurst;
-        addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지`);
-        s.statusEffects = s.statusEffects.filter(e => !(e.type === 'poison' && e.source === 'player'));
+        addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지 (독 유지)`);
+        // 독 스택은 유지 — 폭발 후에도 도트 데미지 계속 적용
       } else {
         addLog(s, `[${skill.name}] 독이 없어 효과 없음`);
       }
@@ -884,11 +885,16 @@ function hasActivePlayerBuff(s: ActiveSession, type: string): boolean {
 async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
-  // ── 1. HP 위험 (임계값 이하) → 포션 / 힐 / 무적 / 부활 ──
-  // 힐 스킬(치유의 빛 등)은 자동 포션 설정과 무관하게 autoPotionThreshold 이하일 때 시도
+  // ── 0. 힐 스킬은 HP 80% 미만에서 쿨 풀리면 항상 사용 (포션 설정과 별개) ──
+  if (hpPct < 0.8) {
+    const healSkill = findReady(s, 'heal_pct');
+    if (healSkill) { await executeSkill(s, healSkill); return; }
+  }
+
+  // ── 1. HP 위험 (임계값 이하) → 포션 / 무적 / 부활 ──
   const healThresholdPct = s.autoPotionThreshold || 50;
   if (hpPct * 100 < healThresholdPct) {
-    // 포션 우선 (자동 포션 ON일 때만)
+    // 포션 (자동 포션 ON일 때만)
     if (s.autoPotionEnabled && s.potionCooldown <= 0) {
       const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
       const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
@@ -902,9 +908,6 @@ async function autoAction(s: ActiveSession): Promise<void> {
         return;
       }
     }
-    // 힐 스킬 (쿨다운 풀려있으면 항상 시도)
-    const healSkill = findReady(s, 'heal_pct');
-    if (healSkill) { await executeSkill(s, healSkill); return; }
     // 무적 (HP 20% 이하)
     if (hpPct < 0.2) {
       const invSkill = findReady(s, 'invincible');
