@@ -987,6 +987,28 @@ async function runMigrations() {
       `);
     } catch (e) { console.error('[migration] skill_presets error:', e); }
   }
+  // 스킬 슬롯 순서 컬럼
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'skill_slot_order_v1'`);
+      if (!(applied.rowCount && applied.rowCount > 0)) {
+        console.log('[migration] skill_slot_order_v1: character_skills.slot_order 추가...');
+        await query(`ALTER TABLE character_skills ADD COLUMN IF NOT EXISTS slot_order INT NOT NULL DEFAULT 0`);
+        // 캐릭터별로 required_level 순으로 초기 slot_order 부여 (1부터)
+        await query(`
+          UPDATE character_skills cs SET slot_order = sub.rn
+          FROM (
+            SELECT cs2.character_id, cs2.skill_id,
+                   ROW_NUMBER() OVER (PARTITION BY cs2.character_id ORDER BY s.required_level ASC, s.id ASC) AS rn
+            FROM character_skills cs2 JOIN skills s ON s.id = cs2.skill_id
+          ) sub
+          WHERE cs.character_id = sub.character_id AND cs.skill_id = sub.skill_id
+        `);
+        await query(`INSERT INTO _migrations (name) VALUES ('skill_slot_order_v1')`);
+        console.log('[migration] skill_slot_order_v1: 완료');
+      }
+    } catch (e) { console.error('[migration] skill_slot_order_v1 error:', e); }
+  }
   // 깨진 prefix_stats 데이터 정리
   {
     try {

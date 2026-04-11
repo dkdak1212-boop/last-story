@@ -98,6 +98,7 @@ interface SkillDef {
   effect_value: number;
   effect_duration: number;
   required_level: number;
+  slot_order: number;
 }
 
 // ── 활성 세션 관리 (인메모리) ──
@@ -194,46 +195,40 @@ const MAX_COMBAT_SKILLS = 6;
 
 async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
   // 자동 학습 (신규 스킬)
-  const newSkills = await query<{ id: number }>(
-    `SELECT s.id FROM skills s
+  const newSkills = await query<{ id: number; cooldown_actions: number }>(
+    `SELECT s.id, s.cooldown_actions FROM skills s
      WHERE s.class_name = $1 AND s.required_level <= $2
        AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
     [className, level, characterId]
   );
   for (const sk of newSkills.rows) {
-    // 현재 auto_use ON 개수 체크 후 6개 미만이면 ON (기본기 제외)
     const countR = await query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
        WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [characterId]
     );
-    const autoOn = Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+    const autoOn = sk.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+    const maxR = await query<{ mx: number | null }>(
+      `SELECT MAX(slot_order) AS mx FROM character_skills WHERE character_id = $1`, [characterId]
+    );
+    const nextOrder = (maxR.rows[0]?.mx ?? 0) + 1;
     await query(
-      'INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-      [characterId, sk.id, autoOn]
+      'INSERT INTO character_skills (character_id, skill_id, auto_use, slot_order) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [characterId, sk.id, autoOn, nextOrder]
     );
   }
 
-  // 기본기 (cooldown=0) 항상 포함
-  const basicR = await query<SkillDef>(
+  // ON된 스킬을 slot_order 순으로 (cd=0 기본기 포함)
+  const r = await query<SkillDef>(
     `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-            s.effect_type, s.effect_value, s.effect_duration, s.required_level
-     FROM skills s
-     WHERE s.class_name = $1 AND s.required_level <= $2 AND s.cooldown_actions = 0
-     ORDER BY s.required_level ASC`,
-    [className, level]
-  );
-  // auto_use=true 스킬 (기본기 제외), 최대 6개
-  const slotR = await query<SkillDef>(
-    `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-            s.effect_type, s.effect_value, s.effect_duration, s.required_level
+            s.effect_type, s.effect_value, s.effect_duration, s.required_level,
+            COALESCE(cs.slot_order, 9999) AS slot_order
      FROM skills s
      JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
-     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE AND s.cooldown_actions > 0
-     ORDER BY s.required_level ASC
-     LIMIT $4`,
-    [className, level, characterId, MAX_COMBAT_SKILLS]
+     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE
+     ORDER BY cs.slot_order ASC, s.required_level ASC`,
+    [className, level, characterId]
   );
-  return [...basicR.rows, ...slotR.rows];
+  return r.rows;
 }
 
 // 드롭률 배율: 기본 x0.1 (드롭 부스터로 1.5배)
@@ -990,8 +985,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const gfSkill = findReady(s, 'gauge_fill');
   if (gfSkill) { await executeSkill(s, gfSkill); return; }
 
-  // ── 6. 공격 스킬 (LRU: 가장 오래 안 쓴 것 우선, self-damage 스킬은 HP 낮으면 회피) ──
-  // cd=0 기본 공격(강타/화염구/급소 찌르기/신성 타격 등)도 풀에 합류 — LRU로 자연스럽게 끼어듦
+  // ── 6. 공격 스킬 (slot_order ASC: 왼쪽 슬롯 절대 우선) ──
+  // cd=0 기본 공격도 같은 풀, slot_order로 경쟁
   const attackSkills = s.skills
     .filter(sk => {
       if (!(sk.damage_mult > 0 && isSkillReady(s, sk))) return false;
@@ -999,25 +994,9 @@ async function autoAction(s: ActiveSession): Promise<void> {
       if (sk.effect_type === 'self_damage_pct' && hpPct < 0.5) return false;
       return true;
     })
-    .sort((a, b) => {
-      // 1순위: 가장 오래 안 쓴 스킬 (LRU)
-      const lastA = s.skillLastUsed.get(a.id) ?? -1;
-      const lastB = s.skillLastUsed.get(b.id) ?? -1;
-      if (lastA !== lastB) return lastA - lastB;
-      // 2순위: 데미지 배율 높은 순
-      return b.damage_mult - a.damage_mult;
-    });
+    .sort((a, b) => a.slot_order - b.slot_order);
   if (attackSkills.length > 0) {
     await executeSkill(s, attackSkills[0]);
-    return;
-  }
-
-  // ── 7. 기본기 ──
-  const basic = s.skills
-    .filter(sk => sk.cooldown_actions === 0 && isSkillReady(s, sk))
-    .sort((a, b) => b.damage_mult - a.damage_mult)[0];
-  if (basic) {
-    await executeSkill(s, basic);
     return;
   }
 

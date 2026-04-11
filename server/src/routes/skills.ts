@@ -13,33 +13,39 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 요구 레벨 만족한 스킬 자동 학습
-  const newSkills = await query<{ id: number }>(
-    `SELECT s.id FROM skills s
+  const newSkills = await query<{ id: number; cooldown_actions: number }>(
+    `SELECT s.id, s.cooldown_actions FROM skills s
      WHERE s.class_name = $1 AND s.required_level <= $2
        AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
     [char.class_name, char.level, id]
   );
   for (const s of newSkills.rows) {
-    // 슬롯 여유 있으면 ON, 없으면 OFF로 학습
+    // 6 슬롯 제한은 cd>0 스킬만 카운트, cd=0 기본기는 항상 자동 ON으로 학습
     const countR = await query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
        WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [id]
     );
-    const autoOn = Number(countR.rows[0].cnt) < 6;
-    await query('INSERT INTO character_skills (character_id, skill_id, auto_use) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-      [id, s.id, autoOn]);
+    const autoOn = s.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < 6;
+    // 다음 slot_order
+    const maxR = await query<{ mx: number | null }>(
+      `SELECT MAX(slot_order) AS mx FROM character_skills WHERE character_id = $1`, [id]
+    );
+    const nextOrder = (maxR.rows[0]?.mx ?? 0) + 1;
+    await query('INSERT INTO character_skills (character_id, skill_id, auto_use, slot_order) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [id, s.id, autoOn, nextOrder]);
   }
 
   const r = await query<{
     id: number; name: string; description: string; cooldown_actions: number;
     damage_mult: number; flat_damage: number; effect_type: string;
-    required_level: number; auto_use: boolean | null;
+    required_level: number; auto_use: boolean | null; slot_order: number | null;
   }>(
     `SELECT s.id, s.name, s.description, s.cooldown_actions, s.damage_mult, s.flat_damage,
-            s.effect_type, s.required_level, cs.auto_use
+            s.effect_type, s.required_level, cs.auto_use, cs.slot_order
      FROM skills s
      LEFT JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $1
-     WHERE s.class_name = $2 ORDER BY s.required_level ASC`,
+     WHERE s.class_name = $2
+     ORDER BY COALESCE(cs.slot_order, 999), s.required_level ASC`,
     [id, char.class_name]
   );
 
@@ -54,7 +60,33 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
     requiredLevel: row.required_level,
     learned: char.level >= row.required_level,
     autoUse: row.auto_use ?? false,
+    slotOrder: row.slot_order ?? 0,
   })));
+});
+
+// 스킬 순서 변경 — 드래그 결과를 통째로 받음 (skillIds 배열의 인덱스가 새 slot_order)
+router.post('/:id/skills/reorder', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const skillIds: unknown = req.body?.skillIds;
+  if (!Array.isArray(skillIds) || skillIds.some(v => typeof v !== 'number')) {
+    return res.status(400).json({ error: 'skillIds 배열 필요' });
+  }
+
+  // 트랜잭션 없이 순차 update — atomic 필요시 추후 보강
+  for (let i = 0; i < skillIds.length; i++) {
+    await query(
+      `UPDATE character_skills SET slot_order = $1 WHERE character_id = $2 AND skill_id = $3`,
+      [i + 1, id, skillIds[i]]
+    );
+  }
+  try {
+    const { refreshSessionSkills } = await import('../combat/engine.js');
+    await refreshSessionSkills(id);
+  } catch {}
+  res.json({ ok: true, count: skillIds.length });
 });
 
 // 자동사용 토글 (최대 6개 제한)

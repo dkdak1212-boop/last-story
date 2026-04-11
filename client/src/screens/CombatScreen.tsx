@@ -196,6 +196,14 @@ export function CombatScreen() {
     });
   }, [active]);
 
+  // 스킬 슬롯 드래그 reorder
+  const reorderSkills = useCallback(async (orderedIds: number[]) => {
+    if (!active) return;
+    await api(`/characters/${active.id}/skills/reorder`, {
+      method: 'POST', body: JSON.stringify({ skillIds: orderedIds }),
+    }).catch(() => {});
+  }, [active]);
+
   const [autoPotionEnabled, setAutoPotionEnabled] = useState(true);
   const [autoPotionThreshold, setAutoPotionThreshold] = useState(30);
 
@@ -461,6 +469,7 @@ export function CombatScreen() {
         waitingInput={state.waitingInput}
         autoMode={state.autoMode}
         onUse={useSkill}
+        onReorder={reorderSkills}
       />
 
       {/* 딜미터기 */}
@@ -757,14 +766,16 @@ const SKILL_DESCRIPTIONS: Record<string, string> = {
   '죽음의 무도': '1.8배 x 6연타 + 독',
 };
 
-function SkillBar({ skills, waitingInput, autoMode, onUse }: {
+function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
   skills: CombatSkillInfo[];
   waitingInput: boolean;
   autoMode: boolean;
   onUse: (id: number) => void;
+  onReorder: (orderedIds: number[]) => void;
 }) {
   const canUse = waitingInput && !autoMode;
   const [tooltip, setTooltip] = useState<CombatSkillInfo | null>(null);
+  const [dragSkillId, setDragSkillId] = useState<number | null>(null);
 
   return (
     <div style={{
@@ -798,6 +809,19 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
           return (
             <div
               key={sk.id}
+              draggable
+              onDragStart={() => setDragSkillId(sk.id)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                if (dragSkillId === null || dragSkillId === sk.id) { setDragSkillId(null); return; }
+                const ids = skills.map(x => x.id);
+                const from = ids.indexOf(dragSkillId);
+                const to = ids.indexOf(sk.id);
+                if (from < 0 || to < 0) { setDragSkillId(null); return; }
+                ids.splice(to, 0, ids.splice(from, 1)[0]);
+                setDragSkillId(null);
+                onReorder(ids);
+              }}
               onClick={() => {
                 if (usable) {
                   onUse(sk.id);
@@ -812,9 +836,9 @@ function SkillBar({ skills, waitingInput, autoMode, onUse }: {
                   ? `linear-gradient(135deg, ${fx.color}cc, ${fx.color}88)`
                   : onCooldown ? 'var(--bg)' : `linear-gradient(135deg, var(--bg-panel), ${fx.color}22)`,
                 color: usable ? '#fff' : 'var(--text-dim)',
-                border: `1px solid ${usable ? fx.color : onCooldown ? 'var(--border)' : `${fx.color}44`}`,
+                border: `1px solid ${dragSkillId === sk.id ? 'var(--accent)' : usable ? fx.color : onCooldown ? 'var(--border)' : `${fx.color}44`}`,
                 borderRadius: 6,
-                cursor: usable ? 'pointer' : 'default',
+                cursor: usable ? 'pointer' : 'grab',
                 opacity: onCooldown ? 0.5 : canUse ? 1 : 0.7,
                 transition: 'all 0.15s ease',
                 animation: usable ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',

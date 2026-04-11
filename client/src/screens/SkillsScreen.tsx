@@ -11,6 +11,7 @@ interface Skill {
   requiredLevel: number;
   learned: boolean;
   autoUse: boolean;
+  slotOrder: number;
 }
 
 interface SkillPreset {
@@ -113,6 +114,31 @@ export function SkillsScreen() {
     setToggling(false);
   }
 
+  // 드래그 reorder
+  const [dragId, setDragId] = useState<number | null>(null);
+  async function reorderSkills(orderedIds: number[]) {
+    if (!active) return;
+    try {
+      await api(`/characters/${active.id}/skills/reorder`, {
+        method: 'POST', body: JSON.stringify({ skillIds: orderedIds }),
+      });
+      await refresh();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'reorder 실패'); }
+  }
+  function handleDragStart(id: number) { setDragId(id); }
+  function handleDragOver(e: React.DragEvent) { e.preventDefault(); }
+  function handleDrop(targetId: number) {
+    if (dragId === null || dragId === targetId) { setDragId(null); return; }
+    const onSkills = skills.filter(s => s.learned && s.autoUse);
+    const ids = onSkills.map(s => s.id);
+    const from = ids.indexOf(dragId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) { setDragId(null); return; }
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setDragId(null);
+    reorderSkills(ids);
+  }
+
   const className = active?.className || 'warrior';
   const autoCount = skills.filter(s => s.learned && s.autoUse && s.cooldown > 0).length;
 
@@ -166,17 +192,25 @@ export function SkillsScreen() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {skills.map((s) => (
+        {skills.map((s) => {
+          const isOn = s.learned && s.autoUse;
+          const draggable = isOn;
+          return (
           <div
             key={s.id}
+            draggable={draggable}
+            onDragStart={() => draggable && handleDragStart(s.id)}
+            onDragOver={handleDragOver}
+            onDrop={() => isOn && handleDrop(s.id)}
             style={{
               padding: 14,
               background: 'var(--bg-panel)',
-              border: '1px solid var(--border)',
+              border: `1px solid ${dragId === s.id ? 'var(--accent)' : 'var(--border)'}`,
               opacity: s.learned ? 1 : 0.4,
               display: 'flex',
               alignItems: 'center',
               gap: 14,
+              cursor: draggable ? 'grab' : 'default',
             }}
           >
             <img
@@ -190,21 +224,14 @@ export function SkillsScreen() {
               <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
                 {s.name}
                 <span style={{ color: 'var(--text-dim)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>Lv.{s.requiredLevel}</span>
+                {s.cooldown === 0 && <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 8 }}>[기본기 — 슬롯 미차감]</span>}
               </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{s.description}</div>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
                 쿨다운 {s.cooldown}s
               </div>
             </div>
-            {s.learned && s.cooldown === 0 ? (
-              <span style={{
-                padding: '6px 14px', fontSize: 12, fontWeight: 700,
-                background: 'var(--accent)', color: '#000',
-                border: '2px solid var(--accent)',
-              }}>
-                기본기
-              </span>
-            ) : s.learned && (
+            {s.learned && (
               <button
                 onClick={() => toggleAuto(s.id, s.name, s.autoUse)}
                 disabled={toggling}
@@ -220,7 +247,8 @@ export function SkillsScreen() {
               </button>
             )}
           </div>
-        ))}
+        );
+        })}
         {skills.length === 0 && <div style={{ color: 'var(--text-dim)' }}>스킬이 없다.</div>}
       </div>
     </div>
