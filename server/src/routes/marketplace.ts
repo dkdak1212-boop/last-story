@@ -151,11 +151,10 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
   const price = Number(au.buyout_price);
   if (char.gold < price) return res.status(400).json({ error: '골드 부족' });
 
-  // 결제 & 정산 (수수료 10%)
+  // 결제 & 정산 (수수료 10%) — 판매금은 우편으로만 지급 (즉시 입금 X)
   await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [price, parsed.data.characterId]);
   const sellerGet = Math.floor(price * (1 - FEE_PCT));
-  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [sellerGet, au.seller_id]);
-  await deliverToMailbox(au.seller_id, '판매 정산', `수수료 ${Math.round(FEE_PCT*100)}% 차감 후 ${sellerGet.toLocaleString()}G 수령.`, 0, 0);
+  await deliverToMailbox(au.seller_id, '판매 정산', `수수료 ${Math.round(FEE_PCT*100)}% 차감 후 ${sellerGet.toLocaleString()}G 수령. (우편 수령 시 골드 지급)`, 0, 0, sellerGet);
 
   // 아이템 지급 (강화/접두사/품질 완전 보존)
   const auctionDetail = await query<{ enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
