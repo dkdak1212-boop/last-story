@@ -104,19 +104,37 @@ router.post('/global-events', async (req: AuthedRequest, res: Response) => {
     dropMult: z.number().min(0.1).max(10),
     durationMinutes: z.number().int().min(1).max(10080), // 최대 7일
   }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-  const r = await query<{ id: number; ends_at: string }>(
-    `INSERT INTO global_events (name, exp_mult, gold_mult, drop_mult, ends_at)
-     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '1 minute' * $5)
-     RETURNING id, ends_at`,
-    [parsed.data.name, parsed.data.expMult, parsed.data.goldMult, parsed.data.dropMult, parsed.data.durationMinutes]
-  );
-  // 캐시 무효화
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input', detail: parsed.error.issues });
   try {
-    const { invalidateGlobalEventCache } = await import('../game/globalEvent.js');
-    invalidateGlobalEventCache();
-  } catch {}
-  res.json({ ok: true, id: r.rows[0].id, endsAt: r.rows[0].ends_at });
+    // 안전: 테이블 보장 (마이그레이션 실패한 환경 대비)
+    await query(`
+      CREATE TABLE IF NOT EXISTS global_events (
+        id          SERIAL PRIMARY KEY,
+        name        TEXT NOT NULL,
+        exp_mult    NUMERIC NOT NULL DEFAULT 1.0,
+        gold_mult   NUMERIC NOT NULL DEFAULT 1.0,
+        drop_mult   NUMERIC NOT NULL DEFAULT 1.0,
+        starts_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ends_at     TIMESTAMPTZ NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    const endsAt = new Date(Date.now() + parsed.data.durationMinutes * 60_000);
+    const r = await query<{ id: number; ends_at: string }>(
+      `INSERT INTO global_events (name, exp_mult, gold_mult, drop_mult, ends_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, ends_at`,
+      [parsed.data.name, parsed.data.expMult, parsed.data.goldMult, parsed.data.dropMult, endsAt]
+    );
+    try {
+      const { invalidateGlobalEventCache } = await import('../game/globalEvent.js');
+      invalidateGlobalEventCache();
+    } catch {}
+    res.json({ ok: true, id: r.rows[0].id, endsAt: r.rows[0].ends_at });
+  } catch (e: any) {
+    console.error('[global-events POST] error:', e);
+    res.status(500).json({ error: 'internal error', detail: e?.message || String(e) });
+  }
 });
 
 router.post('/global-events/:id/end', async (req, res) => {

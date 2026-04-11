@@ -1002,7 +1002,7 @@ async function runMigrations() {
           created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `);
-      await query(`CREATE INDEX IF NOT EXISTS idx_global_events_active ON global_events(ends_at) WHERE ends_at > NOW()`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_global_events_ends_at ON global_events(ends_at)`);
     } catch (e) { console.error('[migration] global_events error:', e); }
   }
   // 스킬 슬롯 순서 컬럼 (idempotent — 매번 실행, 안전하게 재진입 가능)
