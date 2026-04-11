@@ -127,8 +127,9 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
   }
 
   // 골드 지급
-  if (m.gold && Number(m.gold) > 0) {
-    await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [m.gold, id]);
+  const goldNum = Number(m.gold || 0);
+  if (goldNum > 0) {
+    await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [goldNum, id]);
   }
 
   // 수령 처리
