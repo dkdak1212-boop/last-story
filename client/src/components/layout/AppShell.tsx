@@ -34,6 +34,8 @@ const NAV: NavItem[] = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
   const active = useCharacterStore((s) => s.activeCharacter);
+  const characters = useCharacterStore((s) => s.characters);
+  const selectCharacter = useCharacterStore((s) => s.selectCharacter);
   const logout = useAuthStore((s) => s.logout);
   const clearChar = useCharacterStore((s) => s.clear);
   const me = useMeStore((s) => s.me);
@@ -43,6 +45,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
   const [onlineCount, setOnlineCount] = useState(0);
   const [broadcast, setBroadcast] = useState<string | null>(null);
+  const [charSwitchOpen, setCharSwitchOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  async function switchTo(id: number) {
+    if (switching || id === active?.id) { setCharSwitchOpen(false); return; }
+    setSwitching(true);
+    try {
+      await selectCharacter(id);
+      setCharSwitchOpen(false);
+      // 마을로 이동 (다른 페이지에서 변경 시 캐릭터별 데이터 리로드 필요)
+      window.location.href = '/village';
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '캐릭터 변경 실패');
+    } finally {
+      setSwitching(false);
+    }
+  }
   useEffect(() => { fetchMe(); }, [fetchMe]);
   // 새로고침 시 저장된 캐릭터 자동 복구
   useEffect(() => {
@@ -141,9 +160,76 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               관리자
             </Link>
           )}
+          {characters.length > 1 && (
+            <button onClick={() => setCharSwitchOpen(true)} style={{
+              padding: '3px 10px', fontSize: 11,
+              background: 'var(--bg-panel)', color: 'var(--accent)',
+              border: '1px solid var(--accent)', fontWeight: 700, cursor: 'pointer',
+            }}>캐릭터 변경</button>
+          )}
           <button onClick={() => { clearChar(); clearMe(); logout(); }} style={{ padding: '2px 8px', fontSize: 10 }}>로그아웃</button>
         </div>
       </header>
+
+      {charSwitchOpen && (
+        <div onClick={() => setCharSwitchOpen(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: 'var(--bg-panel)', border: '2px solid var(--accent)',
+            borderRadius: 6, padding: 16, width: 'min(420px, 92vw)',
+            maxHeight: '85vh', overflow: 'auto',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: 'var(--accent)', fontSize: 16 }}>캐릭터 변경</h3>
+              <button onClick={() => setCharSwitchOpen(false)} style={{ fontSize: 11 }}>닫기</button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
+              계정 내 캐릭터 목록 · 클릭하여 즉시 전환
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {characters.map(c => {
+                const isActive = c.id === active?.id;
+                const classColor: Record<string, string> = {
+                  warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0',
+                };
+                const classLabel: Record<string, string> = {
+                  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
+                };
+                const cls = (c as any).className || (c as any).class_name || '';
+                return (
+                  <button key={c.id} disabled={switching || isActive} onClick={() => switchTo(c.id)} style={{
+                    padding: '10px 12px',
+                    background: isActive ? 'rgba(218,165,32,0.12)' : 'var(--bg)',
+                    border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                    borderLeft: `3px solid ${classColor[cls] || 'var(--border)'}`,
+                    borderRadius: 3, cursor: isActive || switching ? 'default' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    textAlign: 'left',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                        {c.name}
+                        {isActive && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)' }}>● 현재</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                        Lv.{c.level} {classLabel[cls] || cls}
+                      </div>
+                    </div>
+                    {!isActive && <span style={{ fontSize: 10, color: 'var(--accent)' }}>전환 →</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {switching && (
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
+                전환 중...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {broadcast && (
         <div style={{
