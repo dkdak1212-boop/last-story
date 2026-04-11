@@ -87,18 +87,19 @@ export async function attackBoss(characterId: number) {
   const prefixCritDmg = equipPrefixes.crit_dmg_pct || 0;
   const prefixHpRegen = equipPrefixes.hp_regen || 0;
 
-  // 스킬 로드 (auto_use ON인 스킬 전부)
-  const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number; effect_duration: number }>(
-    `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value, s.effect_duration
-     FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
-     ORDER BY s.damage_mult DESC`,
-    [characterId, char.level]
+  // 스킬 로드 — 필드 전투와 동일한 slot_order 기반 우선순위
+  // (class_name + required_level + auto_use 필터, slot_order ASC 정렬)
+  const skillsR = await query<{ name: string; kind: string; damage_mult: number; cooldown_actions: number; flat_damage: number; effect_type: string; effect_value: number; effect_duration: number; slot_order: number }>(
+    `SELECT s.name, s.kind, s.damage_mult, s.cooldown_actions, s.flat_damage,
+            s.effect_type, s.effect_value, s.effect_duration,
+            COALESCE(cs.slot_order, 9999) AS slot_order
+     FROM skills s
+     JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $1
+     WHERE s.class_name = $3 AND s.required_level <= $2 AND cs.auto_use = TRUE
+     ORDER BY cs.slot_order ASC, s.required_level ASC`,
+    [characterId, char.level, char.class_name]
   );
   const allSkills = skillsR.rows;
-  const dmgSkills = allSkills.filter(s => s.kind === 'damage');
-  const healSkills = allSkills.filter(s => s.effect_type === 'heal_pct');
-  const buffSkills = allSkills.filter(s => s.kind === 'buff' && s.effect_type !== 'heal_pct');
 
   // 도트 증폭 (패시브 + 접두사) — 필드 전투 processDots와 동일 합산식
   const dotAmpPct = (passiveMap.get('dot_amp') || 0)
@@ -159,10 +160,33 @@ export async function attackBoss(characterId: number) {
         else cooldowns.set(name, cd - 1);
       }
 
-      // HP 낮으면 힐 스킬 우선
+      // ── 데미지 계산 헬퍼 (한 번의 타격) ──
+      const dotBase = mageClass ? eff.matk : eff.atk;
+      const doOneHit = (sk: typeof allSkills[number], mult: number, label: string) => {
+        const isCrit = Math.random() * 100 < eff.cri;
+        let dmg = Math.round((playerAtk - bossDef * 0.5) * mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
+        dmg = Math.max(1, dmg);
+        if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+        if (isCrit) {
+          const totalCritBonus = 100 + critDmgBonus + prefixCritDmg;
+          dmg = Math.round(dmg * (1 + totalCritBonus / 100));
+          critCount++;
+        }
+        totalDmgDealt += dmg;
+        if (prefixLifesteal > 0) playerHp = Math.min(eff.maxHp, playerHp + Math.round(dmg * prefixLifesteal / 100));
+        if (combatLog.length < 20) combatLog.push(`[${label}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
+        // 패시브: bleed_on_hit — 타격마다 출혈
+        if (bleedOnHitChance > 0 && Math.random() * 100 < bleedOnHitChance) {
+          bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: 3, source: 'player', useMatk: mageClass }));
+        }
+      };
+
+      // ── HP가 낮으면 힐 스킬 비상 사용 ──
       let used = false;
-      if (playerHp < eff.maxHp * 0.4) {
-        for (const sk of healSkills) {
+      const hpPct = playerHp / eff.maxHp;
+      if (hpPct < 0.4) {
+        for (const sk of allSkills) {
+          if (sk.effect_type !== 'heal_pct') continue;
           if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
           const heal = Math.round(eff.maxHp * sk.effect_value / 100);
           playerHp = Math.min(eff.maxHp, playerHp + heal);
@@ -173,61 +197,83 @@ export async function attackBoss(characterId: number) {
         }
       }
 
-      // 버프 스킬 (쿨다운 안 걸린 것 하나)
+      // ── slot_order 순서대로 첫 번째 사용 가능한 스킬 발동 (필드와 동일 방식) ──
       if (!used) {
-        for (const sk of buffSkills) {
+        for (const sk of allSkills) {
           if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
-          if (sk.cooldown_actions > 0) cooldowns.set(sk.name, sk.cooldown_actions);
-          if (combatLog.length < 20) combatLog.push(`[${sk.name}] 버프 발동!`);
-          // 버프 효과: 간단히 다음 공격에 보너스 (시뮬레이션이라 직접 적용)
-          used = true;
-          break;
-        }
-      }
+          // HP 여유 있으면 힐 스킬은 스킵 (낭비 방지)
+          if (sk.effect_type === 'heal_pct') continue;
 
-      // 공격 스킬
-      if (!used) {
-        for (const sk of dmgSkills) {
-          if ((cooldowns.get(sk.name) ?? 0) > 0) continue;
-          const isCrit = Math.random() * 100 < eff.cri;
-          let dmg = Math.round((playerAtk - bossDef * 0.5) * sk.damage_mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
-          dmg = Math.max(1, dmg);
-          // 마법 증폭
-          if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
-          // 치명타
-          if (isCrit) {
-            const totalCritBonus = 100 + critDmgBonus + prefixCritDmg;
-            dmg = Math.round(dmg * (1 + totalCritBonus / 100));
-            critCount++;
-          }
-          totalDmgDealt += dmg;
-          // 흡혈
-          if (prefixLifesteal > 0) playerHp = Math.min(eff.maxHp, playerHp + Math.round(dmg * prefixLifesteal / 100));
-          // 쿨다운 (노드 쿨감 적용)
+          // 쿨다운 설정 (노드 쿨감 적용)
           if (sk.cooldown_actions > 0) {
             const cd = Math.max(1, sk.cooldown_actions - Math.floor(cdReduce / 25));
             cooldowns.set(sk.name, cd);
           }
-          if (combatLog.length < 20) combatLog.push(`[${sk.name}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
 
-          // ── 도트 부여 (effect_type에 따라, 필드 전투와 동일 수치) ──
-          const dotBase = mageClass ? eff.matk : eff.atk;
-          if (sk.effect_type === 'dot') {
-            const dur = (sk.effect_duration || 3) + elementalStormExt;
-            bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: dur, source: 'player', useMatk: mageClass }));
-          } else if (sk.effect_type === 'poison') {
-            const dur = sk.effect_duration || 3;
-            bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: dur, source: 'player', useMatk: mageClass }));
-          } else if (sk.effect_type === 'multi_hit_poison') {
+          // ── 스킬 유형별 처리 ──
+          if (sk.kind === 'buff') {
+            // 버프는 레이드 시뮬에서 간략 처리 (로그만)
+            if (combatLog.length < 20) combatLog.push(`[${sk.name}] 버프 발동!`);
+          } else if (sk.effect_type === 'multi_hit' || sk.effect_type === 'multi_hit_poison') {
+            // 다단 타격
             const hits = Math.max(1, Math.round(sk.effect_value));
             for (let h = 0; h < hits; h++) {
-              bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: 3, source: 'player', useMatk: mageClass }));
+              doOneHit(sk, sk.damage_mult, `${sk.name} ${h + 1}타`);
             }
-          }
+            if (sk.effect_type === 'multi_hit_poison') {
+              for (let h = 0; h < hits; h++) {
+                bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: 3, source: 'player', useMatk: mageClass }));
+              }
+            }
+          } else if (sk.effect_type === 'poison_burst') {
+            // 기존 독 스택의 일부를 즉시 데미지로
+            const poisons = bossEffects.filter(e => e.type === 'poison' && e.source === 'player');
+            let totalBurst = 0;
+            for (const p of poisons) totalBurst += Math.round(p.value * sk.effect_value / 100);
+            if (totalBurst > 0) {
+              totalDmgDealt += totalBurst;
+              if (combatLog.length < 20) combatLog.push(`[${sk.name}] 독 폭발! ${totalBurst.toLocaleString()}`);
+            } else {
+              if (combatLog.length < 20) combatLog.push(`[${sk.name}] 독이 없어 효과 없음`);
+            }
+          } else {
+            // 일반 공격 스킬 (damage / dot / poison / stun / speed_mod / lifesteal / crit_bonus / hp_pct_damage / self_hp_dmg / self_damage_pct / double_chance 등)
+            doOneHit(sk, sk.damage_mult, sk.name);
 
-          // 패시브: bleed_on_hit — 타격 시 출혈
-          if (bleedOnHitChance > 0 && Math.random() * 100 < bleedOnHitChance) {
-            bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: 3, source: 'player', useMatk: mageClass }));
+            // lifesteal — 데미지의 effect_value% 회복 + 동일량 추가 데미지
+            if (sk.effect_type === 'lifesteal') {
+              // doOneHit이 직접 dmg를 반환하지 않으므로 간략화: 추가 힐은 생략, 일반 데미지만 반영
+            }
+            // hp_pct_damage — 보스 현재 HP%만큼 추가 (레이드에선 보스 HP = event.current_hp)
+            if (sk.effect_type === 'hp_pct_damage') {
+              const remaining = Math.max(0, event.current_hp - totalDmgDealt);
+              const extra = Math.round(remaining * sk.effect_value / 100);
+              if (extra > 0) {
+                totalDmgDealt += extra;
+                if (combatLog.length < 20) combatLog.push(`[${sk.name}] 추가 고정 ${extra.toLocaleString()}`);
+              }
+            }
+            // self_hp_dmg — 자신 최대 HP의 effect_value% 만큼 추가 데미지
+            if (sk.effect_type === 'self_hp_dmg') {
+              const extra = Math.round(eff.maxHp * sk.effect_value / 100);
+              totalDmgDealt += extra;
+              if (combatLog.length < 20) combatLog.push(`[${sk.name}] 추가 ${extra.toLocaleString()}`);
+            }
+            // self_damage_pct — 자신 HP 소모
+            if (sk.effect_type === 'self_damage_pct') {
+              const cost = Math.round(eff.maxHp * sk.effect_value / 100);
+              playerHp -= cost;
+              totalDmgDealt += cost; // 소모한 HP만큼 추가 데미지
+              if (combatLog.length < 20) combatLog.push(`[${sk.name}] 자신 HP -${cost.toLocaleString()}, 추가 ${cost.toLocaleString()}`);
+            }
+            // 도트 부여 (dot / poison)
+            if (sk.effect_type === 'dot') {
+              const dur = (sk.effect_duration || 3) + elementalStormExt;
+              bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: dur, source: 'player', useMatk: mageClass }));
+            } else if (sk.effect_type === 'poison') {
+              const dur = sk.effect_duration || 3;
+              bossEffects.push(buildDotEntry({ type: 'poison', attackerBase: dotBase, multiplier: 1.5, duration: dur, source: 'player', useMatk: mageClass }));
+            }
           }
 
           used = true;
@@ -235,7 +281,7 @@ export async function attackBoss(characterId: number) {
         }
       }
 
-      // 기본 공격
+      // 기본 공격 (사용 가능한 스킬이 없을 때)
       if (!used) {
         const isCrit = Math.random() * 100 < eff.cri;
         let dmg = Math.round((playerAtk - bossDef * 0.5) * (0.9 + Math.random() * 0.2));
