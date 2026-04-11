@@ -21,10 +21,13 @@ async function ensureStats(characterId: number) {
     `INSERT INTO pvp_stats (character_id) VALUES ($1) ON CONFLICT DO NOTHING`,
     [characterId]
   );
-  // 일일 공격 횟수 리셋
+  // 일일 공격 횟수 리셋 — KST 자정 기준
   await query(
-    `UPDATE pvp_stats SET daily_attacks = 0, last_daily_reset = CURRENT_DATE
-     WHERE character_id = $1 AND last_daily_reset < CURRENT_DATE`,
+    `UPDATE pvp_stats
+       SET daily_attacks = 0,
+           last_daily_reset = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+     WHERE character_id = $1
+       AND last_daily_reset < (NOW() AT TIME ZONE 'Asia/Seoul')::date`,
     [characterId]
   );
 }
