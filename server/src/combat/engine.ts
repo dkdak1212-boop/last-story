@@ -1194,12 +1194,19 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   // 글로벌 이벤트 배율 (서버 전체 공용)
   const ge = await getActiveGlobalEvent();
-  if (ge.active) {
-    addLog(s, `[이벤트] ${ge.name} 적용 — EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop}`);
-  }
+  console.log(`[handleMonsterDeath] char=${s.characterId} ge=`, JSON.stringify(ge));
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
+  // 보스트 적용된 EXP 미리 계산 (로그 표시용)
+  const boostActiveForLog = (await query<{ exp_boost_until: string | null }>(
+    'SELECT exp_boost_until FROM characters WHERE id = $1', [s.characterId]
+  )).rows[0]?.exp_boost_until;
+  const isExpBoosted = boostActiveForLog && new Date(boostActiveForLog) > new Date();
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp);
 
-  addLog(s, `${m.name}을(를) 처치! +${m.exp_reward}exp, +${finalGold}G`);
+  if (ge.active) {
+    addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
+  }
+  addLog(s, `${m.name}을(를) 처치! +${previewExp}exp, +${finalGold}G`);
 
   // 일일퀘 + 업적 트래킹
   try {
