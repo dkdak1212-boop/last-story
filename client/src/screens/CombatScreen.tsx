@@ -24,6 +24,49 @@ export function CombatScreen() {
   const prevMonsterHp = useRef<number>(0);
   const prevLogRef = useRef<string[] | null>(null);
 
+  // BGM — 자동재생 X, 토글 ON 시 localStorage 영구 저장
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [bgmEnabled, setBgmEnabled] = useState(() => localStorage.getItem('combatBgmEnabled') === '1');
+  const [bgmVolume, setBgmVolume] = useState(() => {
+    const saved = localStorage.getItem('combatBgmVolume');
+    return saved ? Number(saved) : 0.3;
+  });
+
+  useEffect(() => () => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+  }, []);
+
+  useEffect(() => {
+    if (bgmEnabled) {
+      if (!audioRef.current) {
+        const audio = new Audio('/bgm.mp3');
+        audio.loop = true;
+        audio.volume = bgmVolume;
+        audioRef.current = audio;
+      }
+      audioRef.current.play().then(() => setBgmPlaying(true)).catch(() => setBgmPlaying(false));
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setBgmPlaying(false);
+      }
+    }
+  }, [bgmEnabled]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = bgmVolume;
+      localStorage.setItem('combatBgmVolume', String(bgmVolume));
+    }
+  }, [bgmVolume]);
+
+  function toggleBgm() {
+    const next = !bgmEnabled;
+    setBgmEnabled(next);
+    localStorage.setItem('combatBgmEnabled', next ? '1' : '0');
+  }
+
   // WebSocket 연결
   useEffect(() => {
     if (!active || !token) return;
@@ -494,6 +537,28 @@ export function CombatScreen() {
         />
         <span style={{ color: 'var(--accent)', fontWeight: 700, minWidth: 36 }}>{autoPotionThreshold}%</span>
         <span style={{ color: 'var(--text-dim)' }}>이하 시 사용</span>
+      </div>
+
+      {/* BGM 토글 */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', marginTop: 8,
+        background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12,
+      }}>
+        <button onClick={toggleBgm} style={{
+          width: 28, height: 28, borderRadius: '50%', fontSize: 13,
+          background: bgmPlaying ? 'var(--accent)' : 'transparent',
+          color: bgmPlaying ? '#000' : 'var(--accent)',
+          border: '2px solid var(--accent)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {bgmPlaying ? '\u23F8' : '\u25B6'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>전투 BGM</span>
+        <input type="range" min={0} max={100} step={1}
+          value={Math.round(bgmVolume * 100)}
+          onChange={e => setBgmVolume(Number(e.target.value) / 100)}
+          style={{ width: 100, accentColor: 'var(--accent)' }} />
+        <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 30 }}>{Math.round(bgmVolume * 100)}%</span>
       </div>
     </div>
   );
