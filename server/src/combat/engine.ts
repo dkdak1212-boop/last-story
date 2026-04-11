@@ -333,7 +333,9 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     if (dmg <= 0) continue;
     if (target === 'monster') {
       const dotAmp = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
-        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp') + (s.equipPrefixes.dot_amp_pct || 0);
+        + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
+        + getPassive(s, 'elemental_storm') // 원소 폭주 노드: 도트 데미지 증가
+        + (s.equipPrefixes.dot_amp_pct || 0);
       if (dotAmp > 0) dmg = Math.round(dmg * (1 + dotAmp / 100));
     } else {
       const resist = getPassive(s, 'dot_resist');
@@ -1296,6 +1298,10 @@ async function combatTick(): Promise<void> {
         if (s.playerHp <= 0) {
           await handlePlayerDeath(s);
           continue;
+        }
+        // 도트로 몬스터 처치된 경우 즉시 처리
+        if (s.monsterHp <= 0) {
+          await handleMonsterDeath(s);
         }
       }
 
