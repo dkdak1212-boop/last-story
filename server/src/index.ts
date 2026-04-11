@@ -1377,6 +1377,44 @@ async function runEquipOverhaul() {
       console.error('[migration] backstep_desc_500 error:', e);
     }
   }
+
+  // 클래스별 스킬 계수 상향: 전사 +20%, 성직자 +50%, 마법사 +10%
+  // damage_mult를 곱셈으로 조정 (0은 그대로 0 유지 — 버프/힐 스킬 영향 없음)
+  // + description 안의 "xNNN%" 문자열도 같은 배율로 동기화
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'skill_coef_buff_v1'`);
+      if (applied.rowCount === 0) {
+        const classFactors: Record<string, number> = { warrior: 1.20, cleric: 1.50, mage: 1.10 };
+        for (const [cls, factor] of Object.entries(classFactors)) {
+          // damage_mult 수치 업데이트
+          await query(
+            `UPDATE skills SET damage_mult = ROUND((damage_mult * $1::numeric), 2)
+             WHERE class_name = $2 AND damage_mult > 0`,
+            [factor, cls]
+          );
+          // description의 "xNNN%" 패턴 동기화
+          const rows = await query<{ id: number; description: string }>(
+            `SELECT id, description FROM skills
+             WHERE class_name = $1 AND description ~ 'x[0-9]+%'`,
+            [cls]
+          );
+          for (const row of rows.rows) {
+            const newDesc = row.description.replace(/x(\d+)%/g, (_m, n: string) => {
+              return `x${Math.round(parseInt(n, 10) * factor)}%`;
+            });
+            if (newDesc !== row.description) {
+              await query('UPDATE skills SET description = $1 WHERE id = $2', [newDesc, row.id]);
+            }
+          }
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('skill_coef_buff_v1')`);
+        console.log('[migration] skill_coef_buff_v1: 전사+20%, 성직자+50%, 마법사+10% 적용 완료 (설명 동기화 포함)');
+      }
+    } catch (e) {
+      console.error('[migration] skill_coef_buff_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
