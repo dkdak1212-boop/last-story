@@ -6,6 +6,7 @@ import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects
 import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
 import { getCombatHp, refreshSessionStats } from '../combat/engine.js';
+import { CLASS_START, type ClassName } from '../game/classes.js';
 
 const router = Router();
 router.use(authRequired);
@@ -52,6 +53,48 @@ router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response
   // 활성 전투 세션 즉시 갱신
   await refreshSessionStats(cid).catch(() => {});
   res.json({ ok: true });
+});
+
+// 스탯 초기화 (무료) — 분배한 STR/DEX/INT/VIT를 시작값으로 되돌리고 포인트 환불
+router.post('/:characterId/reset-stats', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const start = CLASS_START[char.class_name as ClassName];
+  if (!start) return res.status(400).json({ error: '직업 정보 없음' });
+
+  const cur = (char.stats || {}) as unknown as Record<string, number>;
+  const spentStr = Math.max(0, (cur.str ?? start.stats.str) - start.stats.str);
+  const spentDex = Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex);
+  const spentInt = Math.max(0, (cur.int ?? start.stats.int) - start.stats.int);
+  const spentVit = Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+  const refund = spentStr + spentDex + spentInt + spentVit;
+
+  if (refund === 0) return res.status(400).json({ error: '환불할 스탯 포인트가 없습니다' });
+
+  // base.stats를 시작값으로 리셋 (spd/cri는 노드/장비 영역이므로 그대로)
+  const newStats = {
+    ...cur,
+    str: start.stats.str,
+    dex: start.stats.dex,
+    int: start.stats.int,
+    vit: start.stats.vit,
+  };
+  const hpRefund = spentVit * HP_PER_VIT;
+
+  await query(
+    `UPDATE characters
+       SET stat_points = stat_points + $1,
+           stats = $2::jsonb,
+           max_hp = GREATEST(1, max_hp - $3),
+           hp = LEAST(hp, GREATEST(1, max_hp - $3))
+     WHERE id = $4`,
+    [refund, JSON.stringify(newStats), hpRefund, cid]
+  );
+
+  await refreshSessionStats(cid).catch(() => {});
+  res.json({ ok: true, refunded: refund, hpReduced: hpRefund });
 });
 
 // 캐릭터 종합 상태

@@ -56,6 +56,17 @@ export function StatusScreen() {
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
   }
 
+  async function resetStats() {
+    if (!active || busy) return;
+    if (!confirm('분배한 STR/DEX/INT/VIT를 초기화합니다. (무료)\nVIT로 얻은 HP는 함께 사라지며, 현재 HP가 최대 HP를 넘으면 그만큼 깎입니다.\n계속하시겠습니까?')) return;
+    setBusy(true);
+    try {
+      const r = await api<{ refunded: number; hpReduced: number }>(`/characters/${active.id}/reset-stats`, { method: 'POST' });
+      alert(`초기화 완료\n환불된 포인트: ${r.refunded}\n감소한 HP: ${r.hpReduced}`);
+      reload();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
+  }
+
   if (!status || !active) return <div style={{ color: 'var(--text-dim)' }}>로딩...</div>;
 
   return (
@@ -115,8 +126,17 @@ export function StatusScreen() {
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ fontSize: 14, color: 'var(--accent)', margin: 0 }}>스탯 분해</h3>
-            <div style={{ fontSize: 12, color: status.statPoints > 0 ? 'var(--accent)' : 'var(--text-dim)', fontWeight: 700 }}>
-              스탯 포인트: {status.statPoints}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                onClick={resetStats}
+                disabled={busy}
+                style={{ fontSize: 11, padding: '4px 8px', background: 'var(--bg-panel)', border: '1px solid var(--border)', color: 'var(--text-dim)', cursor: busy ? 'not-allowed' : 'pointer' }}
+              >
+                초기화 (무료)
+              </button>
+              <div style={{ fontSize: 12, color: status.statPoints > 0 ? 'var(--accent)' : 'var(--text-dim)', fontWeight: 700 }}>
+                스탯 포인트: {status.statPoints}
+              </div>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 28px', gap: 4, fontSize: 12, alignItems: 'center' }}>
