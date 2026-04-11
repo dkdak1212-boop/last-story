@@ -37,6 +37,18 @@ function levelBracket(level: number): { key: string; label: string; sort: number
   return { key: `${lo}-${hi}`, label: `Lv ${lo}~${hi}`, sort: lo };
 }
 
+// 유니크 등급은 무지개 그라데이션 텍스트
+const UNIQUE_RAINBOW_STYLE: React.CSSProperties = {
+  background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+  backgroundClip: 'text',
+};
+function nameStyle(grade: ItemGrade, fontSize: number): React.CSSProperties {
+  if (grade === 'unique') return { ...UNIQUE_RAINBOW_STYLE, fontWeight: 700, fontSize };
+  return { color: GRADE_COLOR[grade], fontWeight: 700, fontSize };
+}
+
 export function MarketplaceScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
@@ -155,7 +167,7 @@ export function MarketplaceScreen() {
             <div key={a.id} style={{ padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <span style={{ color: GRADE_COLOR[a.itemGrade], fontWeight: 700 }}>{a.itemName}</span>
+                  <span style={nameStyle(a.itemGrade, 14)}>{a.itemName}</span>
                   <span style={{ marginLeft: 6, color: 'var(--text-dim)', fontSize: 12 }}>×{a.itemQuantity}</span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 700 }}>
@@ -282,7 +294,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
             {a.prefixName && (
               <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 14 }}>{a.prefixName}</span>
             )}
-            <span style={{ color: gradeClr, fontWeight: 700, fontSize: 14 }}>{a.baseItemName || a.itemName}</span>
+            <span style={nameStyle(a.itemGrade, 14)}>{a.baseItemName || a.itemName}</span>
             {el > 0 && (
               <span style={{
                 color: '#000', background: 'var(--accent)', padding: '0 5px',
@@ -402,7 +414,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <ItemIcon slot={s.item.slot ?? null} grade={s.item.grade} itemName={s.item.name} size={24} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: gradeClr, fontWeight: 700, fontSize: 12 }}>
+                  <div style={nameStyle(s.item.grade, 12)}>
                     {s.item.name}
                     {s.enhanceLevel > 0 && (
                       <span style={{
@@ -432,7 +444,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <ItemIcon slot={sel.item.slot ?? null} grade={sel.item.grade} itemName={sel.item.name} size={32} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, color: GRADE_COLOR[sel.item.grade], fontSize: 15 }}>
+              <div style={nameStyle(sel.item.grade, 15)}>
                 {sel.item.name}
                 {sel.enhanceLevel > 0 && (
                   <span style={{
