@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { addItemToInventoryPlain, deliverToMailbox } from '../game/inventory.js';
+import { applyExpGain } from '../game/leveling.js';
 
 const router = Router();
 router.use(authRequired);
@@ -92,15 +93,33 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
 
   // 보상: 레벨*500 EXP + 찢어진 스크롤 1개 + EXP/골드/드랍 +50% 3시간 버프
   const expReward = char.level * 500;
-  await query(
-    `UPDATE characters SET
-       exp = exp + $1,
-       exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
-       gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
-       drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
-     WHERE id = $2`,
-    [expReward, id]
-  );
+  const lvUp = applyExpGain(char.level, char.exp, expReward, char.class_name);
+  if (lvUp.levelsGained > 0) {
+    await query(
+      `UPDATE characters SET
+         level = $1,
+         exp = $2,
+         max_hp = max_hp + $3,
+         hp = max_hp + $3,
+         node_points = node_points + $4,
+         stat_points = COALESCE(stat_points, 0) + $5,
+         exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+         gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
+       WHERE id = $6`,
+      [lvUp.newLevel, lvUp.newExp, lvUp.hpGained, lvUp.nodePointsGained, lvUp.statPointsGained, id]
+    );
+  } else {
+    await query(
+      `UPDATE characters SET
+         exp = $1,
+         exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+         gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '3 hours',
+         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '3 hours'
+       WHERE id = $2`,
+      [lvUp.newExp, id]
+    );
+  }
   const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 10);
   if (overflow > 0) {
     await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);

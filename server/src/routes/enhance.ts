@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { generatePrefixes } from '../game/prefix.js';
+import { generatePrefixes, displayPrefixStats } from '../game/prefix.js';
 import { refreshSessionStats } from '../combat/engine.js';
 
 const router = Router();
@@ -120,7 +120,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
-      prefixStats: r.prefix_stats || {},
+      prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       quality: r.quality || 0,
@@ -132,7 +132,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
-      prefixStats: r.prefix_stats || {},
+      prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       quality: r.quality || 0,

@@ -19,6 +19,9 @@ interface StatusEffect {
   value: number;
   remainingActions: number;
   source: 'player' | 'monster';
+  // 도트류 재계산용: 적용 시점의 배율과 사용 스탯 (장비 변경 시 refreshSessionStats가 이걸로 value 갱신)
+  dotMult?: number;
+  dotUseMatk?: boolean;
 }
 
 interface CombatSkillInfoLocal {
@@ -311,9 +314,11 @@ function getPassive(s: ActiveSession, key: string): number {
   return p ? p.value : 0;
 }
 
-function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster') {
+function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
   for (const eff of s.statusEffects) {
     if (eff.source === actor && eff.remainingActions > 0) {
+      // 같은 액션 사이클에서 새로 적용된 효과는 즉시 감소시키지 않는다 (1틱 손실 방지)
+      if (preActionIds && !preActionIds.has(eff.id)) continue;
       eff.remainingActions--;
     }
   }
@@ -507,7 +512,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
           const bleedBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
           const bleedDmg = Math.round(bleedBase * 1.2);
-          addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player' });
+          addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
           addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어 50% 무시)`);
         }
 
@@ -581,6 +586,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}${d.crit ? '!' : ''}`);
         }
       }
+      // 무쌍난무: 25% 확률로 모든 스킬 쿨다운 초기화 (자신 제외)
+      if (skill.name === '무쌍난무' && Math.random() < 0.25) {
+        for (const skId of Array.from(s.skillCooldowns.keys())) {
+          if (skId !== skill.id) s.skillCooldowns.delete(skId);
+        }
+        addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
+      }
       break;
     }
 
@@ -593,7 +605,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (!d.miss) {
           s.monsterHp -= d.damage;
           addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}`);
-          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player' });
+          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
@@ -608,7 +620,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const dotDmg = Math.round(dotBase * 1.2);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
-        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player' });
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어 50% 무시)`);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
@@ -624,7 +636,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const dotDmg = Math.round(dotBase * 1.5);
-      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player' });
+      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어 50% 무시)`);
       // 스피드 감소
       if (skill.effect_value > 0) {
@@ -1357,11 +1369,12 @@ async function combatTick(): Promise<void> {
 
       // 몬스터 행동
       if (s.monsterGauge >= GAUGE_MAX) {
+        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
         monsterAction(s);
         s.monsterGauge = 0;
         // 도트 먼저 적용 → 그 다음 카운트 감소 (마지막 1틱 보존)
         processDots(s, 'monster');
-        tickDownEffects(s, 'player');
+        tickDownEffects(s, 'player', preMonsterActIds);
         s.dirty = true;
 
         if (s.playerHp <= 0) {
@@ -1389,10 +1402,11 @@ async function combatTick(): Promise<void> {
           s.skillCooldowns = newCd;
           if (s.potionCooldown > 0) s.potionCooldown--;
 
+          const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
           await autoAction(s);
           // 도트 먼저 적용 → 그 다음 카운트 감소
           processDots(s, 'player');
-          tickDownEffects(s, 'monster');
+          tickDownEffects(s, 'monster', preAutoIds);
           s.dirty = true;
 
           // 몬스터 처치 체크
@@ -1719,9 +1733,10 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   }
   s.skillCooldowns = newCdMap;
 
+  const preManualIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
   await executeSkill(s, skill);
   processDots(s, 'player');
-  tickDownEffects(s, 'monster');
+  tickDownEffects(s, 'monster', preManualIds);
   s.dirty = true;
 
   if (s.monsterHp <= 0) await handleMonsterDeath(s);
@@ -1795,6 +1810,13 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   s.playerSpeed = eff.spd;
   s.equipPrefixes = await loadEquipPrefixes(characterId);
   s.passives = await getNodePassives(characterId); // 노드 패시브 재로드
+  // 활성 도트 데미지 재계산 (장비/스탯 변경 즉시 반영)
+  for (const eff of s.statusEffects) {
+    if ((eff.type === 'dot' || eff.type === 'poison') && eff.source === 'player' && eff.dotMult !== undefined) {
+      const base = eff.dotUseMatk ? s.playerStats.matk : s.playerStats.atk;
+      eff.value = Math.round(base * eff.dotMult);
+    }
+  }
   s.dirty = true;
 }
 

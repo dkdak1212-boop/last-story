@@ -4,6 +4,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { deliverToMailbox } from '../game/inventory.js';
+import { displayPrefixStats } from '../game/prefix.js';
 
 const router = Router();
 router.use(authRequired);
@@ -78,7 +79,7 @@ router.get('/', async (req, res) => {
       itemStats: row.item_stats, // 강화 안 된 raw stats
       itemDescription: row.item_description,
       enhanceLevel: row.enhance_level || 0,
-      prefixStats: row.prefix_stats || null,
+      prefixStats: displayPrefixStats(row.prefix_stats, row.enhance_level || 0),
       prefixTiers: buildPrefixTiers(row.prefix_ids),
       quality: row.quality || 0,
       classRestriction: row.class_restriction,
