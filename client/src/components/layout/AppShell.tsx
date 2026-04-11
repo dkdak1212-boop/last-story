@@ -45,6 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
   const [onlineCount, setOnlineCount] = useState(0);
   const [broadcast, setBroadcast] = useState<string | null>(null);
+  const [globalEvent, setGlobalEvent] = useState<{ name: string; exp: number; gold: number; drop: number; endsAt: string } | null>(null);
   const [charSwitchOpen, setCharSwitchOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
 
@@ -80,6 +81,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
     return () => { socket.disconnect(); };
   }, [token]);
+
+  // 글로벌 이벤트 폴링 (60초마다)
+  useEffect(() => {
+    let cancelled = false;
+    const fetchEvent = async () => {
+      try {
+        const res = await fetch('/api/global-event/active');
+        if (!res.ok) return;
+        const data = await res.json() as { active: boolean; name: string; exp: number; gold: number; drop: number; endsAt: string };
+        if (cancelled) return;
+        if (data.active) setGlobalEvent({ name: data.name, exp: data.exp, gold: data.gold, drop: data.drop, endsAt: data.endsAt });
+        else setGlobalEvent(null);
+      } catch {}
+    };
+    fetchEvent();
+    const id = setInterval(fetchEvent, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   const showNav = !!active && loc.pathname !== '/characters';
 
@@ -228,6 +247,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {globalEvent && (
+        <div style={{
+          background: 'linear-gradient(90deg, #2a1a00, #4a3000, #2a1a00)',
+          borderBottom: '2px solid #ffcc00',
+          padding: '8px 16px',
+          textAlign: 'center',
+          fontSize: 13,
+          fontWeight: 700,
+          color: '#ffcc00',
+          textShadow: '0 0 8px rgba(255,204,0,0.5)',
+        }}>
+          🎉 {globalEvent.name} — EXP×{globalEvent.exp} 골드×{globalEvent.gold} 드랍×{globalEvent.drop}
+          <span style={{ marginLeft: 12, fontSize: 11, color: '#ffaa00', fontWeight: 400 }}>
+            종료: {new Date(globalEvent.endsAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
         </div>
       )}
 
