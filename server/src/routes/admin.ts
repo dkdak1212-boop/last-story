@@ -353,6 +353,56 @@ router.post('/users/:id/ban', async (req, res) => {
   res.json({ ok: true });
 });
 
+// 유저 IP 차단 + 계정 정지 (한 번에)
+router.post('/users/:id/ip-ban', async (req: AuthedRequest, res: Response) => {
+  const userId = Number(req.params.id);
+  const parsed = z.object({ reason: z.string().max(200).optional() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const reason = parsed.data.reason ?? '버그 악용';
+
+  // 유저 조회 + IP 확보
+  const ur = await query<{ username: string; registered_ip: string | null }>(
+    'SELECT username, registered_ip FROM users WHERE id = $1', [userId]
+  );
+  if (ur.rowCount === 0) return res.status(404).json({ error: 'user not found' });
+  const { username, registered_ip } = ur.rows[0];
+
+  // 계정 정지
+  await query('UPDATE users SET banned = TRUE, ban_reason = $1 WHERE id = $2', [reason, userId]);
+
+  // IP 차단 (있을 때만)
+  let blockedIp: string | null = null;
+  if (registered_ip && registered_ip !== 'unknown') {
+    await query(
+      `INSERT INTO blocked_ips (ip, reason, blocked_by) VALUES ($1, $2, $3)
+       ON CONFLICT (ip) DO UPDATE SET reason = EXCLUDED.reason`,
+      [registered_ip, `${username}: ${reason}`, req.userId]
+    );
+    blockedIp = registered_ip;
+  }
+
+  res.json({ ok: true, bannedUser: username, blockedIp });
+});
+
+// IP 차단 목록 조회
+router.get('/blocked-ips', async (_req, res) => {
+  const r = await query(
+    `SELECT b.ip, b.reason, b.created_at, u.username AS blocked_by_user
+     FROM blocked_ips b LEFT JOIN users u ON u.id = b.blocked_by
+     ORDER BY b.created_at DESC LIMIT 200`
+  );
+  res.json(r.rows);
+});
+
+// IP 차단 해제
+router.post('/blocked-ips/unblock', async (req, res) => {
+  const parsed = z.object({ ip: z.string().min(1).max(64) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const r = await query('DELETE FROM blocked_ips WHERE ip = $1', [parsed.data.ip]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'ip not in block list' });
+  res.json({ ok: true });
+});
+
 // 어드민 비번 재설정
 router.post('/users/:id/reset-password', async (req, res) => {
   const userId = Number(req.params.id);

@@ -998,6 +998,19 @@ async function runMigrations() {
       `);
     } catch (e) { console.error('[migration] skill_presets error:', e); }
   }
+  // IP 차단 목록
+  {
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS blocked_ips (
+          ip          TEXT PRIMARY KEY,
+          reason      TEXT,
+          blocked_by  INTEGER REFERENCES users(id),
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+    } catch (e) { console.error('[migration] blocked_ips error:', e); }
+  }
   // 글로벌 이벤트 (서버 전체 EXP/골드/드랍 배율)
   {
     try {

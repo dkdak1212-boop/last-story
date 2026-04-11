@@ -23,6 +23,15 @@ function getClientIp(req: any): string {
   return xff || req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
+async function isIpBlocked(ip: string): Promise<{ blocked: boolean; reason?: string }> {
+  if (!ip || ip === 'unknown') return { blocked: false };
+  try {
+    const r = await query<{ reason: string | null }>('SELECT reason FROM blocked_ips WHERE ip = $1', [ip]);
+    if (r.rowCount && r.rowCount > 0) return { blocked: true, reason: r.rows[0].reason ?? 'IP 차단' };
+  } catch {}
+  return { blocked: false };
+}
+
 router.post('/register', async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -37,6 +46,13 @@ router.post('/register', async (req, res) => {
 
   const { username, password, email } = parsed.data;
   const ip = getClientIp(req);
+
+  // IP 차단 체크
+  const blk = await isIpBlocked(ip);
+  if (blk.blocked) {
+    console.warn(`[register] 차단된 IP 시도: ${ip}`);
+    return res.status(403).json({ error: `접속 차단됨${blk.reason ? ` (${blk.reason})` : ''}` });
+  }
 
   try {
     const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
@@ -66,6 +82,14 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   const parsed = credSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // IP 차단 체크
+  const ip = getClientIp(req);
+  const blk = await isIpBlocked(ip);
+  if (blk.blocked) {
+    console.warn(`[login] 차단된 IP 시도: ${ip}`);
+    return res.status(403).json({ error: `접속 차단됨${blk.reason ? ` (${blk.reason})` : ''}` });
+  }
 
   const { username, password } = parsed.data;
   const result = await query<{ id: number; password_hash: string; banned: boolean; ban_reason: string | null }>(

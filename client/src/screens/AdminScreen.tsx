@@ -689,6 +689,18 @@ function UsersTab() {
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
 
+  async function ipBan(u: UserRow) {
+    if (u.is_admin) return alert('관리자는 차단할 수 없습니다.');
+    const reason = prompt(`'${u.username}' IP 차단 사유 (가입 IP 영구 차단)`, '버그 악용');
+    if (!reason) return;
+    if (!confirm(`'${u.username}' 계정 정지 + 가입 IP 영구 차단 합니다. 계속?`)) return;
+    try {
+      const r = await api<{ bannedUser: string; blockedIp: string | null }>(`/admin/users/${u.id}/ip-ban`, { method: 'POST', body: JSON.stringify({ reason }) });
+      alert(`완료\n계정 정지: ${r.bannedUser}\nIP 차단: ${r.blockedIp ?? '(IP 정보 없음)'}`);
+      load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -726,6 +738,13 @@ function UsersTab() {
                 color: u.banned ? 'var(--success)' : 'var(--danger)',
                 border: `1px solid ${u.banned ? 'var(--success)' : 'var(--danger)'}`,
               }}>{u.banned ? '정지 해제' : '정지'}</button>
+              {!u.is_admin && (
+                <button onClick={() => ipBan(u)} style={{
+                  fontSize: 11, padding: '3px 10px',
+                  color: '#ff4444',
+                  border: '1px solid #ff4444',
+                }}>IP 차단</button>
+              )}
             </div>
           </div>
         ))}
