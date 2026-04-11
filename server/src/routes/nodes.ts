@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
+import { refreshSessionStats } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -155,6 +156,9 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   }
   await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
 
+  // 전투 중 노드 투자 시 인메모리 세션 갱신 (패시브/스탯 즉시 반영)
+  await refreshSessionStats(id).catch(() => {});
+
   res.json({ ok: true, remainingPoints: char.node_points - totalCost, invested: toInvest.size });
 });
 
@@ -188,6 +192,7 @@ router.post('/:id/nodes/reset-partial', async (req: AuthedRequest, res: Response
   await query('DELETE FROM character_nodes WHERE character_id = $1 AND node_id = ANY($2::int[])', [id, nodeIds]);
   await query('UPDATE characters SET node_points = node_points + $1, gold = gold - $2 WHERE id = $3',
     [refund, cost, id]);
+  await refreshSessionStats(id).catch(() => {});
 
   res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
 });
@@ -223,6 +228,7 @@ router.post('/:id/nodes/reset-zone', async (req: AuthedRequest, res: Response) =
   await query('DELETE FROM character_nodes WHERE character_id = $1 AND node_id = ANY($2::int[])', [id, nodeIds]);
   await query('UPDATE characters SET node_points = node_points + $1, gold = gold - $2 WHERE id = $3',
     [refund, cost, id]);
+  await refreshSessionStats(id).catch(() => {});
 
   res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
 });
@@ -247,6 +253,7 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
   await query('UPDATE characters SET node_points = node_points + $1, gold = gold - $2 WHERE id = $3',
     [refund, cost, id]);
+  await refreshSessionStats(id).catch(() => {});
 
   res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
 });

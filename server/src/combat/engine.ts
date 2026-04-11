@@ -873,18 +873,24 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
   // ── 1. HP 위험 (임계값 이하) → 포션 / 힐 / 무적 / 부활 ──
-  if (s.autoPotionEnabled && s.potionCooldown <= 0 && hpPct * 100 < s.autoPotionThreshold) {
-    const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
-    const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
-    if (pot) {
-      const pct = potionHealPct[pot.item_id] || 20;
-      const heal = Math.round(s.playerMaxHp * pct / 100);
-      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-      await consumeOneFromSlot(pot.id);
-      s.potionCooldown = 3;
-      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
-      return;
+  // 힐 스킬(치유의 빛 등)은 자동 포션 설정과 무관하게 autoPotionThreshold 이하일 때 시도
+  const healThresholdPct = s.autoPotionThreshold || 50;
+  if (hpPct * 100 < healThresholdPct) {
+    // 포션 우선 (자동 포션 ON일 때만)
+    if (s.autoPotionEnabled && s.potionCooldown <= 0) {
+      const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
+      const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
+      if (pot) {
+        const pct = potionHealPct[pot.item_id] || 20;
+        const heal = Math.round(s.playerMaxHp * pct / 100);
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        await consumeOneFromSlot(pot.id);
+        s.potionCooldown = 3;
+        addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
+        return;
+      }
     }
+    // 힐 스킬 (쿨다운 풀려있으면 항상 시도)
     const healSkill = findReady(s, 'heal_pct');
     if (healSkill) { await executeSkill(s, healSkill); return; }
     // 무적 (HP 20% 이하)
@@ -1736,7 +1742,7 @@ export function isInCombat(characterId: number): boolean {
   return activeSessions.has(characterId);
 }
 
-// 장비 변경 시 인메모리 세션 스탯 갱신
+// 장비/노드 변경 시 인메모리 세션 스탯 갱신
 export async function refreshSessionStats(characterId: number): Promise<void> {
   const s = activeSessions.get(characterId);
   if (!s) return;
@@ -1747,6 +1753,7 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   s.playerMaxHp = eff.maxHp;
   s.playerSpeed = eff.spd;
   s.equipPrefixes = await loadEquipPrefixes(characterId);
+  s.passives = await getNodePassives(characterId); // 노드 패시브 재로드
   s.dirty = true;
 }
 

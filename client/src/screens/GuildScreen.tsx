@@ -6,7 +6,7 @@ interface GuildSummary {
   id: number; name: string; description: string;
   memberCount: number; leaderName: string; maxMembers: number; statBuffPct: number;
 }
-interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null }
+interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null; goldDonated?: number; todayDonation?: number }
 interface GuildSkill {
   key: string; label: string;
   level: number; max: number;
@@ -568,15 +568,21 @@ export function GuildScreen() {
                   borderRadius: 3,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                    {m.role === 'leader' && <PxIcon src={ICON.leader} size={18} />}
-                    <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
-                    <span style={{
-                      fontSize: 10, padding: '1px 5px', borderRadius: 2,
-                      border: `1px solid ${cls}`, color: cls, fontWeight: 700,
-                    }}>
-                      Lv.{m.level} {CLASS_LABEL[m.className] || m.className}
-                    </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {m.role === 'leader' && <PxIcon src={ICON.leader} size={18} />}
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</span>
+                      <span style={{
+                        fontSize: 10, padding: '1px 5px', borderRadius: 2,
+                        border: `1px solid ${cls}`, color: cls, fontWeight: 700,
+                      }}>
+                        Lv.{m.level} {CLASS_LABEL[m.className] || m.className}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, display: 'flex', gap: 10 }}>
+                      <span>오늘 <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{(m.todayDonation || 0).toLocaleString()}G</span></span>
+                      <span>누적 <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{(m.goldDonated || 0).toLocaleString()}G</span></span>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 10, color: onlineColor, fontWeight: 600 }}>{onlineLabel}</span>

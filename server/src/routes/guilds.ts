@@ -51,9 +51,20 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
   if (r.rowCount === 0) return res.json({ guild: null });
   const g = r.rows[0];
 
-  const mr = await query<{ character_id: number; role: string; name: string; level: number; class_name: string; last_online_at: string | null }>(
-    `SELECT gm.character_id, gm.role, c.name, c.level, c.class_name, c.last_online_at
-     FROM guild_members gm JOIN characters c ON c.id = gm.character_id
+  const mr = await query<{
+    character_id: number; role: string; name: string; level: number; class_name: string;
+    last_online_at: string | null; gold_donated: string | null; today_donation: string | null;
+  }>(
+    `SELECT gm.character_id, gm.role, c.name, c.level, c.class_name, c.last_online_at,
+            COALESCE(gc.gold_donated, 0)::text AS gold_donated,
+            COALESCE(
+              (SELECT amount FROM guild_donations_daily
+                WHERE character_id = gm.character_id AND date = CURRENT_DATE),
+              0
+            )::text AS today_donation
+     FROM guild_members gm
+       JOIN characters c ON c.id = gm.character_id
+       LEFT JOIN guild_contributions gc ON gc.guild_id = gm.guild_id AND gc.character_id = gm.character_id
      WHERE gm.guild_id = $1 ORDER BY gm.role, gm.joined_at`,
     [g.guild_id]
   );
@@ -100,7 +111,12 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
       skills,
       myDonationToday,
       dailyDonationCap: DAILY_DONATION_CAP,
-      members: mr.rows.map(m => ({ id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role, lastOnlineAt: m.last_online_at })),
+      members: mr.rows.map(m => ({
+        id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role,
+        lastOnlineAt: m.last_online_at,
+        goldDonated: Number(m.gold_donated || 0),
+        todayDonation: Number(m.today_donation || 0),
+      })),
     },
   });
 });
