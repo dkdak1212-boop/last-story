@@ -1360,6 +1360,23 @@ async function runEquipOverhaul() {
       console.error('[migration] equip_overhaul_v3 error:', e);
     }
   }
+
+  // 백스텝 툴팁 500으로 동기화
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'backstep_desc_500'`);
+      if (applied.rowCount === 0) {
+        await query(
+          `UPDATE skills SET description = '자신 게이지 즉시 500 충전 (연속행동)'
+           WHERE class_name = 'rogue' AND name = '백스텝'`
+        );
+        await query(`INSERT INTO _migrations (name) VALUES ('backstep_desc_500')`);
+        console.log('[migration] backstep_desc_500: 완료');
+      }
+    } catch (e) {
+      console.error('[migration] backstep_desc_500 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
