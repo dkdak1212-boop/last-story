@@ -372,6 +372,7 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     dotAmpPct = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
       + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
       + getPassive(s, 'elemental_storm')
+      + getPassive(s, 'poison_lord')
       + (s.equipPrefixes.dot_amp_pct || 0);
   } else {
     defenderDef = s.playerStats.def;
@@ -1618,8 +1619,12 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     eff.matk = Math.round(eff.matk * (1 + v / 100));
     eff.def = Math.round(eff.def * (1 + v / 100));
   }
-  // poison_lord: 독 도트 기본 적용 (전투 시작 시 독 연장)
-  // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동)
+  // poison_lord: 독 데미지 +value% (processDots의 dotAmpPct 합산),
+  //              물리 공격 -15% (아래 스탯 수정)
+  if (pMap.has('poison_lord')) {
+    eff.atk = Math.round(eff.atk * 0.85);
+  }
+  // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동) — executeSkill에서 judge_amp와 합산됨
 
   const session: ActiveSession = {
     characterId,

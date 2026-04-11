@@ -57,9 +57,6 @@ export async function attackBoss(characterId: number) {
   // 스탯 계산 (장비+노드+세트 전부 반영)
   const eff = await getEffectiveStats(char);
   const mageClass = ['mage', 'cleric'].includes(char.class_name);
-  const playerAtk = mageClass ? eff.matk : eff.atk;
-  const playerDef = eff.def;
-  const playerMdef = eff.mdef;
 
   // 노드 패시브 로드
   const { getNodePassives } = await import('./character.js');
@@ -69,6 +66,14 @@ export async function attackBoss(characterId: number) {
   const spellAmp = mageClass ? (passiveMap.get('spell_amp') || 0) : 0;
   const critDmgBonus = passiveMap.get('crit_damage') || 0;
   const cdReduce = passiveMap.get('cooldown_reduce') || 0;
+  // poison_lord: 물리 -15% (engine.ts startCombatSession과 동일) — playerAtk 산정 전에 적용
+  if (passiveMap.has('poison_lord')) {
+    eff.atk = Math.round(eff.atk * 0.85);
+  }
+
+  const playerAtk = mageClass ? eff.matk : eff.atk;
+  const playerDef = eff.def;
+  const playerMdef = eff.mdef;
 
   // 장비 접두사 특수 효과 로드
   const prefixR = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
@@ -117,6 +122,7 @@ export async function attackBoss(characterId: number) {
     + (passiveMap.get('burn_amp') || 0)
     + (passiveMap.get('holy_dot_amp') || 0)
     + (passiveMap.get('elemental_storm') || 0)
+    + (passiveMap.get('poison_lord') || 0)
     + (equipPrefixes.dot_amp_pct || 0);
   const elementalStormExt = (passiveMap.get('elemental_storm') || 0) > 0 ? 1 : 0;
   const bleedOnHitChance = passiveMap.get('bleed_on_hit') || 0;
