@@ -803,10 +803,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield_break': {
-      // 심판의 철퇴 등 — 더 이상 자신의 쉴드를 파괴하지 않음
-      // 대신 현재 쉴드량의 200%를 추가 데미지로 변환 (쉴드는 그대로 유지)
+      // 심판의 철퇴 등 — 자신의 쉴드는 유지, 쉴드량의 400%를 추가 데미지로 변환
       const myShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
-      const shieldBonus = myShield ? Math.round(myShield.value * 2.0) : 0;
+      const shieldBonus = myShield ? Math.round(myShield.value * 4.0) : 0;
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
         let dmg = d.damage + shieldBonus;
@@ -861,7 +860,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const healAmp = getPassive(s, 'heal_amp');
       if (healAmp > 0) heal = Math.round(heal * (1 + healAmp / 100));
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-      addLog(s, `[${skill.name}] HP +${heal} 회복!`);
+      // 치유의 빛: 회복량만큼 적에게 피해 (신성 데미지)
+      s.monsterHp -= heal;
+      addLog(s, `[${skill.name}] HP +${heal} 회복! 적에게 ${heal} 신성 피해`);
       break;
     }
 
