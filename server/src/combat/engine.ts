@@ -194,41 +194,74 @@ async function loadEquipPrefixes(characterId: number): Promise<Record<string, nu
 const MAX_COMBAT_SKILLS = 6;
 
 async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
+  // 컬럼 보장 (방어적 — 마이그레이션이 아직 안 돈 상황 대비)
+  try {
+    await query(`ALTER TABLE character_skills ADD COLUMN IF NOT EXISTS slot_order INT NOT NULL DEFAULT 0`);
+  } catch {}
+
   // 자동 학습 (신규 스킬)
-  const newSkills = await query<{ id: number; cooldown_actions: number }>(
-    `SELECT s.id, s.cooldown_actions FROM skills s
-     WHERE s.class_name = $1 AND s.required_level <= $2
-       AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
-    [className, level, characterId]
-  );
-  for (const sk of newSkills.rows) {
-    const countR = await query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-       WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [characterId]
+  try {
+    const newSkills = await query<{ id: number; cooldown_actions: number }>(
+      `SELECT s.id, s.cooldown_actions FROM skills s
+       WHERE s.class_name = $1 AND s.required_level <= $2
+         AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
+      [className, level, characterId]
     );
-    const autoOn = sk.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
-    const maxR = await query<{ mx: number | null }>(
-      `SELECT MAX(slot_order) AS mx FROM character_skills WHERE character_id = $1`, [characterId]
-    );
-    const nextOrder = (maxR.rows[0]?.mx ?? 0) + 1;
-    await query(
-      'INSERT INTO character_skills (character_id, skill_id, auto_use, slot_order) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-      [characterId, sk.id, autoOn, nextOrder]
-    );
+    for (const sk of newSkills.rows) {
+      const countR = await query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+         WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [characterId]
+      );
+      const autoOn = sk.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+      const maxR = await query<{ mx: number | null }>(
+        `SELECT COALESCE(MAX(slot_order), 0) AS mx FROM character_skills WHERE character_id = $1`, [characterId]
+      );
+      const nextOrder = (maxR.rows[0]?.mx ?? 0) + 1;
+      await query(
+        'INSERT INTO character_skills (character_id, skill_id, auto_use, slot_order) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [characterId, sk.id, autoOn, nextOrder]
+      );
+    }
+  } catch (e) {
+    console.error('[getCharSkills] auto-learn failed:', e);
   }
 
+  // 안전망: cd=0 기본기는 무조건 auto_use=TRUE로 강제
+  try {
+    await query(`
+      UPDATE character_skills cs SET auto_use = TRUE
+      FROM skills s
+      WHERE s.id = cs.skill_id AND cs.character_id = $1
+        AND s.cooldown_actions = 0 AND cs.auto_use = FALSE
+    `, [characterId]);
+  } catch {}
+
   // ON된 스킬을 slot_order 순으로 (cd=0 기본기 포함)
-  const r = await query<SkillDef>(
-    `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-            s.effect_type, s.effect_value, s.effect_duration, s.required_level,
-            COALESCE(cs.slot_order, 9999) AS slot_order
-     FROM skills s
-     JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
-     WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE
-     ORDER BY cs.slot_order ASC, s.required_level ASC`,
-    [className, level, characterId]
-  );
-  return r.rows;
+  try {
+    const r = await query<SkillDef>(
+      `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level,
+              COALESCE(cs.slot_order, 9999) AS slot_order
+       FROM skills s
+       JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
+       WHERE s.class_name = $1 AND s.required_level <= $2 AND cs.auto_use = TRUE
+       ORDER BY cs.slot_order ASC, s.required_level ASC`,
+      [className, level, characterId]
+    );
+    return r.rows;
+  } catch (e) {
+    console.error('[getCharSkills] primary query failed, falling back:', e);
+    // 폴백: slot_order 없이 학습한 모든 스킬 로드
+    const r = await query<Omit<SkillDef, 'slot_order'>>(
+      `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level
+       FROM skills s
+       WHERE s.class_name = $1 AND s.required_level <= $2
+       ORDER BY s.required_level ASC`,
+      [className, level]
+    );
+    return r.rows.map((row, i) => ({ ...row, slot_order: i + 1 }));
+  }
 }
 
 // 드롭률 배율: 기본 x0.1 (드롭 부스터로 1.5배)
