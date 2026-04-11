@@ -4,7 +4,6 @@ import { useAuthStore } from './stores/authStore';
 import { AppShell } from './components/layout/AppShell';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 import { MaintenanceScreen } from './components/ui/MaintenanceScreen';
-import { api } from './api/client';
 
 // lazy import에 자동 재시도 (chunk 로드 실패 대응)
 function lazyRetry(factory: () => Promise<any>, retries = 3): ReturnType<typeof lazy> {
@@ -75,14 +74,20 @@ function Protected({ children }: { children: React.ReactNode }) {
 function MaintenanceGate({ children }: { children: ReactNode }) {
   const isAdmin = useAuthStore((s) => s.username === 'admin');
   const [until, setUntil] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
 
   const check = async () => {
     try {
-      const s = await api<{ maintenance: boolean; until: string | null }>('/server-status');
+      // 3초 타임아웃 — 응답 없으면 정상 모드로 간주
+      const ctl = new AbortController();
+      const tid = setTimeout(() => ctl.abort(), 3000);
+      const res = await fetch('/api/server-status', { signal: ctl.signal });
+      clearTimeout(tid);
+      if (!res.ok) throw new Error('not ok');
+      const s = await res.json() as { maintenance: boolean; until: string | null };
       setUntil(s.maintenance && s.until ? s.until : null);
-    } catch { /* 무시 */ }
-    setChecked(true);
+    } catch {
+      setUntil(null);
+    }
   };
   useEffect(() => {
     check();
@@ -90,7 +95,7 @@ function MaintenanceGate({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, []);
 
-  if (!checked) return null;
+  // checked 플래그 제거: 로딩 중에도 children 렌더 (점검 중이면 즉시 화면 교체)
   if (until && !isAdmin) return <MaintenanceScreen until={until} onRetry={check} />;
   return <>{children}</>;
 }

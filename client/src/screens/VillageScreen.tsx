@@ -68,6 +68,9 @@ export function VillageScreen() {
   const [announcementsOpen, setAnnouncementsOpen] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [bgmEnabled, setBgmEnabled] = useState(() => {
+    return localStorage.getItem('bgmEnabled') === '1';
+  });
   const [bgmVolume, setBgmVolume] = useState(() => {
     const saved = localStorage.getItem('bgmVolume');
     return saved ? Number(saved) : 0.3;
@@ -100,17 +103,29 @@ export function VillageScreen() {
     try { setGuestbook(await api<GuestbookEntry[]>('/guestbook')); } catch {}
   }
 
-  // BGM
+  // BGM — 자동재생 없음, 사용자 토글로 시작/중단. on 상태는 localStorage 유지
   useEffect(() => {
-    if (!audioRef.current) {
-      const audio = new Audio('/bgm.mp3');
-      audio.loop = true;
-      audio.volume = bgmVolume;
-      audioRef.current = audio;
-      audio.play().then(() => setBgmPlaying(true)).catch(() => {});
-    }
+    // 컴포넌트 언마운트 시 정리
     return () => { if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; } };
   }, []);
+
+  // bgmEnabled 변경 시 재생/일시정지
+  useEffect(() => {
+    if (bgmEnabled) {
+      if (!audioRef.current) {
+        const audio = new Audio('/bgm.mp3');
+        audio.loop = true;
+        audio.volume = bgmVolume;
+        audioRef.current = audio;
+      }
+      audioRef.current.play().then(() => setBgmPlaying(true)).catch(() => setBgmPlaying(false));
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setBgmPlaying(false);
+      }
+    }
+  }, [bgmEnabled]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -120,9 +135,9 @@ export function VillageScreen() {
   }, [bgmVolume]);
 
   function toggleBgm() {
-    if (!audioRef.current) return;
-    if (bgmPlaying) { audioRef.current.pause(); setBgmPlaying(false); }
-    else { audioRef.current.play().then(() => setBgmPlaying(true)).catch(() => {}); }
+    const next = !bgmEnabled;
+    setBgmEnabled(next);
+    localStorage.setItem('bgmEnabled', next ? '1' : '0');
   }
 
   async function postGuestbook() {
