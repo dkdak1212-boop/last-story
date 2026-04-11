@@ -481,9 +481,10 @@ router.post('/system-message', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     text: z.string().min(1).max(500),
     channel: z.enum(['global', 'trade']).default('global'),
+    durationMs: z.number().int().positive().max(3600000).optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-  const { text, channel } = parsed.data;
+  const { text, channel, durationMs } = parsed.data;
 
   const r = await query<{ id: number; created_at: string }>(
     `INSERT INTO chat_messages (channel, from_name, text, scope_id) VALUES ($1, $2, $3, NULL) RETURNING id, created_at`,
@@ -492,7 +493,7 @@ router.post('/system-message', async (req: AuthedRequest, res: Response) => {
   const io = getIo();
   if (io) {
     io.emit('chat', { id: r.rows[0].id, channel, scopeId: null, from: '[시스템]', text, isAdmin: true, createdAt: r.rows[0].created_at });
-    io.emit('system-broadcast', { text, createdAt: r.rows[0].created_at });
+    io.emit('system-broadcast', { text, durationMs, createdAt: r.rows[0].created_at });
   }
   res.json({ ok: true });
 });

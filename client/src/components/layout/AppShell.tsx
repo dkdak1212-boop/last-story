@@ -55,9 +55,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!token) return;
     const socket = socketIo({ auth: { token }, transports: ['websocket', 'polling'] });
     socket.on('online-count', (count: number) => setOnlineCount(count));
-    socket.on('system-broadcast', (data: { text: string }) => {
+    socket.on('system-broadcast', (data: { text: string; durationMs?: number }) => {
       setBroadcast(data.text);
-      setTimeout(() => setBroadcast(null), 60000);
+      setTimeout(() => setBroadcast(null), data.durationMs ?? 60000);
     });
     return () => { socket.disconnect(); };
   }, [token]);
