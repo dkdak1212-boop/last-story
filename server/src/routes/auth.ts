@@ -25,34 +25,42 @@ function getClientIp(req: any): string {
 
 router.post('/register', async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input (email required)' });
+  if (!parsed.success) {
+    console.warn('[register] zod 실패:', parsed.error.flatten(), 'body:', { ...req.body, password: '***' });
+    const err = parsed.error.errors[0];
+    let msg = '입력값을 확인해주세요';
+    if (err?.path[0] === 'username') msg = '아이디는 영문/숫자/_ 3~20자';
+    else if (err?.path[0] === 'password') msg = '비밀번호는 4~64자';
+    else if (err?.path[0] === 'email') msg = '올바른 이메일 형식이 아닙니다';
+    return res.status(400).json({ error: msg });
+  }
 
   const { username, password, email } = parsed.data;
   const ip = getClientIp(req);
 
-  // IP 당 1계정 제한 — 해제됨
-  // const ipExists = await query('SELECT id, username FROM users WHERE registered_ip = $1', [ip]);
-  // if (ipExists.rowCount && ipExists.rowCount > 0) {
-  //   return res.status(409).json({ error: '이 IP에서 이미 가입된 계정이 있습니다' });
-  // }
+  try {
+    const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
+    if (exists.rowCount && exists.rowCount > 0) {
+      return res.status(409).json({ error: '이미 사용 중인 아이디입니다' });
+    }
+    const emailExists = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (emailExists.rowCount && emailExists.rowCount > 0) {
+      return res.status(409).json({ error: '이미 가입된 이메일입니다' });
+    }
 
-  const exists = await query('SELECT id FROM users WHERE username = $1', [username]);
-  if (exists.rowCount && exists.rowCount > 0) {
-    return res.status(409).json({ error: 'username taken' });
+    const hash = await bcrypt.hash(password, 10);
+    const result = await query<{ id: number }>(
+      'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 2) RETURNING id',
+      [username, hash, email.toLowerCase(), ip]
+    );
+    const userId = result.rows[0].id;
+    const token = signToken(userId, username);
+    console.log(`[register] 성공: ${username} (${email}) ip=${ip}`);
+    res.json({ token });
+  } catch (e: any) {
+    console.error('[register] 서버 에러:', e?.message, e?.detail, 'ip:', ip);
+    res.status(500).json({ error: '서버 오류 — 운영자에게 문의해주세요' });
   }
-  const emailExists = await query('SELECT id FROM users WHERE email = $1', [email]);
-  if (emailExists.rowCount && emailExists.rowCount > 0) {
-    return res.status(409).json({ error: 'email already registered' });
-  }
-
-  const hash = await bcrypt.hash(password, 10);
-  const result = await query<{ id: number }>(
-    'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 2) RETURNING id',
-    [username, hash, email, ip]
-  );
-  const userId = result.rows[0].id;
-  const token = signToken(userId, username);
-  res.json({ token });
 });
 
 router.post('/login', async (req, res) => {
