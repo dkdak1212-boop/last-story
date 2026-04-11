@@ -12,8 +12,8 @@ export function expToNext(level: number): number {
     // 31~60: 기존 공식의 2배 (30 이후 두 배 느린 성장)
     return Math.floor(400 * level * Math.pow(level, 1.1));
   } else {
-    // 60+: 기존 공식의 2배
-    const base60 = 400 * 60 * Math.pow(60, 1.1);
+    // 60+: 기존 공식의 3배
+    const base60 = 600 * 60 * Math.pow(60, 1.1);
     const scale = Math.pow((level - 60) / 8 + 1, 2.5);
     return Math.floor(base60 * scale);
   }

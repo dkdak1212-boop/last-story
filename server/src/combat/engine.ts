@@ -140,6 +140,13 @@ interface ActiveSession {
   ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
   hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
   userId: number;
+  // ── 메타 캐시 (DB 재조회 최소화) ──
+  metaDirty: boolean;
+  cachedExp: number;
+  cachedExpMax: number;
+  cachedBoosts: { name: string; until: string }[];
+  cachedPotions: { small: number; mid: number; high: number; max: number };
+  cachedGuildBuffs: { hp: number; gold: number; exp: number; drop: number };
 }
 
 const activeSessions = new Map<number, ActiveSession>();
@@ -982,6 +989,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       await consumeOneFromSlot(pot.id);
       s.potionCooldown = 3;
+      s.metaDirty = true;
       addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
       return;
     }
@@ -1247,6 +1255,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     addLog(s, '아이템 획득!');
   }
 
+  // exp/골드/드롭으로 인벤토리·경험치 변동 → 메타 캐시 무효화
+  s.metaDirty = true;
+
   // 다음 몬스터 스폰
   await spawnMonsterForSession(s);
 }
@@ -1429,21 +1440,70 @@ async function combatTick(): Promise<void> {
   }
 }
 
+// ── 메타 캐시 로드 (exp/부스트/포션/길드버프를 한 번에) ──
+async function refreshSessionMeta(s: ActiveSession): Promise<void> {
+  // 1) 캐릭터 exp/level + 부스트 (한 쿼리로 통합)
+  try {
+    const r = await query<{
+      level: number; exp: string;
+      exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null;
+    }>(
+      `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until
+       FROM characters WHERE id = $1`,
+      [s.characterId]
+    );
+    const row = r.rows[0];
+    if (row) {
+      s.cachedExp = Number(row.exp);
+      s.cachedExpMax = expToNext(row.level);
+      const now = new Date();
+      const boosts: { name: string; until: string }[] = [];
+      if (row.exp_boost_until && new Date(row.exp_boost_until) > now)
+        boosts.push({ name: 'EXP 부스터 +50%', until: row.exp_boost_until });
+      if (row.gold_boost_until && new Date(row.gold_boost_until) > now)
+        boosts.push({ name: '골드 +50%', until: row.gold_boost_until });
+      if (row.drop_boost_until && new Date(row.drop_boost_until) > now)
+        boosts.push({ name: '드롭률 +50%', until: row.drop_boost_until });
+      s.cachedBoosts = boosts;
+    }
+  } catch {}
+
+  // 2) HP 물약 수량
+  try {
+    const pr = await query<{ item_id: number; total: string }>(
+      `SELECT item_id, COALESCE(SUM(quantity),0)::text AS total
+       FROM character_inventory
+       WHERE character_id = $1 AND item_id IN (100, 102, 104, 106)
+       GROUP BY item_id`,
+      [s.characterId]
+    );
+    const map: Record<number, number> = { 100: 0, 102: 0, 104: 0, 106: 0 };
+    for (const row of pr.rows) map[row.item_id] = Number(row.total);
+    s.cachedPotions = { small: map[100], mid: map[102], high: map[104], max: map[106] };
+  } catch {}
+
+  // 3) 길드 버프 (길드 변경은 드물다 — 세션당 1회로 충분)
+  try {
+    const gskills = await getGuildSkillsForCharacter(s.characterId);
+    s.cachedGuildBuffs = {
+      hp: gskills.hp * GUILD_SKILL_PCT.hp,
+      gold: gskills.gold * GUILD_SKILL_PCT.gold,
+      exp: gskills.exp * GUILD_SKILL_PCT.exp,
+      drop: gskills.drop * GUILD_SKILL_PCT.drop,
+    };
+  } catch {}
+
+  s.metaDirty = false;
+}
+
 // ── WebSocket Push ──
 async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<void> {
   const io = getIo();
   if (!io) return;
 
-  // exp 정보 로드
-  let exp = 0, expMax = 1;
-  try {
-    const charR = await query<{ level: number; exp: string }>('SELECT level, exp FROM characters WHERE id = $1', [s.characterId]);
-    if (charR.rows[0]) {
-      const lv = charR.rows[0].level;
-      exp = Number(charR.rows[0].exp);
-      expMax = expToNext(lv);
-    }
-  } catch {}
+  if (s.metaDirty) {
+    await refreshSessionMeta(s);
+  }
 
   const snapshot: CombatSnapshot = {
     inCombat,
@@ -1475,52 +1535,14 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
     })),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
-    exp,
-    expMax,
+    exp: s.cachedExp,
+    expMax: s.cachedExpMax,
     serverTime: Date.now(),
   };
 
-  // 부스트 정보
-  try {
-    const br = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
-      'SELECT exp_boost_until, gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [s.characterId]
-    );
-    const now = new Date();
-    const b = br.rows[0];
-    const boosts: { name: string; until: string }[] = [];
-    if (b?.exp_boost_until && new Date(b.exp_boost_until) > now)
-      boosts.push({ name: 'EXP 부스터 +50%', until: b.exp_boost_until });
-    if (b?.gold_boost_until && new Date(b.gold_boost_until) > now)
-      boosts.push({ name: '골드 +50%', until: b.gold_boost_until });
-    if (b?.drop_boost_until && new Date(b.drop_boost_until) > now)
-      boosts.push({ name: '드롭률 +50%', until: b.drop_boost_until });
-    snapshot.boosts = boosts;
-  } catch {}
-
-  // 보유 물약 수량 (HP 물약 4종)
-  try {
-    const pr = await query<{ item_id: number; total: string }>(
-      `SELECT item_id, COALESCE(SUM(quantity),0)::text AS total
-       FROM character_inventory
-       WHERE character_id = $1 AND item_id IN (100, 102, 104, 106)
-       GROUP BY item_id`,
-      [s.characterId]
-    );
-    const map: Record<number, number> = { 100: 0, 102: 0, 104: 0, 106: 0 };
-    for (const row of pr.rows) map[row.item_id] = Number(row.total);
-    snapshot.potions = { small: map[100], mid: map[102], high: map[104], max: map[106] };
-  } catch {}
-
-  // 길드 버프 정보
-  try {
-    const gskills = await getGuildSkillsForCharacter(s.characterId);
-    snapshot.guildBuffs = {
-      hp: gskills.hp * GUILD_SKILL_PCT.hp,
-      gold: gskills.gold * GUILD_SKILL_PCT.gold,
-      exp: gskills.exp * GUILD_SKILL_PCT.exp,
-      drop: gskills.drop * GUILD_SKILL_PCT.drop,
-    };
-  } catch {}
+  snapshot.boosts = s.cachedBoosts;
+  snapshot.potions = s.cachedPotions;
+  snapshot.guildBuffs = s.cachedGuildBuffs;
 
   // 영토 점령 보너스 정보
   try {
@@ -1625,6 +1647,12 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     userId: char.user_id,
     ticksSinceLastHit: 0,
     hasFirstStrike: true,
+    metaDirty: true,
+    cachedExp: Number(char.exp) || 0,
+    cachedExpMax: expToNext(char.level),
+    cachedBoosts: [],
+    cachedPotions: { small: 0, mid: 0, high: 0, max: 0 },
+    cachedGuildBuffs: { hp: 0, gold: 0, exp: 0, drop: 0 },
   };
 
   // 패시브: counter_incarnation (상시 반사)
@@ -1738,14 +1766,7 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
   const s = activeSessions.get(characterId);
   if (!s) return null;
 
-  let exp = 0, expMax = 1;
-  try {
-    const charR = await query<{ level: number; exp: string }>('SELECT level, exp FROM characters WHERE id = $1', [characterId]);
-    if (charR.rows[0]) {
-      exp = Number(charR.rows[0].exp);
-      expMax = expToNext(charR.rows[0].level);
-    }
-  } catch {}
+  if (s.metaDirty) await refreshSessionMeta(s);
 
   return {
     inCombat: true,
@@ -1777,8 +1798,11 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
     })),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
-    exp,
-    expMax,
+    exp: s.cachedExp,
+    expMax: s.cachedExpMax,
+    boosts: s.cachedBoosts,
+    potions: s.cachedPotions,
+    guildBuffs: s.cachedGuildBuffs,
     serverTime: Date.now(),
   };
 }
