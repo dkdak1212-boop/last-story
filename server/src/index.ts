@@ -1478,6 +1478,46 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 사냥터 유니크 드롭 전면 재구성
+  // 각 몬스터에 자기 레벨 ±5 범위의 유니크를 0.0008 확률로 추가
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'monster_unique_drops_v1'`);
+      if (applied.rowCount === 0) {
+        const uniques = await query<{ id: number; required_level: number }>(
+          `SELECT id, required_level FROM items WHERE grade = 'unique'`
+        );
+        const monsters = await query<{ id: number; level: number; drop_table: any }>(
+          `SELECT id, level, drop_table FROM monsters`
+        );
+        const UNIQUE_CHANCE = 0.0008;
+        const LEVEL_BAND = 5;
+        let totalAdded = 0;
+        for (const m of monsters.rows) {
+          const current = Array.isArray(m.drop_table) ? [...m.drop_table] : [];
+          const existingIds = new Set(current.map((d: any) => d.itemId));
+          let added = 0;
+          for (const u of uniques.rows) {
+            const lvDiff = Math.abs(m.level - (u.required_level || 1));
+            if (lvDiff > LEVEL_BAND) continue;
+            if (existingIds.has(u.id)) continue;
+            current.push({ chance: UNIQUE_CHANCE, itemId: u.id, minQty: 1, maxQty: 1 });
+            existingIds.add(u.id);
+            added++;
+          }
+          if (added > 0) {
+            await query(`UPDATE monsters SET drop_table = $1::jsonb WHERE id = $2`, [JSON.stringify(current), m.id]);
+            totalAdded += added;
+          }
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('monster_unique_drops_v1')`);
+        console.log(`[migration] monster_unique_drops_v1: ${monsters.rowCount}개 몬스터에 유니크 드롭 ${totalAdded}건 추가`);
+      }
+    } catch (e) {
+      console.error('[migration] monster_unique_drops_v1 error:', e);
+    }
+  }
+
   // 클래스별 스킬 계수 상향: 전사 +20%, 성직자 +50%, 마법사 +10%
   // damage_mult를 곱셈으로 조정 (0은 그대로 0 유지 — 버프/힐 스킬 영향 없음)
   // + description 안의 "xNNN%" 문자열도 같은 배율로 동기화
