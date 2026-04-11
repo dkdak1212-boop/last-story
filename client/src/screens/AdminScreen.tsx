@@ -41,7 +41,7 @@ interface ItemSearchResult {
 interface BossInfo { id: number; name: string; level: number; max_hp: number; }
 interface ActiveEvent { id: number; name: string; current_hp: number; max_hp: number; ends_at: string; status: string; }
 
-type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantAll' | 'users' | 'worldEvent' | 'globalEvent' | 'systemMsg' | 'announcements' | 'feedback';
+type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantAll' | 'users' | 'audit' | 'worldEvent' | 'globalEvent' | 'systemMsg' | 'announcements' | 'feedback';
 
 const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
 const CLASS_LABEL: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
@@ -56,6 +56,7 @@ export function AdminScreen() {
     { id: 'items', label: '아이템 지급/회수' },
     { id: 'grantAll', label: '전체 보상' },
     { id: 'users', label: '유저 관리' },
+    { id: 'audit', label: '유저 감사' },
     { id: 'worldEvent', label: '월드이벤트' },
     { id: 'globalEvent', label: '글로벌 이벤트' },
     { id: 'systemMsg', label: '시스템 공지' },
@@ -81,6 +82,7 @@ export function AdminScreen() {
       {tab === 'items' && <ItemsTab />}
       {tab === 'grantAll' && <GrantAllTab />}
       {tab === 'users' && <UsersTab />}
+      {tab === 'audit' && <AuditTab />}
       {tab === 'worldEvent' && <WorldEventTab />}
       {tab === 'globalEvent' && <GlobalEventTab />}
       {tab === 'systemMsg' && <SystemMsgTab />}
@@ -831,6 +833,130 @@ function SystemMsgTab() {
         try { await api('/admin/system-message', { method: 'POST', body: JSON.stringify({ text: text.trim(), channel }) }); setMsg('전송 완료!'); setText(''); } catch (e) { setMsg(String(e)); }
       }} disabled={!text.trim()}>전송</button>
       {msg && <div style={{ marginTop: 8, fontSize: 13, color: 'var(--accent)' }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ========== 유저 감사 ==========
+interface AuditFlag { severity: 'low' | 'med' | 'high'; label: string; detail: string; }
+interface AuditResult {
+  character: {
+    id: number; userId: number; username: string; name: string; className: string;
+    level: number; exp: number; currentGold: number; totalKills: number; totalGoldEarned: number;
+    maxHp: number; hp: number; createdAt: string; lastOnlineAt: string | null; ageDays: number;
+    registeredIp: string | null; banned: boolean;
+  };
+  inventory: { total: number; legendary: number; epic: number; rare: number; maxEnh: number };
+  equipped: { legendary: number; epic: number; maxEnh: number };
+  enhance: { total: number; success: number; destroyed: number; successRate: number };
+  auctions: { listed: number };
+  flags: AuditFlag[];
+  suspicionScore: number;
+}
+function AuditTab() {
+  const [cidInput, setCidInput] = useState('');
+  const [result, setResult] = useState<AuditResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function audit() {
+    const cid = Number(cidInput);
+    if (!cid) { setErr('캐릭터 ID를 입력하세요'); return; }
+    setLoading(true); setErr(''); setResult(null);
+    try {
+      const r = await api<AuditResult>(`/admin/audit/character/${cid}`);
+      setResult(r);
+    } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
+    setLoading(false);
+  }
+
+  const sevColor = (s: 'low' | 'med' | 'high') => s === 'high' ? '#ff4444' : s === 'med' ? '#ffaa00' : '#888';
+
+  return (
+    <div>
+      <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 14, display: 'flex', gap: 8 }}>
+        <input
+          placeholder="캐릭터 ID 입력"
+          value={cidInput}
+          onChange={e => setCidInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && audit()}
+          style={{ flex: 1, maxWidth: 200 }}
+        />
+        <button className="primary" onClick={audit} disabled={loading}>감사</button>
+      </div>
+      {err && <div style={{ color: 'var(--danger)', marginBottom: 10 }}>{err}</div>}
+      {result && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* 의심 점수 */}
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: `2px solid ${result.suspicionScore >= 6 ? '#ff4444' : result.suspicionScore >= 3 ? '#ffaa00' : '#4a4'}` }}>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>의심 점수</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: result.suspicionScore >= 6 ? '#ff4444' : result.suspicionScore >= 3 ? '#ffaa00' : '#4a4' }}>
+              {result.suspicionScore}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+              {result.suspicionScore === 0 ? '문제 없음' : result.suspicionScore >= 6 ? '높음 — 조사 권장' : result.suspicionScore >= 3 ? '중간' : '낮음'}
+            </div>
+          </div>
+
+          {/* 의심 플래그 */}
+          {result.flags.length > 0 && (
+            <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>의심 항목</div>
+              {result.flags.map((f, i) => (
+                <div key={i} style={{ padding: 8, marginBottom: 4, background: 'var(--bg)', borderLeft: `3px solid ${sevColor(f.severity)}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: sevColor(f.severity) }}>
+                    [{f.severity.toUpperCase()}] {f.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{f.detail}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 캐릭터 정보 */}
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>캐릭터 정보</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
+              <div>이름: <b>{result.character.name}</b></div>
+              <div>유저: <b>{result.character.username}</b></div>
+              <div>직업: {result.character.className}</div>
+              <div>레벨: <b>{result.character.level}</b></div>
+              <div>가입: {new Date(result.character.createdAt).toLocaleDateString('ko-KR')} ({result.character.ageDays}일 경과)</div>
+              <div>마지막 접속: {result.character.lastOnlineAt ? new Date(result.character.lastOnlineAt).toLocaleString('ko-KR') : '—'}</div>
+              <div>현재 골드: <b>{result.character.currentGold.toLocaleString()}G</b></div>
+              <div>누적 골드: {result.character.totalGoldEarned.toLocaleString()}G</div>
+              <div>총 처치: <b>{result.character.totalKills.toLocaleString()}</b></div>
+              <div>HP: {result.character.hp}/{result.character.maxHp}</div>
+              <div>가입 IP: <code style={{ fontSize: 11 }}>{result.character.registeredIp || '없음'}</code></div>
+              <div>정지 여부: {result.character.banned ? '🚫 정지됨' : '✓ 정상'}</div>
+            </div>
+          </div>
+
+          {/* 인벤토리/장비 */}
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>장비/인벤토리</div>
+            <div style={{ fontSize: 12 }}>
+              인벤토리: {result.inventory.total}개 (전설 {result.inventory.legendary}, 영웅 {result.inventory.epic}, 정예 {result.inventory.rare})<br />
+              장착: 전설 {result.equipped.legendary}, 영웅 {result.equipped.epic}<br />
+              최고 강화: 인벤 +{result.inventory.maxEnh}, 장착 +{result.equipped.maxEnh}
+            </div>
+          </div>
+
+          {/* 강화 통계 */}
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>강화 로그 (10강 이상)</div>
+            <div style={{ fontSize: 12 }}>
+              총 시도 {result.enhance.total}회 · 성공 {result.enhance.success}회 ({result.enhance.successRate}%) · 파괴 {result.enhance.destroyed}회
+            </div>
+          </div>
+
+          {/* 거래소 */}
+          <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>거래소 활동</div>
+            <div style={{ fontSize: 12 }}>등록한 매물: {result.auctions.listed}개</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

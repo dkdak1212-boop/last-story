@@ -403,6 +403,159 @@ router.post('/blocked-ips/unblock', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ========== 유저 감사 (의심 지표 계산) ==========
+router.get('/audit/character/:id', async (req, res) => {
+  const cid = Number(req.params.id);
+  if (!cid) return res.status(400).json({ error: 'invalid id' });
+
+  const cr = await query<{
+    id: number; user_id: number; username: string; name: string; class_name: string;
+    level: number; exp: string; gold: string; max_hp: number; hp: number;
+    total_kills: string | null; total_gold_earned: string | null;
+    created_at: string; last_online_at: string | null;
+    registered_ip: string | null; banned: boolean;
+  }>(
+    `SELECT c.id, c.user_id, u.username, c.name, c.class_name, c.level, c.exp, c.gold,
+            c.max_hp, c.hp, c.total_kills, c.total_gold_earned, c.created_at, c.last_online_at,
+            u.registered_ip, u.banned
+     FROM characters c JOIN users u ON u.id = c.user_id
+     WHERE c.id = $1`, [cid]
+  );
+  if (cr.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+  const c = cr.rows[0];
+
+  // 인벤토리 + 장착 통계
+  const invR = await query<{ legendary: string; epic: string; rare: string; total: string; max_enh: number | null }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE i.grade = 'legendary')::text AS legendary,
+       COUNT(*) FILTER (WHERE i.grade = 'epic')::text AS epic,
+       COUNT(*) FILTER (WHERE i.grade = 'rare')::text AS rare,
+       COUNT(*)::text AS total,
+       MAX(GREATEST(COALESCE(ci.enhance_level, 0), 0)) AS max_enh
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1`, [cid]
+  );
+  const eqR = await query<{ legendary: string; epic: string; max_enh: number | null }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE i.grade = 'legendary')::text AS legendary,
+       COUNT(*) FILTER (WHERE i.grade = 'epic')::text AS epic,
+       MAX(GREATEST(COALESCE(ce.enhance_level, 0), 0)) AS max_enh
+     FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+     WHERE ce.character_id = $1`, [cid]
+  );
+
+  // 강화 로그 (10강 이상)
+  const enhR = await query<{ total: string; success: string; destroyed: string }>(
+    `SELECT
+       COUNT(*)::text AS total,
+       COUNT(*) FILTER (WHERE success = TRUE)::text AS success,
+       COUNT(*) FILTER (WHERE destroyed = TRUE)::text AS destroyed
+     FROM enhance_log WHERE character_id = $1`, [cid]
+  );
+
+  // 거래소 활동
+  const aucR = await query<{ listed: string; bought: string }>(
+    `SELECT
+       (SELECT COUNT(*)::text FROM auctions WHERE seller_id = $1) AS listed,
+       (SELECT COUNT(*)::text FROM auctions WHERE settled = TRUE AND seller_id != $1
+          AND id IN (SELECT id FROM auctions WHERE seller_id != $1)) AS bought`,
+    [cid]
+  );
+
+  // 의심 지표 계산
+  const level = c.level;
+  const totalKills = Number(c.total_kills || 0);
+  const totalGoldEarned = Number(c.total_gold_earned || 0);
+  const currentGold = Number(c.gold);
+  const exp = Number(c.exp);
+  const ageDays = (Date.now() - new Date(c.created_at).getTime()) / 86400000;
+  const expectedKillsForLevel = Math.max(1, level * 30); // 대략 레벨당 30킬 추정
+
+  const flags: { severity: 'low' | 'med' | 'high'; label: string; detail: string }[] = [];
+
+  if (level >= 30 && totalKills < expectedKillsForLevel * 0.3) {
+    flags.push({
+      severity: 'high', label: 'EXP 비정상 획득 의심',
+      detail: `Lv.${level}인데 처치 ${totalKills.toLocaleString()} (예상 ${expectedKillsForLevel.toLocaleString()}+)`,
+    });
+  }
+  if (currentGold > totalGoldEarned * 1.5 && totalGoldEarned > 0) {
+    flags.push({
+      severity: 'high', label: '골드 비정상 획득 의심',
+      detail: `현재 ${currentGold.toLocaleString()}G > 누적 획득 ${totalGoldEarned.toLocaleString()}G의 1.5배`,
+    });
+  }
+  if (level >= 20 && ageDays < 0.5) {
+    flags.push({
+      severity: 'high', label: '비정상 빠른 레벨업',
+      detail: `가입 ${ageDays.toFixed(1)}일 만에 Lv.${level}`,
+    });
+  }
+  const eqLeg = Number(eqR.rows[0]?.legendary || 0);
+  const invLeg = Number(invR.rows[0]?.legendary || 0);
+  if ((eqLeg + invLeg) >= 5 && level < 50) {
+    flags.push({
+      severity: 'med', label: '레전더리 다수 보유',
+      detail: `장착+인벤 레전더리 ${eqLeg + invLeg}개 (Lv.${level})`,
+    });
+  }
+  const enhTotal = Number(enhR.rows[0]?.total || 0);
+  const enhSuccess = Number(enhR.rows[0]?.success || 0);
+  if (enhTotal >= 20 && enhSuccess / enhTotal > 0.7) {
+    flags.push({
+      severity: 'med', label: '비정상 강화 성공률',
+      detail: `${enhTotal}회 시도 중 ${enhSuccess}회 성공 (${Math.round(enhSuccess / enhTotal * 100)}%)`,
+    });
+  }
+  const maxEnh = Math.max(invR.rows[0]?.max_enh || 0, eqR.rows[0]?.max_enh || 0);
+  if (maxEnh >= 18 && level < 50) {
+    flags.push({
+      severity: 'med', label: '저레벨 고강화',
+      detail: `최고 강화 +${maxEnh} (Lv.${level})`,
+    });
+  }
+  if (currentGold >= 10_000_000 && level < 30) {
+    flags.push({
+      severity: 'high', label: '저레벨 거액 보유',
+      detail: `${currentGold.toLocaleString()}G (Lv.${level})`,
+    });
+  }
+
+  res.json({
+    character: {
+      id: c.id, userId: c.user_id, username: c.username, name: c.name,
+      className: c.class_name, level, exp, currentGold,
+      totalKills, totalGoldEarned,
+      maxHp: c.max_hp, hp: c.hp,
+      createdAt: c.created_at, lastOnlineAt: c.last_online_at, ageDays: Math.round(ageDays * 10) / 10,
+      registeredIp: c.registered_ip, banned: c.banned,
+    },
+    inventory: {
+      total: Number(invR.rows[0]?.total || 0),
+      legendary: invLeg,
+      epic: Number(invR.rows[0]?.epic || 0),
+      rare: Number(invR.rows[0]?.rare || 0),
+      maxEnh: invR.rows[0]?.max_enh || 0,
+    },
+    equipped: {
+      legendary: eqLeg,
+      epic: Number(eqR.rows[0]?.epic || 0),
+      maxEnh: eqR.rows[0]?.max_enh || 0,
+    },
+    enhance: {
+      total: enhTotal,
+      success: enhSuccess,
+      destroyed: Number(enhR.rows[0]?.destroyed || 0),
+      successRate: enhTotal > 0 ? Math.round(enhSuccess / enhTotal * 100) : 0,
+    },
+    auctions: {
+      listed: Number(aucR.rows[0]?.listed || 0),
+    },
+    flags,
+    suspicionScore: flags.reduce((sum, f) => sum + (f.severity === 'high' ? 3 : f.severity === 'med' ? 2 : 1), 0),
+  });
+});
+
 // 어드민 비번 재설정
 router.post('/users/:id/reset-password', async (req, res) => {
   const userId = Number(req.params.id);
