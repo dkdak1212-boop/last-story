@@ -17,6 +17,18 @@ function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
     style={{ imageRendering: 'pixelated', verticalAlign: 'middle' }} />;
 }
 
+// 유니크 등급은 무지개 그라데이션 텍스트
+const UNIQUE_RAINBOW_STYLE: React.CSSProperties = {
+  background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+  backgroundClip: 'text',
+};
+function nameStyle(grade: string, fontSize: number): React.CSSProperties {
+  if (grade === 'unique') return { ...UNIQUE_RAINBOW_STYLE, fontWeight: 700, fontSize };
+  return { color: (GRADE_COLOR as any)[grade], fontWeight: 700, fontSize };
+}
+
 // 강화 비용/확률 (서버 enhance.ts와 동일 공식)
 function getEnhanceInfo(currentLevel: number, charLevel: number) {
   const next = currentLevel + 1;
@@ -206,7 +218,7 @@ export function InventoryScreen() {
               {item ? (
                 <>
                   <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
-                    <span style={{ color: (GRADE_COLOR as any)[item.grade] }}>{item.name}</span>
+                    <span style={nameStyle(item.grade, 12)}>{item.name}</span>
                     {item.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{item.enhanceLevel}</span>}
                     {(item as any).quality !== undefined && (
                       <span style={{ color: '#66ccff', fontSize: 9, marginLeft: 4 }}>· 품질 {(item as any).quality}%</span>
@@ -347,6 +359,7 @@ export function InventoryScreen() {
               const levelTooLow = isEquipment && charLevel < requiredLevel;
               const isExpanded = expandedSlot === s.slotIndex;
               const gradeClr = GRADE_COLOR[s.item.grade];
+              const isUnique = s.item.grade === 'unique';
 
               return (
                 <div key={s.slotIndex}
@@ -354,10 +367,13 @@ export function InventoryScreen() {
                   style={{
                     padding: isExpanded ? '10px 12px' : '8px 12px',
                     borderRadius: 4, cursor: 'pointer',
-                    background: 'var(--bg-panel)',
-                    borderLeft: `3px solid ${gradeClr}`,
+                    background: isUnique
+                      ? 'linear-gradient(135deg, rgba(255,59,59,0.06), rgba(196,82,255,0.06))'
+                      : 'var(--bg-panel)',
+                    borderLeft: `3px solid ${isUnique ? '#ff8c2a' : gradeClr}`,
                     borderTop: '1px solid transparent', borderRight: '1px solid transparent',
                     borderBottom: `1px solid ${isExpanded ? 'var(--accent)30' : 'var(--border)'}`,
+                    boxShadow: isUnique ? '0 0 8px rgba(255,140,42,0.25)' : 'none',
                   }}
                 >
                   {/* 헤더 행 */}
@@ -368,7 +384,7 @@ export function InventoryScreen() {
                         {(s as any).prefixName && (
                           <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
                         )}
-                        <span style={{ color: gradeClr, fontWeight: 700, fontSize: 13 }}>{(s.item as any).baseName || s.item.name}</span>
+                        <span style={nameStyle(s.item.grade, 13)}>{(s.item as any).baseName || s.item.name}</span>
                         {(s as any).quality !== undefined && (s.item as any).slot && (() => {
                           const q = (s as any).quality;
                           const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
