@@ -421,6 +421,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] 빗나감!`);
       } else {
         let dmg = d.damage;
+        // 디버프: damage_taken_up (방패 강타 등 — 적이 받는 데미지 증가)
+        const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+        if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
         // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
         // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
@@ -505,7 +508,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const lsAmp = getPassive(s, 'lifesteal_amp');
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
           s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-          addLog(s, `[${skill.name}] HP +${heal} 흡혈`);
+          // 흡혈 참격: 흡수한 데미지만큼 추가 데미지
+          s.monsterHp -= heal;
+          addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
         }
         if (skill.effect_type === 'hp_pct_damage') {
           const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
@@ -548,7 +553,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const rageReduce = getPassive(s, 'rage_reduce');
         if (rageReduce > 0) cost = Math.round(cost * (1 - rageReduce / 100));
         s.playerHp -= cost;
-        addLog(s, `[${skill.name}] 자신 HP -${cost}`);
+        // 분노의 일격: 소모한 체력만큼 추가 데미지
+        s.monsterHp -= cost;
+        addLog(s, `[${skill.name}] 자신 HP -${cost}, 추가 데미지 +${cost}`);
       }
       break;
     }
@@ -693,6 +700,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'stun', value: 0, remainingActions: stunDur, source: 'player' });
           addEffect(s, { type: 'cc_immune', value: 0, remainingActions: stunDur + 3, source: 'player' });
           addLog(s, `[${skill.name}] 스턴 ${stunDur}행동!`);
+        }
+        // 방패 강타: 적이 받는 데미지 20% 증가 3턴 (effect_value로 퍼센트 전달)
+        if (skill.name === '방패 강타') {
+          addEffect(s, { type: 'damage_taken_up', value: 20, remainingActions: 3, source: 'player' });
+          addLog(s, `[${skill.name}] 적 받는 데미지 +20% 3턴!`);
         }
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
