@@ -961,7 +961,14 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const grSkill = findReady(s, 'gauge_reset');
   if (grSkill) { await executeSkill(s, grSkill); return; }
 
-  // ── 4. 자가 버프 (중복 방지) ──
+  // ── 4. 독 폭발 (최우선: 독 1중첩만 있어도 쿨 풀리면 즉시 발동) ──
+  const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
+  if (poisonCount >= 1) {
+    const burstSkill = findReady(s, 'poison_burst');
+    if (burstSkill) { await executeSkill(s, burstSkill); return; }
+  }
+
+  // ── 5. 자가 버프 (중복 방지) ──
   if (!hasActivePlayerBuff(s, 'speed_mod')) {
     const spdSkill = s.skills.find(sk => sk.effect_type === 'self_speed_mod' && sk.effect_value > 0 && isSkillReady(s, sk));
     if (spdSkill) { await executeSkill(s, spdSkill); return; }
@@ -969,13 +976,6 @@ async function autoAction(s: ActiveSession): Promise<void> {
   // 게이지 충전
   const gfSkill = findReady(s, 'gauge_fill');
   if (gfSkill) { await executeSkill(s, gfSkill); return; }
-
-  // ── 5. 독 폭발 (독 2중첩 이상일 때) ──
-  const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
-  if (poisonCount >= 2) {
-    const burstSkill = findReady(s, 'poison_burst');
-    if (burstSkill) { await executeSkill(s, burstSkill); return; }
-  }
 
   // ── 6. 공격 스킬 (LRU: 가장 오래 안 쓴 것 우선, self-damage 스킬은 HP 낮으면 회피) ──
   const attackSkills = s.skills
