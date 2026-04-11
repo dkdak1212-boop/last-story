@@ -991,9 +991,10 @@ async function autoAction(s: ActiveSession): Promise<void> {
   if (gfSkill) { await executeSkill(s, gfSkill); return; }
 
   // ── 6. 공격 스킬 (LRU: 가장 오래 안 쓴 것 우선, self-damage 스킬은 HP 낮으면 회피) ──
+  // cd=0 기본 공격(강타/화염구/급소 찌르기/신성 타격 등)도 풀에 합류 — LRU로 자연스럽게 끼어듦
   const attackSkills = s.skills
     .filter(sk => {
-      if (!(sk.damage_mult > 0 && sk.cooldown_actions > 0 && isSkillReady(s, sk))) return false;
+      if (!(sk.damage_mult > 0 && isSkillReady(s, sk))) return false;
       // self_damage_pct: HP 50% 미만이면 사용 회피 (자살 방지)
       if (sk.effect_type === 'self_damage_pct' && hpPct < 0.5) return false;
       return true;
