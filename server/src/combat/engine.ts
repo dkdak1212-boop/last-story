@@ -751,20 +751,26 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield_break': {
-      s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
+      // 심판의 철퇴 등 — 더 이상 자신의 쉴드를 파괴하지 않음
+      // 대신 현재 쉴드량의 200%를 추가 데미지로 변환 (쉴드는 그대로 유지)
+      const myShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+      const shieldBonus = myShield ? Math.round(myShield.value * 2.0) : 0;
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        let dmg = d.damage;
+        let dmg = d.damage + shieldBonus;
+        const parts: string[] = [];
+        if (shieldBonus > 0) parts.push(`실드 비례 +${shieldBonus}`);
         // effect_value > 0 → 내 maxHp의 X% 추가 데미지 (심판의 철퇴 등)
         if (skill.effect_value > 0) {
           const hpBonus = Math.round(s.playerMaxHp * skill.effect_value / 100);
           dmg += hpBonus;
-          s.monsterHp -= dmg;
-          addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''} (HP ${skill.effect_value}% +${hpBonus})`);
-        } else {
-          s.monsterHp -= dmg;
-          addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''}`);
+          parts.push(`HP ${skill.effect_value}% +${hpBonus}`);
         }
+        s.monsterHp -= dmg;
+        const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+        addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}${suffix}`);
+      } else {
+        addLog(s, `[${skill.name}] 빗나감!`);
       }
       break;
     }
