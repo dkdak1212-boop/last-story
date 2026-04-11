@@ -9,7 +9,7 @@ import { ItemIcon } from '../components/ui/ItemIcon';
 interface Listing {
   id: number; itemId: number; itemQuantity: number;
   price: number;
-  endsAt: string; sellerName?: string;
+  endsAt: string;
   itemName: string; itemGrade: ItemGrade; itemType?: string; itemSlot?: string | null;
   itemStats?: Partial<Stats> | null; itemDescription?: string;
   enhanceLevel?: number; prefixStats?: Record<string, number> | null;
@@ -365,7 +365,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
             )}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
-            판매자: {a.sellerName} · 남은 시간 {h}시간 {m}분
+            남은 시간 {h}시간 {m}분
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>

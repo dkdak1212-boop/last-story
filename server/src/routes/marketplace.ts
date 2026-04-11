@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
   const r = await query<{
     id: number; item_id: number; item_quantity: number;
     buyout_price: string | null;
-    ends_at: string; seller_name: string;
+    ends_at: string;
     item_name: string; item_grade: string; item_type: string; item_slot: string | null;
     item_stats: Record<string, number> | null; item_description: string;
     enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
@@ -30,12 +30,10 @@ router.get('/', async (req, res) => {
   }>(
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at,
             a.enhance_level, a.prefix_ids, a.prefix_stats, COALESCE(a.quality, 0) AS quality,
-            c.name AS seller_name,
             i.name AS item_name, i.grade AS item_grade, i.type AS item_type, i.slot AS item_slot,
             i.stats AS item_stats, i.description AS item_description, i.class_restriction,
             COALESCE(i.required_level, 1) AS required_level
-     FROM auctions a JOIN characters c ON c.id = a.seller_id
-                     JOIN items i ON i.id = a.item_id
+     FROM auctions a JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
      ORDER BY COALESCE(i.required_level, 1) ASC, a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 1000`,
     params
@@ -72,7 +70,7 @@ router.get('/', async (req, res) => {
     return {
       id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
       price: row.buyout_price ? Number(row.buyout_price) : 0,
-      endsAt: row.ends_at, sellerName: row.seller_name,
+      endsAt: row.ends_at,
       itemName: prefixName ? `${prefixName} ${row.item_name}` : row.item_name,
       baseItemName: row.item_name,
       prefixName,
