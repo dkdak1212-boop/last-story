@@ -277,8 +277,8 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, guildId: g.rows[0].id });
 });
 
-// 길드 가입
-router.post('/:guildId/join', async (req: AuthedRequest, res: Response) => {
+// 길드 가입 신청 (즉시 가입 X — 길드장 승인 필요)
+router.post('/:guildId/apply', async (req: AuthedRequest, res: Response) => {
   const guildId = Number(req.params.guildId);
   const parsed = z.object({ characterId: z.number().int().positive() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
@@ -286,17 +286,163 @@ router.post('/:guildId/join', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   const ex = await query('SELECT 1 FROM guild_members WHERE character_id = $1', [char.id]);
-  if (ex.rowCount && ex.rowCount > 0) return res.status(400).json({ error: 'already in guild' });
+  if (ex.rowCount && ex.rowCount > 0) return res.status(400).json({ error: '이미 길드에 가입되어 있습니다' });
 
   const g = await query<{ max_members: number; count: string }>(
     `SELECT g.max_members, (SELECT COUNT(*) FROM guild_members WHERE guild_id=g.id)::text AS count
      FROM guilds g WHERE g.id = $1`,
     [guildId]
   );
-  if (g.rowCount === 0) return res.status(404).json({ error: 'guild not found' });
-  if (Number(g.rows[0].count) >= g.rows[0].max_members) return res.status(400).json({ error: 'guild full' });
+  if (g.rowCount === 0) return res.status(404).json({ error: '길드를 찾을 수 없습니다' });
+  if (Number(g.rows[0].count) >= g.rows[0].max_members) return res.status(400).json({ error: '길드 정원이 가득 찼습니다' });
 
-  await query('INSERT INTO guild_members (guild_id, character_id) VALUES ($1, $2)', [guildId, char.id]);
+  // 이미 신청한 경우
+  const dup = await query(
+    `SELECT 1 FROM guild_applications WHERE guild_id = $1 AND character_id = $2 AND status = 'pending'`,
+    [guildId, char.id]
+  );
+  if (dup.rowCount && dup.rowCount > 0) return res.status(400).json({ error: '이미 신청 중입니다' });
+
+  await query(
+    `INSERT INTO guild_applications (guild_id, character_id, status) VALUES ($1, $2, 'pending')
+     ON CONFLICT (guild_id, character_id) DO UPDATE SET status = 'pending', applied_at = NOW()`,
+    [guildId, char.id]
+  );
+  res.json({ ok: true, message: '가입 신청이 접수되었습니다' });
+});
+
+// 길드 가입 신청 목록 (길드장만)
+router.get('/:guildId/applications', async (req: AuthedRequest, res: Response) => {
+  const guildId = Number(req.params.guildId);
+  const characterId = Number(req.query.characterId);
+  if (!characterId) return res.status(400).json({ error: 'characterId required' });
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 길드장 권한 체크
+  const m = await query<{ role: string }>(
+    'SELECT role FROM guild_members WHERE character_id = $1 AND guild_id = $2',
+    [characterId, guildId]
+  );
+  if (m.rowCount === 0 || m.rows[0].role !== 'leader') {
+    return res.status(403).json({ error: '길드장만 조회 가능' });
+  }
+
+  const apps = await query<{
+    id: number; character_id: number; name: string; level: number; class_name: string; applied_at: string;
+  }>(
+    `SELECT ga.id, ga.character_id, c.name, c.level, c.class_name, ga.applied_at
+     FROM guild_applications ga JOIN characters c ON c.id = ga.character_id
+     WHERE ga.guild_id = $1 AND ga.status = 'pending'
+     ORDER BY ga.applied_at ASC`,
+    [guildId]
+  );
+  res.json({ applications: apps.rows });
+});
+
+// 신청 승인
+router.post('/applications/:appId/approve', async (req: AuthedRequest, res: Response) => {
+  const appId = Number(req.params.appId);
+  const parsed = z.object({ characterId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const ar = await query<{ guild_id: number; character_id: number; status: string }>(
+    'SELECT guild_id, character_id, status FROM guild_applications WHERE id = $1',
+    [appId]
+  );
+  if (ar.rowCount === 0) return res.status(404).json({ error: '신청 없음' });
+  const app = ar.rows[0];
+  if (app.status !== 'pending') return res.status(400).json({ error: '이미 처리됨' });
+
+  // 길드장 권한 체크
+  const m = await query<{ role: string }>(
+    'SELECT role FROM guild_members WHERE character_id = $1 AND guild_id = $2',
+    [parsed.data.characterId, app.guild_id]
+  );
+  if (m.rowCount === 0 || m.rows[0].role !== 'leader') {
+    return res.status(403).json({ error: '길드장만 가능' });
+  }
+
+  // 정원 체크
+  const g = await query<{ max_members: number; count: string }>(
+    `SELECT g.max_members, (SELECT COUNT(*) FROM guild_members WHERE guild_id=g.id)::text AS count
+     FROM guilds g WHERE g.id = $1`,
+    [app.guild_id]
+  );
+  if (Number(g.rows[0].count) >= g.rows[0].max_members) {
+    return res.status(400).json({ error: '길드 정원이 가득 찼습니다' });
+  }
+
+  // 이미 다른 길드 가입 체크
+  const ex = await query('SELECT 1 FROM guild_members WHERE character_id = $1', [app.character_id]);
+  if (ex.rowCount && ex.rowCount > 0) {
+    await query("UPDATE guild_applications SET status = 'rejected' WHERE id = $1", [appId]);
+    return res.status(400).json({ error: '신청자가 이미 다른 길드에 가입되어 있습니다' });
+  }
+
+  await query('INSERT INTO guild_members (guild_id, character_id) VALUES ($1, $2)', [app.guild_id, app.character_id]);
+  await query("UPDATE guild_applications SET status = 'approved' WHERE id = $1", [appId]);
+  // 같은 캐릭터의 다른 길드 신청은 자동 거절
+  await query("UPDATE guild_applications SET status = 'rejected' WHERE character_id = $1 AND status = 'pending'", [app.character_id]);
+  res.json({ ok: true });
+});
+
+// 신청 거절
+router.post('/applications/:appId/reject', async (req: AuthedRequest, res: Response) => {
+  const appId = Number(req.params.appId);
+  const parsed = z.object({ characterId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const ar = await query<{ guild_id: number; status: string }>(
+    'SELECT guild_id, status FROM guild_applications WHERE id = $1', [appId]
+  );
+  if (ar.rowCount === 0) return res.status(404).json({ error: '신청 없음' });
+  if (ar.rows[0].status !== 'pending') return res.status(400).json({ error: '이미 처리됨' });
+
+  const m = await query<{ role: string }>(
+    'SELECT role FROM guild_members WHERE character_id = $1 AND guild_id = $2',
+    [parsed.data.characterId, ar.rows[0].guild_id]
+  );
+  if (m.rowCount === 0 || m.rows[0].role !== 'leader') {
+    return res.status(403).json({ error: '길드장만 가능' });
+  }
+
+  await query("UPDATE guild_applications SET status = 'rejected' WHERE id = $1", [appId]);
+  res.json({ ok: true });
+});
+
+// 길드원 추방 (길드장만, 본인 제외)
+router.post('/kick', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    leaderCharacterId: z.number().int().positive(),
+    targetCharacterId: z.number().int().positive(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { leaderCharacterId, targetCharacterId } = parsed.data;
+  if (leaderCharacterId === targetCharacterId) return res.status(400).json({ error: '본인은 추방할 수 없습니다' });
+
+  const leader = await loadCharacterOwned(leaderCharacterId, req.userId!);
+  if (!leader) return res.status(404).json({ error: 'not found' });
+
+  const lm = await query<{ guild_id: number; role: string }>(
+    'SELECT guild_id, role FROM guild_members WHERE character_id = $1', [leaderCharacterId]
+  );
+  if (lm.rowCount === 0 || lm.rows[0].role !== 'leader') {
+    return res.status(403).json({ error: '길드장만 추방 가능' });
+  }
+
+  const tm = await query<{ guild_id: number; role: string }>(
+    'SELECT guild_id, role FROM guild_members WHERE character_id = $1', [targetCharacterId]
+  );
+  if (tm.rowCount === 0 || tm.rows[0].guild_id !== lm.rows[0].guild_id) {
+    return res.status(400).json({ error: '같은 길드원이 아닙니다' });
+  }
+
+  await query('DELETE FROM guild_members WHERE character_id = $1', [targetCharacterId]);
   res.json({ ok: true });
 });
 

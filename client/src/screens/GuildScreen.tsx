@@ -63,7 +63,9 @@ const ICON = {
   flag: '/images/skills/spells/shields.png',
 };
 
-type Tab = 'overview' | 'skills' | 'territory' | 'members';
+type Tab = 'overview' | 'skills' | 'territory' | 'members' | 'applications';
+
+interface GuildApplication { id: number; characterId: number; name: string; level: number; className: string; appliedAt: string }
 
 export function GuildScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -81,6 +83,7 @@ export function GuildScreen() {
   const [myScores, setMyScores] = useState<Record<number, { score: number; rank: number }>>({});
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
+  const [applications, setApplications] = useState<GuildApplication[]>([]);
 
   async function load() {
     if (!active) return;
@@ -105,11 +108,45 @@ export function GuildScreen() {
       await refresh(); await load();
     } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
   }
-  async function join(id: number) {
+  async function apply(id: number) {
     if (!active) return;
     try {
-      await api(`/guilds/${id}/join`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
-      load();
+      const r = await api<{ message?: string }>(`/guilds/${id}/apply`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
+      alert(r.message || '가입 신청이 접수되었습니다');
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+  async function loadApplications() {
+    if (!active || !my || !my.isLeader) return;
+    try {
+      const r = await api<{ applications: any[] }>(`/guilds/${my.id}/applications?characterId=${active.id}`);
+      setApplications(r.applications.map((a: any) => ({
+        id: a.id, characterId: a.character_id, name: a.name,
+        level: a.level, className: a.class_name, appliedAt: a.applied_at,
+      })));
+    } catch { /* silent */ }
+  }
+  async function approveApp(appId: number) {
+    if (!active) return;
+    try {
+      await api(`/guilds/applications/${appId}/approve`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
+      await loadApplications(); await load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+  async function rejectApp(appId: number) {
+    if (!active) return;
+    try {
+      await api(`/guilds/applications/${appId}/reject`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
+      await loadApplications();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+  async function kickMember(targetId: number, name: string) {
+    if (!active) return;
+    if (!confirm(`${name}님을 정말 추방하시겠습니까?`)) return;
+    try {
+      await api('/guilds/kick', { method: 'POST', body: JSON.stringify({
+        leaderCharacterId: active.id, targetCharacterId: targetId,
+      })});
+      await load();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
   async function leave() {
@@ -167,6 +204,7 @@ export function GuildScreen() {
     } catch (e) { /* silent */ }
   }
   useEffect(() => { if (tab === 'territory') loadTerritories(); }, [tab, active?.id]);
+  useEffect(() => { if (tab === 'applications') loadApplications(); }, [tab, active?.id, my?.id]);
 
   // ── 길드 가입 안 한 상태 (목록 + 생성) ──
   if (!my) {
@@ -229,7 +267,7 @@ export function GuildScreen() {
                   </div>
                   {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
                 </div>
-                <button onClick={() => join(g.id)} disabled={full}>가입</button>
+                <button onClick={() => apply(g.id)} disabled={full}>가입 신청</button>
               </div>
             );
           })}
@@ -330,12 +368,13 @@ export function GuildScreen() {
 
       {/* ── 탭 ── */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
-        {([
+        {(([
           ['overview', '개요', ICON.overview],
           ['skills', '스킬', ICON.skills],
           // ['territory', '영토', ICON.territory], // 영토 점령전 일시 비활성
           ['members', '멤버', ICON.members],
-        ] as [Tab, string, string][]).map(([k, label, icon]) => (
+          ...(my.isLeader ? [['applications', '가입신청', ICON.members] as [Tab, string, string]] : []),
+        ]) as [Tab, string, string][]).map(([k, label, icon]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             padding: '8px 14px', fontSize: 12, fontWeight: 700,
             background: tab === k ? 'var(--bg-panel)' : 'transparent',
@@ -589,11 +628,61 @@ export function GuildScreen() {
                     {m.role === 'leader' && (
                       <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>리더</span>
                     )}
+                    {my.isLeader && m.role !== 'leader' && (
+                      <button onClick={() => kickMember(m.id, m.name)} style={{
+                        fontSize: 10, padding: '3px 8px', background: 'var(--danger)',
+                        color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
+                      }}>추방</button>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+        </Card>
+      )}
+
+      {tab === 'applications' && my.isLeader && (
+        <Card iconSrc={ICON.members} title={`가입 신청 (${applications.length})`}>
+          {applications.length === 0 ? (
+            <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center', fontSize: 12 }}>
+              대기 중인 가입 신청이 없습니다.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {applications.map(a => {
+                const cls = CLASS_COLOR[a.className] || 'var(--text-dim)';
+                return (
+                  <div key={a.id} style={{
+                    padding: '10px 12px', background: 'var(--bg)',
+                    border: '1px solid var(--border)', borderLeft: `3px solid ${cls}`,
+                    borderRadius: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{a.name}</span>
+                        <span style={{
+                          fontSize: 10, padding: '1px 5px', borderRadius: 2,
+                          border: `1px solid ${cls}`, color: cls, fontWeight: 700,
+                        }}>
+                          Lv.{a.level} {CLASS_LABEL[a.className] || a.className}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                        신청일 {new Date(a.appliedAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="primary" onClick={() => approveApp(a.id)} style={{ fontSize: 11, padding: '5px 12px' }}>승인</button>
+                      <button onClick={() => rejectApp(a.id)} style={{
+                        fontSize: 11, padding: '5px 12px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 3,
+                      }}>거절</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       )}
     </div>
