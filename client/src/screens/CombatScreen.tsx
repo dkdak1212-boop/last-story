@@ -797,7 +797,7 @@ function DamageMeter({ log }: { log: string[] }) {
   const [open, setOpen] = useState(false);
   const [remaining, setRemaining] = useState(60);
   const resetTimeRef = useRef(Date.now());
-  const prevLogLenRef = useRef(0);
+  const lastSeenLineRef = useRef<string>(''); // 마지막으로 본 로그 라인
   const accRef = useRef<Map<string, { total: number; hits: number; crits: number; max: number }>>(new Map());
   const dotAccRef = useRef({ total: 0, hits: 0 });
   const totalDmgRef = useRef(0);
@@ -814,7 +814,7 @@ function DamageMeter({ log }: { log: string[] }) {
         dotAccRef.current = { total: 0, hits: 0 };
         totalDmgRef.current = 0;
         resetTimeRef.current = Date.now();
-        prevLogLenRef.current = log.length;
+        lastSeenLineRef.current = log[log.length - 1] || '';
         setRemaining(60);
         forceUpdate(n => n + 1);
       }
@@ -823,16 +823,28 @@ function DamageMeter({ log }: { log: string[] }) {
   }, [log.length]);
 
   // 새 로그만 파싱해서 누적
+  // log가 MAX_LOG로 자라면 길이가 변하지 않으므로 길이 비교 X.
+  // 마지막으로 본 라인의 내용을 저장하고 그 이후 라인만 새 것으로 처리.
   useEffect(() => {
-    const prev = prevLogLenRef.current;
-    const cur = log.length;
-    if (cur <= prev) {
-      // 로그 리셋 (새 몬스터) — 인덱스만 리셋, 누적은 유지
-      prevLogLenRef.current = 0;
+    if (log.length === 0) return;
+    let startIdx = 0;
+    if (lastSeenLineRef.current) {
+      // 마지막으로 본 라인의 인덱스를 끝에서부터 검색
+      for (let i = log.length - 1; i >= 0; i--) {
+        if (log[i] === lastSeenLineRef.current) {
+          startIdx = i + 1;
+          break;
+        }
+      }
+      // 못 찾으면 전부 새 것으로 간주 (로그 사이클되었거나 새 세션)
+      // startIdx = 0 그대로
+    }
+    if (startIdx >= log.length) {
+      // 새 라인 없음
       return;
     }
-    const newLines = log.slice(prev, cur);
-    prevLogLenRef.current = cur;
+    const newLines = log.slice(startIdx);
+    lastSeenLineRef.current = log[log.length - 1];
 
     for (const line of newLines) {
       const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);

@@ -944,18 +944,18 @@ async function autoAction(s: ActiveSession): Promise<void> {
 }
 
 // ── 몬스터 행동 ──
+// tickDownEffects(s, 'player')는 monsterAction 외부(메인 루프)에서 처리.
+// 도트가 먼저 적용된 뒤 카운트가 감소하도록 순서 조정 — 마지막 1틱이 사라지지 않게.
 function monsterAction(s: ActiveSession): void {
   // 스턴 체크
   if (hasEffect(s, 'player', 'stun')) {
     addLog(s, '몬스터가 기절 상태!');
-    tickDownEffects(s, 'player'); // monster's debuffs from player
     return;
   }
 
   // 게이지 동결 체크
   if (hasEffect(s, 'player', 'gauge_freeze')) {
     addLog(s, '몬스터가 동결 상태!');
-    tickDownEffects(s, 'player');
     return;
   }
 
@@ -981,7 +981,6 @@ function monsterAction(s: ActiveSession): void {
   const accDebuff = s.statusEffects.find(e => e.type === 'accuracy_debuff' && e.source === 'player');
   if (accDebuff && Math.random() * 100 < accDebuff.value) {
     addLog(s, '몬스터 공격 빗나감! (연막)');
-    tickDownEffects(s, 'player');
     return;
   }
 
@@ -993,7 +992,6 @@ function monsterAction(s: ActiveSession): void {
     // 무적 체크
     if (hasEffect(s, 'monster', 'invincible')) {
       addLog(s, `무적! 데미지 무효화`);
-      tickDownEffects(s, 'player');
       return;
     }
 
@@ -1054,8 +1052,6 @@ function monsterAction(s: ActiveSession): void {
       addLog(s, `반사! 몬스터에게 ${reflected} 데미지`);
     }
   }
-
-  tickDownEffects(s, 'player');
 }
 
 // ── 몬스터 처치 ──
@@ -1069,10 +1065,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 접두사: 포식 (처치 시 HP 회복)
   const predator = s.equipPrefixes.predator_pct || 0;
-  if (predator > 0 && s.playerHp < s.playerMaxHp) {
+  if (predator > 0) {
     const heal = Math.round(s.playerMaxHp * predator / 100);
-    s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-    addLog(s, `[포식] HP +${heal} 회복`);
+    if (heal > 0) {
+      const before = s.playerHp;
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      const actual = s.playerHp - before;
+      addLog(s, `[포식] HP +${actual} 회복`);
+    }
   }
 
   // 접두사 + 프리미엄 부스터
@@ -1282,7 +1282,9 @@ async function combatTick(): Promise<void> {
       if (s.monsterGauge >= GAUGE_MAX) {
         monsterAction(s);
         s.monsterGauge = 0;
+        // 도트 먼저 적용 → 그 다음 카운트 감소 (마지막 1틱 보존)
         processDots(s, 'monster');
+        tickDownEffects(s, 'player');
         s.dirty = true;
 
         if (s.playerHp <= 0) {
@@ -1305,8 +1307,9 @@ async function combatTick(): Promise<void> {
           if (s.potionCooldown > 0) s.potionCooldown--;
 
           await autoAction(s);
-          tickDownEffects(s, 'monster');
+          // 도트 먼저 적용 → 그 다음 카운트 감소
           processDots(s, 'player');
+          tickDownEffects(s, 'monster');
           s.dirty = true;
 
           // 몬스터 처치 체크
@@ -1630,8 +1633,8 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   }
 
   await executeSkill(s, skill);
-  tickDownEffects(s, 'monster');
   processDots(s, 'player');
+  tickDownEffects(s, 'monster');
   s.dirty = true;
 
   if (s.monsterHp <= 0) await handleMonsterDeath(s);
