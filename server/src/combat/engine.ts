@@ -694,6 +694,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (!d.miss) {
         s.monsterHp -= d.damage;
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
+        if (skill.name === '방패 강타') {
+          const bonus = Math.round(s.playerMaxHp * 0.15);
+          s.monsterHp -= bonus;
+          addLog(s, `[${skill.name}] 체력 비례 고정 +${bonus} 데미지`);
+        }
         if (hasEffect(s, 'player', 'cc_immune')) {
           addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
         } else if (Math.random() < 0.5) {
@@ -705,7 +711,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'cc_immune', value: 0, remainingActions: stunDur + 3, source: 'player' });
           addLog(s, `[${skill.name}] 스턴 ${stunDur}행동!`);
         }
-        // 방패 강타: 적이 받는 데미지 20% 증가 3턴 (effect_value로 퍼센트 전달)
+        // 방패 강타: 적이 받는 데미지 20% 증가 3턴
         if (skill.name === '방패 강타') {
           addEffect(s, { type: 'damage_taken_up', value: 20, remainingActions: 3, source: 'player' });
           addLog(s, `[${skill.name}] 적 받는 데미지 +20% 3턴!`);
