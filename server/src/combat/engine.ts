@@ -477,10 +477,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
         }
 
-        // 접두사: 흡혈귀(lifesteal_pct)
+        // 접두사: 흡혈귀(lifesteal_pct) — 데미지의 N%를 회복
         const prefixLifesteal = s.equipPrefixes.lifesteal_pct || 0;
         if (prefixLifesteal > 0 && dmg > 0) {
-          const heal = Math.round(dmg * prefixLifesteal / 1000);
+          const heal = Math.round(dmg * prefixLifesteal / 100);
           if (heal > 0) {
             s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
             addLog(s, `[흡혈] HP +${heal}`);
