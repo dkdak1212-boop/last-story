@@ -37,7 +37,7 @@ router.get('/', async (req, res) => {
      FROM auctions a JOIN characters c ON c.id = a.seller_id
                      JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
-     ORDER BY COALESCE(i.required_level, 1) ASC, a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 200`,
+     ORDER BY COALESCE(i.required_level, 1) ASC, a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 1000`,
     params
   );
 

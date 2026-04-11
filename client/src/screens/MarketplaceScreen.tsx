@@ -29,10 +29,11 @@ function inferWeaponClass(name: string): string | null {
   return null;
 }
 
-// 레벨 → 구간 라벨 (1~10, 11~20, ...)
+// 레벨 → 구간 라벨 (1~9, 10~19, 20~29, ...)
 function levelBracket(level: number): { key: string; label: string; sort: number } {
-  const lo = Math.floor((level - 1) / 10) * 10 + 1;
-  const hi = lo + 9;
+  const base = Math.floor(level / 10) * 10;
+  const lo = base === 0 ? 1 : base;
+  const hi = base + 9;
   return { key: `${lo}-${hi}`, label: `Lv ${lo}~${hi}`, sort: lo };
 }
 
