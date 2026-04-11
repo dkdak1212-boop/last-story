@@ -46,7 +46,6 @@ import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
-import migrateForceRoutes from './routes/migrate-force.js';
 import { query } from './db/pool.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -58,8 +57,6 @@ const PORT = Number(process.env.PORT || 4000);
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
 app.set('trust proxy', true); // Railway 등 프록시 뒤에서 req.ip 정확히 추출
-
-app.use('/api/migrate-force', migrateForceRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
