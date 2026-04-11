@@ -938,103 +938,66 @@ function hasActivePlayerBuff(s: ActiveSession, type: string): boolean {
     (e.source === 'monster' /* player self-buffs stored as monster source */));
 }
 
+// 슬롯 스킬이 지금 사용해서 효과를 볼 만한 상태인지 (낭비 방지)
+function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number, poisonCount: number): boolean {
+  switch (sk.effect_type) {
+    case 'heal_pct':
+      return hpPct < 1.0; // 풀HP면 낭비
+    case 'shield':
+      // 공격형 shield(damage_mult > 0)는 항상 사용, 순수 버프는 중복 방지
+      return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'shield');
+    case 'damage_reduce':
+      return !hasActivePlayerBuff(s, 'damage_reduce');
+    case 'damage_reflect':
+      return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reflect');
+    case 'invincible':
+      return !hasActivePlayerBuff(s, 'invincible');
+    case 'resurrect':
+      return !hasActivePlayerBuff(s, 'resurrect');
+    case 'gauge_freeze':
+      return !hasEffect(s, 'player', 'gauge_freeze');
+    case 'accuracy_debuff':
+      return !hasEffect(s, 'player', 'accuracy_debuff');
+    case 'poison_burst':
+      return poisonCount > 0; // 독 없으면 낭비
+    case 'self_speed_mod':
+      // 자가 버프 (양수)면 중복 방지, 디버프(음수, 자해형)면 항상
+      return sk.effect_value <= 0 || !hasActivePlayerBuff(s, 'speed_mod');
+    default:
+      return true; // damage / dot / poison / stun / etc — 항상 사용 가능
+  }
+}
+
 async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
-  // ── 0. 힐 스킬은 HP 80% 미만에서 쿨 풀리면 항상 사용 (포션 설정과 별개) ──
-  if (hpPct < 0.8) {
-    const healSkill = findReady(s, 'heal_pct');
-    if (healSkill) { await executeSkill(s, healSkill); return; }
-  }
-
-  // ── 1. HP 위험 (임계값 이하) → 포션 / 무적 / 부활 ──
+  // ── 자동 포션 (아이템 — 스킬과 별개, HP 위험 시 사용) ──
   const healThresholdPct = s.autoPotionThreshold || 50;
-  if (hpPct * 100 < healThresholdPct) {
-    // 포션 (자동 포션 ON일 때만)
-    if (s.autoPotionEnabled && s.potionCooldown <= 0) {
-      const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
-      const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
-      if (pot) {
-        const pct = potionHealPct[pot.item_id] || 20;
-        const heal = Math.round(s.playerMaxHp * pct / 100);
-        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-        await consumeOneFromSlot(pot.id);
-        s.potionCooldown = 3;
-        addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
-        return;
-      }
-    }
-    // 무적 (HP 20% 이하)
-    if (hpPct < 0.2) {
-      const invSkill = findReady(s, 'invincible');
-      if (invSkill && !hasActivePlayerBuff(s, 'invincible')) { await executeSkill(s, invSkill); return; }
-    }
-    // 부활 준비 (HP 25% 이하, 아직 부활 버프 없으면)
-    if (hpPct < 0.25) {
-      const resSkill = findReady(s, 'resurrect');
-      if (resSkill && !hasActivePlayerBuff(s, 'resurrect')) { await executeSkill(s, resSkill); return; }
+  if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
+    const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
+    const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
+    if (pot) {
+      const pct = potionHealPct[pot.item_id] || 20;
+      const heal = Math.round(s.playerMaxHp * pct / 100);
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      await consumeOneFromSlot(pot.id);
+      s.potionCooldown = 3;
+      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
+      return;
     }
   }
 
-  // ── 1.5. 방어 버프(실드/철벽/반격의 의지)는 쿨다운 풀리는 즉시 항상 유지 (HP 무관) ──
-  if (!hasActivePlayerBuff(s, 'shield')) {
-    const shieldSkill = findReady(s, 'shield');
-    if (shieldSkill && shieldSkill.damage_mult === 0) { await executeSkill(s, shieldSkill); return; }
-  }
-  if (!hasActivePlayerBuff(s, 'damage_reduce')) {
-    const drSkill = findReady(s, 'damage_reduce');
-    if (drSkill) { await executeSkill(s, drSkill); return; }
-  }
-  if (!hasActivePlayerBuff(s, 'damage_reflect')) {
-    const reflSkill = findReady(s, 'damage_reflect');
-    if (reflSkill && reflSkill.damage_mult === 0) { await executeSkill(s, reflSkill); return; }
-  }
-
-  // ── 3. 유틸 디버프 (활성 효과 없을 때만) ──
-  if (!hasEffect(s, 'player', 'gauge_freeze')) {
-    const freezeSkill = findReady(s, 'gauge_freeze');
-    if (freezeSkill) { await executeSkill(s, freezeSkill); return; }
-  }
-  if (!hasEffect(s, 'player', 'accuracy_debuff')) {
-    const accSkill = findReady(s, 'accuracy_debuff');
-    if (accSkill) { await executeSkill(s, accSkill); return; }
-  }
-  // 게이지 리셋 (쿨 돌면 바로)
-  const grSkill = findReady(s, 'gauge_reset');
-  if (grSkill) { await executeSkill(s, grSkill); return; }
-
-  // ── 4. 독 폭발 (최우선: 독 1중첩만 있어도 쿨 풀리면 즉시 발동) ──
+  // ── 슬롯 순서대로 첫 번째 사용 가능한 스킬 발동 (왼쪽 절대 우선) ──
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
-  if (poisonCount >= 1) {
-    const burstSkill = findReady(s, 'poison_burst');
-    if (burstSkill) { await executeSkill(s, burstSkill); return; }
-  }
-
-  // ── 5. 자가 버프 (중복 방지) ──
-  if (!hasActivePlayerBuff(s, 'speed_mod')) {
-    const spdSkill = s.skills.find(sk => sk.effect_type === 'self_speed_mod' && sk.effect_value > 0 && isSkillReady(s, sk));
-    if (spdSkill) { await executeSkill(s, spdSkill); return; }
-  }
-  // 게이지 충전
-  const gfSkill = findReady(s, 'gauge_fill');
-  if (gfSkill) { await executeSkill(s, gfSkill); return; }
-
-  // ── 6. 공격 스킬 (slot_order ASC: 왼쪽 슬롯 절대 우선) ──
-  // cd=0 기본 공격도 같은 풀, slot_order로 경쟁
-  const attackSkills = s.skills
-    .filter(sk => {
-      if (!(sk.damage_mult > 0 && isSkillReady(s, sk))) return false;
-      // self_damage_pct: HP 50% 미만이면 사용 회피 (자살 방지)
-      if (sk.effect_type === 'self_damage_pct' && hpPct < 0.5) return false;
-      return true;
-    })
-    .sort((a, b) => a.slot_order - b.slot_order);
-  if (attackSkills.length > 0) {
-    await executeSkill(s, attackSkills[0]);
+  const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
+  for (const sk of sorted) {
+    if (!isSkillReady(s, sk)) continue;
+    if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    await executeSkill(s, sk);
     return;
   }
 
-  // fallback
+  // fallback: 모든 스킬이 쿨 또는 사용 불가일 때 기본 공격
   const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
   if (d.miss) addLog(s, '기본 공격 빗나감!');
   else {
