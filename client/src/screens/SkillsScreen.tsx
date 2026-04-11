@@ -109,7 +109,7 @@ export function SkillsScreen() {
       await refresh();
       setMsg(`${skillName} → ${currentState ? 'OFF' : 'ON'}`);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '최대 6개까지 설정 가능');
+      setMsg(e instanceof Error ? e.message : '최대 7개까지 설정 가능');
     }
     setToggling(false);
   }
@@ -146,8 +146,8 @@ export function SkillsScreen() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ color: 'var(--accent)' }}>스킬</h2>
-        <div style={{ fontSize: 13, color: autoCount >= 6 ? 'var(--danger)' : 'var(--text-dim)' }}>
-          전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 6 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/6
+        <div style={{ fontSize: 13, color: autoCount >= 7 ? 'var(--danger)' : 'var(--text-dim)' }}>
+          전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 7 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/7
         </div>
       </div>
       {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') || msg.includes('저장') || msg.includes('적용') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}

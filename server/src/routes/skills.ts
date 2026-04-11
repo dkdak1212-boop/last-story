@@ -6,6 +6,8 @@ import { loadCharacterOwned } from '../game/character.js';
 const router = Router();
 router.use(authRequired);
 
+const MAX_NON_BASIC_SLOTS = 7;
+
 // 클래스의 모든 스킬 + 학습/자동 여부
 router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
@@ -25,7 +27,7 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
       `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
        WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [id]
     );
-    const autoOn = s.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < 6;
+    const autoOn = s.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < MAX_NON_BASIC_SLOTS;
     // 다음 slot_order
     const maxR = await query<{ mx: number | null }>(
       `SELECT MAX(slot_order) AS mx FROM character_skills WHERE character_id = $1`, [id]
@@ -89,28 +91,30 @@ router.post('/:id/skills/reorder', async (req: AuthedRequest, res: Response) => 
   res.json({ ok: true, count: skillIds.length });
 });
 
-// 자동사용 토글 (최대 6개 제한)
+// 자동사용 토글 (최대 7개 제한, 기본기 제외)
 router.post('/:id/skills/:skillId/toggle-auto', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const skillId = Number(req.params.skillId);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 현재 상태 확인
-  const cur = await query<{ auto_use: boolean }>(
-    'SELECT auto_use FROM character_skills WHERE character_id = $1 AND skill_id = $2', [id, skillId]
+  // 현재 상태 + cd 확인
+  const cur = await query<{ auto_use: boolean; cooldown_actions: number }>(
+    `SELECT cs.auto_use, s.cooldown_actions FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+     WHERE cs.character_id = $1 AND cs.skill_id = $2`, [id, skillId]
   );
   if (cur.rowCount === 0) return res.status(404).json({ error: 'skill not found' });
 
   const isOn = cur.rows[0].auto_use;
-  if (!isOn) {
-    // ON으로 전환 시 6개 제한 체크 (기본기 제외)
+  const isBasic = cur.rows[0].cooldown_actions === 0;
+  if (!isOn && !isBasic) {
+    // ON으로 전환 시 7개 제한 체크 (기본기 제외)
     const countR = await query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
        WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [id]
     );
-    if (Number(countR.rows[0].cnt) >= 6) {
-      return res.status(400).json({ error: '자동 스킬은 최대 6개까지 설정 가능합니다.' });
+    if (Number(countR.rows[0].cnt) >= MAX_NON_BASIC_SLOTS) {
+      return res.status(400).json({ error: `자동 스킬은 최대 ${MAX_NON_BASIC_SLOTS}개까지 설정 가능합니다.` });
     }
   }
 
@@ -196,8 +200,8 @@ router.post('/:id/skill-presets/:idx/load', async (req: AuthedRequest, res: Resp
   if (presetR.rowCount === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
 
   const skillIds = presetR.rows[0].skill_ids || [];
-  // 6개 초과 방지
-  if (skillIds.length > 6) return res.status(400).json({ error: '프리셋에 스킬이 너무 많습니다 (6개 초과)' });
+  // 7개 초과 방지
+  if (skillIds.length > MAX_NON_BASIC_SLOTS) return res.status(400).json({ error: `프리셋에 스킬이 너무 많습니다 (${MAX_NON_BASIC_SLOTS}개 초과)` });
 
   // 모든 자동스킬 OFF (기본기 제외)
   await query(

@@ -192,7 +192,7 @@ async function loadEquipPrefixes(characterId: number): Promise<Record<string, nu
   return totals;
 }
 
-const MAX_COMBAT_SKILLS = 6;
+const MAX_COMBAT_SKILLS = 7;
 
 async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
   // 컬럼 보장 (방어적 — 마이그레이션이 아직 안 돈 상황 대비)
