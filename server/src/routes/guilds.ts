@@ -229,7 +229,7 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   if (dup.rowCount && dup.rowCount > 0) return res.status(409).json({ error: 'name taken' });
 
   const g = await query<{ id: number }>(
-    'INSERT INTO guilds (name, description, leader_id) VALUES ($1, $2, $3) RETURNING id',
+    'INSERT INTO guilds (name, description, leader_id, max_members) VALUES ($1, $2, $3, 20) RETURNING id',
     [parsed.data.name, parsed.data.description, char.id]
   );
   await query(
