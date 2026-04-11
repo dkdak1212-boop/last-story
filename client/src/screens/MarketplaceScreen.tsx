@@ -52,7 +52,7 @@ function nameStyle(grade: ItemGrade, fontSize: number): React.CSSProperties {
 export function MarketplaceScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
-  const [tab, setTab] = useState<'browse' | 'list' | 'mine'>('browse');
+  const [tab, setTab] = useState<'browse' | 'unique' | 'list' | 'mine'>('browse');
   const [weaponClass, setWeaponClass] = useState<string>(''); // '' = 전체, warrior/mage/cleric/rogue
   const [listings, setListings] = useState<Listing[]>([]);
   const [mine, setMine] = useState<Listing[]>([]);
@@ -74,7 +74,7 @@ export function MarketplaceScreen() {
   }
 
   useEffect(() => {
-    if (tab === 'browse') loadBrowse();
+    if (tab === 'browse' || tab === 'unique') loadBrowse();
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
   }, [tab, slotFilter, active?.id]);
@@ -99,8 +99,12 @@ export function MarketplaceScreen() {
   return (
     <div>
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>거래소</h2>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         <button className={tab === 'browse' ? 'primary' : ''} onClick={() => setTab('browse')}>둘러보기</button>
+        <button onClick={() => setTab('unique')} style={tab === 'unique' ? {
+          background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+          color: '#000', border: 'none', fontWeight: 800,
+        } : { fontWeight: 700, border: '1px solid var(--accent)' }}>유니크</button>
         <button className={tab === 'list' ? 'primary' : ''} onClick={() => setTab('list')}>등록</button>
         <button className={tab === 'mine' ? 'primary' : ''} onClick={() => setTab('mine')}>내 등록</button>
       </div>
@@ -156,6 +160,35 @@ export function MarketplaceScreen() {
             onBuy={(a) => buy(a)}
           />
         </>
+      )}
+
+      {tab === 'unique' && (
+        <div>
+          <div style={{
+            padding: '10px 14px', marginBottom: 10, borderRadius: 4,
+            background: 'linear-gradient(90deg, rgba(255,59,59,0.08), rgba(196,82,255,0.08))',
+            border: '1px solid var(--accent)', fontSize: 12, color: 'var(--text-dim)',
+          }}>
+            전 등급 중 <span style={{
+              fontWeight: 800,
+              background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+            }}>유니크</span> 등급 아이템만 표시합니다.
+          </div>
+          {(() => {
+            const uniques = listings.filter(a => a.itemGrade === 'unique');
+            if (uniques.length === 0) {
+              return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 유니크 아이템이 없습니다</div>;
+            }
+            // 가격 오름차순 정렬
+            const sorted = [...uniques].sort((a, b) => a.price - b.price);
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />)}
+              </div>
+            );
+          })()}
+        </div>
       )}
 
       {tab === 'list' && <ListItemPanel active={active?.id} inv={inv} onDone={() => { loadInv(); setTab('mine'); }} />}
