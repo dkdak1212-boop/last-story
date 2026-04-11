@@ -378,10 +378,16 @@ const MATK_CLASSES = new Set(['mage', 'cleric']);
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
 
-  // 쿨다운 설정 (패시브: cooldown_reduce)
+  // 쿨다운 설정
+  // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
+  // mana_flow: 추가 턴 수 감소 (예: 1 → -1턴)
   if (skill.cooldown_actions > 0) {
-    const cdReduce = getPassive(s, 'cooldown_reduce');
-    const cd = Math.max(1, skill.cooldown_actions - Math.floor(cdReduce / 25)); // 25%마다 1턴 감소
+    const cdReducePct = getPassive(s, 'cooldown_reduce');
+    const cdFlat = getPassive(s, 'mana_flow');
+    let cd = skill.cooldown_actions;
+    if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
+    if (cdFlat > 0) cd = cd - cdFlat;
+    cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);
   }
 
@@ -1501,8 +1507,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
   if (pMap.has('trickster')) { eff.cri += pMap.get('trickster')!; }
   // iron_will: 방어 +N%
   if (pMap.has('iron_will')) { eff.def = Math.round(eff.def * (1 + (pMap.get('iron_will')! / 100))); }
-  // mana_flow / mana_overload: 마법공격 +N%
-  const matkBonus = (pMap.get('mana_flow') || 0) + (pMap.get('mana_overload') || 0);
+  // mana_overload: 마법공격 +N% (mana_flow는 쿨다운 추가 감소로 사용 — executeSkill에서 처리)
+  const matkBonus = pMap.get('mana_overload') || 0;
   if (matkBonus > 0) { eff.matk = Math.round(eff.matk * (1 + matkBonus / 100)); }
   // focus_mastery: 명중 +N
   if (pMap.has('focus_mastery')) { eff.accuracy += pMap.get('focus_mastery')!; }
