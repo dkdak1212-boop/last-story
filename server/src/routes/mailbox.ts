@@ -43,8 +43,13 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 우편 조회 (이중 수령 방지)
-  const r = await query<{ item_id: number | null; item_quantity: number | null; gold: string | null; read_at: string | null }>(
-    'SELECT item_id, item_quantity, gold, read_at FROM mailbox WHERE id = $1 AND character_id = $2',
+  const r = await query<{
+    item_id: number | null; item_quantity: number | null; gold: string | null; read_at: string | null;
+    enhance_level: number | null; prefix_ids: number[] | null;
+    prefix_stats: Record<string, number> | null; quality: number | null;
+  }>(
+    `SELECT item_id, item_quantity, gold, read_at, enhance_level, prefix_ids, prefix_stats, quality
+     FROM mailbox WHERE id = $1 AND character_id = $2`,
     [mailId, id]
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'mail not found' });
@@ -64,6 +69,12 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
 
     if (isEquipment) {
       // 장비: 항상 새 슬롯에 1개씩 (스택 불가)
+      // 우편함에 저장된 옵션(강화/접두사/품질) 보존
+      const enhLv = m.enhance_level ?? 0;
+      const pIds = m.prefix_ids && m.prefix_ids.length > 0 ? m.prefix_ids : [];
+      const pStatsJson = m.prefix_stats ? JSON.stringify(m.prefix_stats) : '{}';
+      const qual = m.quality ?? 0;
+
       for (let i = 0; i < m.item_quantity; i++) {
         const usedR = await query<{ slot_index: number }>(
           'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
@@ -73,8 +84,10 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
         for (let s = 0; s < 300; s++) if (!used.has(s)) { freeSlot = s; break; }
         if (freeSlot < 0) return res.status(400).json({ error: 'inventory full' });
         await query(
-          'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, 1)',
-          [id, m.item_id, freeSlot]
+          `INSERT INTO character_inventory
+             (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+           VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)`,
+          [id, m.item_id, freeSlot, enhLv, pIds, pStatsJson, qual]
         );
       }
     } else {

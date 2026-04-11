@@ -182,7 +182,11 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
       [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual]
     );
   } else {
-    await deliverToMailbox(parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송', au.item_id, au.item_quantity);
+    await deliverToMailbox(
+      parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송',
+      au.item_id, au.item_quantity, 0,
+      { enhanceLevel: enhLv, prefixIds: pIds, prefixStats: ad?.prefix_stats || null, quality: qual }
+    );
   }
 
   await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [auctionId]);
@@ -198,15 +202,32 @@ router.post('/:auctionId/cancel', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const a = await query<{ seller_id: number; item_id: number; item_quantity: number; settled: boolean; cancelled: boolean }>(
-    'SELECT seller_id, item_id, item_quantity, settled, cancelled FROM auctions WHERE id = $1', [auctionId]
+  const a = await query<{
+    seller_id: number; item_id: number; item_quantity: number;
+    settled: boolean; cancelled: boolean;
+    enhance_level: number; prefix_ids: number[] | null;
+    prefix_stats: Record<string, number> | null; quality: number;
+  }>(
+    `SELECT seller_id, item_id, item_quantity, settled, cancelled,
+            enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+     FROM auctions WHERE id = $1`, [auctionId]
   );
   if (a.rowCount === 0) return res.status(404).json({ error: 'not found' });
-  if (a.rows[0].seller_id !== parsed.data.characterId) return res.status(403).json({ error: 'not owner' });
-  if (a.rows[0].settled || a.rows[0].cancelled) return res.status(400).json({ error: 'already closed' });
+  const ar = a.rows[0];
+  if (ar.seller_id !== parsed.data.characterId) return res.status(403).json({ error: 'not owner' });
+  if (ar.settled || ar.cancelled) return res.status(400).json({ error: 'already closed' });
 
   await query('UPDATE auctions SET cancelled = TRUE WHERE id = $1', [auctionId]);
-  await deliverToMailbox(parsed.data.characterId, '거래소 등록 취소', '취소된 아이템을 돌려드립니다.', a.rows[0].item_id, a.rows[0].item_quantity);
+  await deliverToMailbox(
+    parsed.data.characterId, '거래소 등록 취소', '취소된 아이템을 돌려드립니다.',
+    ar.item_id, ar.item_quantity, 0,
+    {
+      enhanceLevel: ar.enhance_level || 0,
+      prefixIds: ar.prefix_ids || null,
+      prefixStats: ar.prefix_stats || null,
+      quality: ar.quality || 0,
+    }
+  );
   res.json({ ok: true });
 });
 
@@ -235,14 +256,29 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   })));
 });
 
-// 만료 정산 — 미판매 아이템 반환
+// 만료 정산 — 미판매 아이템 반환 (옵션 보존)
 export async function settleExpiredAuctions() {
-  const r = await query<{ id: number; seller_id: number; item_id: number; item_quantity: number }>(
-    `SELECT id, seller_id, item_id, item_quantity FROM auctions
+  const r = await query<{
+    id: number; seller_id: number; item_id: number; item_quantity: number;
+    enhance_level: number; prefix_ids: number[] | null;
+    prefix_stats: Record<string, number> | null; quality: number;
+  }>(
+    `SELECT id, seller_id, item_id, item_quantity,
+            enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+     FROM auctions
      WHERE settled = FALSE AND cancelled = FALSE AND ends_at <= NOW()`
   );
   for (const a of r.rows) {
-    await deliverToMailbox(a.seller_id, '거래소 만료 반환', '판매되지 않은 아이템을 반환합니다.', a.item_id, a.item_quantity);
+    await deliverToMailbox(
+      a.seller_id, '거래소 만료 반환', '판매되지 않은 아이템을 반환합니다.',
+      a.item_id, a.item_quantity, 0,
+      {
+        enhanceLevel: a.enhance_level || 0,
+        prefixIds: a.prefix_ids || null,
+        prefixStats: a.prefix_stats || null,
+        quality: a.quality || 0,
+      }
+    );
     await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [a.id]);
   }
 }

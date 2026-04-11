@@ -163,20 +163,35 @@ export async function addItemToInventoryPlain(
   return { added: quantity - remaining, overflow: remaining };
 }
 
+export interface MailItemOptions {
+  enhanceLevel?: number;
+  prefixIds?: number[] | null;
+  prefixStats?: Record<string, number> | null;
+  quality?: number;
+}
+
 export async function deliverToMailbox(
   characterId: number,
   subject: string,
   body: string,
   itemId: number,
   quantity: number,
-  gold: number = 0
+  gold: number = 0,
+  options?: MailItemOptions
 ) {
   // itemId 0 → 단순 알림 (아이템 없음)
   if (itemId > 0) {
     await query(
-      `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [characterId, subject, body, itemId, quantity, gold]
+      `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
+                             enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+      [
+        characterId, subject, body, itemId, quantity, gold,
+        options?.enhanceLevel ?? null,
+        options?.prefixIds && options.prefixIds.length > 0 ? options.prefixIds : null,
+        options?.prefixStats ? JSON.stringify(options.prefixStats) : null,
+        options?.quality ?? null,
+      ]
     );
   } else {
     await query(
