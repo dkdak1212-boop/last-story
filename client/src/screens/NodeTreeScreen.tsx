@@ -422,38 +422,64 @@ export function NodeTreeScreen() {
   return (
     <div>
       {/* 헤더 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h2 style={{ color: 'var(--accent)', margin: 0 }}>노드 트리</h2>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>
-          <span style={{ color: 'var(--accent)' }}>{treeState.availablePoints}</span>
-          <span style={{ color: 'var(--text-dim)' }}> / {treeState.totalPoints} pt</span>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
+        padding: isMobile ? '10px 14px' : 0,
+        background: isMobile ? 'linear-gradient(135deg, rgba(201,162,77,0.12), rgba(201,162,77,0.04))' : 'transparent',
+        borderRadius: isMobile ? 6 : 0,
+        border: isMobile ? '1px solid rgba(201,162,77,0.3)' : 'none',
+      }}>
+        <h2 style={{ color: 'var(--accent)', margin: 0, fontSize: isMobile ? 18 : 22 }}>노드 트리</h2>
+        <div style={{
+          padding: isMobile ? '4px 10px' : 0,
+          background: isMobile ? 'rgba(0,0,0,0.4)' : 'transparent',
+          borderRadius: isMobile ? 4 : 0,
+          border: isMobile ? '1px solid var(--border)' : 'none',
+        }}>
+          <span style={{ fontSize: isMobile ? 18 : 15, fontWeight: 900, color: 'var(--accent)' }}>
+            {treeState.availablePoints}
+          </span>
+          <span style={{ color: 'var(--text-dim)', fontSize: isMobile ? 12 : 14 }}> / {treeState.totalPoints} pt</span>
         </div>
       </div>
 
       {/* 구역 탭 */}
       {!isSingleZone && (
-        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
           {zones.map(z => (
             <button key={z} onClick={() => setActiveZone(z)} style={{
-              padding: '5px 12px', fontSize: 12,
+              padding: isMobile ? '8px 16px' : '5px 12px',
+              fontSize: isMobile ? 13 : 12,
+              minHeight: isMobile ? 38 : 'auto',
               background: activeZone === z ? 'var(--accent)' : 'var(--bg-panel)',
               color: activeZone === z ? '#000' : 'var(--text-dim)',
               border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
-              fontWeight: activeZone === z ? 700 : 400,
+              fontWeight: activeZone === z ? 700 : 500,
+              borderRadius: 4,
+              flex: isMobile ? '1 1 auto' : '0 0 auto',
             }}>{z}</button>
           ))}
         </div>
       )}
 
-      {msg && <div style={{ color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>{msg}</div>}
+      {msg && <div style={{
+        color: 'var(--accent)', marginBottom: 8,
+        fontSize: isMobile ? 14 : 13,
+        padding: isMobile ? '8px 12px' : 0,
+        background: isMobile ? 'rgba(201,162,77,0.1)' : 'transparent',
+        borderLeft: isMobile ? '3px solid var(--accent)' : 'none',
+        borderRadius: isMobile ? 3 : 0,
+      }}>{msg}</div>}
 
       {/* SVG 트리 */}
       <div style={{
-        position: 'relative', width: '100%', height: isMobile ? 500 : 700,
-        border: '1px solid var(--border)',
+        position: 'relative', width: '100%', height: isMobile ? 560 : 700,
+        border: `1px solid ${isMobile ? 'var(--accent)' : 'var(--border)'}`,
         background: 'radial-gradient(ellipse at center, #1a1a2a 0%, #050505 70%)',
         overflow: 'hidden', marginBottom: 12,
         touchAction: 'none',
+        borderRadius: isMobile ? 6 : 0,
+        boxShadow: isMobile ? '0 0 20px rgba(0,0,0,0.6)' : 'none',
       }}>
         <svg
           ref={svgRef}
@@ -539,14 +565,20 @@ export function NodeTreeScreen() {
                 )}
                 {/* 코스트 */}
                 <text x={pos.x} y={pos.y + (node.tier === 'large' || node.tier === 'huge' ? 10 : 4)}
-                  fill={colors.text} fontSize={node.tier === 'large' || node.tier === 'huge' ? 11 : 10}
-                  fontWeight={700} textAnchor="middle">{node.cost}</text>
+                  fill={colors.text}
+                  fontSize={node.tier === 'large' || node.tier === 'huge' ? (isMobile ? 13 : 11) : (isMobile ? 12 : 10)}
+                  fontWeight={800} textAnchor="middle"
+                  style={{ pointerEvents: 'none', paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.7)', strokeWidth: 2 }}>
+                  {node.cost}
+                </text>
                 {/* 이름 (medium 이상만, 줌 인 시) */}
                 {(node.tier !== 'small' || viewBox.w < 1000) && (
-                  <text x={pos.x} y={pos.y + r + 12}
-                    fill={colors.text} fontSize={node.tier === 'large' || node.tier === 'huge' ? 11 : 9}
-                    textAnchor="middle" fontWeight={node.tier === 'large' || node.tier === 'huge' ? 700 : 400}
-                    style={{ pointerEvents: 'none' }}>
+                  <text x={pos.x} y={pos.y + r + (isMobile ? 14 : 12)}
+                    fill={colors.text}
+                    fontSize={node.tier === 'large' || node.tier === 'huge' ? (isMobile ? 13 : 11) : (isMobile ? 11 : 9)}
+                    textAnchor="middle"
+                    fontWeight={node.tier === 'large' || node.tier === 'huge' ? 800 : 600}
+                    style={{ pointerEvents: 'none', paintOrder: 'stroke', stroke: 'rgba(0,0,0,0.85)', strokeWidth: 2.5 }}>
                     {node.name.length > 8 ? node.name.slice(0, 7) + '..' : node.name}
                   </text>
                 )}
@@ -557,8 +589,8 @@ export function NodeTreeScreen() {
 
         {/* 컨트롤 오버레이 */}
         <div style={{
-          position: 'absolute', top: 8, right: 8,
-          display: 'flex', flexDirection: 'column', gap: 4,
+          position: 'absolute', top: 10, right: 10,
+          display: 'flex', flexDirection: 'column', gap: 6,
         }}>
           <button onClick={() => {
             const scale = 1 / 1.3;
@@ -567,7 +599,13 @@ export function NodeTreeScreen() {
               y: v.y + v.h * (1 - scale) / 2,
               w: v.w * scale, h: v.h * scale,
             }));
-          }} style={{ padding: '6px 10px', fontSize: 14, background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid #444' }}>+</button>
+          }} style={{
+            width: isMobile ? 44 : 36, height: isMobile ? 44 : 36,
+            fontSize: isMobile ? 22 : 16, fontWeight: 900,
+            background: 'rgba(0,0,0,0.75)', color: 'var(--accent)',
+            border: '1px solid var(--accent)', borderRadius: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>+</button>
           <button onClick={() => {
             const scale = 1.3;
             setViewBox(v => ({
@@ -575,20 +613,37 @@ export function NodeTreeScreen() {
               y: v.y - v.h * (scale - 1) / 2,
               w: v.w * scale, h: v.h * scale,
             }));
-          }} style={{ padding: '6px 10px', fontSize: 14, background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid #444' }}>−</button>
-          <button onClick={resetView} style={{ padding: '6px 10px', fontSize: 11, background: 'rgba(0,0,0,0.7)', color: '#fff', border: '1px solid #444' }}>⊡</button>
+          }} style={{
+            width: isMobile ? 44 : 36, height: isMobile ? 44 : 36,
+            fontSize: isMobile ? 22 : 16, fontWeight: 900,
+            background: 'rgba(0,0,0,0.75)', color: 'var(--accent)',
+            border: '1px solid var(--accent)', borderRadius: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>−</button>
+          <button onClick={resetView} style={{
+            width: isMobile ? 44 : 36, height: isMobile ? 44 : 36,
+            fontSize: isMobile ? 16 : 12, fontWeight: 700,
+            background: 'rgba(0,0,0,0.75)', color: 'var(--text-dim)',
+            border: '1px solid var(--border)', borderRadius: 4,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>⊡</button>
         </div>
 
         {/* 범례 */}
         <div style={{
-          position: 'absolute', bottom: 8, left: 8,
-          display: 'flex', gap: 12, fontSize: 10, flexWrap: 'wrap',
-          background: 'rgba(0,0,0,0.6)', padding: '4px 8px', borderRadius: 4,
+          position: 'absolute', bottom: 10, left: 10, right: isMobile ? 64 : 'auto',
+          display: 'flex', gap: isMobile ? 10 : 12,
+          fontSize: isMobile ? 11 : 10, flexWrap: 'wrap',
+          background: 'rgba(0,0,0,0.75)',
+          padding: isMobile ? '6px 10px' : '4px 8px',
+          borderRadius: 4,
+          border: '1px solid var(--border)',
+          fontWeight: 600,
         }}>
           <span style={{ color: '#ffd700' }}>● 투자됨</span>
           <span style={{ color: '#81c784' }}>● 가능</span>
           <span style={{ color: '#666' }}>● 잠김</span>
-          <span style={{ color: '#ff8800' }}>● 선행 경로</span>
+          <span style={{ color: '#ff8800' }}>● 선행</span>
         </div>
       </div>
 
@@ -630,10 +685,33 @@ export function NodeTreeScreen() {
       )}
 
       {/* 리셋 버튼 */}
-      <div style={{ display: 'flex', gap: 8, padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-        <button onClick={resetPartial} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>부분 리셋 500G</button>
-        <button onClick={resetZone} disabled={loading} style={{ fontSize: 11, padding: '5px 10px' }}>구역 리셋 2,000G</button>
-        <button onClick={resetAll} disabled={loading} style={{ fontSize: 11, padding: '5px 10px', color: 'var(--danger)' }}>전체 리셋 5,000G</button>
+      <div style={{
+        display: 'flex', gap: isMobile ? 6 : 8, padding: isMobile ? 12 : 10,
+        background: 'var(--bg-panel)', border: '1px solid var(--border)',
+        borderRadius: isMobile ? 6 : 0,
+        flexWrap: 'wrap',
+      }}>
+        <button onClick={resetPartial} disabled={loading} style={{
+          fontSize: isMobile ? 12 : 11,
+          padding: isMobile ? '10px 14px' : '5px 10px',
+          flex: isMobile ? '1 1 30%' : '0 0 auto',
+          minHeight: isMobile ? 40 : 'auto',
+          fontWeight: 600,
+        }}>부분 리셋 500G</button>
+        <button onClick={resetZone} disabled={loading} style={{
+          fontSize: isMobile ? 12 : 11,
+          padding: isMobile ? '10px 14px' : '5px 10px',
+          flex: isMobile ? '1 1 30%' : '0 0 auto',
+          minHeight: isMobile ? 40 : 'auto',
+          fontWeight: 600,
+        }}>구역 리셋 2,000G</button>
+        <button onClick={resetAll} disabled={loading} style={{
+          fontSize: isMobile ? 12 : 11,
+          padding: isMobile ? '10px 14px' : '5px 10px',
+          flex: isMobile ? '1 1 30%' : '0 0 auto',
+          minHeight: isMobile ? 40 : 'auto',
+          color: 'var(--danger)', fontWeight: 600,
+        }}>전체 리셋 5,000G</button>
       </div>
     </div>
   );
