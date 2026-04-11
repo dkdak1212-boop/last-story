@@ -800,11 +800,18 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
         )}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {skills.map(sk => {
+        {skills.map((sk, idx) => {
           const onCooldown = sk.cooldownLeft > 0;
           const usable = canUse && sk.usable && !onCooldown;
           const isBasic = sk.cooldownMax === 0;
           const fx = SKILL_EFFECTS[sk.name] || { icon: '⚔', color: 'var(--accent)', glow: 'var(--accent)' };
+          const moveSkill = (delta: number) => {
+            const ids = skills.map(x => x.id);
+            const newIdx = idx + delta;
+            if (newIdx < 0 || newIdx >= ids.length) return;
+            [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+            onReorder(ids);
+          };
 
           return (
             <div
@@ -846,6 +853,31 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
                 boxShadow: usable ? `0 0 12px ${fx.glow}88, inset 0 0 8px ${fx.glow}44` : 'none',
               }}
             >
+              {/* 슬롯 이동 버튼 (모바일/PC 공통) */}
+              <button
+                onClick={(e) => { e.stopPropagation(); moveSkill(-1); }}
+                disabled={idx === 0}
+                style={{
+                  position: 'absolute', left: 2, top: '50%', transform: 'translateY(-50%)',
+                  width: 18, height: 22, padding: 0, fontSize: 12, lineHeight: 1,
+                  background: 'rgba(0,0,0,0.5)', color: idx === 0 ? '#666' : '#fff',
+                  border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3,
+                  cursor: idx === 0 ? 'not-allowed' : 'pointer', zIndex: 5,
+                }}
+                aria-label="왼쪽으로"
+              >◀</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); moveSkill(1); }}
+                disabled={idx === skills.length - 1}
+                style={{
+                  position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+                  width: 18, height: 22, padding: 0, fontSize: 12, lineHeight: 1,
+                  background: 'rgba(0,0,0,0.5)', color: idx === skills.length - 1 ? '#666' : '#fff',
+                  border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3,
+                  cursor: idx === skills.length - 1 ? 'not-allowed' : 'pointer', zIndex: 5,
+                }}
+                aria-label="오른쪽으로"
+              >▶</button>
               <div style={{ lineHeight: 1, marginBottom: 4, display: 'flex', justifyContent: 'center' }}>
                 {getSkillIcon(sk.name) ? (
                   <img src={getSkillIcon(sk.name)} alt="" width={32} height={32}

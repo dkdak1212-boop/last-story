@@ -192,9 +192,20 @@ export function SkillsScreen() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {skills.map((s) => {
+        {(() => {
+          const onSkills = skills.filter(s => s.learned && s.autoUse);
+          const moveOnSkill = (skillId: number, delta: number) => {
+            const ids = onSkills.map(s => s.id);
+            const idx = ids.indexOf(skillId);
+            const newIdx = idx + delta;
+            if (idx < 0 || newIdx < 0 || newIdx >= ids.length) return;
+            [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
+            reorderSkills(ids);
+          };
+          return skills.map((s) => {
           const isOn = s.learned && s.autoUse;
           const draggable = isOn;
+          const onIdx = isOn ? onSkills.findIndex(x => x.id === s.id) : -1;
           return (
           <div
             key={s.id}
@@ -231,6 +242,22 @@ export function SkillsScreen() {
                 쿨다운 {s.cooldown}s
               </div>
             </div>
+            {isOn && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <button
+                  onClick={() => moveOnSkill(s.id, -1)}
+                  disabled={onIdx <= 0}
+                  style={{ padding: '2px 8px', fontSize: 11, lineHeight: 1, background: 'var(--bg)', color: onIdx <= 0 ? 'var(--text-dim)' : 'var(--accent)', border: '1px solid var(--border)', cursor: onIdx <= 0 ? 'not-allowed' : 'pointer' }}
+                  aria-label="위로"
+                >▲</button>
+                <button
+                  onClick={() => moveOnSkill(s.id, 1)}
+                  disabled={onIdx === onSkills.length - 1}
+                  style={{ padding: '2px 8px', fontSize: 11, lineHeight: 1, background: 'var(--bg)', color: onIdx === onSkills.length - 1 ? 'var(--text-dim)' : 'var(--accent)', border: '1px solid var(--border)', cursor: onIdx === onSkills.length - 1 ? 'not-allowed' : 'pointer' }}
+                  aria-label="아래로"
+                >▼</button>
+              </div>
+            )}
             {s.learned && (
               <button
                 onClick={() => toggleAuto(s.id, s.name, s.autoUse)}
@@ -248,7 +275,8 @@ export function SkillsScreen() {
             )}
           </div>
         );
-        })}
+        });
+        })()}
         {skills.length === 0 && <div style={{ color: 'var(--text-dim)' }}>스킬이 없다.</div>}
       </div>
     </div>
