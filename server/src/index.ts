@@ -1378,6 +1378,106 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 티어별 신규 유니크 아이템 확장 (20개 추가 — 티어당 2개 × 10티어)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'uniques_expand_v1'`);
+      if (applied.rowCount === 0) {
+        type NewUnique = {
+          id: number; name: string; type: string; slot: string;
+          stats: Record<string, number>;
+          uniquePrefix: Record<string, number>;
+          sellPrice: number; requiredLevel: number;
+          description: string;
+        };
+        const newUniques: NewUnique[] = [
+          // ── Tier 1 (Lv 5) ──
+          { id: 701, name: '야수의 송곳니 목걸이', type: 'accessory', slot: 'amulet',
+            stats: { hp: 100, atk: 10, matk: 10 }, uniquePrefix: { first_strike_pct: 30 },
+            sellPrice: 600, requiredLevel: 5, description: '첫 공격에 +30% 데미지' },
+          { id: 702, name: '도망자의 망토', type: 'armor', slot: 'boots',
+            stats: { hp: 120, def: 8, spd: 15 }, uniquePrefix: { dodge: 5 },
+            sellPrice: 650, requiredLevel: 5, description: '스피드 +15, 회피 +5' },
+          // ── Tier 2 (Lv 15) ──
+          { id: 703, name: '사냥꾼의 반지', type: 'accessory', slot: 'ring',
+            stats: { hp: 140, atk: 22, matk: 22, cri: 5 }, uniquePrefix: { crit_dmg_pct: 20 },
+            sellPrice: 1200, requiredLevel: 15, description: '치명타 데미지 +20%' },
+          { id: 704, name: '회복의 부적', type: 'accessory', slot: 'amulet',
+            stats: { hp: 220, def: 12 }, uniquePrefix: { hp_regen: 15, lifesteal_pct: 20 },
+            sellPrice: 1250, requiredLevel: 15, description: 'HP 재생 +15, 흡혈 +20%' },
+          // ── Tier 3 (Lv 25) ──
+          { id: 705, name: '사막 여제의 반지', type: 'accessory', slot: 'ring',
+            stats: { hp: 210, atk: 32, matk: 32 }, uniquePrefix: { dot_amp_pct: 20 },
+            sellPrice: 2400, requiredLevel: 25, description: '도트 데미지 +20%' },
+          { id: 706, name: '철벽의 투구', type: 'armor', slot: 'helm',
+            stats: { hp: 290, def: 26 }, uniquePrefix: { guardian_pct: 5 },
+            sellPrice: 2300, requiredLevel: 25, description: 'HP 50% 이상 시 받는 데미지 -5%' },
+          // ── Tier 4 (Lv 35) ──
+          { id: 707, name: '화산 거인의 장화', type: 'armor', slot: 'boots',
+            stats: { hp: 280, atk: 42, def: 22, spd: 20 }, uniquePrefix: { berserk_pct: 25 },
+            sellPrice: 4200, requiredLevel: 35, description: 'HP 30% 이하 시 데미지 +25%' },
+          { id: 708, name: '연금술사의 목걸이', type: 'accessory', slot: 'amulet',
+            stats: { hp: 240, matk: 48, def: 22 }, uniquePrefix: { gauge_on_crit_pct: 15 },
+            sellPrice: 4300, requiredLevel: 35, description: '치명타 시 게이지 +15%' },
+          // ── Tier 5 (Lv 45) ──
+          { id: 709, name: '흡혈박쥐의 반지', type: 'accessory', slot: 'ring',
+            stats: { hp: 320, atk: 58, matk: 58 }, uniquePrefix: { lifesteal_pct: 40 },
+            sellPrice: 6800, requiredLevel: 45, description: '흡혈 +40%' },
+          { id: 710, name: '그림자 암살자의 장화', type: 'armor', slot: 'boots',
+            stats: { hp: 300, atk: 52, def: 32, spd: 35 }, uniquePrefix: { ambush_pct: 30 },
+            sellPrice: 6900, requiredLevel: 45, description: '5초 미피격 시 다음 공격 +30%' },
+          // ── Tier 6 (Lv 55) ──
+          { id: 711, name: '룬의 왕관', type: 'armor', slot: 'helm',
+            stats: { hp: 1100, def: 88, matk: 110 }, uniquePrefix: { matk_pct: 10 },
+            sellPrice: 9200, requiredLevel: 55, description: '마법공격 +10%' },
+          { id: 712, name: '전쟁 영웅의 훈장', type: 'accessory', slot: 'amulet',
+            stats: { hp: 600, atk: 90, def: 50 }, uniquePrefix: { gold_bonus_pct: 20, exp_bonus_pct: 15 },
+            sellPrice: 9400, requiredLevel: 55, description: '획득 골드 +20%, 경험치 +15%' },
+          // ── Tier 7 (Lv 65) ──
+          { id: 713, name: '성화의 성서', type: 'accessory', slot: 'amulet',
+            stats: { hp: 820, matk: 145, def: 58 }, uniquePrefix: { dot_amp_pct: 30 },
+            sellPrice: 13500, requiredLevel: 65, description: '도트 데미지 +30%' },
+          { id: 714, name: '독사의 팔찌', type: 'accessory', slot: 'ring',
+            stats: { hp: 720, atk: 128, matk: 128, def: 62 }, uniquePrefix: { dot_amp_pct: 35 },
+            sellPrice: 13600, requiredLevel: 65, description: '도트 데미지 +35%' },
+          // ── Tier 8 (Lv 75) ──
+          { id: 715, name: '번개 군주의 망토', type: 'armor', slot: 'chest',
+            stats: { hp: 1080, matk: 185, def: 105 }, uniquePrefix: { matk_pct: 12, crit_dmg_pct: 30 },
+            sellPrice: 18500, requiredLevel: 75, description: '마법공격 +12%, 치명타 데미지 +30%' },
+          { id: 716, name: '강철 거인의 투구', type: 'armor', slot: 'helm',
+            stats: { hp: 1450, def: 135 }, uniquePrefix: { damage_taken_down_pct: 10 },
+            sellPrice: 18400, requiredLevel: 75, description: '받는 데미지 -10%' },
+          // ── Tier 9 (Lv 85) ──
+          { id: 717, name: '고룡 사냥꾼의 반지', type: 'accessory', slot: 'ring',
+            stats: { hp: 920, atk: 180, matk: 180, def: 85 }, uniquePrefix: { def_reduce_pct: 20, crit_dmg_pct: 25 },
+            sellPrice: 24800, requiredLevel: 85, description: '적 방어 -20%, 치명타 데미지 +25%' },
+          { id: 718, name: '천사의 깃털 망토', type: 'armor', slot: 'chest',
+            stats: { hp: 1640, def: 165 }, uniquePrefix: { hp_regen: 80, lifesteal_pct: 25 },
+            sellPrice: 24600, requiredLevel: 85, description: 'HP 재생 +80, 흡혈 +25%' },
+          // ── Tier 10 (Lv 95) ──
+          { id: 719, name: '파멸의 왕관', type: 'armor', slot: 'helm',
+            stats: { hp: 1450, atk: 155, matk: 155, def: 190 }, uniquePrefix: { atk_pct: 15, matk_pct: 15 },
+            sellPrice: 38000, requiredLevel: 95, description: '공격/마법공격 +15%' },
+          { id: 720, name: '창조주의 인장', type: 'accessory', slot: 'ring',
+            stats: { hp: 1220, atk: 185, matk: 185, def: 155 }, uniquePrefix: { damage_taken_down_pct: 15, gauge_on_crit_pct: 25 },
+            sellPrice: 38200, requiredLevel: 95, description: '받는 데미지 -15%, 치명타 시 게이지 +25%' },
+        ];
+        for (const u of newUniques) {
+          await query(
+            `INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, sell_price, required_level, unique_prefix_stats)
+             VALUES ($1, $2, $3, 'unique', $4, $5::jsonb, $6, 1, $7, $8, $9::jsonb)
+             ON CONFLICT (id) DO NOTHING`,
+            [u.id, u.name, u.type, u.slot, JSON.stringify(u.stats), `[유니크] ${u.description}`, u.sellPrice, u.requiredLevel, JSON.stringify(u.uniquePrefix)]
+          );
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('uniques_expand_v1')`);
+        console.log(`[migration] uniques_expand_v1: ${newUniques.length}개 유니크 추가 완료`);
+      }
+    } catch (e) {
+      console.error('[migration] uniques_expand_v1 error:', e);
+    }
+  }
+
   // 클래스별 스킬 계수 상향: 전사 +20%, 성직자 +50%, 마법사 +10%
   // damage_mult를 곱셈으로 조정 (0은 그대로 0 유지 — 버프/힐 스킬 영향 없음)
   // + description 안의 "xNNN%" 문자열도 같은 배율로 동기화

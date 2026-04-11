@@ -1107,6 +1107,12 @@ function monsterAction(s: ActiveSession): void {
     }
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
+    // 접두사: 경감 (damage_taken_down_pct) — 조건 없이 상시 감소
+    const dmgTakenDown = s.equipPrefixes.damage_taken_down_pct || 0;
+    if (dmgTakenDown > 0 && dmg > 0) {
+      dmg = Math.round(dmg * (1 - dmgTakenDown / 100));
+    }
+
     if (dmg > 0) {
       s.playerHp -= dmg;
       const defUsed = Math.round(playerDefStats.def);
@@ -1625,6 +1631,14 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     eff.atk = Math.round(eff.atk * 0.85);
   }
   // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동) — executeSkill에서 judge_amp와 합산됨
+
+  // 유니크 접두사: atk_pct / matk_pct — 공격/마법공격 % 증폭
+  if (equipPrefixes.atk_pct) {
+    eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
+  }
+  if (equipPrefixes.matk_pct) {
+    eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
+  }
 
   const session: ActiveSession = {
     characterId,

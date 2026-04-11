@@ -66,14 +66,6 @@ export async function attackBoss(characterId: number) {
   const spellAmp = mageClass ? (passiveMap.get('spell_amp') || 0) : 0;
   const critDmgBonus = passiveMap.get('crit_damage') || 0;
   const cdReduce = passiveMap.get('cooldown_reduce') || 0;
-  // poison_lord: 물리 -15% (engine.ts startCombatSession과 동일) — playerAtk 산정 전에 적용
-  if (passiveMap.has('poison_lord')) {
-    eff.atk = Math.round(eff.atk * 0.85);
-  }
-
-  const playerAtk = mageClass ? eff.matk : eff.atk;
-  const playerDef = eff.def;
-  const playerMdef = eff.mdef;
 
   // 장비 접두사 특수 효과 로드
   const prefixR = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
@@ -91,6 +83,23 @@ export async function attackBoss(characterId: number) {
   const prefixLifesteal = equipPrefixes.lifesteal_pct || 0;
   const prefixCritDmg = equipPrefixes.crit_dmg_pct || 0;
   const prefixHpRegen = equipPrefixes.hp_regen || 0;
+
+  // 스탯 증폭 (노드·유니크) — playerAtk 산정 전에 적용
+  // poison_lord: 물리 -15% (engine.ts startCombatSession과 동일)
+  if (passiveMap.has('poison_lord')) {
+    eff.atk = Math.round(eff.atk * 0.85);
+  }
+  // 유니크 접두사: atk_pct / matk_pct — 공격/마법공격 % 증폭
+  if (equipPrefixes.atk_pct) {
+    eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
+  }
+  if (equipPrefixes.matk_pct) {
+    eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
+  }
+
+  const playerAtk = mageClass ? eff.matk : eff.atk;
+  const playerDef = eff.def;
+  const playerMdef = eff.mdef;
 
   // 스킬 로드 — 필드 전투와 동일한 slot_order 기반 우선순위
   // (class_name + required_level + auto_use 필터, slot_order ASC 정렬)
