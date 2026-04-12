@@ -137,6 +137,100 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
   res.json({ ok: true });
 });
 
+// 우편 보내기 (골드/아이템)
+router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const { z } = await import('zod');
+  const parsed = z.object({
+    recipientName: z.string().min(1).max(20),
+    gold: z.number().int().min(0).default(0),
+    slotIndex: z.number().int().min(-1).default(-1), // -1이면 아이템 없음
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { recipientName, gold, slotIndex } = parsed.data;
+  if (gold <= 0 && slotIndex < 0) return res.status(400).json({ error: '골드 또는 아이템을 선택해주세요.' });
+
+  // 수신자 조회
+  const recipR = await query<{ id: number; name: string }>(
+    'SELECT id, name FROM characters WHERE name = $1', [recipientName]
+  );
+  if (recipR.rowCount === 0) return res.status(404).json({ error: `"${recipientName}" 캐릭터를 찾을 수 없습니다.` });
+  const recipient = recipR.rows[0];
+  if (recipient.id === id) return res.status(400).json({ error: '자기 자신에게는 보낼 수 없습니다.' });
+
+  // 골드 차감
+  if (gold > 0) {
+    if (char.gold < gold) return res.status(400).json({ error: '골드가 부족합니다.' });
+    await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [gold, id]);
+  }
+
+  // 아이템 처리
+  let itemId = 0;
+  let itemQty = 0;
+  let enhLv = 0;
+  let prefixIds: number[] | null = null;
+  let prefixStats: Record<string, number> | null = null;
+  let quality = 0;
+  let itemName = '';
+
+  if (slotIndex >= 0) {
+    const inv = await query<{
+      id: number; item_id: number; quantity: number; locked: boolean;
+      enhance_level: number; prefix_ids: number[] | null;
+      prefix_stats: Record<string, number> | null; quality: number;
+    }>(
+      `SELECT id, item_id, quantity, locked, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+       FROM character_inventory WHERE character_id = $1 AND slot_index = $2`,
+      [id, slotIndex]
+    );
+    if (inv.rowCount === 0) return res.status(404).json({ error: '아이템이 없습니다.' });
+    const slot = inv.rows[0];
+    if (slot.locked) return res.status(400).json({ error: '잠긴 아이템은 보낼 수 없습니다.' });
+
+    const itemInfo = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [slot.item_id]);
+    itemName = itemInfo.rows[0]?.name || '';
+
+    itemId = slot.item_id;
+    itemQty = slot.quantity;
+    enhLv = slot.enhance_level || 0;
+    prefixIds = slot.prefix_ids;
+    prefixStats = slot.prefix_stats;
+    quality = slot.quality;
+
+    // 인벤토리에서 제거
+    await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
+  }
+
+  // 우편 생성
+  const subject = `${char.name}님의 선물`;
+  const parts: string[] = [];
+  if (itemName) parts.push(`아이템: ${itemName}`);
+  if (gold > 0) parts.push(`골드: ${gold.toLocaleString()}G`);
+  const body = parts.join(', ');
+
+  await query(
+    `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
+                           enhance_level, prefix_ids, prefix_stats, quality)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+    [
+      recipient.id, subject, body,
+      itemId > 0 ? itemId : null,
+      itemQty > 0 ? itemQty : null,
+      gold,
+      enhLv || null,
+      prefixIds && prefixIds.length > 0 ? prefixIds : null,
+      prefixStats ? JSON.stringify(prefixStats) : null,
+      quality || null,
+    ]
+  );
+
+  res.json({ ok: true, recipientName: recipient.name });
+});
+
 // 우편물 삭제
 router.post('/:id/mailbox/:mailId/delete', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
