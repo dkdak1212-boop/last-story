@@ -810,6 +810,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
+      // 신성 사슬: 기절 + 자신 모든 능력치 20% 상승 3행동
+      if (skill.name === '신성 사슬') {
+        addEffect(s, { type: 'atk_buff', value: 20, remainingActions: 3, source: 'monster' });
+        addEffect(s, { type: 'damage_reduce', value: 20, remainingActions: 3, source: 'monster' });
+        addEffect(s, { type: 'speed_mod', value: 20, remainingActions: 3, source: 'monster' });
+        addLog(s, `[${skill.name}] 모든 능력치 20% 상승 3행동!`);
+      }
       break;
     }
 
