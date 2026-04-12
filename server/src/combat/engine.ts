@@ -586,6 +586,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
           addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어 50% 무시)`);
         }
+        // 분노의 일격: 출혈 3행동 (ATK × 2.0)
+        if (skill.name === '분노의 일격') {
+          const furyBase = s.playerStats.atk;
+          const furyBleed = Math.round(furyBase * 2.0);
+          addEffect(s, { type: 'dot', value: furyBleed, remainingActions: 3, source: 'player', dotMult: 2.0, dotUseMatk: false });
+          addLog(s, `[${skill.name}] 출혈! ${furyBleed}/행동 x3 (방어 50% 무시)`);
+        }
 
         if (skill.effect_type === 'lifesteal') {
           let heal = Math.round(dmg * skill.effect_value / 100);
