@@ -392,7 +392,7 @@ export function NodeTreeScreen() {
   }
 
   async function resetPartial() { if (!active || loading || !confirm('부분 리셋 (500G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-partial`, { method: 'POST' }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
-  async function resetZone() { if (!active || loading || !confirm('구역 리셋 (2,000G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-zone`, { method: 'POST', body: JSON.stringify({ zone: activeZone }) }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
+  async function resetZone(type: 'class' | 'common') { if (!active || loading || !confirm(`${type === 'class' ? '직업 전용' : '공용'} 노드 리셋 (2,000G)`)) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-zone`, { method: 'POST', body: JSON.stringify({ zone: type }) }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
   async function resetAll() { if (!active || loading || !confirm('전체 리셋 (5,000G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-all`, { method: 'POST' }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
 
   if (!treeState) return <div style={{ color: 'var(--text-dim)' }}>로딩 중...</div>;
@@ -737,13 +737,20 @@ export function NodeTreeScreen() {
           minHeight: isMobile ? 40 : 'auto',
           fontWeight: 600,
         }}>부분 리셋 500G</button>
-        <button onClick={resetZone} disabled={loading} style={{
+        <button onClick={() => resetZone('class')} disabled={loading} style={{
           fontSize: isMobile ? 12 : 11,
           padding: isMobile ? '10px 14px' : '5px 10px',
           flex: isMobile ? '1 1 30%' : '0 0 auto',
           minHeight: isMobile ? 40 : 'auto',
           fontWeight: 600,
-        }}>구역 리셋 2,000G</button>
+        }}>직업 리셋 2,000G</button>
+        <button onClick={() => resetZone('common')} disabled={loading} style={{
+          fontSize: isMobile ? 12 : 11,
+          padding: isMobile ? '10px 14px' : '5px 10px',
+          flex: isMobile ? '1 1 30%' : '0 0 auto',
+          minHeight: isMobile ? 40 : 'auto',
+          fontWeight: 600,
+        }}>공용 리셋 2,000G</button>
         <button onClick={resetAll} disabled={loading} style={{
           fontSize: isMobile ? 12 : 11,
           padding: isMobile ? '10px 14px' : '5px 10px',

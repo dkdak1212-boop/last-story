@@ -206,26 +206,32 @@ router.post('/:id/nodes/reset-partial', async (req: AuthedRequest, res: Response
   res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
 });
 
-// 구역 리셋
+// 구역 리셋 — 직업 전용 노드만 or 공용 노드만 리셋
 router.post('/:id/nodes/reset-zone', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const { zone } = req.body;
-  if (!zone) return res.status(400).json({ error: 'zone required' });
+  const { zone } = req.body; // 'class' = 직업 전용, 'common' = 공용
+  if (!zone || (zone !== 'class' && zone !== 'common')) {
+    return res.status(400).json({ error: 'zone must be "class" or "common"' });
+  }
 
   const cost = 2000;
   if (char.gold < cost) return res.status(400).json({ error: 'not enough gold' });
 
+  const condition = zone === 'class'
+    ? `nd.class_exclusive = '${char.class_name}'`
+    : `nd.class_exclusive IS NULL`;
+
   const zoneNodes = await query<{ node_id: number; cost: number }>(
     `SELECT cn.node_id, nd.cost FROM character_nodes cn
      JOIN node_definitions nd ON nd.id = cn.node_id
-     WHERE cn.character_id = $1 AND nd.zone = $2`,
-    [id, zone]
+     WHERE cn.character_id = $1 AND ${condition}`,
+    [id]
   );
 
-  if (zoneNodes.rowCount === 0) return res.status(400).json({ error: 'no nodes in zone' });
+  if (zoneNodes.rowCount === 0) return res.status(400).json({ error: '해당 구역에 투자한 노드가 없습니다.' });
 
   let refund = 0;
   const nodeIds: number[] = [];
@@ -239,7 +245,7 @@ router.post('/:id/nodes/reset-zone', async (req: AuthedRequest, res: Response) =
     [refund, cost, id]);
   await refreshSessionStats(id).catch(() => {});
 
-  res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
+  res.json({ ok: true, refundedPoints: refund, goldSpent: cost, resetType: zone === 'class' ? '직업 전용' : '공용' });
 });
 
 // 전체 리셋
