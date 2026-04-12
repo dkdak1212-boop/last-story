@@ -412,9 +412,24 @@ function getPassive(s: ActiveSession, key: string): number {
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
   for (const eff of s.statusEffects) {
     if (eff.source === actor && eff.remainingActions > 0) {
+      // 쉴드는 몬스터 턴에 감소하지 않음 — 플레이어 턴에만 감소 (아래 tickShield에서 처리)
+      if (eff.type === 'shield') continue;
       // 같은 액션 사이클에서 새로 적용된 효과는 즉시 감소시키지 않는다 (1틱 손실 방지)
       if (preActionIds && !preActionIds.has(eff.id)) continue;
       eff.remainingActions--;
+    }
+  }
+  s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
+}
+
+// 쉴드 전용 턴 감소 — 플레이어 행동 시에만 호출
+function tickShield(s: ActiveSession) {
+  for (const eff of s.statusEffects) {
+    if (eff.type === 'shield' && eff.source === 'monster' && eff.remainingActions > 0) {
+      eff.remainingActions--;
+      if (eff.remainingActions <= 0) {
+        addLog(s, `실드 지속시간 만료`);
+      }
     }
   }
   s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
@@ -1712,9 +1727,10 @@ async function combatTick(): Promise<void> {
 
           const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
           await autoAction(s);
-          // 플레이어 행동: 플레이어 도트→몬스터 데미지 + 플레이어 도트 만료
+          // 플레이어 행동: 플레이어 도트→몬스터 데미지 + 플레이어 도트 만료 + 쉴드 턴 감소
           processDots(s, 'monster');
           tickDownEffects(s, 'player', preAutoIds);
+          tickShield(s);
           s.dirty = true;
 
           // 몬스터 처치 체크
@@ -2072,6 +2088,7 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   await executeSkill(s, skill);
   processDots(s, 'monster');
   tickDownEffects(s, 'player', preManualIds);
+  tickShield(s);
   s.dirty = true;
 
   if (s.monsterHp <= 0) await handleMonsterDeath(s);
