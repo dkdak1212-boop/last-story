@@ -127,8 +127,9 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
      WHERE c.user_id = $1 AND a.settled = FALSE AND a.cancelled = FALSE AND a.ends_at > NOW()`,
     [req.userId]
   );
-  if (Number(cntR.rows[0].cnt) >= MAX_LISTINGS_PER_ACCOUNT) {
-    return res.status(400).json({ error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다.` });
+  const activeCnt = Number(cntR.rows[0].cnt);
+  if (activeCnt >= MAX_LISTINGS_PER_ACCOUNT) {
+    return res.status(400).json({ error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다. (현재 ${activeCnt}개 활성)` });
   }
 
   const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
