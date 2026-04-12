@@ -11,14 +11,25 @@ const RAILWAY_DB = 'postgresql://postgres:kkdZoXIuKmAadyDcyOVzhPlJpiitIBhG@postg
 const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? RAILWAY_DB : '');
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
+const POOL_OPTS = {
+  max: 30,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  statement_timeout: 15_000,
+  query_timeout: 15_000,
+};
+
 export const pool = new pg.Pool(
-  connStr ? { connectionString: connStr } : {
-    host: 'localhost',
-    port: 5432,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'laststory',
-  }
+  connStr
+    ? { connectionString: connStr, ...POOL_OPTS }
+    : {
+        host: 'localhost',
+        port: 5432,
+        user: 'postgres',
+        password: 'postgres',
+        database: 'laststory',
+        ...POOL_OPTS,
+      }
 );
 
 pool.on('error', (err) => {

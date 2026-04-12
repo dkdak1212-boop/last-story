@@ -163,6 +163,7 @@ interface ActiveSession {
 
 const activeSessions = new Map<number, ActiveSession>();
 let combatInterval: ReturnType<typeof setInterval> | null = null;
+let tickRunning = false;
 
 // ── 헬퍼 ──
 
@@ -2195,7 +2196,11 @@ export function getCombatHp(characterId: number): number | null {
 function ensureCombatLoop() {
   if (combatInterval) return;
   combatInterval = setInterval(() => {
-    combatTick().catch(err => console.error('[combat] loop error:', err));
+    if (tickRunning) return; // 이전 틱이 아직 실행 중이면 스킵 (DB 폭주 방지)
+    tickRunning = true;
+    combatTick()
+      .catch(err => console.error('[combat] loop error:', err))
+      .finally(() => { tickRunning = false; });
   }, 100); // 100ms 틱
   console.log('[combat] engine started (100ms tick)');
 }
