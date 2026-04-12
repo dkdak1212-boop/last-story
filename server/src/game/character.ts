@@ -153,6 +153,40 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
   const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
   const eff = computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus);
+
+  // 노드 패시브 적용 (전투 엔진 startCombatSession과 동일)
+  const passiveEffects = nodeEffects.filter(e => e.type === 'passive' && e.key && e.value);
+  const pMap = new Map<string, number>();
+  for (const e of passiveEffects) pMap.set(e.key!, (pMap.get(e.key!) || 0) + e.value);
+  if (pMap.has('war_god')) eff.atk = Math.round(eff.atk * (1 + pMap.get('war_god')! / 100));
+  if (pMap.has('mana_overload')) eff.matk = Math.round(eff.matk * (1 + pMap.get('mana_overload')! / 100));
+  if (pMap.has('iron_will')) eff.def = Math.round(eff.def * (1 + pMap.get('iron_will')! / 100));
+  if (pMap.has('trickster')) eff.cri = Math.min(100, eff.cri + pMap.get('trickster')!);
+  if (pMap.has('shadow_dance')) eff.dodge = Math.min(80, eff.dodge + pMap.get('shadow_dance')!);
+  if (pMap.has('focus_mastery')) eff.accuracy = Math.min(200, eff.accuracy + pMap.get('focus_mastery')!);
+  if (pMap.has('time_lord')) eff.spd = Math.round(eff.spd * (1 + pMap.get('time_lord')! / 100));
+  if (pMap.has('berserker_heart')) {
+    eff.atk = Math.round(eff.atk * (1 + pMap.get('berserker_heart')! / 100));
+    eff.def = Math.round(eff.def * (1 - pMap.get('berserker_heart')! / 200));
+  }
+  if (pMap.has('sanctuary_guard')) eff.maxHp += Math.round(char.max_hp * pMap.get('sanctuary_guard')! / 100);
+  if (pMap.has('balance_apostle')) {
+    const v = pMap.get('balance_apostle')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.matk = Math.round(eff.matk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 + v / 100));
+  }
+  // 유니크 접두사: atk_pct / matk_pct
+  const equipPrefixes: Record<string, number> = {};
+  for (const it of equipped) {
+    if (!it.prefixStats) continue;
+    for (const [k, v] of Object.entries(it.prefixStats)) {
+      equipPrefixes[k] = (equipPrefixes[k] || 0) + (v as number);
+    }
+  }
+  if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
+  if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
+
   // 길드 stat_buff_pct: 모든 전투 능력치 % 증가 (atk/matk/def/mdef)
   const gbr = await query<{ stat_buff_pct: number }>(
     `SELECT g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
