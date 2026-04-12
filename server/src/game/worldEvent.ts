@@ -270,13 +270,17 @@ export async function attackBoss(characterId: number) {
             if (sk.effect_type === 'lifesteal') {
               // doOneHit이 직접 dmg를 반환하지 않으므로 간략화: 추가 힐은 생략, 일반 데미지만 반영
             }
-            // hp_pct_damage — 보스 현재 HP%만큼 추가 (레이드에선 보스 HP = event.current_hp)
+            // hp_pct_damage — 보스 현재 HP%만큼 추가 (75% 확률 저항)
             if (sk.effect_type === 'hp_pct_damage') {
-              const remaining = Math.max(0, event.current_hp - totalDmgDealt);
-              const extra = Math.round(remaining * sk.effect_value / 100);
-              if (extra > 0) {
-                totalDmgDealt += extra;
-                if (combatLog.length < 20) combatLog.push(`[${sk.name}] 추가 고정 ${extra.toLocaleString()}`);
+              if (Math.random() < 0.75) {
+                if (combatLog.length < 20) combatLog.push(`[${sk.name}] HP% 데미지 저항! (보스)`);
+              } else {
+                const remaining = Math.max(0, event.current_hp - totalDmgDealt);
+                const extra = Math.round(remaining * sk.effect_value / 100);
+                if (extra > 0) {
+                  totalDmgDealt += extra;
+                  if (combatLog.length < 20) combatLog.push(`[${sk.name}] 추가 고정 ${extra.toLocaleString()}`);
+                }
               }
             }
             // self_hp_dmg — 자신 최대 HP의 effect_value% 만큼 추가 데미지
