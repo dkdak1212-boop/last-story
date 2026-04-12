@@ -64,7 +64,7 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
-  const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'consumable' | 'etc'>('recent');
+  const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
@@ -140,6 +140,8 @@ export function InventoryScreen() {
     if (categoryTab === 'helm') return items.filter(s => s.item.slot === 'helm').sort((a, b) => b.slotIndex - a.slotIndex);
     if (categoryTab === 'chest') return items.filter(s => s.item.slot === 'chest').sort((a, b) => b.slotIndex - a.slotIndex);
     if (categoryTab === 'boots') return items.filter(s => s.item.slot === 'boots').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'ring') return items.filter(s => s.item.slot === 'ring').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'amulet') return items.filter(s => s.item.slot === 'amulet').sort((a, b) => b.slotIndex - a.slotIndex);
     if (categoryTab === 'consumable') return items.filter(s => (s.item as any).type === 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
     if (categoryTab === 'etc') return items.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
     return items;
@@ -301,6 +303,8 @@ export function InventoryScreen() {
               ['helm', '투구'],
               ['chest', '갑옷'],
               ['boots', '신발'],
+              ['ring', '반지'],
+              ['amulet', '목걸이'],
               ['consumable', '소모품'],
               ['etc', '기타'],
             ] as const).map(([key, label]) => {
@@ -310,6 +314,8 @@ export function InventoryScreen() {
                 if (key === 'helm') return inv.filter(s => s.item.slot === 'helm').length;
                 if (key === 'chest') return inv.filter(s => s.item.slot === 'chest').length;
                 if (key === 'boots') return inv.filter(s => s.item.slot === 'boots').length;
+                if (key === 'ring') return inv.filter(s => s.item.slot === 'ring').length;
+                if (key === 'amulet') return inv.filter(s => s.item.slot === 'amulet').length;
                 if (key === 'consumable') return inv.filter(s => (s.item as any).type === 'consumable').length;
                 if (key === 'etc') return inv.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').length;
                 return 0;

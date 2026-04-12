@@ -58,10 +58,19 @@ export function MarketplaceScreen() {
   const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [slotFilter, setSlotFilter] = useState<string>(''); // '', weapon, helm, chest, boots, ring, amulet
+  const [qualityMin, setQualityMin] = useState<number>(0);
+  const [qualityMax, setQualityMax] = useState<number>(100);
+  const [prefixStatKey, setPrefixStatKey] = useState<string>('');
 
   async function loadBrowse() {
-    const q = slotFilter ? `?slot=${slotFilter}` : '';
-    setListings(await api<Listing[]>(`/marketplace${q}`));
+    const params = new URLSearchParams();
+    if (slotFilter) params.set('slot', slotFilter);
+    if (tab === 'unique') params.set('grade', 'unique');
+    if (qualityMin > 0) params.set('qualityMin', String(qualityMin));
+    if (qualityMax < 100) params.set('qualityMax', String(qualityMax));
+    if (prefixStatKey) params.set('prefixStatKey', prefixStatKey);
+    const qs = params.toString();
+    setListings(await api<Listing[]>(`/marketplace${qs ? `?${qs}` : ''}`));
   }
   async function loadMine() {
     if (!active) return;
@@ -77,7 +86,7 @@ export function MarketplaceScreen() {
     if (tab === 'browse' || tab === 'unique') loadBrowse();
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
-  }, [tab, slotFilter, active?.id]);
+  }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, active?.id]);
 
   async function buy(a: Listing) {
     if (!active) return;
@@ -152,6 +161,11 @@ export function MarketplaceScreen() {
             </div>
           )}
 
+          <FilterPanel
+            qualityMin={qualityMin} qualityMax={qualityMax}
+            setQualityMin={setQualityMin} setQualityMax={setQualityMax}
+            prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
+          />
           <BrowseListings
             listings={listings}
             slotFilter={slotFilter}
@@ -175,13 +189,17 @@ export function MarketplaceScreen() {
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
             }}>유니크</span> 등급 아이템만 표시합니다.
           </div>
+          <FilterPanel
+            qualityMin={qualityMin} qualityMax={qualityMax}
+            setQualityMin={setQualityMin} setQualityMax={setQualityMax}
+            prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
+          />
           {(() => {
-            const uniques = listings.filter(a => a.itemGrade === 'unique');
-            if (uniques.length === 0) {
+            // 서버에서 grade=unique로 필터링되어 옴 (요레벨 무관, 모두 표시)
+            if (listings.length === 0) {
               return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 유니크 아이템이 없습니다</div>;
             }
-            // 가격 오름차순 정렬
-            const sorted = [...uniques].sort((a, b) => a.price - b.price);
+            const sorted = [...listings].sort((a, b) => a.price - b.price);
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />)}
@@ -213,6 +231,67 @@ export function MarketplaceScreen() {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// 품질/접두사 필터 패널
+const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
+  { key: '', label: '전체' },
+  { key: 'atk', label: '공격력 (atk)' },
+  { key: 'matk', label: '마법공격 (matk)' },
+  { key: 'def', label: '방어력 (def)' },
+  { key: 'mdef', label: '마법방어 (mdef)' },
+  { key: 'hp', label: 'HP' },
+  { key: 'spd', label: '스피드' },
+  { key: 'cri', label: '치명타' },
+  { key: 'accuracy', label: '명중' },
+  { key: 'dodge', label: '회피' },
+  { key: 'crit_dmg_pct', label: '크리 데미지 %' },
+  { key: 'lifesteal_pct', label: '흡혈 %' },
+  { key: 'dot_amp_pct', label: '도트 증폭 %' },
+  { key: 'def_reduce_pct', label: '약화 %' },
+  { key: 'berserk_pct', label: '광전사 %' },
+  { key: 'first_strike_pct', label: '약점간파 %' },
+  { key: 'ambush_pct', label: '각성 %' },
+  { key: 'gauge_on_crit_pct', label: '재충전 %' },
+  { key: 'exp_bonus_pct', label: '경험치 %' },
+  { key: 'gold_bonus_pct', label: '골드 %' },
+];
+
+function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, prefixStatKey, setPrefixStatKey }: {
+  qualityMin: number; qualityMax: number;
+  setQualityMin: (n: number) => void; setQualityMax: (n: number) => void;
+  prefixStatKey: string; setPrefixStatKey: (s: string) => void;
+}) {
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
+      padding: '8px 12px', marginBottom: 10, background: 'var(--bg-panel)',
+      border: '1px solid var(--border)', borderRadius: 4, fontSize: 11,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ color: 'var(--text-dim)' }}>품질</span>
+        <input type="number" min={0} max={100} value={qualityMin}
+          onChange={e => setQualityMin(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+          style={{ width: 50, padding: '3px 5px', fontSize: 11 }} />
+        <span style={{ color: 'var(--text-dim)' }}>~</span>
+        <input type="number" min={0} max={100} value={qualityMax}
+          onChange={e => setQualityMax(Math.max(0, Math.min(100, Number(e.target.value) || 100)))}
+          style={{ width: 50, padding: '3px 5px', fontSize: 11 }} />
+        <span style={{ color: 'var(--text-dim)' }}>%</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ color: 'var(--text-dim)' }}>접두사</span>
+        <select value={prefixStatKey} onChange={e => setPrefixStatKey(e.target.value)}
+          style={{ padding: '3px 5px', fontSize: 11, background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)' }}>
+          {PREFIX_STAT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+        </select>
+      </div>
+      {(qualityMin > 0 || qualityMax < 100 || prefixStatKey) && (
+        <button onClick={() => { setQualityMin(0); setQualityMax(100); setPrefixStatKey(''); }}
+          style={{ fontSize: 10, padding: '3px 8px' }}>필터 초기화</button>
       )}
     </div>
   );

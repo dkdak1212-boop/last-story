@@ -11,14 +11,32 @@ router.use(authRequired);
 
 const FEE_PCT = 0.10;
 const LISTING_HOURS = 72; // 거래소 등록 기간 3일
+const MAX_LISTINGS_PER_ACCOUNT = 5; // 계정(seller_id 기준 캐릭) 동시 활성 등록 한도
 
 // 거래소 목록
 router.get('/', async (req, res) => {
   const slot = req.query.slot as string | undefined; // 카테고리 필터 (weapon/helm/chest/boots/ring/amulet)
+  const grade = req.query.grade as string | undefined; // 등급 필터 (common/rare/epic/legendary/unique)
+  const qualityMin = req.query.qualityMin ? Number(req.query.qualityMin) : null;
+  const qualityMax = req.query.qualityMax ? Number(req.query.qualityMax) : null;
+  const prefixStatKey = req.query.prefixStatKey as string | undefined; // ex: atk, dot_amp_pct ...
 
   const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()'];
   const params: unknown[] = [];
   if (slot) { params.push(slot); filters.push(`i.slot = $${params.length}`); }
+  if (grade) { params.push(grade); filters.push(`i.grade = $${params.length}`); }
+  if (qualityMin !== null && Number.isFinite(qualityMin)) {
+    params.push(Math.max(0, Math.min(100, qualityMin)));
+    filters.push(`COALESCE(a.quality, 0) >= $${params.length}`);
+  }
+  if (qualityMax !== null && Number.isFinite(qualityMax)) {
+    params.push(Math.max(0, Math.min(100, qualityMax)));
+    filters.push(`COALESCE(a.quality, 0) <= $${params.length}`);
+  }
+  if (prefixStatKey) {
+    params.push(prefixStatKey);
+    filters.push(`a.prefix_stats ? $${params.length}`);
+  }
 
   const r = await query<{
     id: number; item_id: number; item_quantity: number;
@@ -36,7 +54,7 @@ router.get('/', async (req, res) => {
             COALESCE(i.required_level, 1) AS required_level
      FROM auctions a JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
-     ORDER BY COALESCE(i.required_level, 1) ASC, a.buyout_price ASC NULLS LAST, a.ends_at ASC LIMIT 1000`,
+     ORDER BY a.created_at DESC LIMIT 5000`,
     params
   );
 
@@ -101,6 +119,17 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
 
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 계정(=동일 user_id가 보유한 모든 캐릭터의 활성 등록 합) 5개 제한
+  const cntR = await query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt FROM auctions a
+     JOIN characters c ON c.id = a.seller_id
+     WHERE c.user_id = $1 AND a.settled = FALSE AND a.cancelled = FALSE AND a.ends_at > NOW()`,
+    [req.userId]
+  );
+  if (Number(cntR.rows[0].cnt) >= MAX_LISTINGS_PER_ACCOUNT) {
+    return res.status(400).json({ error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다.` });
+  }
 
   const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
     'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
