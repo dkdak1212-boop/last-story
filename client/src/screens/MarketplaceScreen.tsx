@@ -189,13 +189,31 @@ export function MarketplaceScreen() {
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
             }}>유니크</span> 등급 아이템만 표시합니다.
           </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+            {([
+              ['', '전체'],
+              ['weapon', '무기'],
+              ['helm', '투구'],
+              ['chest', '갑옷'],
+              ['boots', '신발'],
+              ['ring', '반지'],
+              ['amulet', '목걸이'],
+            ] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setSlotFilter(key)} style={{
+                fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
+                background: slotFilter === key ? 'var(--accent)' : 'var(--bg-panel)',
+                color: slotFilter === key ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${slotFilter === key ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: slotFilter === key ? 700 : 400,
+              }}>{label}</button>
+            ))}
+          </div>
           <FilterPanel
             qualityMin={qualityMin} qualityMax={qualityMax}
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
             prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
           />
           {(() => {
-            // 서버에서 grade=unique로 필터링되어 옴 (요레벨 무관, 모두 표시)
             if (listings.length === 0) {
               return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 유니크 아이템이 없습니다</div>;
             }
