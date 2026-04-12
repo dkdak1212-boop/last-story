@@ -77,9 +77,18 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'class restriction' });
   }
 
-  // huge 티어(8pt) 노드는 노드 스크롤 +8 1개 소비
+  // huge 티어(초월 노드): 직업당 1개만 학습 가능 + 노드 스크롤 +8 소비
   const NODE_SCROLL_ID = 321;
   if (node.tier === 'huge') {
+    const hugeCount = await query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+       WHERE cn.character_id = $1 AND nd.tier = 'huge'`,
+      [id]
+    );
+    if (Number(hugeCount.rows[0].cnt) >= 1) {
+      return res.status(400).json({ error: '초월 노드는 직업당 1개만 학습할 수 있습니다.' });
+    }
     const scrollR = await query<{ id: number; quantity: number }>(
       `SELECT id, quantity FROM character_inventory
        WHERE character_id = $1 AND item_id = $2 AND quantity > 0
