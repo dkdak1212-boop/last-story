@@ -224,7 +224,10 @@ function act(me: Side, foe: Side, log: string[]) {
           const actual = applyDamage(me, foe, d.damage, log);
           log.push(`${me.name} [${best.name}] ${i + 1}타 ${actual}`);
           if (best.effect_type === 'multi_hit_poison') {
-            foe.effects.push({ type: 'poison', value: Math.round(me.stats.atk * 0.15), remaining: 3 });
+            const pBase = useMatk ? me.stats.matk : me.stats.atk;
+            const pDef = useMatk ? foe.stats.mdef : foe.stats.def;
+            const pDmg = Math.max(1, Math.round(pBase * 1.5 - pDef * 0.25));
+            foe.effects.push({ type: 'poison', value: pDmg, remaining: 3 });
           }
         }
       }
@@ -234,7 +237,10 @@ function act(me: Side, foe: Side, log: string[]) {
       const d = calcDamage(me.stats, foe.stats, best.damage_mult, useMatk, best.flat_damage);
       if (!d.miss) {
         const actual = applyDamage(me, foe, d.damage, log);
-        const dotDmg = Math.round(me.stats.atk * 0.3);
+        // 필드와 동일: useMatk 베이스 × 1.2, 방어 50% 무시
+        const dotBase = useMatk ? me.stats.matk : me.stats.atk;
+        const dotDef = useMatk ? foe.stats.mdef : foe.stats.def;
+        const dotDmg = Math.max(1, Math.round(dotBase * 1.2 - dotDef * 0.25));
         foe.effects.push({ type: 'dot', value: dotDmg, remaining: best.effect_duration });
         log.push(`${me.name} [${best.name}] ${actual} +도트${best.effect_duration}턴`);
       } else { log.push(`${me.name} [${best.name}] 빗나감`); }
@@ -243,7 +249,9 @@ function act(me: Side, foe: Side, log: string[]) {
     case 'poison': {
       const d = calcDamage(me.stats, foe.stats, best.damage_mult, useMatk, best.flat_damage);
       if (!d.miss) applyDamage(me, foe, d.damage, log);
-      const dotDmg = Math.round(me.stats.atk * 0.25);
+      const pBase = useMatk ? me.stats.matk : me.stats.atk;
+      const pDef = useMatk ? foe.stats.mdef : foe.stats.def;
+      const dotDmg = Math.max(1, Math.round(pBase * 1.5 - pDef * 0.25));
       foe.effects.push({ type: 'poison', value: dotDmg, remaining: best.effect_duration });
       if (best.effect_value > 0) foe.effects.push({ type: 'speed_mod', value: -best.effect_value, remaining: best.effect_duration });
       log.push(`${me.name} [${best.name}] 독+속도감소`);

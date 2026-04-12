@@ -336,18 +336,54 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
 }
 
 // 버프/디버프 스킬에 damage_mult > 0이면 동시에 데미지도 처리 (1턴 손해 방지)
-// 호출 전 useMatk 결정을 끝낸 상태에서 사용. 미스/크리/atk_buff/spellAmp 등 모든 보정 미적용 — 보조 데미지 용도.
+// 일반 'damage' 케이스의 증폭 파이프라인과 동일한 보정을 적용한다 — 클래스 고유 노드(judge_amp 등)
+// 가 buff류 스킬에서 누락되는 문제를 막기 위함.
 function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean): boolean {
   if (skill.damage_mult <= 0) return false;
-  const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+  const armorPierce = getPassive(s, 'armor_pierce');
+  const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
+  const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+  const defModStats = totalDefReduce > 0 ? {
+    ...s.monsterStats,
+    def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
+    mdef: Math.round(s.monsterStats.mdef * (1 - totalDefReduce / 100)),
+  } : s.monsterStats;
+  const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
   if (d.miss) {
     addLog(s, `[${skill.name}] 빗나감!`);
     return true;
   }
   let dmg = d.damage;
-  // atk_buff 적용 (자가 강화 사이클 일관성)
+  // damage_taken_up 디버프
+  const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+  if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+  // atk_buff (자가 공격력 버프)
   const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
   if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
+  // spell_amp (마법 증폭)
+  const spellAmp = getPassive(s, 'spell_amp');
+  if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+  // judge_amp / holy_judge (성직자 공격 노드) — 심판/실드 데미지 등 누락 버그 수정
+  const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
+  if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
+  // 접두사: 광전사 / 약점간파 / 각성
+  const berserk = s.equipPrefixes.berserk_pct || 0;
+  if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) dmg = Math.round(dmg * (1 + berserk / 100));
+  const firstStrike = s.equipPrefixes.first_strike_pct || 0;
+  if (firstStrike > 0 && s.hasFirstStrike) {
+    dmg = Math.round(dmg * (1 + firstStrike / 100));
+    s.hasFirstStrike = false;
+  }
+  const ambush = s.equipPrefixes.ambush_pct || 0;
+  if (ambush > 0 && s.ticksSinceLastHit >= 50) {
+    dmg = Math.round(dmg * (1 + ambush / 100));
+    s.ticksSinceLastHit = 0;
+  }
+  // 크리 추가 배율
+  if (d.crit) {
+    const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+    if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+  }
   s.monsterHp -= dmg;
   addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
   return true;
@@ -799,6 +835,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const debuffDur = skill.effect_duration + smokeExt;
       addEffect(s, { type: 'accuracy_debuff', value: debuffVal, remainingActions: debuffDur, source: 'player' });
       addLog(s, `[${skill.name}] 적 명중률 ${debuffVal}% 감소 ${debuffDur}행동!`);
+      // 독안개/맹독의 안개: 설명상 독 도트 효과 추가
+      if (skill.name === '독안개' || skill.name === '맹독의 안개') {
+        const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+        const dotDmg = Math.round(dotBase * 1.5);
+        addEffect(s, { type: 'poison', value: dotDmg, remainingActions: debuffDur, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
+        addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${debuffDur}행동 (방어 50% 무시)`);
+      }
       break;
     }
 
@@ -831,16 +874,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield': {
-      // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리)
-      if (skill.damage_mult > 0) {
-        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
-        if (!d.miss) {
-          let dmg = d.damage;
-          if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
-          s.monsterHp -= dmg;
-          addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
-        }
-      }
+      // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
+      dealBuffSkillDamage(s, skill, useMatk);
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp');
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
@@ -1657,11 +1692,9 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     eff.matk = Math.round(eff.matk * (1 + v / 100));
     eff.def = Math.round(eff.def * (1 + v / 100));
   }
-  // poison_lord: 독 데미지 +value% (processDots의 dotAmpPct 합산),
-  //              물리 공격 -15% (아래 스탯 수정)
-  if (pMap.has('poison_lord')) {
-    eff.atk = Math.round(eff.atk * 0.85);
-  }
+  // poison_lord: 독 데미지 +value% (processDots의 dotAmpPct 합산)
+  // 과거 atk -15% 페널티가 있었으나 다른 dot_amp 스택이 큰 경우 역효과(독 데미지 감소)를
+  // 일으켜 제거됨. 노드 효과는 순수 dot_amp 보너스.
   // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동) — executeSkill에서 judge_amp와 합산됨
 
   // 유니크 접두사: atk_pct / matk_pct — 공격/마법공격 % 증폭

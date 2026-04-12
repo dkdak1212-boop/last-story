@@ -93,8 +93,11 @@ export function calcDamage(
   flatDamage: number = 0,
   criBonus: number = 0
 ): DamageResult {
-  // 회피
-  if (Math.random() * 100 < defender.dodge) {
+  // 명중 vs 회피 — 명중률 80(기본)~100(맥스)이 회피를 비례 상쇄.
+  // 명중 100% = 빗맞 0% 보장 (dodge가 100을 넘지 않는 한).
+  const accBonus = Math.max(0, Math.min(20, attacker.accuracy - 80)) / 20; // 0.0 ~ 1.0
+  const effectiveDodge = defender.dodge * (1 - accBonus);
+  if (effectiveDodge > 0 && Math.random() * 100 < effectiveDodge) {
     return { damage: 0, crit: false, miss: true };
   }
   const rawAtk = useMatk ? attacker.matk : attacker.atk;

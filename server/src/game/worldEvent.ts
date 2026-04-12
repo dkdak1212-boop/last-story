@@ -85,10 +85,7 @@ export async function attackBoss(characterId: number) {
   const prefixHpRegen = equipPrefixes.hp_regen || 0;
 
   // 스탯 증폭 (노드·유니크) — playerAtk 산정 전에 적용
-  // poison_lord: 물리 -15% (engine.ts startCombatSession과 동일)
-  if (passiveMap.has('poison_lord')) {
-    eff.atk = Math.round(eff.atk * 0.85);
-  }
+  // poison_lord: 과거 atk -15% 페널티 제거 (역효과 버그)
   // 유니크 접두사: atk_pct / matk_pct — 공격/마법공격 % 증폭
   if (equipPrefixes.atk_pct) {
     eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));

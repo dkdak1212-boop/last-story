@@ -176,15 +176,33 @@ export async function generateAndApplyOfflineReport(
     killCount = Math.floor(effectiveSec / Math.max(0.5, killTimeSec));
   }
 
-  // 보상 계산 + 글로벌 이벤트 배율
+  // 보상 계산 + 글로벌 이벤트 배율 + 길드/접두사/부스터 — 온라인 사냥과 동일하게 적용
   const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
+  const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('../game/guild.js');
   const ge = await getActiveGlobalEvent();
+  const guildSkills = await getGuildSkillsForCharacter(characterId);
+  const guildExpBonus = guildSkills.exp * GUILD_SKILL_PCT.exp;
+  const guildGoldBonus = guildSkills.gold * GUILD_SKILL_PCT.gold;
+  // 장착 접두사 (exp_bonus_pct, gold_bonus_pct)
+  const prefR = await query<{ prefix_stats: Record<string, number> | null; enhance_level: number }>(
+    `SELECT prefix_stats, enhance_level FROM character_equipped WHERE character_id = $1`, [characterId]
+  );
+  let expBonusPct = 0;
+  let goldBonusPct = 0;
+  for (const row of prefR.rows) {
+    if (!row.prefix_stats) continue;
+    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    if (row.prefix_stats.exp_bonus_pct) expBonusPct += Math.round(row.prefix_stats.exp_bonus_pct * mult);
+    if (row.prefix_stats.gold_bonus_pct) goldBonusPct += Math.round(row.prefix_stats.gold_bonus_pct * mult);
+  }
+  const goldBoostR = await query<{ gold_boost_until: string | null }>('SELECT gold_boost_until FROM characters WHERE id = $1', [characterId]);
+  const goldBoostActive = goldBoostR.rows[0]?.gold_boost_until && new Date(goldBoostR.rows[0].gold_boost_until) > now;
   const avgExp = avg(monsters.map(m => m.exp_reward));
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
   const boostMult = boostActive ? 1.5 : 1.0;
-  const expGained = Math.floor(killCount * avgExp * boostMult * ge.exp);
-  const goldGained = Math.floor(killCount * avgGold * ge.gold);
+  const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp);
+  const goldGained = Math.floor(killCount * avgGold * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
 
   // 드랍 계산
   const drops: Record<number, number> = {};
