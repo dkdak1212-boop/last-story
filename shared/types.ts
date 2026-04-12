@@ -170,6 +170,7 @@ export interface CombatSnapshot {
   expMax?: number;
   serverTime: number;
   boosts?: { name: string; until: string }[];
+  rage?: number; // 전사 전용 분노 게이지 (0~100)
 }
 
 export interface CombatSkillInfo {

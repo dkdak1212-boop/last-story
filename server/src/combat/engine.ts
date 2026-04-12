@@ -47,6 +47,7 @@ interface CombatSnapshot {
   boosts?: { name: string; until: string }[];
   guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
   territoryBuffs?: { expPct: number; dropPct: number };
+  rage?: number; // 전사 전용 분노 게이지
 }
 import { getIo } from '../ws/io.js';
 
@@ -149,6 +150,7 @@ interface ActiveSession {
   dirty: boolean;
   ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
   hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
+  rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
   userId: number;
   // ── 메타 캐시 (DB 재조회 최소화) ──
   metaDirty: boolean;
@@ -624,12 +626,26 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             addLog(s, `[재충전] 게이지 +${gaugeOnCrit}%`);
           }
         }
+        // 전사 분노 폭발 (rage 100 이상 → ×3)
+        let rageProc = false;
+        if (s.className === 'warrior' && s.rage >= 100) {
+          dmg = Math.round(dmg * 3);
+          s.rage = 0;
+          rageProc = true;
+        }
         s.monsterHp -= dmg;
-        if (d.crit) {
+        if (rageProc) {
+          addLog(s, `🔥 [분노 폭발!] ${dmg} 데미지 (×3)`);
+        } else if (d.crit) {
           const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
+        }
+        // 전사 분노 축적 (기본기 +10, 스킬 +15)
+        if (s.className === 'warrior' && !rageProc) {
+          const rageGain = skill.cooldown_actions === 0 ? 10 : 15;
+          s.rage = Math.min(100, s.rage + rageGain);
         }
 
         // 접두사: 흡혈귀(lifesteal_pct) — 데미지의 N%를 회복
@@ -1867,6 +1883,9 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
   snapshot.potions = s.cachedPotions;
   snapshot.guildBuffs = s.cachedGuildBuffs;
 
+  // 전사 분노 게이지
+  if (s.className === 'warrior') snapshot.rage = s.rage;
+
   // 영토 점령 보너스 정보
   try {
     snapshot.territoryBuffs = { expPct: 0, dropPct: 0 }; // 일시 비활성
@@ -1980,6 +1999,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     userId: char.user_id,
     ticksSinceLastHit: 0,
     hasFirstStrike: true,
+    rage: 0,
     metaDirty: true,
     cachedExp: Number(char.exp) || 0,
     cachedExpMax: expToNext(char.level),

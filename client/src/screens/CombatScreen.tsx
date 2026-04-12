@@ -310,6 +310,16 @@ export function CombatScreen() {
               <div style={{ height: '100%', width: `${expPct}%`, background: '#8b8bef', transition: 'width 0.3s' }} />
             </div>
           </div>
+          {state.rage !== undefined && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.rage >= 100 ? '#ff4444' : '#ff8844' }}>
+                <span>🔥 분노</span><span>{state.rage}/100{state.rage >= 100 ? ' — 다음 공격 ×3!' : ''}</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${state.rage}%`, background: state.rage >= 100 ? '#ff4444' : '#ff8844', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          )}
           <GaugeBar percent={playerGaugePct} color="var(--accent)" label="게이지"
             highlight={state.waitingInput} />
           <EffectIcons effects={state.player.effects} />
