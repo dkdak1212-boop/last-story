@@ -542,8 +542,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // LRU: 마지막 사용 액션 카운트 기록
   s.skillLastUsed.set(skill.id, s.actionCount);
 
-  // 일일퀘 스킬 사용 트래킹
-  try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
+  // 일일퀘 스킬 사용 트래킹 (버프 자유행동은 스킵 — 성능 최적화)
+  if (skill.kind !== 'buff') {
+    try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
+  }
 
   // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용), armor_pierce (방어 무시)
   const spellAmp = getPassive(s, 'spell_amp');
@@ -1471,7 +1473,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   // 글로벌 이벤트 배율 (서버 전체 공용)
   const ge = await getActiveGlobalEvent();
-  console.log(`[handleMonsterDeath] char=${s.characterId} ge=`, JSON.stringify(ge));
+  // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   // 보스트 + 레벨차 페널티 — 로그·실제 동일 사용
   const charMeta = (await query<{ exp_boost_until: string | null; level: number }>(
