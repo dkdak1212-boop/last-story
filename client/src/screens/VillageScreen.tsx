@@ -35,7 +35,7 @@ const GRADE_COLOR: Record<string, string> = {
   common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030',
 };
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사',
 };
 const CLASS_COLOR: Record<string, string> = {
   warrior: '#e04040', mage: '#6688ff', cleric: '#ffcc44', rogue: '#aa66cc',

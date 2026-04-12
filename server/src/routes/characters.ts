@@ -11,7 +11,7 @@ router.use(authRequired);
 
 const createSchema = z.object({
   name: z.string().min(2).max(12),
-  className: z.enum(['warrior', 'mage', 'cleric', 'rogue']),
+  className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner']),
 });
 
 // 목록

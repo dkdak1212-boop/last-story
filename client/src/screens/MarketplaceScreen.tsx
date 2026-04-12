@@ -444,7 +444,7 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
             })()}
             {a.classRestriction && (() => {
               const cls = a.classRestriction!;
-              const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적' };
+              const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
               const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0' };
               return (
                 <span style={{

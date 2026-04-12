@@ -458,7 +458,53 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 
 // ── 스킬 실행 ──
 // 마법 클래스: matk 사용 고정
-const MATK_CLASSES = new Set(['mage', 'cleric']);
+const MATK_CLASSES = new Set(['mage', 'cleric', 'summoner']);
+const MAX_SUMMONS = 3;
+
+// ── 소환수 처리 ──
+function processSummons(s: ActiveSession) {
+  const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+  if (summons.length === 0) return;
+
+  const matk = s.playerStats.matk;
+  const summonAmp = getPassive(s, 'summon_amp');
+  const summonDouble = getPassive(s, 'summon_double_hit');
+  // summon_buff 효과 (지휘/군주의 위엄)
+  const buffEff = s.statusEffects.find(e => e.type === 'summon_buff_active' && e.remainingActions > 0);
+  const buffMult = buffEff ? (1 + buffEff.value / 100) : 1.0;
+  // summon_frenzy (야수의 분노 — 2회 공격)
+  const frenzyEff = s.statusEffects.find(e => e.type === 'summon_frenzy_active' && e.remainingActions > 0);
+  const hits = frenzyEff ? 2 : 1;
+
+  let totalSummonDmg = 0;
+  for (const sm of summons) {
+    const mult = sm.value / 100; // value = 퍼센트 (80 = 0.8x)
+    for (let h = 0; h < hits; h++) {
+      let dmg = Math.round(matk * mult * buffMult * (1 + summonAmp / 100));
+      // 방어 적용
+      const defVal = s.monsterStats.mdef;
+      dmg = Math.max(1, dmg - Math.round(defVal * 0.5));
+      // ±10% 랜덤
+      dmg = Math.round(dmg * (0.9 + Math.random() * 0.2));
+      // 20% 확률 2회 타격 (만물의 군주)
+      if (summonDouble > 0 && Math.random() * 100 < summonDouble) {
+        dmg *= 2;
+      }
+      s.monsterHp -= dmg;
+      totalSummonDmg += dmg;
+    }
+  }
+  if (totalSummonDmg > 0) {
+    addLog(s, `[소환수 x${summons.length}] ${totalSummonDmg.toLocaleString()} 데미지${frenzyEff ? ' (분노)' : ''}`);
+  }
+  // 수호수 힐
+  const healSummon = summons.find(e => e.dotMult === -1); // dotMult=-1 마커로 수호수 식별
+  if (healSummon) {
+    const heal = Math.round(s.playerMaxHp * 0.05);
+    s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+    addLog(s, `[수호수] HP +${heal} 회복`);
+  }
+}
 
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
@@ -1040,6 +1086,99 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       break;
     }
 
+    // ── 소환사 전용 ──
+    case 'summon':
+    case 'summon_tank':
+    case 'summon_dot':
+    case 'summon_heal':
+    case 'summon_multi': {
+      // 최대 소환수 체크
+      const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra');
+      const activeSummons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
+      if (activeSummons.length >= maxSummons) {
+        // 가장 오래된 소환수 제거
+        const oldest = activeSummons.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
+        s.statusEffects = s.statusEffects.filter(e => e.id !== oldest.id);
+        addLog(s, `[소환] ${skill.name} 교체 소환!`);
+      }
+      const durBonus = getPassive(s, 'summon_duration');
+      const infinite = getPassive(s, 'summon_infinite') > 0;
+      const dur = infinite ? 999 : skill.effect_duration + durBonus;
+      const healMarker = skill.effect_type === 'summon_heal' ? -1 : 0;
+      const multiHits = skill.effect_type === 'summon_multi' ? 3 : 1;
+      const effectiveValue = skill.effect_type === 'summon_multi' ? skill.effect_value * multiHits : skill.effect_value;
+      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker });
+      addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, ${infinite ? '무한' : dur + '행동'})`);
+      // 소환_도트: 추가로 화상 도트도 부여
+      if (skill.effect_type === 'summon_dot') {
+        const dotBase = s.playerStats.matk;
+        const DOT_MULT = 1.56;
+        const dotDmg = Math.round(dotBase * DOT_MULT);
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: dur, source: 'player', dotMult: DOT_MULT, dotUseMatk: true });
+        addLog(s, `[${skill.name}] 화상 도트 ${dotDmg}/행동`);
+      }
+      // 소환_탱크: 받는 데미지 감소 버프
+      if (skill.effect_type === 'summon_tank') {
+        addEffect(s, { type: 'damage_reduce', value: 20, remainingActions: dur, source: 'monster' });
+        addLog(s, `[${skill.name}] 받는 데미지 20% 감소 ${dur}행동`);
+      }
+      break;
+    }
+
+    case 'summon_buff': {
+      // 소환수 버프 (지휘/군주의 위엄)
+      addEffect(s, { type: 'summon_buff_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 소환수 데미지 +${skill.effect_value}% ${skill.effect_duration}행동!`);
+      break;
+    }
+
+    case 'summon_extend': {
+      // 소환수 지속시간 연장
+      const ext = skill.effect_value;
+      for (const eff of s.statusEffects) {
+        if (eff.type === 'summon' && eff.source === 'player') eff.remainingActions += ext;
+      }
+      addLog(s, `[${skill.name}] 소환수 전원 지속시간 +${ext}행동!`);
+      break;
+    }
+
+    case 'summon_frenzy': {
+      // 야수의 분노 — 소환수 2회 공격
+      addEffect(s, { type: 'summon_frenzy_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 소환수 ${skill.effect_value}회 공격 ${skill.effect_duration}행동!`);
+      break;
+    }
+
+    case 'summon_all': {
+      // 총공격: 본체 + 소환수 전부 동시 공격
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, true);
+      if (!d.miss) { s.monsterHp -= d.damage; addLog(s, `[${skill.name}] 본체 ${d.damage}${d.crit ? '!' : ''}`); }
+      processSummons(s);
+      break;
+    }
+
+    case 'summon_sacrifice': {
+      // 희생: 가장 강한 소환수 파괴 → 폭발 데미지
+      const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
+      if (summons.length === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
+      const strongest = summons.reduce((a, b) => a.value > b.value ? a : b);
+      s.statusEffects = s.statusEffects.filter(e => e.id !== strongest.id);
+      const sacDmg = Math.round(s.playerStats.matk * strongest.value / 100 * skill.damage_mult);
+      s.monsterHp -= sacDmg;
+      addLog(s, `[${skill.name}] 소환수 희생! ${sacDmg.toLocaleString()} 폭발 데미지`);
+      break;
+    }
+
+    case 'summon_storm': {
+      // 영혼 폭풍: 소환수 수 × MATK × mult
+      const cnt = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player').length;
+      if (cnt === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
+      const stormDmg = Math.round(s.playerStats.matk * skill.damage_mult * cnt);
+      s.monsterHp -= stormDmg;
+      addLog(s, `[${skill.name}] ${cnt}마리 × MATK x${Math.round(skill.damage_mult * 100)}% = ${stormDmg.toLocaleString()}`);
+      break;
+    }
+
     default:
       addLog(s, `[${skill.name}] 사용!`);
   }
@@ -1138,6 +1277,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     await executeSkill(s, sk);
+    // 소환사: 메인 스킬 후 소환수 자동 공격
+    if (s.className === 'summoner') processSummons(s);
     return;
   }
 

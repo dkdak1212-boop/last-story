@@ -214,7 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0',
                 };
                 const classLabel: Record<string, string> = {
-                  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적',
+                  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사',
                 };
                 const cls = (c as any).className || (c as any).class_name || '';
                 return (

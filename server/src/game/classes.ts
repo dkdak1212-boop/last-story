@@ -1,6 +1,6 @@
 // 4직업 시작 스탯 — v0.9
 
-export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner';
 
 export interface Stats {
   str: number;
@@ -39,6 +39,11 @@ export const CLASS_START: Record<ClassName, ClassStart> = {
     stats: { str: 10, dex: 14, int: 5,  vit: 14, spd: 200, cri: 5 },
     maxHp: 200,
     description: '스피드와 제어, 독 스택 연속행동',
+  },
+  summoner: {
+    stats: { str: 4,  dex: 6,  int: 18, vit: 14, spd: 200, cri: 5 },
+    maxHp: 200,
+    description: '소환수가 대신 싸우는 군주, INT 특화',
   },
 };
 

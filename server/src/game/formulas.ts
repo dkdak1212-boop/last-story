@@ -61,7 +61,7 @@ export function computeEffective(
   const cri = base.cri + (equipBonus.cri ?? 0) + (nodeBonus.cri ?? 0);
 
   const equipVit = (equipBonus.vit ?? 0) + (nodeBonus.vit ?? 0);
-  const maxHp = baseMaxHp + equipVit * 10 + (equipBonus.bonusHp ?? 0);
+  const maxHp = baseMaxHp + equipVit * 20 + (equipBonus.bonusHp ?? 0);
 
   const atk = str * 1.5 + (equipBonus.bonusAtk ?? 0);
   const matk = intl * 1.5 + (equipBonus.bonusMatk ?? 0); // 1.2 → 1.5 마법사 강화
