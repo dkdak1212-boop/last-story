@@ -35,19 +35,22 @@ interface Side {
 interface SkillDef {
   id: number; name: string; cooldown_actions: number; damage_mult: number;
   kind: string; flat_damage: number; effect_type: string; effect_value: number; effect_duration: number;
+  slot_order: number;
 }
 
 async function loadSide(characterId: number): Promise<Side | null> {
   const char = await loadCharacter(characterId);
   if (!char) return null;
   const eff = await getEffectiveStats(char); // 길드 stat_buff_pct는 getEffectiveStats에서 자동 적용
+  // 슬롯 순서 존중 — 필드 엔진과 동일하게 사용자가 설정한 우선순위 사용
   const sr = await query<SkillDef>(
     `SELECT s.id, s.name, s.cooldown_actions, s.damage_mult, s.kind, s.flat_damage,
-            s.effect_type, s.effect_value, s.effect_duration
+            s.effect_type, s.effect_value, s.effect_duration,
+            COALESCE(cs.slot_order, 9999) AS slot_order
      FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
      WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
-     ORDER BY s.damage_mult DESC
-     LIMIT 6`,
+     ORDER BY COALESCE(cs.slot_order, 9999) ASC, s.required_level ASC
+     LIMIT 7`,
     [characterId, char.level]
   );
   const pvpHp = char.max_hp * 10; // PVP HP 10배 보정
@@ -167,14 +170,13 @@ function act(me: Side, foe: Side, log: string[]) {
     return;
   }
 
-  // 가장 강한 스킬 선택
-  const usable = me.skills.filter(s => {
+  // 슬롯 순서대로 첫 번째 사용 가능한 스킬 (필드 엔진 autoAction과 동일 정책)
+  const sorted = [...me.skills].sort((a, b) => a.slot_order - b.slot_order);
+  const best = sorted.find(s => {
     if (s.cooldown_actions === 0) return true;
     const cd = me.cooldowns.get(s.id);
     return !cd || cd <= 0;
   });
-  const nonBasic = usable.find(s => s.cooldown_actions > 0 && s.kind !== 'heal' && s.kind !== 'buff');
-  const best = nonBasic || usable.find(s => s.kind !== 'heal') || usable[0];
 
   if (!best) {
     basicAttack(me, foe, log, useMatk);

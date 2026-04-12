@@ -201,7 +201,11 @@ export async function generateAndApplyOfflineReport(
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
   const boostMult = boostActive ? 1.5 : 1.0;
-  const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp);
+  // 레벨차 페널티 (필드 평균 몬스터 레벨 기준)
+  const { computeLevelDiffExpMult } = await import('../combat/engine.js');
+  const avgMonsterLevel = Math.round(avg(monsters.map(m => m.level)));
+  const levelDiffMult = computeLevelDiffExpMult(char.level, avgMonsterLevel);
+  const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
   const goldGained = Math.floor(killCount * avgGold * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
 
   // 드랍 계산

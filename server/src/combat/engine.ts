@@ -64,6 +64,19 @@ function diminishSpeed(rawSpd: number): number {
   return Math.round(SOFT_CAP + Math.sqrt(rawSpd - SOFT_CAP) * 15);
 }
 
+// 레벨차에 따른 EXP 배율 — 캐릭터가 몬스터보다 높을수록 감소.
+// 0~9 차이: 100%, 10: 70%, 12: 50%, 15: 30%, 18: 15%, 20+: 10% (최저)
+// 캐릭터가 더 낮으면 100% (몬스터가 더 강하므로 페널티 없음)
+export function computeLevelDiffExpMult(charLevel: number, monsterLevel: number): number {
+  const diff = charLevel - monsterLevel;
+  if (diff < 10) return 1.0;
+  if (diff < 12) return 0.70;
+  if (diff < 15) return 0.50;
+  if (diff < 18) return 0.30;
+  if (diff < 20) return 0.15;
+  return 0.10;
+}
+
 // ── 타입 ──
 
 // SessionRow removed — in-memory only now
@@ -366,19 +379,11 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   // judge_amp / holy_judge (성직자 공격 노드) — 심판/실드 데미지 등 누락 버그 수정
   const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
   if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
-  // 접두사: 광전사 / 약점간파 / 각성
+  // 접두사: 광전사 (HP 30% 이하 — 상시 조건부, 차지 소비 없음)
   const berserk = s.equipPrefixes.berserk_pct || 0;
   if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) dmg = Math.round(dmg * (1 + berserk / 100));
-  const firstStrike = s.equipPrefixes.first_strike_pct || 0;
-  if (firstStrike > 0 && s.hasFirstStrike) {
-    dmg = Math.round(dmg * (1 + firstStrike / 100));
-    s.hasFirstStrike = false;
-  }
-  const ambush = s.equipPrefixes.ambush_pct || 0;
-  if (ambush > 0 && s.ticksSinceLastHit >= 50) {
-    dmg = Math.round(dmg * (1 + ambush / 100));
-    s.ticksSinceLastHit = 0;
-  }
+  // first_strike / ambush는 1회성 차지 — 버프류 동시 데미지에서는 발동·소비하지 않는다.
+  // 사용자 의도: 메인 딜 스킬에 차지를 보존.
   // 크리 추가 배율
   if (d.crit) {
     const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
@@ -1249,15 +1254,19 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const ge = await getActiveGlobalEvent();
   console.log(`[handleMonsterDeath] char=${s.characterId} ge=`, JSON.stringify(ge));
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
-  // 보스트 적용된 EXP 미리 계산 (로그 표시용)
-  const boostActiveForLog = (await query<{ exp_boost_until: string | null }>(
-    'SELECT exp_boost_until FROM characters WHERE id = $1', [s.characterId]
-  )).rows[0]?.exp_boost_until;
-  const isExpBoosted = boostActiveForLog && new Date(boostActiveForLog) > new Date();
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp);
+  // 보스트 + 레벨차 페널티 — 로그·실제 동일 사용
+  const charMeta = (await query<{ exp_boost_until: string | null; level: number }>(
+    'SELECT exp_boost_until, level FROM characters WHERE id = $1', [s.characterId]
+  )).rows[0];
+  const isExpBoosted = charMeta?.exp_boost_until && new Date(charMeta.exp_boost_until) > new Date();
+  const levelDiffMult = computeLevelDiffExpMult(charMeta?.level ?? 1, m.level);
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
+  }
+  if (levelDiffMult < 1.0) {
+    addLog(s, `⚠️ 레벨차 -${charMeta!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
   }
   addLog(s, `${m.name}을(를) 처치! +${previewExp}exp, +${finalGold}G`);
 
@@ -1271,9 +1280,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
-  // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트
+  // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트 + 레벨차 페널티
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp);
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp).catch(() => {});
