@@ -63,7 +63,7 @@ router.get('/', async (_req, res) => {
           return {
             name: itemNames.get(d.itemId)?.name || `#${d.itemId}`,
             grade,
-            chance: Math.round(d.chance * mult * 10000) / 100, // 소수점 2자리 %
+            chance: d.chance * mult * 100, // % (원시 정밀도, 표시는 클라이언트에서)
             minQty: d.minQty,
             maxQty: d.maxQty,
           };
