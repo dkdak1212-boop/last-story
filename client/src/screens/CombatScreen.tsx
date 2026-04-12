@@ -661,6 +661,12 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
   '사신의 낫': { cls: 'rogue', lv: 30 }, '암살': { cls: 'rogue', lv: 35 }, '독안개': { cls: 'rogue', lv: 40 },
   '그림자 폭풍': { cls: 'rogue', lv: 45 }, '사신의 포옹': { cls: 'rogue', lv: 50 }, '그림자 은신': { cls: 'rogue', lv: 60 },
   '맹독의 안개': { cls: 'rogue', lv: 65 }, '심장 관통': { cls: 'rogue', lv: 70 }, '죽음의 무도': { cls: 'rogue', lv: 75 },
+  '늑대 소환': { cls: 'summoner', lv: 1 }, '골렘 소환': { cls: 'summoner', lv: 5 }, '지휘': { cls: 'summoner', lv: 10 },
+  '독수리 소환': { cls: 'summoner', lv: 15 }, '영혼 유대': { cls: 'summoner', lv: 20 }, '불정령 소환': { cls: 'summoner', lv: 25 },
+  '총공격': { cls: 'summoner', lv: 30 }, '수호수 소환': { cls: 'summoner', lv: 35 }, '야수의 분노': { cls: 'summoner', lv: 40 },
+  '드래곤 소환': { cls: 'summoner', lv: 45 }, '희생': { cls: 'summoner', lv: 50 }, '피닉스 소환': { cls: 'summoner', lv: 55 },
+  '군주의 위엄': { cls: 'summoner', lv: 60 }, '하이드라 소환': { cls: 'summoner', lv: 65 }, '영혼 폭풍': { cls: 'summoner', lv: 70 },
+  '고대 용 소환': { cls: 'summoner', lv: 75 },
 };
 function getSkillIcon(name: string): string {
   const m = SKILL_CLASS_MAP[name];
@@ -672,6 +678,7 @@ const SKILL_COLORS: Record<string, { color: string; glow: string }> = {
   mage: { color: '#6688ff', glow: '#88aaff' },
   cleric: { color: '#ffcc44', glow: '#ffee66' },
   rogue: { color: '#aa66cc', glow: '#cc88ee' },
+  summoner: { color: '#44cc88', glow: '#66eebb' },
 };
 
 const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string }> = {};
