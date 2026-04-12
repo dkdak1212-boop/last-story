@@ -1023,8 +1023,10 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
     case 'shield':
-      // 공격형 shield(damage_mult > 0)는 항상 사용, 순수 버프는 중복 방지
-      return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'shield');
+      // 실드는 항상 중복 방지 — shield_break(심판의 날) 사이클 보호.
+      // damage_mult > 0이어도 활성 실드가 있으면 재사용 안 함 (실드를 소비하는
+      // 후속 스킬에 자리를 내어준다).
+      return !hasActivePlayerBuff(s, 'shield');
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
     case 'atk_buff':
