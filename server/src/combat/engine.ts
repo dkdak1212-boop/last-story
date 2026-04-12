@@ -1368,16 +1368,25 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const autoDismantle = autoDismantleR.rows[0]?.auto_dismantle_common ?? false;
 
   for (const drop of drops) {
-    // 자동분해: 일반 등급 장비 → 골드 변환
+    // 자동분해: 장비 → 골드 변환 (유니크/T4접두사/3옵 제외)
     if (autoDismantle) {
-      const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string }>(
-        'SELECT grade, slot, sell_price, name FROM items WHERE id = $1', [drop.itemId]
+      const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
+        'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
       );
-      if (itemCheck.rows[0] && itemCheck.rows[0].grade === 'common' && itemCheck.rows[0].slot) {
-        const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
-        await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, s.characterId]);
-        addLog(s, `${itemCheck.rows[0].name} 자동분해 → +${gold}G`);
-        continue;
+      if (itemCheck.rows[0] && itemCheck.rows[0].slot && itemCheck.rows[0].grade !== 'unique') {
+        const { generatePrefixes } = await import('../game/prefix.js');
+        const { prefixIds, bonusStats, maxTier } = await generatePrefixes(itemCheck.rows[0].required_level);
+        const is3Options = prefixIds.length >= 3;
+        const isT4 = maxTier >= 4;
+
+        if (!is3Options && !isT4) {
+          const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
+          await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, s.characterId]);
+          addLog(s, `${itemCheck.rows[0].name} 자동분해 → +${gold}G`);
+          continue;
+        }
+        // T4 또는 3옵 → 보호, 생성된 접두사와 함께 인벤토리에 추가
+        addLog(s, `${itemCheck.rows[0].name} 자동분해 보호! (${isT4 ? 'T4' : ''}${is3Options ? ' 3옵' : ''})`);
       }
     }
 
