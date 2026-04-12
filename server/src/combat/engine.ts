@@ -56,6 +56,12 @@ const MAX_LOG = 30;
 const GAUGE_FILL_RATE = 0.2;
 
 // 속도 감쇠 — 소프트캡 300, 이후 평방근 감쇠
+// 고레벨 몬스터 CC 저항 — Lv.90+ 몬스터는 70% 확률로 CC 무시
+function monsterResistsCC(monsterLevel: number): boolean {
+  if (monsterLevel < 90) return false;
+  return Math.random() < 0.70;
+}
+
 // 300 이하: 그대로, 300 이상: 300 + sqrt(초과분) * 15
 // 예) spd 300→300, 500→326, 800→367, 1200→413
 function diminishSpeed(rawSpd: number): number {
@@ -777,6 +783,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (Math.random() * 100 < stunChance) {
         if (hasEffect(s, 'player', 'cc_immune')) {
           addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        } else if (monsterResistsCC(s.monsterLevel)) {
+          addLog(s, `[${skill.name}] 몬스터가 CC에 저항! (고레벨)`);
         } else if (Math.random() < 0.5) {
           addLog(s, `[${skill.name}] 몬스터가 기절에 저항!`);
         } else {
@@ -801,6 +809,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         if (hasEffect(s, 'player', 'cc_immune')) {
           addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        } else if (monsterResistsCC(s.monsterLevel)) {
+          addLog(s, `[${skill.name}] 몬스터가 CC에 저항! (고레벨)`);
         } else if (Math.random() < 0.5) {
           addLog(s, `[${skill.name}] 몬스터가 기절에 저항!`);
         } else {
@@ -832,6 +842,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       dealBuffSkillDamage(s, skill, useMatk);
       if (hasEffect(s, 'player', 'cc_immune')) {
         addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
+        break;
+      }
+      if (monsterResistsCC(s.monsterLevel)) {
+        addLog(s, `[${skill.name}] 몬스터가 CC에 저항! (고레벨)`);
         break;
       }
       const freezeExt = getPassive(s, 'freeze_extend');
