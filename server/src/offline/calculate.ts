@@ -74,13 +74,15 @@ export async function generateAndApplyOfflineReport(
   if (mr.rowCount === 0) return null;
   const monsters = mr.rows;
 
-  // 플레이어 스탯 + 스킬 (온라인과 동일)
+  // 플레이어 스탯 + 스킬 (온라인과 동일 — 유저 설정 스킬 + 슬롯 순서)
   const pEff = await getEffectiveStats(char);
-  const skillsR = await query<SkillDef>(
-    `SELECT id, name, damage_mult, cooldown_actions, flat_damage, effect_type, effect_value
-     FROM skills WHERE class_name = $1 AND required_level <= $2
-     ORDER BY damage_mult DESC`,
-    [char.class_name, char.level]
+  const skillsR = await query<SkillDef & { kind: string; slot_order: number }>(
+    `SELECT s.id, s.name, s.damage_mult, s.cooldown_actions, s.flat_damage, s.effect_type, s.effect_value,
+            s.kind, COALESCE(cs.slot_order, 9999) AS slot_order
+     FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.required_level <= $2
+     ORDER BY cs.slot_order ASC, s.required_level ASC`,
+    [characterId, char.level]
   );
   const skills = skillsR.rows;
   const useMatk = pEff.matk > pEff.atk;
@@ -132,22 +134,29 @@ export async function generateAndApplyOfflineReport(
         else cooldowns.set(skId, cd - 1);
       }
 
-      // autoAction 로직: 가장 강한 스킬 사용 (온라인과 동일)
-      let bestSkill = skills.find(sk => sk.cooldown_actions === 0); // 기본기 폴백
-      const nonBasic = skills.find(sk => {
-        if (sk.cooldown_actions === 0) return false;
-        const cd = cooldowns.get(sk.id);
-        return !cd || cd <= 0;
-      });
-      if (nonBasic) bestSkill = nonBasic;
+      // 1단계: 버프 자유 행동 (kind='buff', 슬롯 순서대로)
+      const sorted = [...skills].sort((a: any, b: any) => a.slot_order - b.slot_order);
+      for (const sk of sorted) {
+        if ((sk as any).kind !== 'buff') continue;
+        if (sk.cooldown_actions > 0 && cooldowns.has(sk.id)) continue;
+        // 버프 효과는 시뮬에서 직접 스탯 수정하기 어려우므로 쿨다운만 설정
+        if (sk.cooldown_actions > 0) cooldowns.set(sk.id, sk.cooldown_actions);
+      }
+
+      // 2단계: 메인 딜 스킬 (슬롯 순서대로 첫 번째 사용 가능)
+      let bestSkill: SkillDef | null = null;
+      for (const sk of sorted) {
+        if ((sk as any).kind === 'buff') continue;
+        if (sk.cooldown_actions > 0 && cooldowns.has(sk.id)) continue;
+        bestSkill = sk;
+        break;
+      }
 
       if (bestSkill) {
-        // 데미지 계산 (온라인 calcDamage와 동일)
         const d = calcDamage(pEff, avgMonsterStats, bestSkill.damage_mult, useMatk, bestSkill.flat_damage);
         if (!d.miss) {
           simMonsterHp -= d.damage;
         }
-        // 쿨다운 설정
         if (bestSkill.cooldown_actions > 0) {
           cooldowns.set(bestSkill.id, bestSkill.cooldown_actions);
         }
