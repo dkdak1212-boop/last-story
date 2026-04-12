@@ -1569,15 +1569,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     }
 
-    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, {
-      subject: '가방 초과분',
-      body: '가방이 가득 차서 우편으로 배송되었습니다. 접두사/품질이 보존되어 있습니다.',
-    });
-    // 비장비(소모품 등)는 위 옵션이 동작하지 않으므로 종전 경로 유지
+    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
     if (overflow > 0) {
-      await deliverToMailbox(s.characterId, '가방 초과분', '가방이 가득 차서 우편으로 배송되었습니다.', drop.itemId, overflow);
+      addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
+    } else {
+      addLog(s, '아이템 획득!');
     }
-    addLog(s, '아이템 획득!');
   }
 
   // exp/골드/드롭으로 인벤토리·경험치 변동 → 메타 캐시 무효화

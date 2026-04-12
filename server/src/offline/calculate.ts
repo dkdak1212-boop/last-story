@@ -235,14 +235,10 @@ export async function generateAndApplyOfflineReport(
 
   for (const [itemIdStr, qty] of Object.entries(drops)) {
     const itemId = parseInt(itemIdStr, 10);
-    const { overflow: ov } = await addItemToInventory(characterId, itemId, qty, {
-      subject: '오프라인 획득 초과분',
-      body: '가방이 가득 차서 우편으로 배송 (접두사/품질 보존)',
-    });
+    const { overflow: ov } = await addItemToInventory(characterId, itemId, qty);
     if (ov > 0) {
       overflow += ov;
-      // 비장비만 여기로 도달
-      await deliverToMailbox(characterId, '오프라인 획득 초과분', '가방이 가득 차서 우편으로 배송', itemId, ov);
+      // 가방 꽉 차면 버림 (우편 미전송 — 서버 부하 방지)
     }
     const itemR = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);
     if (itemR.rowCount && itemR.rowCount > 0) {
