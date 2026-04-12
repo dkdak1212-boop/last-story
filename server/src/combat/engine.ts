@@ -335,6 +335,24 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
   return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
 }
 
+// 버프/디버프 스킬에 damage_mult > 0이면 동시에 데미지도 처리 (1턴 손해 방지)
+// 호출 전 useMatk 결정을 끝낸 상태에서 사용. 미스/크리/atk_buff/spellAmp 등 모든 보정 미적용 — 보조 데미지 용도.
+function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean): boolean {
+  if (skill.damage_mult <= 0) return false;
+  const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+  if (d.miss) {
+    addLog(s, `[${skill.name}] 빗나감!`);
+    return true;
+  }
+  let dmg = d.damage;
+  // atk_buff 적용 (자가 강화 사이클 일관성)
+  const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+  if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
+  s.monsterHp -= dmg;
+  addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
+  return true;
+}
+
 // 패시브 값 조회 (없으면 0)
 function getPassive(s: ActiveSession, key: string): number {
   const p = s.passives.find(p => p.key === key);
@@ -679,13 +697,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'speed_mod':
     case 'self_speed_mod': {
-      if (skill.damage_mult > 0) {
-        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
-        if (!d.miss) {
-          s.monsterHp -= d.damage;
-          addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
-        }
-      }
+      dealBuffSkillDamage(s, skill, useMatk);
       if (skill.effect_type === 'speed_mod') {
         // frost_amp: 냉기 스피드 감소 효과 증폭
         const frostAmp = getPassive(s, 'frost_amp');
@@ -752,6 +764,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'gauge_freeze': {
+      dealBuffSkillDamage(s, skill, useMatk);
       if (hasEffect(s, 'player', 'cc_immune')) {
         addLog(s, `[${skill.name}] 몬스터 상태이상 면역!`);
         break;
@@ -773,6 +786,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'accuracy_debuff': {
+      dealBuffSkillDamage(s, skill, useMatk);
       // 연막탄 전용: 적 게이지 25% 감소
       if (skill.name === '연막탄') {
         const before = s.monsterGauge;
@@ -789,18 +803,21 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'damage_reduce': {
+      dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'damage_reduce', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // protects player
       addLog(s, `[${skill.name}] 받는 데미지 ${skill.effect_value}% 감소!`);
       break;
     }
 
     case 'atk_buff': {
+      dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // self-buff
       addLog(s, `[${skill.name}] 공격력 ${skill.effect_value}% 증가 ${skill.effect_duration}행동!`);
       break;
     }
 
     case 'damage_reflect': {
+      dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'damage_reflect', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 데미지 ${skill.effect_value}% 반사!`);
       break;
@@ -974,9 +991,9 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       // 공격형 shield(damage_mult > 0)는 항상 사용, 순수 버프는 중복 방지
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'shield');
     case 'damage_reduce':
-      return !hasActivePlayerBuff(s, 'damage_reduce');
+      return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
     case 'atk_buff':
-      return !hasActivePlayerBuff(s, 'atk_buff');
+      return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'atk_buff');
     case 'damage_reflect':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reflect');
     case 'invincible':
@@ -984,9 +1001,9 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'resurrect':
       return !hasActivePlayerBuff(s, 'resurrect');
     case 'gauge_freeze':
-      return !hasEffect(s, 'player', 'gauge_freeze');
+      return sk.damage_mult > 0 || !hasEffect(s, 'player', 'gauge_freeze');
     case 'accuracy_debuff':
-      return !hasEffect(s, 'player', 'accuracy_debuff');
+      return sk.damage_mult > 0 || !hasEffect(s, 'player', 'accuracy_debuff');
     case 'poison_burst':
       return poisonCount > 0; // 독 없으면 낭비
     case 'self_speed_mod':
@@ -1276,7 +1293,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     }
 
-    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
+    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, {
+      subject: '가방 초과분',
+      body: '가방이 가득 차서 우편으로 배송되었습니다. 접두사/품질이 보존되어 있습니다.',
+    });
+    // 비장비(소모품 등)는 위 옵션이 동작하지 않으므로 종전 경로 유지
     if (overflow > 0) {
       await deliverToMailbox(s.characterId, '가방 초과분', '가방이 가득 차서 우편으로 배송되었습니다.', drop.itemId, overflow);
     }

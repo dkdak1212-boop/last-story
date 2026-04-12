@@ -13,7 +13,8 @@ async function getMaxSlots(characterId: number): Promise<number> {
 export async function addItemToInventory(
   characterId: number,
   itemId: number,
-  quantity: number
+  quantity: number,
+  mailOnOverflow?: { subject: string; body: string }
 ): Promise<{ added: number; overflow: number }> {
   // 아이템 조회 — 스택 가능 여부 + 장비 여부 + 유니크 여부
   const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
@@ -110,6 +111,37 @@ export async function addItemToInventory(
       );
     }
     remaining -= qty;
+  }
+
+  // 인벤토리 가득 → 장비라면 접두사/품질 보존하여 우편으로 발송
+  if (remaining > 0 && mailOnOverflow && isEquipment) {
+    for (let i = 0; i < remaining; i++) {
+      const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
+      const quality = Math.floor(Math.random() * 101);
+      let finalPrefixStats: Record<string, number> = bonusStats;
+      if (isUnique) {
+        const fixedStats = uniquePrefixStats || {};
+        finalPrefixStats = { ...fixedStats };
+        for (const [k, v] of Object.entries(bonusStats)) {
+          finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
+        }
+      }
+      await deliverToMailbox(
+        characterId,
+        mailOnOverflow.subject,
+        mailOnOverflow.body,
+        itemId,
+        1,
+        0,
+        {
+          enhanceLevel: 0,
+          prefixIds: prefixIds.length > 0 ? prefixIds : null,
+          prefixStats: finalPrefixStats,
+          quality,
+        }
+      );
+    }
+    remaining = 0;
   }
 
   return { added: quantity - remaining, overflow: remaining };

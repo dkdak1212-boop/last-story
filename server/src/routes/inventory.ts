@@ -207,15 +207,16 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   }
 
   // 해제 먼저 (인벤토리로 돌려보내기)
-  const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
-    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]
+  const existing = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; quality: number }>(
+    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked, COALESCE(quality, 0) AS quality FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]
   );
   if (existing.rowCount && existing.rowCount > 0) {
     const ex = existing.rows[0];
     const exPrefixIds = ex.prefix_ids && ex.prefix_ids.length > 0 ? ex.prefix_ids : [];
     const exPrefixStats = ex.prefix_stats || {};
-    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb, quality = $5 WHERE character_id = $6 AND slot_index = $7',
-      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), ex.quality || 0, id, parsed.data.slotIndex]);
+    // locked 플래그는 장착 상태에서 인벤토리로 이동 시 반드시 보존해야 함 (전체판매 보호)
+    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb, quality = $5, locked = $6 WHERE character_id = $7 AND slot_index = $8',
+      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), ex.quality || 0, ex.locked === true, id, parsed.data.slotIndex]);
     await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]);
   } else {
     await query('DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
@@ -244,7 +245,7 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
     [id, parsed.data.slot]
   );
   if (eq.rowCount === 0) return res.status(404).json({ error: 'nothing equipped' });
-  if (eq.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
+  // 잠금 아이템도 해제는 가능 — 보존만 정확히 (이전: 해제 차단으로 풀린 채 인벤토리행 위험)
 
   // 빈 인벤토리 슬롯 찾기
   const usedR = await query<{ slot_index: number }>(
@@ -259,8 +260,9 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const eqRow = eq.rows[0];
   const unequipPrefixIds = eqRow.prefix_ids && eqRow.prefix_ids.length > 0 ? eqRow.prefix_ids : [];
   const unequipPrefixStats = eqRow.prefix_stats || {};
-  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)',
-    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats), eqRow.quality || 0]);
+  // locked 보존 — 장착 상태에서 잠갔다면 인벤토리로 옮긴 뒤에도 잠금 유지
+  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7, $8)',
+    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats), eqRow.quality || 0, eqRow.locked === true]);
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
   res.json({ ok: true });
