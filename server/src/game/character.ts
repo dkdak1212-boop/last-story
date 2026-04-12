@@ -79,7 +79,7 @@ export async function getEquippedItems(characterId: number) {
       const el = row.enhance_level || 0;
       const prefixMult = 1 + el * 0.05; // 강화당 접두사 +5% 스케일 (모든 스탯 적용)
       for (const [k, v] of Object.entries(row.prefix_stats)) {
-        if (['str', 'dex', 'int', 'vit', 'spd', 'cri'].includes(k)) {
+        if (['str', 'dex', 'int', 'vit', 'spd', 'cri', 'hp', 'atk', 'matk', 'def', 'mdef'].includes(k)) {
           result[k as keyof Stats] = (result[k as keyof Stats] ?? 0) + Math.round((v as number) * prefixMult);
         }
       }
