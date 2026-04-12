@@ -47,11 +47,11 @@ export function StatusScreen() {
   }
   useEffect(reload, [active?.id]);
 
-  async function spendStat(stat: keyof Stats) {
+  async function spendStat(stat: keyof Stats, amount: number = 1) {
     if (!active || busy) return;
     setBusy(true);
     try {
-      await api(`/characters/${active.id}/spend-stat`, { method: 'POST', body: JSON.stringify({ stat, amount: 1 }) });
+      await api(`/characters/${active.id}/spend-stat`, { method: 'POST', body: JSON.stringify({ stat, amount }) });
       reload();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); } finally { setBusy(false); }
   }
@@ -139,7 +139,7 @@ export function StatusScreen() {
               </div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 28px', gap: 4, fontSize: 12, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 80px', gap: 4, fontSize: 12, alignItems: 'center' }}>
             <div style={{ color: 'var(--text-dim)' }}></div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>기본</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>장비</div>
@@ -151,19 +151,19 @@ export function StatusScreen() {
               const eq = (status.equipBonus[k] || 0) as number;
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
-              // STR/DEX/INT/VIT 분배 가능 (SPD/CRI는 노드/장비 전용)
               const spendable = k === 'str' || k === 'dex' || k === 'int' || k === 'vit';
               return (
                 <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
                   canSpend={spendable && status.statPoints > 0 && !busy}
                   spendable={spendable}
-                  onSpend={() => spendStat(k)}
+                  statPoints={status.statPoints}
+                  onSpend={(amt: number) => spendStat(k, amt)}
                 />
               );
             })}
           </div>
           {status.statPoints > 0 && (
-            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)' }}>+ 버튼을 눌러 스탯을 1씩 분배할 수 있습니다.</div>
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)' }}>+1 / +5 / +10 버튼으로 스탯을 분배할 수 있습니다.</div>
           )}
         </div>
       </div>
@@ -233,7 +233,18 @@ function Desc({ text }: { text: string }) {
   );
 }
 
-function StatRow({ label, base, eq, node, total, canSpend, spendable = true, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; spendable?: boolean; onSpend?: () => void }) {
+function StatRow({ label, base, eq, node, total, canSpend, spendable = true, statPoints = 0, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; spendable?: boolean; statPoints?: number; onSpend?: (amount: number) => void }) {
+  const btnStyle = (amt: number) => {
+    const ok = canSpend && statPoints >= amt;
+    return {
+      padding: '2px 4px', fontSize: 10, fontWeight: 700 as const,
+      background: ok ? 'var(--accent)' : 'transparent',
+      color: ok ? '#000' : 'var(--text-dim)',
+      border: `1px solid ${ok ? 'var(--accent)' : 'var(--border)'}`,
+      cursor: ok ? 'pointer' : 'not-allowed', borderRadius: 3,
+      opacity: ok ? 1 : 0.4, minWidth: 22,
+    };
+  };
   return (
     <>
       <div style={{ color: 'var(--text)' }}>{label}</div>
@@ -246,18 +257,11 @@ function StatRow({ label, base, eq, node, total, canSpend, spendable = true, onS
       </div>
       <div style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{total}</div>
       {spendable ? (
-        <button
-          onClick={onSpend}
-          disabled={!canSpend}
-          style={{
-            padding: '2px 0', fontSize: 12, fontWeight: 900,
-            background: canSpend ? 'var(--accent)' : 'transparent',
-            color: canSpend ? '#000' : 'var(--text-dim)',
-            border: `1px solid ${canSpend ? 'var(--accent)' : 'var(--border)'}`,
-            cursor: canSpend ? 'pointer' : 'not-allowed', borderRadius: 3,
-            opacity: canSpend ? 1 : 0.4,
-          }}
-        >+</button>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button onClick={() => onSpend?.(1)} disabled={!canSpend || statPoints < 1} style={btnStyle(1)}>+1</button>
+          <button onClick={() => onSpend?.(5)} disabled={!canSpend || statPoints < 5} style={btnStyle(5)}>+5</button>
+          <button onClick={() => onSpend?.(10)} disabled={!canSpend || statPoints < 10} style={btnStyle(10)}>+10</button>
+        </div>
       ) : (
         <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'center' }}>–</div>
       )}
