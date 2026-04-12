@@ -678,7 +678,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (!d.miss) {
           s.monsterHp -= d.damage;
           addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}`);
-          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
+          const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
@@ -720,7 +721,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULT = 1.8;
       const dotDmg = Math.round(dotBase * POISON_MULT);
-      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
+      const poisonLordExt2 = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration + poisonLordExt2, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어 50% 무시)`);
       // 스피드 감소
       if (skill.effect_value > 0) {
@@ -864,7 +866,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (skill.name === '독안개' || skill.name === '맹독의 안개') {
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const dotDmg = Math.round(dotBase * 1.5);
-        addEffect(s, { type: 'poison', value: dotDmg, remainingActions: debuffDur, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
+        const poisonLordExt3 = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+        addEffect(s, { type: 'poison', value: dotDmg, remainingActions: debuffDur + poisonLordExt3, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${debuffDur}행동 (방어 50% 무시)`);
       }
       break;
