@@ -491,7 +491,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'hp_pct_damage': {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
-      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+      // 분노의 일격: 방어 50% 추가 무시
+      const furyPierce = skill.name === '분노의 일격' ? 50 : 0;
+      const totalDefReduce = Math.min(95, armorPierce + prefixDefReduce + furyPierce);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
