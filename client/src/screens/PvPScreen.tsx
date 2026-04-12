@@ -160,27 +160,44 @@ export function PvPScreen() {
       {tab === 'history' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {history.length === 0 && <div style={{ color: 'var(--text-dim)' }}>기록 없음</div>}
-          {history.map(h => (
-            <div key={h.id} style={{
-              padding: 10, background: 'var(--bg-panel)', border: '1px solid var(--border)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <span style={{ color: h.won ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
-                  {h.won ? '승' : '패'}
-                </span>
-                <span style={{ marginLeft: 10 }}>
-                  {h.amAttacker ? `→ ${h.defenderName}` : `← ${h.attackerName}`}
-                </span>
-                <span style={{ marginLeft: 10, color: 'var(--text-dim)', fontSize: 12 }}>
-                  ELO {h.won ? '+' : '-'}{Math.abs(h.eloChange)}
-                </span>
+          {history.map(h => {
+            const gold = h.won ? 500 : 50;
+            return (
+              <div key={h.id} style={{
+                padding: 10, background: 'var(--bg-panel)',
+                borderLeft: `3px solid ${h.won ? 'var(--success)' : 'var(--danger)'}`,
+                border: '1px solid var(--border)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <span style={{
+                      display: 'inline-block', width: 40, textAlign: 'center', padding: '2px 0',
+                      background: h.amAttacker ? 'rgba(100,180,255,0.15)' : 'rgba(255,180,100,0.15)',
+                      color: h.amAttacker ? '#6bb4ff' : '#ffb060',
+                      fontSize: 10, fontWeight: 700, borderRadius: 3, marginRight: 6,
+                    }}>{h.amAttacker ? '공격' : '방어'}</span>
+                    <span style={{ color: h.won ? 'var(--success)' : 'var(--danger)', fontWeight: 700 }}>
+                      {h.won ? '승리' : '패배'}
+                    </span>
+                    <span style={{ marginLeft: 8 }}>
+                      vs {h.amAttacker ? h.defenderName : h.attackerName}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: 11 }}>
+                    <div>
+                      <span style={{ color: h.won ? 'var(--success)' : 'var(--danger)' }}>
+                        ELO {h.won ? '+' : '-'}{Math.abs(h.eloChange)}
+                      </span>
+                      <span style={{ marginLeft: 8, color: 'var(--accent)' }}>+{gold}G</span>
+                    </div>
+                    <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                      {new Date(h.createdAt).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
-                {new Date(h.createdAt).toLocaleString('ko-KR')}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

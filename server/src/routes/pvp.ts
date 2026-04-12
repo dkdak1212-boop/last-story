@@ -205,13 +205,7 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
   // 일일임무 진행
   await trackDailyQuestProgress(attackerId, 'pvp_attack', 1);
 
-  // 방어자 우편 알림
-  await deliverToMailbox(
-    defenderId,
-    sim.winner === 'defender' ? 'PvP 방어 성공' : 'PvP 방어 실패',
-    `${sim.attackerName}님이 공격했습니다. ${sim.winner === 'defender' ? '승리' : '패배'} (ELO ${sim.winner === 'defender' ? '+' : '-'}${eloChange})`,
-    0, 0, defenderGold
-  );
+  // 방어자 골드는 이미 직접 지급됨 (우편 미사용 — 서버 부하 방지)
 
   res.json({
     winner: sim.winner,
