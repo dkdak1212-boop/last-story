@@ -27,6 +27,10 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   ambush_pct: v => `5초 미피격 시 다음 공격 +${v}%`,
   predator_pct: v => `적 처치 시 HP ${v}% 회복`,
   first_strike_pct: v => `첫 공격 데미지 +${v}%`,
+  // 유니크 전용
+  atk_pct: v => `공격력 ${v}% 증가`,
+  matk_pct: v => `마법공격 ${v}% 증가`,
+  hp_pct: v => `최대 HP ${v}% 증가`,
 };
 
 interface Props {
