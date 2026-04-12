@@ -1076,10 +1076,22 @@ async function autoAction(s: ActiveSession): Promise<void> {
     }
   }
 
-  // ── 슬롯 순서대로 첫 번째 사용 가능한 스킬 발동 (왼쪽 절대 우선) ──
+  // ── 슬롯 순서대로 행동 ──
+  // 1단계: kind='buff' 스킬은 "자유 행동" — 가능한 모두 즉시 발동, 턴 소모 없음.
+  //         (쿨다운은 정상 적용 → 사이클 보존)
+  // 2단계: 비-buff 스킬 중 첫 번째 사용 가능한 것 1개 → 메인 행동
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
   const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
+
   for (const sk of sorted) {
+    if (sk.kind !== 'buff') continue;
+    if (!isSkillReady(s, sk)) continue;
+    if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    await executeSkill(s, sk);
+  }
+
+  for (const sk of sorted) {
+    if (sk.kind === 'buff') continue;
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     await executeSkill(s, sk);
