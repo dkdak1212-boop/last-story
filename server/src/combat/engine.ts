@@ -677,13 +677,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const dotDmg = Math.round(dotBase * 1.5);
+      const POISON_MULTI_MULT = 1.8;
+      const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
         if (!d.miss) {
           s.monsterHp -= d.damage;
           addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}`);
-          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
+          addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
@@ -723,8 +724,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] ${d.damage} 데미지`);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const dotDmg = Math.round(dotBase * 1.5);
-      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
+      const POISON_MULT = 1.8;
+      const dotDmg = Math.round(dotBase * POISON_MULT);
+      addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${skill.effect_duration}행동 (방어 50% 무시)`);
       // 스피드 감소
       if (skill.effect_value > 0) {
