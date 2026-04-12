@@ -31,6 +31,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   atk_pct: v => `공격력 ${v}% 증가`,
   matk_pct: v => `마법공격 ${v}% 증가`,
   hp_pct: v => `최대 HP ${v}% 증가`,
+  damage_taken_down_pct: v => `받는 데미지 ${v}% 감소`,
 };
 
 interface Props {

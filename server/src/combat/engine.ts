@@ -1212,6 +1212,11 @@ function monsterAction(s: ActiveSession): void {
       dmg = Math.round(dmg * (1 - guardian / 100));
       guardianProc = true;
     }
+    // 접두사: 받는 데미지 감소 (상시)
+    const dtDown = s.equipPrefixes.damage_taken_down_pct || 0;
+    if (dtDown > 0 && dmg > 0) {
+      dmg = Math.round(dmg * (1 - dtDown / 100));
+    }
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
     // 접두사: 경감 (damage_taken_down_pct) — 조건 없이 상시 감소
