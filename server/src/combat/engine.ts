@@ -400,10 +400,13 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   return true;
 }
 
-// 패시브 값 조회 (없으면 0)
+// 패시브 값 조회 — 동일 키가 여러 노드에 있으면 합산
 function getPassive(s: ActiveSession, key: string): number {
-  const p = s.passives.find(p => p.key === key);
-  return p ? p.value : 0;
+  let total = 0;
+  for (const p of s.passives) {
+    if (p.key === key) total += p.value;
+  }
+  return total;
 }
 
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
@@ -527,8 +530,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 일일퀘 스킬 사용 트래킹
   try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
 
-  // 패시브: spell_amp (마법 공격 증폭), armor_pierce (방어 무시)
-  const spellAmp = useMatk ? getPassive(s, 'spell_amp') : 0;
+  // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용), armor_pierce (방어 무시)
+  const spellAmp = getPassive(s, 'spell_amp');
   const armorPierce = getPassive(s, 'armor_pierce');
   // 접두사: 약화(def_reduce_pct)
   const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
