@@ -446,6 +446,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 디버프: damage_taken_up (방패 강타 등 — 적이 받는 데미지 증가)
         const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
         if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+        // 버프: atk_buff (전쟁의 함성 등 — 플레이어 공격력 증가)
+        const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+        if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
         // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
         // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
@@ -791,6 +794,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       break;
     }
 
+    case 'atk_buff': {
+      addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // self-buff
+      addLog(s, `[${skill.name}] 공격력 ${skill.effect_value}% 증가 ${skill.effect_duration}행동!`);
+      break;
+    }
+
     case 'damage_reflect': {
       addEffect(s, { type: 'damage_reflect', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 데미지 ${skill.effect_value}% 반사!`);
@@ -966,6 +975,8 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'shield');
     case 'damage_reduce':
       return !hasActivePlayerBuff(s, 'damage_reduce');
+    case 'atk_buff':
+      return !hasActivePlayerBuff(s, 'atk_buff');
     case 'damage_reflect':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reflect');
     case 'invincible':

@@ -638,6 +638,7 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
     dot: 'DoT', shield: '실드', speed_mod: '속도', stun: '기절',
     gauge_freeze: '동결', damage_reflect: '반사', damage_reduce: '감소',
     accuracy_debuff: '명중-', invincible: '무적', resurrect: '부활', poison: '독',
+    atk_buff: '공격+', damage_taken_up: '약점',
   };
 
   return (
