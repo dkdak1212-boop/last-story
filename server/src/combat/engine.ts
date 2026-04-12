@@ -690,9 +690,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const dotDmg = Math.round(dotBase * 1.2);
-        const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0; // 도트 지속 +1
+        const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0;
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어 50% 무시)`);
+        // effect_value > 0이면 N% 확률로 2회 발동 (운석 폭격 등)
+        if (skill.effect_value > 0 && Math.random() * 100 < skill.effect_value) {
+          const d2 = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+          if (!d2.miss) {
+            s.monsterHp -= d2.damage;
+            addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
+            addLog(s, `[${skill.name}] 2회 발동! ${d2.damage}${d2.crit ? '!' : ''} +도트`);
+          }
+        }
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
