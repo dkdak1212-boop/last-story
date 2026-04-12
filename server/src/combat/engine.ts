@@ -1501,12 +1501,12 @@ async function combatTick(): Promise<void> {
 
       // 몬스터 행동
       if (s.monsterGauge >= GAUGE_MAX) {
-        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
         monsterAction(s);
         s.monsterGauge = 0;
-        // 도트 먼저 적용 → 그 다음 카운트 감소 (마지막 1틱 보존)
-        processDots(s, 'monster');
-        tickDownEffects(s, 'player', preMonsterActIds);
+        // 몬스터 행동: 몬스터 도트→플레이어 데미지 + 플레이어 버프 만료
+        processDots(s, 'player');
+        tickDownEffects(s, 'monster', preMonsterActIds);
         s.dirty = true;
 
         if (s.playerHp <= 0) {
@@ -1534,11 +1534,11 @@ async function combatTick(): Promise<void> {
           s.skillCooldowns = newCd;
           if (s.potionCooldown > 0) s.potionCooldown--;
 
-          const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+          const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
           await autoAction(s);
-          // 도트 먼저 적용 → 그 다음 카운트 감소
-          processDots(s, 'player');
-          tickDownEffects(s, 'monster', preAutoIds);
+          // 플레이어 행동: 플레이어 도트→몬스터 데미지 + 플레이어 도트 만료
+          processDots(s, 'monster');
+          tickDownEffects(s, 'player', preAutoIds);
           s.dirty = true;
 
           // 몬스터 처치 체크
@@ -1892,10 +1892,10 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   }
   s.skillCooldowns = newCdMap;
 
-  const preManualIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+  const preManualIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
   await executeSkill(s, skill);
-  processDots(s, 'player');
-  tickDownEffects(s, 'monster', preManualIds);
+  processDots(s, 'monster');
+  tickDownEffects(s, 'player', preManualIds);
   s.dirty = true;
 
   if (s.monsterHp <= 0) await handleMonsterDeath(s);
