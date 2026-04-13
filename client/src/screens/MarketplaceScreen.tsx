@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import type { ItemGrade, InventorySlot, Stats } from '../types';
+import type { ItemGrade, InventorySlot, Stats, Equipped } from '../types';
 import { GRADE_COLOR, ItemStatsBlock } from '../components/ui/ItemStats';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 import { ItemIcon } from '../components/ui/ItemIcon';
+import { ItemComparison } from '../components/ui/ItemComparison';
 
 interface Listing {
   id: number; itemId: number; itemQuantity: number;
@@ -49,6 +50,7 @@ export function MarketplaceScreen() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
+  const [equipped, setEquipped] = useState<Equipped>({});
   const [slotFilter, setSlotFilter] = useState<string>(''); // '', weapon, helm, chest, boots, ring, amulet
   const [uniqueLevelBracket, setUniqueLevelBracket] = useState<string>(''); // '' = 전체, '1-9', '10-19', ...
   const [browseLevelBracket, setBrowseLevelBracket] = useState<string>(''); // 둘러보기 탭 레벨 필터
@@ -72,12 +74,13 @@ export function MarketplaceScreen() {
   }
   async function loadInv() {
     if (!active) return;
-    const d = await api<{ inventory: InventorySlot[] }>(`/characters/${active.id}/inventory`);
+    const d = await api<{ inventory: InventorySlot[]; equipped: Equipped }>(`/characters/${active.id}/inventory`);
     setInv(d.inventory);
+    setEquipped(d.equipped || {});
   }
 
   useEffect(() => {
-    if (tab === 'browse' || tab === 'unique') loadBrowse();
+    if (tab === 'browse' || tab === 'unique') { loadBrowse(); loadInv(); }
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
   }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, active?.id]);
@@ -187,6 +190,7 @@ export function MarketplaceScreen() {
             slotFilter={slotFilter}
             weaponClass={weaponClass}
             levelBracket={browseLevelBracket}
+            equipped={equipped}
             onBuy={(a) => buy(a)}
           />
         </>
@@ -270,7 +274,7 @@ export function MarketplaceScreen() {
             });
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />)}
+                {sorted.map(a => <ListingRow key={a.id} a={a} equipped={equipped} onBuy={() => buy(a)} />)}
               </div>
             );
           })()}
@@ -366,8 +370,9 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
 }
 
 // 거래소 목록 (레벨 구간 탭 필터 — 유니크 탭과 동일 UI)
-function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, onBuy }: {
+function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equipped, onBuy }: {
   listings: Listing[]; slotFilter: string; weaponClass: string; levelBracket: string;
+  equipped: Equipped;
   onBuy: (a: Listing) => void;
 }) {
   // 1. 무기 직업 필터
@@ -402,12 +407,12 @@ function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, onBuy
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => onBuy(a)} />)}
+      {sorted.map(a => <ListingRow key={a.id} a={a} equipped={equipped} onBuy={() => onBuy(a)} />)}
     </div>
   );
 }
 
-function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
+function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; onBuy: () => void }) {
   const timeLeft = Math.max(0, new Date(a.endsAt).getTime() - Date.now());
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
   const el = a.enhanceLevel || 0;
@@ -487,6 +492,20 @@ function ListingRow({ a, onBuy }: { a: Listing; onBuy: () => void }) {
           <div style={{ marginBottom: 6 }}>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>아이템 스탯</div>
             <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} quality={a.quality || 0} />
+            {a.itemSlot && equipped && (equipped as any)[a.itemSlot] && (
+              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--border)' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 2, fontWeight: 700 }}>
+                  vs 내 장착 {(equipped as any)[a.itemSlot].name}
+                  {(equipped as any)[a.itemSlot].enhanceLevel ? ` +${(equipped as any)[a.itemSlot].enhanceLevel}` : ''}
+                </div>
+                <ItemComparison
+                  itemStats={a.itemStats}
+                  equippedStats={(equipped as any)[a.itemSlot].stats}
+                  itemEnhance={el}
+                  equippedEnhance={(equipped as any)[a.itemSlot].enhanceLevel || 0}
+                />
+              </div>
+            )}
           </div>
         )}
         {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
