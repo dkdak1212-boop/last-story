@@ -1047,8 +1047,17 @@ function DamageMeter({ log }: { log: string[] }) {
     const newLines = log.slice(startIdx);
     lastSeenLineRef.current = log[log.length - 1];
 
+    // 매칭 우선순위:
+    //  1) 도트 틱:      "[도트] 몬스터에게 N"
+    //  2) 멀티히트 타: "[스킬] Ni타 N!"
+    //  3) 2회 발동:    "[스킬] 2회 발동! N"
+    //  4) 데미지 라인: "[스킬] ... N 데미지(!)" — 독 폭발/실드 파괴/체력 비례 등 서두 포함
+    //  5) 추가 타격:    "추가 타격! N"
+    const multiHitRe = /\[([^\]]+?)\]\s+\d+타\s+(\d+)(!?)/;
+    const doubleRe = /\[([^\]]+?)\]\s+2회 발동!\s+(\d+)(!?)/;
+    const damageRe = /\[([^\]]+?)\][^\[\n]*?(\d+)\s*데미지(!?)/;
     for (const line of newLines) {
-      const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
+      const dotMatch = line.match(/\[도트\]\s+몬스터에게\s+(\d+)/);
       if (dotMatch) {
         const dmg = parseInt(dotMatch[1]);
         dotAccRef.current.total += dmg;
@@ -1056,7 +1065,7 @@ function DamageMeter({ log }: { log: string[] }) {
         totalDmgRef.current += dmg;
         continue;
       }
-      const skillMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
+      const skillMatch = multiHitRe.exec(line) || doubleRe.exec(line) || damageRe.exec(line);
       if (skillMatch && skillMatch[1] !== '도트') {
         const name = skillMatch[1];
         const dmg = parseInt(skillMatch[2]);
@@ -1066,7 +1075,7 @@ function DamageMeter({ log }: { log: string[] }) {
         s.total += dmg; s.hits++; if (crit) s.crits++; if (dmg > s.max) s.max = dmg;
         totalDmgRef.current += dmg;
       }
-      const extraMatch = line.match(/추가 타격! (\d+)/);
+      const extraMatch = line.match(/추가 타격!\s+(\d+)/);
       if (extraMatch) {
         const dmg = parseInt(extraMatch[1]);
         if (!accRef.current.has('추가 타격')) accRef.current.set('추가 타격', { total: 0, hits: 0, crits: 0, max: 0 });
