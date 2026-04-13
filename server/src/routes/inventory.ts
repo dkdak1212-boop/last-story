@@ -197,7 +197,7 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
     [id, parsed.data.slotIndex]
   );
   if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
-  if (invR.rows[0].locked) return res.status(400).json({ error: '잠긴 아이템입니다.' });
+  // 잠긴 아이템도 장착 허용 — 잠금은 판매/분해/우편/거래소 송부만 차단
   const { item_id, slot, enhance_level, prefix_ids, prefix_stats, required_level, class_restriction, quality } = invR.rows[0];
   if (!slot) return res.status(400).json({ error: 'not equippable' });
   if (char.level < required_level) return res.status(400).json({ error: `Lv.${required_level} 이상만 장착 가능` });

@@ -1554,7 +1554,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   if (levelDiffMult < 1.0) {
     addLog(s, `⚠️ 레벨차 -${charMeta!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
   }
-  addLog(s, `${m.name}을(를) 처치! +${previewExp}exp, +${finalGold}G`);
+  // 부스트/접두사 보너스 표시 — 기본값 대비 추가분
+  const baseExpRaw = Math.floor(m.exp_reward * ge.exp * levelDiffMult);
+  const baseGoldRaw = Math.floor(m.gold_reward * ge.gold);
+  const expExtra = previewExp - baseExpRaw;
+  const goldExtra = finalGold - baseGoldRaw;
+  const expSuffix = expExtra > 0 ? ` (기본 ${baseExpRaw} +${expExtra})` : '';
+  const goldSuffix = goldExtra > 0 ? ` (기본 ${baseGoldRaw} +${goldExtra})` : '';
+  addLog(s, `${m.name}을(를) 처치! +${previewExp}exp${expSuffix}, +${finalGold}G${goldSuffix}`);
 
   // 일일퀘 + 업적 트래킹
   try {

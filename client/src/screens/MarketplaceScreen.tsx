@@ -311,18 +311,18 @@ export function MarketplaceScreen() {
   );
 }
 
-// 품질/접두사 필터 패널
+// 품질/접두사 필터 패널 — 실제 item_prefixes.stat_key와 일치해야 함
 const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: '', label: '전체' },
-  { key: 'atk', label: '공격력 (atk)' },
-  { key: 'matk', label: '마법공격 (matk)' },
-  { key: 'def', label: '방어력 (def)' },
-  { key: 'mdef', label: '마법방어 (mdef)' },
-  { key: 'hp', label: 'HP' },
+  { key: 'str', label: '힘 (공격력)' },
+  { key: 'int', label: '지능 (마법공격)' },
+  { key: 'dex', label: '민첩 (회피)' },
+  { key: 'vit', label: '체력' },
   { key: 'spd', label: '스피드' },
   { key: 'cri', label: '치명타' },
   { key: 'accuracy', label: '명중' },
   { key: 'dodge', label: '회피' },
+  { key: 'hp_regen', label: 'HP 재생' },
   { key: 'crit_dmg_pct', label: '크리 데미지 %' },
   { key: 'lifesteal_pct', label: '흡혈 %' },
   { key: 'dot_amp_pct', label: '도트 증폭 %' },
@@ -331,6 +331,10 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'first_strike_pct', label: '약점간파 %' },
   { key: 'ambush_pct', label: '각성 %' },
   { key: 'gauge_on_crit_pct', label: '재충전 %' },
+  { key: 'guardian_pct', label: '수호자 %' },
+  { key: 'predator_pct', label: '포식자 %' },
+  { key: 'thorns_pct', label: '가시 %' },
+  { key: 'slow_pct', label: '저주 %' },
   { key: 'exp_bonus_pct', label: '경험치 %' },
   { key: 'gold_bonus_pct', label: '골드 %' },
 ];

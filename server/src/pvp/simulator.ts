@@ -1,7 +1,7 @@
 // PvP 비동기 전투 시뮬레이션 — v2: 상태이상/버프/실드 지원
 import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
-import { loadCharacter, getEffectiveStats } from '../game/character.js';
+import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 
 const GAUGE_MAX = 1000;
 const MAX_TICKS = 2000;
@@ -30,6 +30,13 @@ interface Side {
   cooldowns: Map<number, number>;
   actionCount: number;
   effects: StatusEffect[];
+  passives: { key: string; value: number }[];
+}
+
+function getPassive(s: Side, key: string): number {
+  let total = 0;
+  for (const p of s.passives) if (p.key === key) total += p.value;
+  return total;
 }
 
 interface SkillDef {
@@ -54,11 +61,13 @@ async function loadSide(characterId: number): Promise<Side | null> {
     [characterId, char.level]
   );
   const pvpHp = char.max_hp * 10; // PVP HP 10배 보정
+  const passives = await getNodePassives(characterId);
   return {
     id: char.id, name: char.name, className: char.class_name,
     stats: eff, hp: pvpHp, maxHp: pvpHp,
     gauge: 0, skills: sr.rows, cooldowns: new Map(), actionCount: 0,
     effects: [],
+    passives,
   };
 }
 
@@ -310,8 +319,11 @@ function act(me: Side, foe: Side, log: string[]) {
       break;
     }
     case 'gauge_freeze': {
-      foe.effects.push({ type: 'gauge_freeze', value: 0, remaining: best.effect_duration });
-      log.push(`${me.name} [${best.name}] 게이지 동결 ${best.effect_duration}턴`);
+      // 노드 패시브: freeze_extend (동결+) — 동결 지속시간 추가
+      const freezeExt = getPassive(me, 'freeze_extend');
+      const dur = best.effect_duration + freezeExt;
+      foe.effects.push({ type: 'gauge_freeze', value: 0, remaining: dur });
+      log.push(`${me.name} [${best.name}] 게이지 동결 ${dur}턴${freezeExt > 0 ? ` (+${freezeExt})` : ''}`);
       break;
     }
     case 'gauge_fill': {
