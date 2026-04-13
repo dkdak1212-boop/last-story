@@ -164,7 +164,6 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (pMap.has('trickster')) eff.cri = Math.min(100, eff.cri + pMap.get('trickster')!);
   if (pMap.has('shadow_dance')) eff.dodge = Math.min(80, eff.dodge + pMap.get('shadow_dance')!);
   if (pMap.has('focus_mastery')) eff.accuracy = Math.min(200, eff.accuracy + pMap.get('focus_mastery')!);
-  // time_lord: 게이지 제어 효율 (스피드 아님 — gauge_control_amp에 합산)
   if (pMap.has('berserker_heart')) {
     eff.atk = Math.round(eff.atk * (1 + pMap.get('berserker_heart')! / 100));
     eff.def = Math.round(eff.def * (1 - pMap.get('berserker_heart')! / 200));

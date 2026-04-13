@@ -906,7 +906,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'gauge_reset': {
       s.monsterGauge = 0;
-      const gcAmp = getPassive(s, 'gauge_control_amp') + getPassive(s, 'time_lord');
+      const gcAmp = getPassive(s, 'gauge_control_amp');
       const stunChance = skill.effect_value * (1 + gcAmp / 100);
       addLog(s, `[${skill.name}] 적 게이지 리셋!`);
       if (Math.random() * 100 < stunChance) {
@@ -978,7 +978,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         break;
       }
       const freezeExt = getPassive(s, 'freeze_extend');
-      const gcAmp2 = getPassive(s, 'gauge_control_amp') + getPassive(s, 'time_lord');
+      const gcAmp2 = getPassive(s, 'gauge_control_amp');
       const freezeDur = Math.round((skill.effect_duration + freezeExt) * (1 + gcAmp2 / 100));
       addEffect(s, { type: 'gauge_freeze', value: 0, remainingActions: freezeDur, source: 'player' });
       addEffect(s, { type: 'cc_immune', value: 0, remainingActions: freezeDur + 3, source: 'player' });
@@ -1356,6 +1356,12 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     await executeSkill(s, sk);
+    // 시간 지배자 (마법사): skill_double_chance % 확률로 스킬 1회 추가 발동
+    const dblChance = getPassive(s, 'skill_double_chance');
+    if (dblChance > 0 && Math.random() * 100 < dblChance) {
+      addLog(s, `⏳ [시간 지배자] 스킬 재발동!`);
+      await executeSkill(s, sk);
+    }
     // 소환사: 메인 스킬 후 소환수 자동 공격
     if (s.className === 'summoner') processSummons(s);
     return;
@@ -1996,8 +2002,6 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     eff.def = Math.round(eff.def * (1 - v / 200)); // 절반만 감소
   }
   // elemental_storm: 도트 데미지 대폭 증가 (dot_amp처럼 작동하지만 별도)
-  // time_lord: 스피드 +N%
-  // time_lord: 게이지 제어 효율 +100% (gauge_control_amp에 합산, 스피드 아님)
   // counter_incarnation: 반사 데미지 상시 적용
   // sanctuary_guard: 최대HP +N%
   if (pMap.has('sanctuary_guard')) {
