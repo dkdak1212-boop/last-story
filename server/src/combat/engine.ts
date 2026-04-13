@@ -1672,9 +1672,12 @@ async function combatTick(): Promise<void> {
   lastTickAt = now;
   const tickScale = dtMs / TICK_TARGET_MS;
 
+  // 세션을 병렬로 처리 (각 세션의 await DB 쿼리가 서로를 블로킹하지 않도록)
+  const tasks: Promise<void>[] = [];
   for (const [charId, s] of activeSessions) {
+    tasks.push((async () => {
     try {
-      if (!s.monsterId) continue;
+      if (!s.monsterId) return;
 
       // 각성 카운터: 실제 경과 시간 기반 (1틱 = 100ms 기준)
       s.ticksSinceLastHit += tickScale;
@@ -1726,7 +1729,7 @@ async function combatTick(): Promise<void> {
 
         if (s.playerHp <= 0) {
           await handlePlayerDeath(s);
-          continue;
+          return;
         }
         // 도트로 몬스터 처치된 경우 즉시 처리
         if (s.monsterHp <= 0) {
@@ -1764,7 +1767,7 @@ async function combatTick(): Promise<void> {
           // 플레이어 사망 체크
           if (s.playerHp <= 0) {
             await handlePlayerDeath(s);
-            continue;
+            return;
           }
         } else {
           // 수동 모드: 입력 대기
@@ -1785,7 +1788,9 @@ async function combatTick(): Promise<void> {
     } catch (err) {
       console.error(`[combat] tick error for char ${charId}:`, err);
     }
+    })());
   }
+  await Promise.all(tasks);
 }
 
 // ── 메타 캐시 로드 (exp/부스트/포션/길드버프를 한 번에) ──
