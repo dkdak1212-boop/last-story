@@ -1290,11 +1290,12 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
   switch (sk.effect_type) {
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
-    case 'shield':
-      // 실드는 항상 중복 방지 — shield_break(심판의 날) 사이클 보호.
-      // damage_mult > 0이어도 활성 실드가 있으면 재사용 안 함 (실드를 소비하는
-      // 후속 스킬에 자리를 내어준다).
-      return !hasActivePlayerBuff(s, 'shield');
+    case 'shield': {
+      // 실드 잔여가 1턴 이하면 재시전 허용 (체인 보호).
+      // 상위 shield 스킬이 깔아놓은 실드가 만료 직전이면 하위 shield 스킬로 공백을 메움.
+      const existing = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+      return !existing || existing.remainingActions <= 1;
+    }
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
     case 'atk_buff':
