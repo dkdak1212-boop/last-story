@@ -1912,7 +1912,7 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 }
 
 // ── WebSocket Push ──
-const PUSH_THROTTLE_FULL_MS = 200; // 진입 후 60초간 — 풀 5fps
+const PUSH_THROTTLE_FULL_MS = 100; // 진입 후 60초간 — 풀 10fps
 const PUSH_THROTTLE_LITE_MS = 1500; // 60초 후 — 저대역 모드 ~0.67fps
 const FULL_FPS_DURATION_MS = 60_000;
 async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
