@@ -1343,8 +1343,8 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
     case 'shield': {
-      // 실드 잔여가 1턴 이하면 재시전 허용 (체인 보호).
-      // 상위 shield 스킬이 깔아놓은 실드가 만료 직전이면 하위 shield 스킬로 공백을 메움.
+      // 실드 활성 중엔 다른 실드 시전 금지. 만료 직전(잔여 1턴 이하)이면 재시전 허용해 공백 메움.
+      // 동시 발동 시엔 autoAction에서 우선순위 정렬로 상위 1개만 사용.
       const existing = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
       return !existing || existing.remainingActions <= 1;
     }
@@ -1399,10 +1399,36 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
   const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
 
+  // 실드 스킬 우선순위 (효율 높은 순) — 동일 행동에 1개만 발동
+  // 신성의 갑주(80% HP) > 천상의 방벽(50%) > 신성 방벽(25%)
+  const SHIELD_PRIORITY: Record<string, number> = {
+    '신성의 갑주': 3,
+    '천상의 방벽': 2,
+    '신성 방벽': 1,
+  };
+  let shieldUsedThisCycle = false;
+
   for (const sk of sorted) {
     if (sk.kind !== 'buff') continue;
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    // 실드 우선순위 처리: 가장 높은 우선순위 실드 1개만 시전
+    if (sk.effect_type === 'shield' && SHIELD_PRIORITY[sk.name] !== undefined) {
+      if (shieldUsedThisCycle) continue;
+      // 이번 사이클에 더 높은 우선순위 실드가 사용 가능한지 확인 (있으면 미루기)
+      const myPrio = SHIELD_PRIORITY[sk.name];
+      const hasHigherReady = sorted.some(other =>
+        other.effect_type === 'shield' &&
+        SHIELD_PRIORITY[other.name] !== undefined &&
+        SHIELD_PRIORITY[other.name] > myPrio &&
+        isSkillReady(s, other) &&
+        isSkillContextuallyUsable(s, other, hpPct, poisonCount)
+      );
+      if (hasHigherReady) continue;
+      await executeSkill(s, sk);
+      shieldUsedThisCycle = true;
+      continue;
+    }
     await executeSkill(s, sk);
   }
 
