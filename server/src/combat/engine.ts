@@ -1105,10 +1105,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'shield_break': {
-      // 심판의 철퇴 등 — 자신의 쉴드는 유지, 쉴드량의 400%를 추가 데미지로 변환
+      // 심판의 철퇴 / 대심판의 철퇴 등 — 자신의 쉴드는 유지, 쉴드량의 N%를 추가 데미지로 변환
       // case 'damage'와 동일한 증폭 파이프라인 적용 (judge_amp/spell_amp/크리 추가배율 등)
       const myShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
-      const shieldBonus = myShield ? Math.round(myShield.value * 4.0) : 0;
+      const shieldMult = skill.name === '대심판의 철퇴' ? 6.0 : 4.0;
+      const shieldBonus = myShield ? Math.round(myShield.value * shieldMult) : 0;
       // armor_pierce 적용 (일반 damage와 동일)
       const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
       const defModStats = totalDefReduce > 0 ? {
