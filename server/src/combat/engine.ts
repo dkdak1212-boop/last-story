@@ -1107,9 +1107,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'shield_break': {
       // 심판의 철퇴 / 대심판의 철퇴 등 — 자신의 쉴드는 유지, 쉴드량의 N%를 추가 데미지로 변환
       // case 'damage'와 동일한 증폭 파이프라인 적용 (judge_amp/spell_amp/크리 추가배율 등)
-      const myShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+      const myShieldTotal = s.statusEffects
+        .filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0)
+        .reduce((sum, e) => sum + e.value, 0);
       const shieldMult = skill.name === '대심판의 철퇴' ? 8.0 : 4.0;
-      const shieldBonus = myShield ? Math.round(myShield.value * shieldMult) : 0;
+      const shieldBonus = myShieldTotal > 0 ? Math.round(myShieldTotal * shieldMult) : 0;
       // armor_pierce 적용 (일반 damage와 동일)
       const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
       const defModStats = totalDefReduce > 0 ? {
@@ -1342,12 +1344,9 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
   switch (sk.effect_type) {
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
-    case 'shield': {
-      // 실드 활성 중엔 다른 실드 시전 금지. 만료 직전(잔여 1턴 이하)이면 재시전 허용해 공백 메움.
-      // 동시 발동 시엔 autoAction에서 우선순위 정렬로 상위 1개만 사용.
-      const existing = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
-      return !existing || existing.remainingActions <= 1;
-    }
+    case 'shield':
+      // 실드 스킬은 모두 중첩 — 쿨다운만 보고 항상 시전 허용.
+      return true;
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
     case 'atk_buff':
@@ -1399,36 +1398,11 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
   const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
 
-  // 실드 스킬 우선순위 (효율 높은 순) — 동일 행동에 1개만 발동
-  // 신성의 갑주(80% HP) > 천상의 방벽(50%) > 신성 방벽(25%)
-  const SHIELD_PRIORITY: Record<string, number> = {
-    '신성의 갑주': 3,
-    '천상의 방벽': 2,
-    '신성 방벽': 1,
-  };
-  let shieldUsedThisCycle = false;
-
+  // 실드 스킬은 모두 중첩 — 우선순위 없이 준비된 것 전부 발동
   for (const sk of sorted) {
     if (sk.kind !== 'buff') continue;
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
-    // 실드 우선순위 처리: 가장 높은 우선순위 실드 1개만 시전
-    if (sk.effect_type === 'shield' && SHIELD_PRIORITY[sk.name] !== undefined) {
-      if (shieldUsedThisCycle) continue;
-      // 이번 사이클에 더 높은 우선순위 실드가 사용 가능한지 확인 (있으면 미루기)
-      const myPrio = SHIELD_PRIORITY[sk.name];
-      const hasHigherReady = sorted.some(other =>
-        other.effect_type === 'shield' &&
-        SHIELD_PRIORITY[other.name] !== undefined &&
-        SHIELD_PRIORITY[other.name] > myPrio &&
-        isSkillReady(s, other) &&
-        isSkillContextuallyUsable(s, other, hpPct, poisonCount)
-      );
-      if (hasHigherReady) continue;
-      await executeSkill(s, sk);
-      shieldUsedThisCycle = true;
-      continue;
-    }
     await executeSkill(s, sk);
   }
 
@@ -1509,18 +1483,28 @@ function monsterAction(s: ActiveSession): void {
       return;
     }
 
-    // 실드 체크
-    const shield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster');
-    if (shield && shield.value > 0) {
-      if (shield.value >= dmg) {
-        shield.value -= dmg;
-        addLog(s, `실드가 ${dmg} 흡수 (잔여: ${shield.value})`);
-        dmg = 0;
+    // 실드 체크 — 여러 실드가 중첩된 경우 순차 흡수
+    const shields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+    if (shields.length > 0 && dmg > 0) {
+      let absorbed = 0;
+      for (const shield of shields) {
+        if (dmg <= 0) break;
+        if (shield.value >= dmg) {
+          shield.value -= dmg;
+          absorbed += dmg;
+          dmg = 0;
+        } else {
+          absorbed += shield.value;
+          dmg -= shield.value;
+          shield.value = 0;
+          shield.remainingActions = 0;
+        }
+      }
+      const remainTotal = shields.reduce((sum, e) => sum + Math.max(0, e.value), 0);
+      if (dmg <= 0) {
+        addLog(s, `실드가 ${absorbed} 흡수 (잔여: ${remainTotal})`);
       } else {
-        dmg -= shield.value;
-        addLog(s, `실드 파괴! 잔여 ${dmg} 데미지`);
-        shield.value = 0;
-        shield.remainingActions = 0;
+        addLog(s, `실드 ${absorbed} 흡수 후 파괴! 잔여 ${dmg} 데미지`);
       }
     }
 
