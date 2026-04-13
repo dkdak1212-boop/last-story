@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { addItemToInventoryPlain, deliverToMailbox } from '../game/inventory.js';
+import { addItemToInventoryPlain, compactInventoryStacks, deliverToMailbox } from '../game/inventory.js';
 import { applyExpGain } from '../game/leveling.js';
 
 const router = Router();
@@ -124,6 +124,8 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
   if (overflow > 0) {
     await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);
   }
+  // 안전망: 찢어진 스크롤이 여러 row로 분산돼있으면 1개로 합침
+  await compactInventoryStacks(id, TORN_SCROLL_ID).catch(err => console.error('[daily] compact err', err));
 
   res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 10, boostHours: 3 });
 });

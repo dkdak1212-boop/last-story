@@ -195,6 +195,36 @@ export async function addItemToInventoryPlain(
   return { added: quantity - remaining, overflow: remaining };
 }
 
+// 같은 캐릭터의 같은 아이템 여러 row를 1개 row로 합치기 (스택 한도 내).
+// stack_size 한도를 넘으면 여러 stack으로 균등 분배.
+export async function compactInventoryStacks(characterId: number, itemId: number): Promise<void> {
+  const itemR = await query<{ stack_size: number }>('SELECT stack_size FROM items WHERE id = $1', [itemId]);
+  if (itemR.rowCount === 0) return;
+  const stackSize = itemR.rows[0].stack_size;
+  if (stackSize <= 1) return;
+
+  const rows = await query<{ id: number; quantity: number }>(
+    'SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = $2 ORDER BY slot_index ASC',
+    [characterId, itemId]
+  );
+  if (rows.rowCount === null || rows.rowCount <= 1) return;
+
+  const total = rows.rows.reduce((s, r) => s + r.quantity, 0);
+  // 첫 row를 keeper로, 나머지는 정리 후 재할당 (필요 시 추가 stack)
+  const keepers = rows.rows.slice(0, Math.ceil(total / stackSize));
+  const trash = rows.rows.slice(keepers.length);
+  let remaining = total;
+  for (const k of keepers) {
+    const q = Math.min(remaining, stackSize);
+    await query('UPDATE character_inventory SET quantity = $1 WHERE id = $2', [q, k.id]);
+    remaining -= q;
+  }
+  if (trash.length > 0) {
+    const ids = trash.map(t => t.id);
+    await query('DELETE FROM character_inventory WHERE id = ANY($1::int[])', [ids]);
+  }
+}
+
 export interface MailItemOptions {
   enhanceLevel?: number;
   prefixIds?: number[] | null;
