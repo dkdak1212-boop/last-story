@@ -11,7 +11,7 @@ router.use(authRequired);
 
 const FEE_PCT = 0.10;
 const LISTING_HOURS = 72; // 거래소 등록 기간 3일
-const MAX_LISTINGS_PER_ACCOUNT = 10; // 계정(seller_id 기준 캐릭) 동시 활성 등록 한도
+const MAX_LISTINGS_PER_ACCOUNT = 30; // 계정(seller_id 기준 캐릭) 동시 활성 등록 한도
 
 // 거래소 목록
 router.get('/', async (req, res) => {
