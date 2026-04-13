@@ -648,11 +648,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
         const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
-        // 마법사 고유 패시브: CC(동결/기절) 걸린 적에게 +50% 추가 데미지
+        // 마법사 고유 패시브: 도트(dot/poison) 걸린 적에게 +30%
         if (s.className === 'mage') {
-          const monsterCC = s.statusEffects.some(e =>
-            (e.type === 'stun' || e.type === 'gauge_freeze') && e.source === 'player' && e.remainingActions > 0);
-          if (monsterCC) { dmg = Math.round(dmg * 1.5); addLog(s, `[한파] CC 상태 +50%`); }
+          const monsterDot = s.statusEffects.some(e =>
+            (e.type === 'dot' || e.type === 'poison') && e.source === 'player' && e.remainingActions > 0);
+          if (monsterDot) { dmg = Math.round(dmg * 1.3); addLog(s, `[원소 침식] 도트 상태 +30%`); }
+          // 마력 과부하: 자신 스피드 감소 디버프 중일 때 마법 데미지 +80%
+          const selfSlow = s.statusEffects.some(e =>
+            e.type === 'speed_mod' && e.source === 'monster' && e.value < 0 && e.remainingActions > 0);
+          if (selfSlow) { dmg = Math.round(dmg * 1.8); addLog(s, `[마력 과부하] 과부하 상태 +80%`); }
         }
         // 성직자 심판자의 권능: 자신 실드 보유 시 +50% 추가
         if (skill.name === '심판자의 권능') {
