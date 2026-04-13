@@ -177,7 +177,10 @@ export function MarketplaceScreen() {
               ['40-49', '40~49'],
               ['50-59', '50~59'],
               ['60-69', '60~69'],
-              ['70+', '70+'],
+              ['70-79', '70~79'],
+              ['80-89', '80~89'],
+              ['90-99', '90~99'],
+              ['100+', '100+'],
             ] as const).map(([key, label]) => (
               <button key={key} onClick={() => setBrowseLevelBracket(key)} style={{
                 fontSize: 11, padding: '4px 10px', borderRadius: 3, cursor: 'pointer',
@@ -247,7 +250,10 @@ export function MarketplaceScreen() {
               ['40-49', '40~49'],
               ['50-59', '50~59'],
               ['60-69', '60~69'],
-              ['70+', '70+'],
+              ['70-79', '70~79'],
+              ['80-89', '80~89'],
+              ['90-99', '90~99'],
+              ['100+', '100+'],
             ] as const).map(([key, label]) => (
               <button key={key} onClick={() => setUniqueLevelBracket(key)} style={{
                 fontSize: 11, padding: '4px 10px', borderRadius: 3, cursor: 'pointer',
@@ -261,7 +267,7 @@ export function MarketplaceScreen() {
           {(() => {
             const inBracket = (lv: number): boolean => {
               if (!uniqueLevelBracket) return true;
-              if (uniqueLevelBracket === '70+') return lv >= 70;
+              if (uniqueLevelBracket === '100+') return lv >= 100;
               const [lo, hi] = uniqueLevelBracket.split('-').map(Number);
               return lv >= lo && lv <= hi;
             };
@@ -394,7 +400,7 @@ function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equip
   // 2. 레벨 구간 필터
   const inBracket = (lv: number): boolean => {
     if (!levelBracket) return true;
-    if (levelBracket === '70+') return lv >= 70;
+    if (levelBracket === '100+') return lv >= 100;
     const [lo, hi] = levelBracket.split('-').map(Number);
     return lv >= lo && lv <= hi;
   };

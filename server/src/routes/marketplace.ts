@@ -40,8 +40,8 @@ router.get('/', async (req, res) => {
   }
   // 레벨 구간 필터 (서버사이드) — egress 절감
   if (levelBracket) {
-    if (levelBracket === '70+') {
-      filters.push(`COALESCE(i.required_level, 1) >= 70`);
+    if (levelBracket === '100+') {
+      filters.push(`COALESCE(i.required_level, 1) >= 100`);
     } else {
       const match = /^(\d+)-(\d+)$/.exec(levelBracket);
       if (match) {
