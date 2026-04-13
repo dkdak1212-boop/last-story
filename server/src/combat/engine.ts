@@ -152,6 +152,7 @@ interface ActiveSession {
   hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
   userId: number;
+  lastPushAt: number; // egress 절감용 throttle 타임스탬프
   // ── 메타 캐시 (DB 재조회 최소화) ──
   metaDirty: boolean;
   cachedExp: number;
@@ -1717,8 +1718,8 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
   );
   await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
 
-  // 최종 상태 push (HP 0으로 사망 표시)
-  pushCombatState(s, true);
+  // 최종 상태 push — 사망 알림은 throttle 무시 (force=true)
+  await pushCombatState(s, true, true);
   activeSessions.delete(s.characterId);
 }
 
@@ -1840,10 +1841,10 @@ async function combatTick(): Promise<void> {
         }
       }
 
-      // 상태 push (dirty일 때만)
+      // 상태 push (dirty일 때만, 200ms throttle — push 성공 시에만 dirty 해제)
       if (s.dirty) {
-        pushCombatState(s, true);
-        s.dirty = false;
+        const pushed = await pushCombatState(s, true);
+        if (pushed) s.dirty = false;
       }
     } catch (err) {
       console.error(`[combat] tick error for char ${charId}:`, err);
@@ -1910,9 +1911,20 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 }
 
 // ── WebSocket Push ──
-async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<void> {
+const PUSH_THROTTLE_MS = 200; // 세션당 최소 push 간격 (egress 절감)
+async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
   const io = getIo();
-  if (!io) return;
+  if (!io) return false;
+
+  // Throttle: 강제(force) 또는 비전투(종료) 알림이 아니면 200ms 미만 간격은 skip.
+  // 호출자는 반환값이 false면 dirty를 유지해 다음 틱에서 재시도해야 한다.
+  if (!force && inCombat) {
+    const now = Date.now();
+    if (now - s.lastPushAt < PUSH_THROTTLE_MS) return false;
+    s.lastPushAt = now;
+  } else {
+    s.lastPushAt = Date.now();
+  }
 
   if (s.metaDirty) {
     await refreshSessionMeta(s);
@@ -1968,6 +1980,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean): Promise<voi
 
   // 해당 유저의 소켓에만 emit
   io.emit(`combat:${s.characterId}`, snapshot);
+  return true;
 }
 
 // ── 공개 API ──
@@ -2072,6 +2085,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     ticksSinceLastHit: 0,
     hasFirstStrike: true,
     rage: 0,
+    lastPushAt: 0,
     metaDirty: true,
     cachedExp: Number(char.exp) || 0,
     cachedExpMax: expToNext(char.level),
