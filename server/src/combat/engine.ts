@@ -432,9 +432,9 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   // judge_amp / holy_judge (성직자 공격 노드) — 심판/실드 데미지 등 누락 버그 수정
   const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
   if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
-  // 접두사: 광전사 (HP 30% 이하 — 상시 조건부, 차지 소비 없음)
+  // 접두사: 광전사 (적 HP 30% 이하 — 처형 컨셉)
   const berserk = s.equipPrefixes.berserk_pct || 0;
-  if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) dmg = Math.round(dmg * (1 + berserk / 100));
+  if (berserk > 0 && s.monsterHp / s.monsterMaxHp <= 0.3) dmg = Math.round(dmg * (1 + berserk / 100));
   // first_strike / ambush는 1회성 차지 — 버프류 동시 데미지에서는 발동·소비하지 않는다.
   // 사용자 의도: 메인 딜 스킬에 차지를 보존.
   // 크리 추가 배율
@@ -667,10 +667,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             addLog(s, `[암흑의 심판] 독 ${poisonStacks}중첩 +${poisonStacks * 10}%`);
           }
         }
-        // 접두사: 광전사 (HP 30% 이하)
+        // 접두사: 광전사 (적 HP 30% 이하 — 처형 컨셉)
         const berserk = s.equipPrefixes.berserk_pct || 0;
         let berserkProc = false;
-        if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
+        if (berserk > 0 && s.monsterHp / s.monsterMaxHp <= 0.3) {
           dmg = Math.round(dmg * (1 + berserk / 100));
           berserkProc = true;
         }
@@ -1138,9 +1138,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: judge_amp / holy_judge (성직자 공격 스킬 증폭) — 심판계열 핵심
         const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
-        // 접두사: 광전사 (HP 30% 이하)
+        // 접두사: 광전사 (적 HP 30% 이하 — 처형 컨셉)
         const berserk = s.equipPrefixes.berserk_pct || 0;
-        if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
+        if (berserk > 0 && s.monsterHp / s.monsterMaxHp <= 0.3) {
           dmg = Math.round(dmg * (1 + berserk / 100));
         }
         // 접두사: 약점간파 (첫 공격)
