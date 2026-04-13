@@ -153,6 +153,7 @@ interface ActiveSession {
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
+  enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
   // ── 메타 캐시 (DB 재조회 최소화) ──
   metaDirty: boolean;
   cachedExp: number;
@@ -1911,16 +1912,21 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 }
 
 // ── WebSocket Push ──
-const PUSH_THROTTLE_MS = 200; // 세션당 최소 push 간격 (egress 절감)
+const PUSH_THROTTLE_FULL_MS = 200; // 진입 후 60초간 — 풀 5fps
+const PUSH_THROTTLE_LITE_MS = 1500; // 60초 후 — 저대역 모드 ~0.67fps
+const FULL_FPS_DURATION_MS = 60_000;
 async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
   const io = getIo();
   if (!io) return false;
 
-  // Throttle: 강제(force) 또는 비전투(종료) 알림이 아니면 200ms 미만 간격은 skip.
+  // Throttle: 강제(force) 또는 비전투(종료) 알림이 아니면 throttle 적용.
+  // 사냥터 진입 후 60초간은 200ms throttle (풀 fps), 이후엔 1500ms throttle (저대역 모드).
   // 호출자는 반환값이 false면 dirty를 유지해 다음 틱에서 재시도해야 한다.
   if (!force && inCombat) {
     const now = Date.now();
-    if (now - s.lastPushAt < PUSH_THROTTLE_MS) return false;
+    const fieldAge = now - s.enteredFieldAt;
+    const minGap = fieldAge < FULL_FPS_DURATION_MS ? PUSH_THROTTLE_FULL_MS : PUSH_THROTTLE_LITE_MS;
+    if (now - s.lastPushAt < minGap) return false;
     s.lastPushAt = now;
   } else {
     s.lastPushAt = Date.now();
@@ -2086,6 +2092,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     hasFirstStrike: true,
     rage: 0,
     lastPushAt: 0,
+    enteredFieldAt: Date.now(),
     metaDirty: true,
     cachedExp: Number(char.exp) || 0,
     cachedExpMax: expToNext(char.level),
