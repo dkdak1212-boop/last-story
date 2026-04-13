@@ -165,6 +165,48 @@ const activeSessions = new Map<number, ActiveSession>();
 let combatInterval: ReturnType<typeof setInterval> | null = null;
 let tickRunning = false;
 
+// ── DB 쓰기 배치 누적기 ──
+// 전투 중 발생하는 hot-path UPDATE(exp/gold/kills/goldEarned)를 메모리에 누적하고
+// 1초마다 한 번에 flush. 레벨업/드롭/사망 등은 기존처럼 즉시 쓰기 유지.
+interface CharWriteBatch {
+  expDelta: number;
+  goldDelta: number;
+  killDelta: number;
+  goldEarnedDelta: number;
+}
+const charBatch = new Map<number, CharWriteBatch>();
+function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
+  let b = charBatch.get(charId);
+  if (!b) { b = { expDelta: 0, goldDelta: 0, killDelta: 0, goldEarnedDelta: 0 }; charBatch.set(charId, b); }
+  b.expDelta += patch.expDelta || 0;
+  b.goldDelta += patch.goldDelta || 0;
+  b.killDelta += patch.killDelta || 0;
+  b.goldEarnedDelta += patch.goldEarnedDelta || 0;
+}
+async function flushCharBatch(onlyId?: number): Promise<void> {
+  const targets = onlyId !== undefined ? [onlyId] : [...charBatch.keys()];
+  for (const id of targets) {
+    const b = charBatch.get(id);
+    if (!b) continue;
+    charBatch.delete(id);
+    if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
+    try {
+      await query(
+        `UPDATE characters SET
+           exp = exp + $1,
+           gold = gold + $2,
+           total_kills = total_kills + $3,
+           total_gold_earned = total_gold_earned + $4
+         WHERE id = $5`,
+        [b.expDelta, b.goldDelta, b.killDelta, b.goldEarnedDelta, id]
+      );
+    } catch (e) {
+      console.error('[combat] batch flush err', e);
+    }
+  }
+}
+setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
+
 // ── 헬퍼 ──
 
 function monsterToEffective(m: MonsterDef): EffectiveStats {
@@ -1511,7 +1553,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 일일퀘 + 업적 트래킹
   try {
     await trackDailyQuestProgress(s.characterId, 'kill_monsters', 1);
-    await query('UPDATE characters SET total_kills = total_kills + 1, total_gold_earned = total_gold_earned + $1 WHERE id = $2', [finalGold, s.characterId]);
+    batchAdd(s.characterId, { killDelta: 1, goldEarnedDelta: finalGold });
     await checkAndUnlockAchievements(s.characterId);
   } catch {}
 
@@ -1530,6 +1572,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
+    // 레벨업은 exp를 절대값으로 덮어쓰므로 pending batch를 먼저 flush
+    await flushCharBatch(s.characterId);
     await query(
       `UPDATE characters SET level=$1, exp=$2, gold=gold+$3::int,
               max_hp=max_hp+$4, hp=max_hp+$4,
@@ -1549,8 +1593,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     // 새 스킬 학습
     s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
   } else {
-    await query('UPDATE characters SET exp=$1, gold=gold+$2 WHERE id=$3',
-      [result.newExp, finalGold, s.characterId]);
+    // 레벨업 없음 → 배치 누적 (exp/gold 델타)
+    batchAdd(s.characterId, { expDelta: result.newExp - char.exp, goldDelta: finalGold });
+    s.cachedExp = result.newExp;
   }
 
   await trackMonsterKill(s.characterId, s.monsterId!);
@@ -1577,7 +1622,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
         if (!is3Options && !isT4) {
           const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
-          await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, s.characterId]);
+          batchAdd(s.characterId, { goldDelta: gold });
           addLog(s, `${itemCheck.rows[0].name} 자동분해 → +${gold}G`);
           continue;
         }
@@ -1650,6 +1695,8 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
 
   addLog(s, '사망했습니다.');
   s.playerHp = 0; // 클라이언트에 사망 상태 전달
+  // 누적 배치 flush (exp/gold 유실 방지)
+  await flushCharBatch(s.characterId);
   // 사망 시 마을 복귀 + HP 100% 회복
   await query(
     'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
@@ -2047,6 +2094,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
 }
 
 export async function stopCombatSession(characterId: number): Promise<void> {
+  // 누적된 exp/gold/kills 먼저 DB에 반영
+  await flushCharBatch(characterId);
   const s = activeSessions.get(characterId);
   if (s) {
     // 현재 HP 저장
