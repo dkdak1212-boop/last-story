@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config({ override: false }); // 기존 환경변수를 덮어쓰지 않음
 import 'express-async-errors';
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import { createServer } from 'http';
 import path from 'path';
@@ -54,6 +55,7 @@ console.log('[env] PORT =', process.env.PORT);
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 
+app.use(compression()); // gzip 응답 압축 — egress 트래픽 절감
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json());
 app.set('trust proxy', true); // Railway 등 프록시 뒤에서 req.ip 정확히 추출
