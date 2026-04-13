@@ -191,6 +191,7 @@ router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
     const slot = inv.rows[0];
     if (slot.locked) return res.status(400).json({ error: '잠긴 아이템은 보낼 수 없습니다.' });
     if (slot.item_id === 320) return res.status(400).json({ error: '찢어진 스크롤은 우편으로 보낼 수 없습니다.' });
+    if (slot.item_id === 321) return res.status(400).json({ error: '노드 스크롤 +8은 우편으로 보낼 수 없습니다.' });
 
     const itemInfo = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [slot.item_id]);
     itemName = itemInfo.rows[0]?.name || '';
