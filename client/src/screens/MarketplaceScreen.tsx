@@ -29,14 +29,6 @@ function inferWeaponClass(name: string): string | null {
   return null;
 }
 
-// 레벨 → 구간 라벨 (1~9, 10~19, 20~29, ...)
-function levelBracket(level: number): { key: string; label: string; sort: number } {
-  const base = Math.floor(level / 10) * 10;
-  const lo = base === 0 ? 1 : base;
-  const hi = base + 9;
-  return { key: `${lo}-${hi}`, label: `Lv ${lo}~${hi}`, sort: lo };
-}
-
 // 유니크 등급은 무지개 그라데이션 텍스트
 const UNIQUE_RAINBOW_STYLE: React.CSSProperties = {
   background: 'linear-gradient(90deg, #ff3b3b, #ff8c2a, #ffe135, #3bd96b, #3bc8ff, #6b5bff, #c452ff)',
@@ -59,6 +51,7 @@ export function MarketplaceScreen() {
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [slotFilter, setSlotFilter] = useState<string>(''); // '', weapon, helm, chest, boots, ring, amulet
   const [uniqueLevelBracket, setUniqueLevelBracket] = useState<string>(''); // '' = 전체, '1-9', '10-19', ...
+  const [browseLevelBracket, setBrowseLevelBracket] = useState<string>(''); // 둘러보기 탭 레벨 필터
   const [qualityMin, setQualityMin] = useState<number>(0);
   const [qualityMax, setQualityMax] = useState<number>(100);
   const [prefixStatKey, setPrefixStatKey] = useState<string>('');
@@ -167,11 +160,33 @@ export function MarketplaceScreen() {
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
             prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
           />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 4 }}>레벨:</span>
+            {([
+              ['', '전체'],
+              ['1-9', '1~9'],
+              ['10-19', '10~19'],
+              ['20-29', '20~29'],
+              ['30-39', '30~39'],
+              ['40-49', '40~49'],
+              ['50-59', '50~59'],
+              ['60-69', '60~69'],
+              ['70+', '70+'],
+            ] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setBrowseLevelBracket(key)} style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 3, cursor: 'pointer',
+                background: browseLevelBracket === key ? 'var(--accent)' : 'var(--bg-panel)',
+                color: browseLevelBracket === key ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${browseLevelBracket === key ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: browseLevelBracket === key ? 700 : 400,
+              }}>{label}</button>
+            ))}
+          </div>
           <BrowseListings
             listings={listings}
             slotFilter={slotFilter}
             weaponClass={weaponClass}
-            myLevel={active?.level || 1}
+            levelBracket={browseLevelBracket}
             onBuy={(a) => buy(a)}
           />
         </>
@@ -350,13 +365,11 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
   );
 }
 
-// 거래소 목록 (필터 + 그룹 + 접기 + 내 레벨 우선 정렬)
-function BrowseListings({ listings, slotFilter, weaponClass, myLevel, onBuy }: {
-  listings: Listing[]; slotFilter: string; weaponClass: string; myLevel: number;
+// 거래소 목록 (레벨 구간 탭 필터 — 유니크 탭과 동일 UI)
+function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, onBuy }: {
+  listings: Listing[]; slotFilter: string; weaponClass: string; levelBracket: string;
   onBuy: (a: Listing) => void;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-
   // 1. 무기 직업 필터
   let filtered = listings;
   if (slotFilter === 'weapon' && weaponClass) {
@@ -366,74 +379,30 @@ function BrowseListings({ listings, slotFilter, weaponClass, myLevel, onBuy }: {
     });
   }
 
-  // 2. 레벨 구간별 그룹화
-  const groups = new Map<string, { label: string; sort: number; items: Listing[] }>();
-  for (const a of filtered) {
-    const lv = a.requiredLevel || 1;
-    const b = levelBracket(lv);
-    if (!groups.has(b.key)) groups.set(b.key, { label: b.label, sort: b.sort, items: [] });
-    groups.get(b.key)!.items.push(a);
-  }
-
-  // 3. 정렬: 내 레벨 구간 우선, 그 다음 가까운 순
-  const myBracket = levelBracket(myLevel);
-  const sorted = [...groups.values()].sort((a, b) => {
-    const aMine = a.sort === myBracket.sort ? -1 : 0;
-    const bMine = b.sort === myBracket.sort ? -1 : 0;
-    if (aMine !== bMine) return aMine - bMine;
-    // 그 다음: 내 레벨에서 가까운 순 (높은 레벨 먼저)
-    const aDist = Math.abs(a.sort - myBracket.sort);
-    const bDist = Math.abs(b.sort - myBracket.sort);
-    if (aDist !== bDist) return aDist - bDist;
-    return b.sort - a.sort;
-  });
+  // 2. 레벨 구간 필터
+  const inBracket = (lv: number): boolean => {
+    if (!levelBracket) return true;
+    if (levelBracket === '70+') return lv >= 70;
+    const [lo, hi] = levelBracket.split('-').map(Number);
+    return lv >= lo && lv <= hi;
+  };
+  filtered = filtered.filter(a => inBracket(a.requiredLevel || 1));
 
   if (filtered.length === 0) {
-    return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 아이템이 없습니다</div>;
+    return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>해당 레벨 구간에 등록된 아이템이 없습니다</div>;
   }
 
-  function toggle(key: string) {
-    setCollapsed(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  // 3. 레벨 오름차순 (같은 레벨이면 가격순)
+  const sorted = [...filtered].sort((a, b) => {
+    const la = a.requiredLevel || 1;
+    const lb = b.requiredLevel || 1;
+    if (la !== lb) return la - lb;
+    return a.price - b.price;
+  });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {sorted.map(g => {
-        const isMine = g.sort === myBracket.sort;
-        const isCollapsed = collapsed.has(g.label);
-        return (
-          <div key={g.label}>
-            <div
-              onClick={() => toggle(g.label)}
-              style={{
-                fontSize: 12, fontWeight: 700,
-                color: isMine ? 'var(--success)' : 'var(--accent)',
-                padding: '8px 12px', marginBottom: 4,
-                background: isMine ? 'rgba(107,163,104,0.12)' : 'rgba(218,165,32,0.08)',
-                borderLeft: `3px solid ${isMine ? 'var(--success)' : 'var(--accent)'}`,
-                borderRadius: 3, cursor: 'pointer', userSelect: 'none',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}
-            >
-              <span>
-                {isCollapsed ? '▶' : '▼'} {g.label} · {g.items.length}개
-                {isMine && <span style={{ marginLeft: 6, fontSize: 10 }}>★ 내 레벨</span>}
-              </span>
-            </div>
-            {!isCollapsed && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {g.items.map(a => (
-                  <ListingRow key={a.id} a={a} onBuy={() => onBuy(a)} />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => onBuy(a)} />)}
     </div>
   );
 }
