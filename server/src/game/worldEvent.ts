@@ -383,9 +383,9 @@ export async function attackBoss(characterId: number) {
     }
   }
 
-  // HP 업데이트 (사망 시 HP 1)
+  // HP 업데이트 (사망 시 HP 1, max_hp로 clamp)
   const newPlayerHp = playerDead ? 1 : Math.max(1, playerHp);
-  await query('UPDATE characters SET hp = $1 WHERE id = $2', [newPlayerHp, characterId]);
+  await query('UPDATE characters SET hp = LEAST($1, max_hp) WHERE id = $2', [newPlayerHp, characterId]);
 
   // 보스 공유 HP 감소
   const upd = await query<{ current_hp: number }>(

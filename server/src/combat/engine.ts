@@ -2102,9 +2102,11 @@ export async function stopCombatSession(characterId: number): Promise<void> {
   await flushCharBatch(characterId);
   const s = activeSessions.get(characterId);
   if (s) {
-    // 현재 HP 저장
-    await query('UPDATE characters SET hp=$1, location=$2, last_online_at=NOW() WHERE id=$3',
-      [Math.max(1, s.playerHp), 'village', characterId]);
+    // 현재 HP 저장 — DB의 max_hp로 clamp (in-memory playerMaxHp는 장비/노드 포함한 유효값이므로 DB보다 클 수 있음)
+    await query(
+      'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
+      [s.playerHp, 'village', characterId]
+    );
   }
   await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
   activeSessions.delete(characterId);
