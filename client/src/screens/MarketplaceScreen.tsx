@@ -413,6 +413,7 @@ function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equip
 }
 
 function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; onBuy: () => void }) {
+  const [expanded, setExpanded] = useState(false);
   const timeLeft = Math.max(0, new Date(a.endsAt).getTime() - Date.now());
   const h = Math.floor(timeLeft / 3600000); const m = Math.floor((timeLeft % 3600000) / 60000);
   const el = a.enhanceLevel || 0;
@@ -425,8 +426,11 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
       border: '1px solid var(--border)',
       borderRadius: 4,
     }}>
-      {/* 헤더: 아이콘 + 이름 + 가격 + 구매 버튼 */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+      {/* 헤더: 아이콘 + 이름 + 가격 + 구매 버튼 (클릭 시 상세 토글) */}
+      <div
+        onClick={() => setExpanded(v => !v)}
+        style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', userSelect: 'none' }}
+      >
         <ItemIcon slot={a.itemSlot ?? null} grade={a.itemGrade} itemName={a.baseItemName || a.itemName} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
@@ -478,15 +482,19 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
           <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 16 }}>
             {a.price.toLocaleString()}G
           </div>
-          <button onClick={onBuy} style={{
-            padding: '8px 20px', fontSize: 13, fontWeight: 700,
-            background: 'var(--success)', color: '#000',
-            border: 'none', cursor: 'pointer', borderRadius: 4,
-          }}>구매</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onBuy(); }}
+            style={{
+              padding: '8px 20px', fontSize: 13, fontWeight: 700,
+              background: 'var(--success)', color: '#000',
+              border: 'none', cursor: 'pointer', borderRadius: 4,
+            }}
+          >구매</button>
         </div>
       </div>
 
-      {/* 본문: 스탯 + 접두사 */}
+      {/* 본문: 스탯 + 접두사 (클릭 시 펼침) */}
+      {expanded && (
       <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
         {a.itemStats && Object.keys(a.itemStats).length > 0 && (
           <div style={{ marginBottom: 6 }}>
@@ -520,6 +528,7 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
