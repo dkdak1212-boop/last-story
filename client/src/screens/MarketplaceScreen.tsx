@@ -58,6 +58,7 @@ export function MarketplaceScreen() {
   const [mine, setMine] = useState<Listing[]>([]);
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [slotFilter, setSlotFilter] = useState<string>(''); // '', weapon, helm, chest, boots, ring, amulet
+  const [uniqueSort, setUniqueSort] = useState<'price' | 'level_asc' | 'level_desc'>('price');
   const [qualityMin, setQualityMin] = useState<number>(0);
   const [qualityMax, setQualityMax] = useState<number>(100);
   const [prefixStatKey, setPrefixStatKey] = useState<string>('');
@@ -213,11 +214,33 @@ export function MarketplaceScreen() {
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
             prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
           />
+          <div style={{ display: 'flex', gap: 4, marginBottom: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 4 }}>정렬:</span>
+            {([
+              ['price', '가격순'],
+              ['level_asc', '레벨 낮은순'],
+              ['level_desc', '레벨 높은순'],
+            ] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setUniqueSort(key)} style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 3, cursor: 'pointer',
+                background: uniqueSort === key ? 'var(--accent)' : 'var(--bg-panel)',
+                color: uniqueSort === key ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${uniqueSort === key ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: uniqueSort === key ? 700 : 400,
+              }}>{label}</button>
+            ))}
+          </div>
           {(() => {
             if (listings.length === 0) {
               return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>등록된 유니크 아이템이 없습니다</div>;
             }
-            const sorted = [...listings].sort((a, b) => a.price - b.price);
+            const sorted = [...listings].sort((a, b) => {
+              if (uniqueSort === 'price') return a.price - b.price;
+              const la = a.requiredLevel || 1;
+              const lb = b.requiredLevel || 1;
+              if (la !== lb) return uniqueSort === 'level_asc' ? la - lb : lb - la;
+              return a.price - b.price;
+            });
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {sorted.map(a => <ListingRow key={a.id} a={a} onBuy={() => buy(a)} />)}
