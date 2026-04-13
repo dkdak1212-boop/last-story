@@ -611,14 +611,28 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
       // 분노의 일격: 방어 50% 추가 무시
-      const furyPierce = skill.name === '분노의 일격' ? 50 : 0;
-      const totalDefReduce = Math.min(95, armorPierce + prefixDefReduce + furyPierce);
+      // 절대 파괴 / 대멸절: 방어 100% 무시 (고정 피어스)
+      const furyPierce =
+        skill.name === '분노의 일격' ? 50 :
+        (skill.name === '절대 파괴' || skill.name === '대멸절') ? 100 : 0;
+      const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + furyPierce);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
         mdef: Math.round(s.monsterStats.mdef * (1 - totalDefReduce / 100)),
       } : s.monsterStats;
-      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage, criBonus);
+      // 마나 폭주: INT 1당 1000 고정 데미지 추가 (증폭 대상 — flat_damage로 전달)
+      const manaOverloadFlat = skill.name === '마나 폭주' ? (s.playerStats.int || 0) * 1000 : 0;
+      const totalFlat = skill.flat_damage + manaOverloadFlat;
+      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, totalFlat, criBonus);
+      // 도적 기습: 치명타 확정 상태 — 원래 크리가 아니었다면 강제로 2배 + 크리 플래그
+      const critGuaranteed = s.statusEffects.find(e => e.type === 'crit_guaranteed' && e.source === 'monster' && e.remainingActions > 0);
+      if (critGuaranteed && !d.miss && !d.crit) {
+        d.damage = Math.round(d.damage * 2); // 기본 크리 배율 200%
+        d.crit = true;
+        critGuaranteed.remainingActions = 0;
+        addLog(s, `[치명타 확정] 발동`);
+      }
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
       } else {
@@ -634,6 +648,25 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 패시브: judge_amp (성직자 공격 스킬 증폭) / holy_judge (신성 심판자)
         const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
+        // 마법사 고유 패시브: CC(동결/기절) 걸린 적에게 +50% 추가 데미지
+        if (s.className === 'mage') {
+          const monsterCC = s.statusEffects.some(e =>
+            (e.type === 'stun' || e.type === 'gauge_freeze') && e.source === 'player' && e.remainingActions > 0);
+          if (monsterCC) { dmg = Math.round(dmg * 1.5); addLog(s, `[한파] CC 상태 +50%`); }
+        }
+        // 성직자 심판자의 권능: 자신 실드 보유 시 +50% 추가
+        if (skill.name === '심판자의 권능') {
+          const ownShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+          if (ownShield) { dmg = Math.round(dmg * 1.5); addLog(s, `[심판자의 권능] 실드 보유 +50%`); }
+        }
+        // 도적 암흑의 심판: 적에게 걸린 독 스택당 +10%
+        if (skill.name === '암흑의 심판') {
+          const poisonStacks = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player' && e.remainingActions > 0).length;
+          if (poisonStacks > 0) {
+            dmg = Math.round(dmg * (1 + poisonStacks * 0.10));
+            addLog(s, `[암흑의 심판] 독 ${poisonStacks}중첩 +${poisonStacks * 10}%`);
+          }
+        }
         // 접두사: 광전사 (HP 30% 이하)
         const berserk = s.equipPrefixes.berserk_pct || 0;
         let berserkProc = false;
@@ -992,6 +1025,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const fillAmt = skill.effect_value > 0 ? skill.effect_value : GAUGE_MAX;
       s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + fillAmt);
       addLog(s, `[${skill.name}] 게이지 +${fillAmt}!`);
+      // 도적 기습: 다음 1행동간 치명타 확정
+      if (skill.name === '기습') {
+        addEffect(s, { type: 'crit_guaranteed', value: 0, remainingActions: 2, source: 'monster' });
+        addLog(s, `[${skill.name}] 다음 공격 치명타 확정!`);
+      }
       break;
     }
 
@@ -1031,6 +1069,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // self-buff
       addLog(s, `[${skill.name}] 공격력 ${skill.effect_value}% 증가 ${skill.effect_duration}행동!`);
+      // 성직자 빛의 축복: 즉시 HP 50% 회복
+      if (skill.name === '빛의 축복') {
+        const heal = Math.round(s.playerMaxHp * 0.5);
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        s.dirty = true;
+        addLog(s, `[${skill.name}] HP +${heal} 회복`);
+      }
       break;
     }
 
@@ -1147,6 +1192,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const buffDur = skill.effect_duration || 3;
       addEffect(s, { type: 'def_buff', value: buffPct, remainingActions: buffDur, source: 'monster' });
       addLog(s, `[${skill.name}] 방어력 +${buffPct}% ${buffDur}턴!`);
+      // 성직자 천상 강림: 즉시 HP 40% 회복
+      if (skill.name === '천상 강림') {
+        const heal = Math.round(s.playerMaxHp * 0.4);
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        addLog(s, `[${skill.name}] HP +${heal} 회복`);
+      }
       break;
     }
 
