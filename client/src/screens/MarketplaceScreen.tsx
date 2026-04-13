@@ -65,6 +65,9 @@ export function MarketplaceScreen() {
     if (qualityMin > 0) params.set('qualityMin', String(qualityMin));
     if (qualityMax < 100) params.set('qualityMax', String(qualityMax));
     if (prefixStatKey) params.set('prefixStatKey', prefixStatKey);
+    // 서버사이드 레벨 구간 필터 (egress 절감)
+    const bracket = tab === 'unique' ? uniqueLevelBracket : browseLevelBracket;
+    if (bracket) params.set('levelBracket', bracket);
     const qs = params.toString();
     setListings(await api<Listing[]>(`/marketplace${qs ? `?${qs}` : ''}`));
   }
@@ -83,7 +86,7 @@ export function MarketplaceScreen() {
     if (tab === 'browse' || tab === 'unique') { loadBrowse(); loadInv(); }
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
-  }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, active?.id]);
+  }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, uniqueLevelBracket, browseLevelBracket, active?.id]);
 
   async function buy(a: Listing) {
     if (!active) return;

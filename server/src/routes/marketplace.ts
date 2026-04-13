@@ -20,6 +20,7 @@ router.get('/', async (req, res) => {
   const qualityMin = req.query.qualityMin ? Number(req.query.qualityMin) : null;
   const qualityMax = req.query.qualityMax ? Number(req.query.qualityMax) : null;
   const prefixStatKey = req.query.prefixStatKey as string | undefined; // ex: atk, dot_amp_pct ...
+  const levelBracket = req.query.levelBracket as string | undefined; // '' | '1-9' | '10-19' | ... | '70+'
 
   const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()'];
   const params: unknown[] = [];
@@ -36,6 +37,21 @@ router.get('/', async (req, res) => {
   if (prefixStatKey) {
     params.push(prefixStatKey);
     filters.push(`a.prefix_stats ? $${params.length}`);
+  }
+  // 레벨 구간 필터 (서버사이드) — egress 절감
+  if (levelBracket) {
+    if (levelBracket === '70+') {
+      filters.push(`COALESCE(i.required_level, 1) >= 70`);
+    } else {
+      const match = /^(\d+)-(\d+)$/.exec(levelBracket);
+      if (match) {
+        const lo = Number(match[1]);
+        const hi = Number(match[2]);
+        params.push(lo); const loIdx = params.length;
+        params.push(hi); const hiIdx = params.length;
+        filters.push(`COALESCE(i.required_level, 1) BETWEEN $${loIdx} AND $${hiIdx}`);
+      }
+    }
   }
 
   const r = await query<{
@@ -54,7 +70,7 @@ router.get('/', async (req, res) => {
             COALESCE(i.required_level, 1) AS required_level
      FROM auctions a JOIN items i ON i.id = a.item_id
      WHERE ${filters.join(' AND ')}
-     ORDER BY a.created_at DESC LIMIT 5000`,
+     ORDER BY a.created_at DESC LIMIT 300`,
     params
   );
 
