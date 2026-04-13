@@ -1663,13 +1663,21 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
 }
 
 // ── 메인 틱 루프 ──
+let lastTickAt = 0;
+const TICK_TARGET_MS = 100;
 async function combatTick(): Promise<void> {
+  const now = Date.now();
+  // 첫 실행이거나 지연이 너무 크면 1회분으로 고정 (스파이크 방지)
+  const dtMs = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(1000, now - lastTickAt);
+  lastTickAt = now;
+  const tickScale = dtMs / TICK_TARGET_MS;
+
   for (const [charId, s] of activeSessions) {
     try {
       if (!s.monsterId) continue;
 
-      // 각성 카운터: 매 틱마다 +1 (피격 시 0으로 리셋)
-      s.ticksSinceLastHit++;
+      // 각성 카운터: 실제 경과 시간 기반 (1틱 = 100ms 기준)
+      s.ticksSinceLastHit += tickScale;
 
       // 스피드 수정 적용
       let effectivePlayerSpeed = s.playerSpeed;
@@ -1692,19 +1700,19 @@ async function combatTick(): Promise<void> {
       effectivePlayerSpeed = diminishSpeed(Math.max(10, effectivePlayerSpeed));
       effectiveMonsterSpeed = diminishSpeed(Math.max(10, effectiveMonsterSpeed));
 
-      // 접두사: 재생(hp_regen) → 틱당 HP 회복
+      // 접두사: 재생(hp_regen) → 100ms당 1/10 (경과시간 스케일)
       if (s.equipPrefixes.hp_regen && s.playerHp < s.playerMaxHp && s.playerHp > 0) {
-        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + Math.round(s.equipPrefixes.hp_regen / 10)); // 100ms당 1/10
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + Math.round((s.equipPrefixes.hp_regen / 10) * tickScale));
         s.dirty = true;
       }
 
-      // 게이지 충전 (GAUGE_FILL_RATE로 스케일링)
+      // 게이지 충전 (GAUGE_FILL_RATE로 스케일링, 경과시간 반영)
       if (!s.waitingInput) {
-        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE;
+        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE * tickScale;
       }
 
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
-      s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE;
+      s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
 
       // 몬스터 행동
       if (s.monsterGauge >= GAUGE_MAX) {
@@ -2195,6 +2203,7 @@ export function getCombatHp(characterId: number): number | null {
 
 function ensureCombatLoop() {
   if (combatInterval) return;
+  lastTickAt = 0; // 재시작 시 초기화
   combatInterval = setInterval(() => {
     if (tickRunning) return; // 이전 틱이 아직 실행 중이면 스킵 (DB 폭주 방지)
     tickRunning = true;
