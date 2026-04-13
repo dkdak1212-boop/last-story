@@ -628,10 +628,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           }
         }
         // 전사 분노 폭발 (rage 100 이상 → ×3)
+        // rage_reduce 패시브: 폭발 후 잔여 분노 (소모량 -N%)
         let rageProc = false;
         if (s.className === 'warrior' && s.rage >= 100) {
           dmg = Math.round(dmg * 3);
-          s.rage = 0;
+          const rageReduce = getPassive(s, 'rage_reduce');
+          s.rage = rageReduce > 0 ? Math.round(s.rage * (rageReduce / 100)) : 0;
           rageProc = true;
         }
         s.monsterHp -= dmg;
@@ -729,9 +731,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
       }
       if (skill.effect_type === 'self_damage_pct') {
-        let cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
-        const rageReduce = getPassive(s, 'rage_reduce');
-        if (rageReduce > 0) cost = Math.round(cost * (1 - rageReduce / 100));
+        const cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
         s.playerHp -= cost;
         // 분노의 일격: 소모한 체력만큼 추가 데미지
         s.monsterHp -= cost;
