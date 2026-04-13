@@ -20,10 +20,15 @@ export function initWebSocket(httpServer: HttpServer) {
       socket.data.username = payload.username;
       // is_admin 동기로 가져와야 broadcastOnlineCount가 정확
       try {
-        const r = await query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [payload.userId]);
+        const r = await query<{ is_admin: boolean; chat_hidden: boolean }>(
+          'SELECT is_admin, COALESCE(chat_hidden, FALSE) AS chat_hidden FROM users WHERE id = $1',
+          [payload.userId]
+        );
         socket.data.isAdmin = r.rows[0]?.is_admin ?? false;
+        socket.data.chatHidden = r.rows[0]?.chat_hidden ?? false;
       } catch {
         socket.data.isAdmin = false;
+        socket.data.chatHidden = false;
       }
       next();
     } catch {
@@ -91,6 +96,9 @@ export function initWebSocket(httpServer: HttpServer) {
         if (gr.rowCount === 0) return;
         scopeId = gr.rows[0].guild_id;
       }
+
+      // chat_hidden 유저: 저장도 브로드캐스트도 안 함 (아예 없었던 것처럼)
+      if (socket.data.chatHidden) return;
 
       try {
         const isAdmin = !!socket.data.isAdmin;

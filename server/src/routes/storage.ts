@@ -74,6 +74,7 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
   );
   if (inv.rowCount === 0) return res.status(404).json({ error: '아이템 없음' });
   const it = inv.rows[0];
+  if (it.item_id === 320) return res.status(400).json({ error: '찢어진 스크롤은 창고에 보관할 수 없습니다.' });
 
   // 빈 창고 슬롯
   const usedR = await query<{ slot_index: number }>(
