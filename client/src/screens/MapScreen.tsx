@@ -38,7 +38,18 @@ export function MapScreen() {
     <div>
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>사냥터</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {fields.map((f) => {
+        {[...fields].sort((a, b) => {
+          const aDummy = a.name.startsWith('허수아비');
+          const bDummy = b.name.startsWith('허수아비');
+          if (aDummy && !bDummy) return 1;
+          if (!aDummy && bDummy) return -1;
+          if (aDummy && bDummy) {
+            const la = Number(a.name.match(/\d+/)?.[0] ?? 0);
+            const lb = Number(b.name.match(/\d+/)?.[0] ?? 0);
+            return la - lb;
+          }
+          return 0;
+        }).map((f) => {
           const locked = (active?.level ?? 1) < f.requiredLevel;
           const isOpen = expanded === f.id;
           return (
