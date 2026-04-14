@@ -688,15 +688,17 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   if (!effects || effects.length === 0) return null;
 
   const typeLabels: Record<string, string> = {
-    dot: 'DoT', shield: '실드', stun: '기절',
-    gauge_freeze: '동결', damage_reflect: '반사', damage_reduce: '감소',
+    dot: '도트', shield: '실드', stun: '기절',
+    gauge_freeze: '동결', damage_reflect: '반사', damage_reduce: '피해감소',
     accuracy_debuff: '명중-', invincible: '무적', resurrect: '부활', poison: '독',
     atk_buff: '공격+', damage_taken_up: '약점',
+    cc_immune: '제어면역', crit_guaranteed: '확정치명', def_buff: '방어+',
+    summon: '소환수', summon_buff_active: '소환강화', summon_frenzy_active: '소환광폭',
   };
 
   const getLabel = (e: StatusEffect): string => {
     if (e.type === 'speed_mod') return e.value >= 0 ? '스피드+' : '스피드-';
-    return typeLabels[e.type] || e.type;
+    return typeLabels[e.type] || '효과';
   };
 
   const getColor = (e: StatusEffect): string => {
