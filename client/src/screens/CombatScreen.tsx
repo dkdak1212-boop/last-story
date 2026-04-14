@@ -378,33 +378,22 @@ export function CombatScreen() {
                 {damagePopups.map(p => (
                   <motion.div
                     key={p.id}
-                    initial={p.crit
-                      ? { opacity: 0, y: 20, scale: 0.2 }
-                      : { opacity: 0.8, y: 0, scale: 0.7 }}
-                    animate={p.crit
-                      ? { opacity: 1, y: -50, scale: 1.3 }
-                      : { opacity: 1, y: -30, scale: 1.0 }}
-                    exit={p.crit
-                      ? { opacity: 0, y: -90, scale: 0.6 }
-                      : { opacity: 0, y: -50 }}
-                    transition={p.crit
-                      ? { duration: 1.0, ease: [0.16, 1, 0.3, 1] }
-                      : { duration: 0.6 }}
+                    initial={{ opacity: 0.8, y: 0 }}
+                    animate={{ opacity: 1, y: -30 }}
+                    exit={{ opacity: 0, y: -50 }}
+                    transition={{ duration: 0.6 }}
                     style={{
                       position: 'absolute', top: 10, left: `${p.x}%`,
+                      transform: 'translateX(-50%)',
                       pointerEvents: 'none', textAlign: 'center',
-                      ...(p.crit ? {
-                        color: '#ff2222',
-                        fontSize: 44, fontWeight: 900, letterSpacing: -1,
-                        textShadow: '0 0 24px rgba(255,34,34,0.9), 0 0 48px rgba(255,34,34,0.5), 0 0 8px rgba(255,200,0,0.4), 0 2px 4px rgba(0,0,0,0.9)',
-                      } : {
-                        color: '#ffd700',
-                        fontSize: 20, fontWeight: 800,
-                        textShadow: '0 0 8px rgba(255,215,0,0.5), 0 2px 3px rgba(0,0,0,0.7)',
-                      }),
+                      whiteSpace: 'nowrap',
+                      fontSize: 20, fontWeight: 800,
+                      color: p.crit ? '#ff2222' : '#ffd700',
+                      textShadow: p.crit
+                        ? '0 0 6px rgba(255,34,34,0.7), 0 2px 3px rgba(0,0,0,0.8)'
+                        : '0 0 8px rgba(255,215,0,0.5), 0 2px 3px rgba(0,0,0,0.7)',
                     }}
                   >
-                    {p.crit && <div style={{ fontSize: 14, color: '#ff4444', fontWeight: 900, marginBottom: -4, letterSpacing: 3, textShadow: '0 0 10px rgba(255,68,68,0.8)' }}>CRITICAL</div>}
                     -{p.value.toLocaleString()}{p.crit ? '!' : ''}
                   </motion.div>
                 ))}
