@@ -809,7 +809,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
         }
         if (skill.effect_type === 'hp_pct_damage') {
-          if (s.monsterLevel >= 90 && Math.random() < 0.75) {
+          if (isDummyMonster(s)) {
+            addLog(s, `[${skill.name}] HP% 데미지 무효 (허수아비)`);
+          } else if (s.monsterLevel >= 90 && Math.random() < 0.75) {
             addLog(s, `[${skill.name}] HP% 데미지 저항! (고레벨)`);
           } else {
             const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
