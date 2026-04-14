@@ -415,6 +415,42 @@ export function CombatScreen() {
         </div>
       </div>
 
+      {/* 허수아비 존 딜 체크 패널 */}
+      {state.dummy && (() => {
+        const total = state.dummy.totalDamage;
+        const elapsedSec = state.dummy.elapsedMs / 1000;
+        const dps = elapsedSec > 0 ? Math.round(total / elapsedSec) : 0;
+        return (
+          <div style={{
+            padding: 12, marginBottom: 8,
+            background: 'rgba(100,220,255,0.08)',
+            border: '1px solid #66ddff', borderRadius: 4,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#66ddff' }}>딜 체크</span>
+              <button onClick={async () => {
+                if (!active) return;
+                try { await api(`/characters/${active.id}/combat/dummy-reset`, { method: 'POST' }); } catch {}
+              }} style={{ fontSize: 10, padding: '3px 10px' }}>측정 초기화</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 12 }}>
+              <div>
+                <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>누적 데미지</div>
+                <div style={{ color: '#ffcc66', fontWeight: 700, fontSize: 14 }}>{total.toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>경과 시간</div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{elapsedSec.toFixed(1)}s</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>DPS</div>
+                <div style={{ color: '#66ddff', fontWeight: 700, fontSize: 14 }}>{dps.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 길드 + 영토 버프 */}
       {(() => {
         const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number } | undefined;

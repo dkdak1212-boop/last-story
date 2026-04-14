@@ -11,6 +11,7 @@ import {
   getCombatSnapshot,
   setAutoPotionConfig,
   getAutoPotionConfig,
+  resetDummyTracking,
 } from '../combat/engine.js';
 
 const router = Router();
@@ -68,6 +69,16 @@ router.post('/:id/combat/use-skill', async (req: AuthedRequest, res: Response) =
   if (!skillId) return res.status(400).json({ error: 'skillId required' });
 
   const ok = await manualSkillUse(id, Number(skillId));
+  res.json({ ok });
+});
+
+// 허수아비 존: 측정 초기화
+router.post('/:id/combat/dummy-reset', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const ok = resetDummyTracking(id);
   res.json({ ok });
 });
 

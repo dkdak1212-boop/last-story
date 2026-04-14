@@ -49,6 +49,7 @@ interface CombatSnapshot {
   territoryBuffs?: { expPct: number; dropPct: number };
   rage?: number; // 전사 전용 분노 게이지
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
+  dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
 }
 import { getIo } from '../ws/io.js';
 
@@ -154,6 +155,8 @@ interface ActiveSession {
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
   manaFlowStacks: number; // 마법사 전용: 마나의 흐름 스택 (0~5)
   manaFlowActive: number; // 마법사 전용: 마나의 흐름 버스트 남은 행동 (0=비활성)
+  dummyDamageTotal: number; // 허수아비 존: 누적 데미지
+  dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
   enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
@@ -1756,6 +1759,22 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   await spawnMonsterForSession(s);
 }
 
+// 허수아비 존: 이름으로 판단 ("허수아비"로 시작하는 몬스터는 불사 + 누적 데미지 추적)
+function isDummyMonster(s: ActiveSession): boolean {
+  return !!s.monsterName && s.monsterName.startsWith('허수아비');
+}
+
+// 행동 전후 HP 델타를 누적 + HP가 0 이하면 즉시 풀피 복원 (절대 죽지 않음)
+function handleDummyTick(s: ActiveSession, hpBefore: number): void {
+  if (!isDummyMonster(s)) return;
+  const delta = Math.max(0, hpBefore - s.monsterHp);
+  if (delta > 0) {
+    if (s.dummyTrackStart === 0) s.dummyTrackStart = Date.now();
+    s.dummyDamageTotal += delta;
+  }
+  if (s.monsterHp < s.monsterMaxHp) s.monsterHp = s.monsterMaxHp;
+}
+
 async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   const m = await pickRandomMonster(s.fieldId);
   if (!m) {
@@ -1877,6 +1896,7 @@ async function combatTick(): Promise<void> {
       // 몬스터 행동
       if (s.monsterGauge >= GAUGE_MAX) {
         const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+        const hpBeforeMon = s.monsterHp;
         monsterAction(s);
         s.monsterGauge = 0;
         // 몬스터 행동: 몬스터 도트→플레이어 데미지 + 플레이어 버프 만료
@@ -1888,8 +1908,9 @@ async function combatTick(): Promise<void> {
           await handlePlayerDeath(s);
           return;
         }
-        // 도트로 몬스터 처치된 경우 즉시 처리
-        if (s.monsterHp <= 0) {
+        handleDummyTick(s, hpBeforeMon);
+        // 도트로 몬스터 처치된 경우 즉시 처리 (허수아비 제외)
+        if (s.monsterHp <= 0 && !isDummyMonster(s)) {
           await handleMonsterDeath(s);
         }
       }
@@ -1910,6 +1931,7 @@ async function combatTick(): Promise<void> {
           if (s.potionCooldown > 0) s.potionCooldown--;
 
           const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+          const hpBeforePl = s.monsterHp;
           await autoAction(s);
           // 플레이어 행동: 플레이어 도트→몬스터 데미지 + 플레이어 도트 만료 + 쉴드 턴 감소
           processDots(s, 'monster');
@@ -1917,8 +1939,9 @@ async function combatTick(): Promise<void> {
           tickShield(s);
           s.dirty = true;
 
-          // 몬스터 처치 체크
-          if (s.monsterHp <= 0) {
+          handleDummyTick(s, hpBeforePl);
+          // 몬스터 처치 체크 (허수아비 제외)
+          if (s.monsterHp <= 0 && !isDummyMonster(s)) {
             await handleMonsterDeath(s);
           }
           // 플레이어 사망 체크
@@ -2076,6 +2099,13 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'mage') {
     snapshot.manaFlow = { stacks: s.manaFlowStacks, active: s.manaFlowActive };
   }
+  // 허수아비 존: 누적 데미지 + 경과 시간
+  if (isDummyMonster(s)) {
+    snapshot.dummy = {
+      totalDamage: s.dummyDamageTotal,
+      elapsedMs: s.dummyTrackStart > 0 ? Date.now() - s.dummyTrackStart : 0,
+    };
+  }
 
   // 영토 점령 보너스 정보
   try {
@@ -2192,6 +2222,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     rage: 0,
     manaFlowStacks: 0,
     manaFlowActive: 0,
+    dummyDamageTotal: 0,
+    dummyTrackStart: 0,
     lastPushAt: 0,
     enteredFieldAt: Date.now(),
     metaDirty: true,
@@ -2279,6 +2311,15 @@ export function getAutoPotionConfig(characterId: number): { enabled: boolean; th
   return { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold };
 }
 
+export function resetDummyTracking(characterId: number): boolean {
+  const s = activeSessions.get(characterId);
+  if (!s) return false;
+  s.dummyDamageTotal = 0;
+  s.dummyTrackStart = 0;
+  s.dirty = true;
+  return true;
+}
+
 export async function manualSkillUse(characterId: number, skillId: number): Promise<boolean> {
   const s = activeSessions.get(characterId);
   if (!s || !s.waitingInput) return false;
@@ -2303,13 +2344,15 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   s.skillCooldowns = newCdMap;
 
   const preManualIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+  const hpBeforeManual = s.monsterHp;
   await executeSkill(s, skill);
   processDots(s, 'monster');
   tickDownEffects(s, 'player', preManualIds);
   tickShield(s);
   s.dirty = true;
 
-  if (s.monsterHp <= 0) await handleMonsterDeath(s);
+  handleDummyTick(s, hpBeforeManual);
+  if (s.monsterHp <= 0 && !isDummyMonster(s)) await handleMonsterDeath(s);
   if (s.playerHp <= 0) await handlePlayerDeath(s);
 
   return true;

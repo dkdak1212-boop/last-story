@@ -77,8 +77,7 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'class restriction' });
   }
 
-  // huge 티어(초월 노드): 직업당 1개만 학습 가능 + 노드 스크롤 +8 소비
-  const NODE_SCROLL_ID = 321;
+  // huge 티어(초월 노드): 직업당 1개만 학습 가능
   if (node.tier === 'huge') {
     const hugeCount = await query<{ cnt: string }>(
       `SELECT COUNT(*)::text AS cnt FROM character_nodes cn
@@ -88,15 +87,6 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     );
     if (Number(hugeCount.rows[0].cnt) >= 1) {
       return res.status(400).json({ error: '초월 노드는 직업당 1개만 학습할 수 있습니다.' });
-    }
-    const scrollR = await query<{ id: number; quantity: number }>(
-      `SELECT id, quantity FROM character_inventory
-       WHERE character_id = $1 AND item_id = $2 AND quantity > 0
-       ORDER BY slot_index ASC LIMIT 1`,
-      [id, NODE_SCROLL_ID]
-    );
-    if (scrollR.rowCount === 0) {
-      return res.status(400).json({ error: '노드 스크롤 +8 1개가 필요합니다' });
     }
   }
 
@@ -142,22 +132,6 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
   if (char.node_points < totalCost) {
     return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
-  }
-
-  // huge 노드 → 스크롤 소비
-  if (node.tier === 'huge') {
-    const scrollR = await query<{ id: number; quantity: number }>(
-      `SELECT id, quantity FROM character_inventory
-       WHERE character_id = $1 AND item_id = $2 AND quantity > 0
-       ORDER BY slot_index ASC LIMIT 1`,
-      [id, NODE_SCROLL_ID]
-    );
-    if (scrollR.rowCount === 0) {
-      return res.status(400).json({ error: '노드 스크롤 +8 1개가 필요합니다' });
-    }
-    const slot = scrollR.rows[0];
-    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [slot.id]);
-    await query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [slot.id]);
   }
 
   for (const [nid] of toInvest) {

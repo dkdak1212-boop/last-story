@@ -696,7 +696,7 @@ export function NodeTreeScreen() {
               background: 'rgba(218,165,32,0.12)', border: '1px solid var(--accent)',
               color: 'var(--accent)', fontWeight: 700, borderRadius: 3,
             }}>
-              ★★ 노드 스크롤 +8 1개 소비
+              ★★ 초월 노드 · 직업당 1개만 학습 가능
             </div>
           )}
           {!invested.has(selected.id) && selectedUnmetCount > 1 && (
@@ -785,7 +785,7 @@ function NodeDetailPanel(props: NodeDetailPanelProps) {
           background: 'rgba(218,165,32,0.12)', border: '1px solid var(--accent)',
           color: 'var(--accent)', fontWeight: 700, borderRadius: 3,
         }}>
-          ★★ 초월 노드 · 투자 시 <span style={{ color: '#fff' }}>노드 스크롤 +8</span> 1개 소비
+          ★★ 초월 노드 · 직업당 1개만 학습 가능
         </div>
       )}
       {!invested.has(selected.id) && selectedUnmetCount > 1 && (
