@@ -22,7 +22,8 @@ router.get('/:id/nodes', async (req: AuthedRequest, res: Response) => {
     `SELECT id, name, description, zone, tier, cost, class_exclusive, effects,
             prerequisites, position_x, position_y
      FROM node_definitions
-     WHERE class_exclusive IS NULL OR class_exclusive = $1
+     WHERE (class_exclusive = $1)
+        OR (class_exclusive IS NULL AND NOT ($1 = 'summoner' AND zone = 'core'))
      ORDER BY zone, tier, id`,
     [char.class_name]
   );
