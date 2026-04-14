@@ -345,7 +345,7 @@ async function getCharSkills(characterId: number, className: string, level: numb
 // 유니크 아이템은 배율 적용 없이 DB 확률 그대로 사용
 const DROP_RATE_MULT = 0.1;
 
-// 유니크 아이템 ID 캐시 (startup 시 로드)
+// 유니크 아이템 ID 캐시 (startup 시 로드 — 신규 유니크 추가 시 재시작 필요)
 const uniqueItemIds = new Set<number>();
 export async function loadUniqueItemIds() {
   const r = await query<{ id: number }>("SELECT id FROM items WHERE grade = 'unique'");
