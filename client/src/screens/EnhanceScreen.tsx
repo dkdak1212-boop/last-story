@@ -51,18 +51,27 @@ export function EnhanceScreen() {
     if (!confirm('현재 접두사 수치를 새로 굴립니다. 진행하시겠습니까?')) return;
     setRerolling(true);
     try {
-      await api(`/enhance/${active.id}/reroll-prefix`, {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: selected.kind,
-          slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
-        }),
-      });
-      await load();
-      // 선택된 아이템 새 prefixStats 동기화
-      const fresh = items.find(it => it.kind === selected.kind &&
-        (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
-      if (fresh) setSelected(fresh);
+      const r = await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number> }>(
+        `/enhance/${active.id}/reroll-prefix`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: selected.kind,
+            slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+          }),
+        }
+      );
+      // 응답으로 선택 아이템 즉시 갱신 (load() 이전 state 클로저 문제 회피)
+      const updated: EnhanceItem = { ...selected, prefixIds: r.prefixIds, prefixStats: r.prefixStats };
+      setSelected(updated);
+      setItems(prev => prev.map(it => {
+        if (it.kind !== selected.kind) return it;
+        const sameSlot = selected.kind === 'inventory'
+          ? it.slotIndex === selected.slotIndex
+          : it.equipSlot === selected.equipSlot;
+        return sameSlot ? updated : it;
+      }));
+      setRerollCount(c => Math.max(0, c - 1));
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setRerolling(false); }
