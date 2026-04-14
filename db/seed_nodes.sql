@@ -203,8 +203,8 @@ INSERT INTO node_definitions (name, description, zone, tier, cost, effects, posi
 ('근원 지능 II',  '지능 +4', 'center', 'small', 1, '[{"type":"stat","stat":"int","value":4}]', 1, -6),
 ('근원 체력 I',   '체력 +4', 'center', 'small', 1, '[{"type":"stat","stat":"vit","value":4}]', 2, -6),
 ('근원 체력 II',  '체력 +4', 'center', 'small', 1, '[{"type":"stat","stat":"vit","value":4}]', 3, -6),
-('근원 속도 I',   '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 0, -7),
-('근원 속도 II',  '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 1, -7),
+('근원 스피드 I',   '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 0, -7),
+('근원 스피드 II',  '스피드 +20', 'center', 'small', 1, '[{"type":"stat","stat":"spd","value":20}]', 1, -7),
 ('근원 치명 I',   '치명타 확률 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 2, -7),
 ('근원 치명 II',  '치명타 확률 +4%', 'center', 'small', 1, '[{"type":"stat","stat":"cri","value":4}]', 3, -7);
 
@@ -243,7 +243,7 @@ SELECT '전사 체력 ' || n, '체력 +5', 'north_warrior', 'small', 1, 'warrior
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '전사 속도 ' || n, '스피드 +15', 'north_warrior', 'small', 1, 'warrior',
+SELECT '전사 스피드 ' || n, '스피드 +15', 'north_warrior', 'small', 1, 'warrior',
        '[{"type":"stat","stat":"spd","value":15}]', n-1, -17
 FROM generate_series(1, 9) n;
 
@@ -281,7 +281,7 @@ SELECT '마법사 지능 ' || n, '지능 +5', 'north_mage', 'small', 1, 'mage',
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '마법사 속도 ' || n, '스피드 +15', 'north_mage', 'small', 1, 'mage',
+SELECT '마법사 스피드 ' || n, '스피드 +15', 'north_mage', 'small', 1, 'mage',
        '[{"type":"stat","stat":"spd","value":15}]', n+9, -16
 FROM generate_series(1, 9) n;
 
@@ -327,7 +327,7 @@ SELECT '성직자 체력 ' || n, '체력 +5', 'north_cleric', 'small', 1, 'cleri
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '성직자 속도 ' || n, '스피드 +15', 'north_cleric', 'small', 1, 'cleric',
+SELECT '성직자 스피드 ' || n, '스피드 +15', 'north_cleric', 'small', 1, 'cleric',
        '[{"type":"stat","stat":"spd","value":15}]', n+19, -17
 FROM generate_series(1, 9) n;
 
@@ -363,7 +363,7 @@ SELECT '도적 민첩 ' || n, '민첩 +5', 'north_rogue', 'small', 1, 'rogue',
 FROM generate_series(1, 9) n;
 
 INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-SELECT '도적 속도 ' || n, '스피드 +15', 'north_rogue', 'small', 1, 'rogue',
+SELECT '도적 스피드 ' || n, '스피드 +15', 'north_rogue', 'small', 1, 'rogue',
        '[{"type":"stat","stat":"spd","value":15}]', n+29, -16
 FROM generate_series(1, 9) n;
 

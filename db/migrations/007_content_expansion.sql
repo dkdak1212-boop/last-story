@@ -102,7 +102,7 @@ INSERT INTO items (id, name, type, grade, slot, stats, description, stack_size, 
 (280, '수정 목걸이',       'accessory','common','amulet','{"int":3,"vit":2}',           '작은 수정 목걸이', 1, 30),
 (281, '늑대 송곳니',       'accessory','common','amulet','{"str":3,"cri":1}',           '야수의 증표', 1, 30),
 (282, '생명의 목걸이',     'accessory','rare',  'amulet','{"vit":10,"int":3}',          '생명력이 깃든 목걸이', 1, 150),
-(283, '속도의 목걸이',     'accessory','rare',  'amulet','{"dex":4,"spd":8}',           '스피드 부여', 1, 150),
+(283, '스피드의 목걸이',   'accessory','rare',  'amulet','{"dex":4,"spd":8}',           '스피드 부여', 1, 150),
 (284, '보호의 목걸이',     'accessory','epic',  'amulet','{"vit":18,"str":4,"int":4}',  '강력한 보호막', 1, 690),
 (285, '불멸의 목걸이',     'accessory','legendary','amulet','{"vit":28,"str":10,"int":10,"dex":10,"cri":5}', '불멸의 힘', 1, 3800);
 

@@ -1086,6 +1086,24 @@ async function runMigrations() {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
     }
   }
+  // 속도 → 스피드 명칭 통일 (노드/아이템/설명)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'rename_sokdo_to_speed_v1'`);
+      if (!applied.rowCount) {
+        console.log('[migration] rename_sokdo_to_speed_v1: 속도 → 스피드 통일...');
+        await query(`UPDATE node_definitions SET name = REPLACE(name, '속도', '스피드') WHERE name LIKE '%속도%'`);
+        await query(`UPDATE node_definitions SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
+        await query(`UPDATE items SET name = REPLACE(name, '속도', '스피드') WHERE name LIKE '%속도%'`);
+        await query(`UPDATE items SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
+        await query(`UPDATE skills SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
+        await query(`INSERT INTO _migrations (name) VALUES ('rename_sokdo_to_speed_v1')`);
+        console.log('[migration] rename_sokdo_to_speed_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[migration] rename_sokdo_to_speed_v1 error:', e);
+    }
+  }
   console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
 }
 
