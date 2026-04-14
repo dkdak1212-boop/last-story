@@ -49,6 +49,7 @@ interface CombatSnapshot {
   territoryBuffs?: { expPct: number; dropPct: number };
   rage?: number; // 전사 전용 분노 게이지
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
+  poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
 }
 import { getIo } from '../ws/io.js';
@@ -158,6 +159,7 @@ interface ActiveSession {
   dummyDamageTotal: number; // 허수아비 존: 누적 데미지
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
+  poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
   enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
@@ -405,6 +407,10 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   }
   // dot/poison: 중첩 허용 (그대로 push)
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
+  // 도적 독의 공명: 독 스택이 적에게 쌓일 때마다 +1 게이지 (최대 10)
+  if (s.className === 'rogue' && effect.type === 'poison' && effect.source === 'player') {
+    s.poisonResonance = Math.min(10, s.poisonResonance + 1);
+  }
 }
 
 function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string): boolean {
@@ -583,6 +589,20 @@ function processSummons(s: ActiveSession) {
 
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
+
+  // 도적 독의 공명: 10 게이지 도달 시 다음 행동에 독 폭발 (스택은 유지)
+  if (s.className === 'rogue' && s.poisonResonance >= 10) {
+    const poisons = s.statusEffects.filter(e =>
+      e.type === 'poison' && e.source === 'player' && e.remainingActions > 0
+    );
+    let burst = 0;
+    for (const p of poisons) burst += p.value * p.remainingActions * 2;
+    if (burst > 0) {
+      s.monsterHp -= burst;
+      addLog(s, `💀 [독의 공명] 폭발! ${burst.toLocaleString()} 데미지`);
+      s.poisonResonance = 0;
+    }
+  }
 
   // 쿨다운 설정
   // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
@@ -2132,6 +2152,10 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'mage') {
     snapshot.manaFlow = { stacks: s.manaFlowStacks, active: s.manaFlowActive };
   }
+  // 도적 독의 공명
+  if (s.className === 'rogue') {
+    snapshot.poisonResonance = s.poisonResonance;
+  }
   // 허수아비 존: 누적 데미지 + 경과 시간
   if (isDummyMonster(s)) {
     snapshot.dummy = {
@@ -2258,6 +2282,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     dummyDamageTotal: 0,
     dummyTrackStart: 0,
     mageOverkillCarry: 0,
+    poisonResonance: 0,
     lastPushAt: 0,
     enteredFieldAt: Date.now(),
     metaDirty: true,

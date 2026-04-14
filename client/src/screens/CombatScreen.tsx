@@ -320,6 +320,17 @@ export function CombatScreen() {
               </div>
             </div>
           )}
+          {state.poisonResonance !== undefined && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.poisonResonance >= 10 ? '#8fff88' : '#4faf44' }}>
+                <span>💀 독의 공명</span>
+                <span>{state.poisonResonance}/10{state.poisonResonance >= 10 ? ' — 다음 행동에 폭발!' : ''}</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(state.poisonResonance / 10) * 100}%`, background: state.poisonResonance >= 10 ? '#8fff88' : '#4faf44', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          )}
           {state.manaFlow !== undefined && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.manaFlow.active > 0 ? '#66ddff' : '#6688cc' }}>
