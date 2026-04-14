@@ -82,11 +82,11 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const scrollCount = scrollR.rows[0]?.quantity || 0;
 
-  // 접두사 재굴림권 보유량 조회
+  // 접두사 수치 재굴림권 보유량 조회
   const rerollR = await query<{ quantity: number }>(
     `SELECT COALESCE(SUM(ci.quantity), 0)::int AS quantity
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.name = '접두사 재굴림권'`,
+     WHERE ci.character_id = $1 AND i.name = '접두사 수치 재굴림권'`,
     [cid]
   );
   const rerollCount = rerollR.rows[0]?.quantity || 0;
@@ -297,11 +297,11 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
   // 재굴림권 소모
   const ticketR = await query<{ id: number; quantity: number }>(
     `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.name = '접두사 재굴림권' AND ci.quantity > 0
+     WHERE ci.character_id = $1 AND i.name = '접두사 수치 재굴림권' AND ci.quantity > 0
      ORDER BY ci.slot_index LIMIT 1`,
     [cid]
   );
-  if (ticketR.rowCount === 0) return res.status(400).json({ error: '접두사 재굴림권이 없습니다.' });
+  if (ticketR.rowCount === 0) return res.status(400).json({ error: '접두사 수치 재굴림권이 없습니다.' });
   const ticket = ticketR.rows[0];
   if (ticket.quantity <= 1) {
     await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
