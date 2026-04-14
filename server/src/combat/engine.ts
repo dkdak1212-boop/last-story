@@ -48,6 +48,7 @@ interface CombatSnapshot {
   guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
   territoryBuffs?: { expPct: number; dropPct: number };
   rage?: number; // 전사 전용 분노 게이지
+  manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
 }
 import { getIo } from '../ws/io.js';
 
@@ -151,6 +152,8 @@ interface ActiveSession {
   ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
   hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
+  manaFlowStacks: number; // 마법사 전용: 마나의 흐름 스택 (0~5)
+  manaFlowActive: number; // 마법사 전용: 마나의 흐름 버스트 남은 행동 (0=비활성)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
   enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
@@ -577,12 +580,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 쿨다운 설정
   // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
   // mana_flow: 추가 턴 수 감소 (예: 1 → -1턴)
+  // 마법사 마나의 흐름 버스트 중에는 쿨다운 감소 적용 안 함 (기본 쿨다운만 저장)
   if (skill.cooldown_actions > 0) {
-    const cdReducePct = getPassive(s, 'cooldown_reduce');
-    const cdFlat = getPassive(s, 'mana_flow');
+    const manaBurst = s.className === 'mage' && s.manaFlowActive > 0;
     let cd = skill.cooldown_actions;
-    if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
-    if (cdFlat > 0) cd = cd - cdFlat;
+    if (!manaBurst) {
+      const cdReducePct = getPassive(s, 'cooldown_reduce');
+      const cdFlat = getPassive(s, 'mana_flow');
+      if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
+      if (cdFlat > 0) cd = cd - cdFlat;
+    }
     cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);
   }
@@ -1321,6 +1328,25 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     default:
       addLog(s, `[${skill.name}] 사용!`);
   }
+
+  // ── 마법사 마나의 흐름 패시브 ──
+  // 스킬 사용 시 스택 1 증가, 5스택 도달 시 5행동간 쿨다운 무시 버스트.
+  // 버스트 중 사용한 스킬은 스택에 포함되지 않고, 각 사용마다 남은 행동 1 감소.
+  if (s.className === 'mage') {
+    if (s.manaFlowActive > 0) {
+      s.manaFlowActive--;
+      if (s.manaFlowActive === 0) {
+        addLog(s, `[마나의 흐름] 효과 종료`);
+      }
+    } else {
+      s.manaFlowStacks++;
+      if (s.manaFlowStacks >= 5) {
+        s.manaFlowStacks = 0;
+        s.manaFlowActive = 5;
+        addLog(s, `✨ [마나의 흐름] 5행동간 스킬 쿨다운 무시!`);
+      }
+    }
+  }
 }
 
 // ── 자동 행동 AI ──
@@ -1328,6 +1354,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 // 쿨다운이 끝난 사용 가능한 스킬인지 체크
 function isSkillReady(s: ActiveSession, sk: SkillDef): boolean {
   if (sk.cooldown_actions === 0) return true;
+  // 마법사 마나의 흐름 버스트: 모든 스킬 쿨다운 무시
+  if (s.className === 'mage' && s.manaFlowActive > 0) return true;
   const cd = s.skillCooldowns.get(sk.id);
   return !cd || cd <= 0;
 }
@@ -2044,6 +2072,10 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
 
   // 전사 분노 게이지
   if (s.className === 'warrior') snapshot.rage = s.rage;
+  // 마법사 마나의 흐름
+  if (s.className === 'mage') {
+    snapshot.manaFlow = { stacks: s.manaFlowStacks, active: s.manaFlowActive };
+  }
 
   // 영토 점령 보너스 정보
   try {
@@ -2158,6 +2190,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     ticksSinceLastHit: 0,
     hasFirstStrike: true,
     rage: 0,
+    manaFlowStacks: 0,
+    manaFlowActive: 0,
     lastPushAt: 0,
     enteredFieldAt: Date.now(),
     metaDirty: true,
@@ -2253,7 +2287,8 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   if (!skill) return false;
 
   const cd = s.skillCooldowns.get(skillId);
-  if (cd && cd > 0) return false;
+  const manaBurst = s.className === 'mage' && s.manaFlowActive > 0;
+  if (cd && cd > 0 && !manaBurst) return false;
 
   s.waitingInput = false;
   s.playerGauge = 0;

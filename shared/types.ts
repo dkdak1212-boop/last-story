@@ -171,6 +171,7 @@ export interface CombatSnapshot {
   serverTime: number;
   boosts?: { name: string; until: string }[];
   rage?: number; // 전사 전용 분노 게이지 (0~100)
+  manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름 (5스택 → 5행동 버스트)
 }
 
 export interface CombatSkillInfo {

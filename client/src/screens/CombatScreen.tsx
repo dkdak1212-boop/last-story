@@ -320,6 +320,26 @@ export function CombatScreen() {
               </div>
             </div>
           )}
+          {state.manaFlow !== undefined && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.manaFlow.active > 0 ? '#66ddff' : '#6688cc' }}>
+                <span>✨ 마나의 흐름</span>
+                <span>{state.manaFlow.active > 0
+                  ? `버스트! ${state.manaFlow.active}행동 — 쿨다운 무시`
+                  : `${state.manaFlow.stacks}/5`}</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: state.manaFlow.active > 0
+                    ? `${(state.manaFlow.active / 5) * 100}%`
+                    : `${(state.manaFlow.stacks / 5) * 100}%`,
+                  background: state.manaFlow.active > 0 ? '#66ddff' : '#6688cc',
+                  transition: 'width 0.3s',
+                }} />
+              </div>
+            </div>
+          )}
           <GaugeBar percent={playerGaugePct} color="var(--accent)" label="게이지"
             highlight={state.waitingInput} />
           <EffectIcons effects={state.player.effects} />
