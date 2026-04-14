@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useCharacterStore } from '../stores/characterStore';
 import { api } from '../api/client';
+import { Forum } from '../components/Forum';
 
 interface DropLog {
   characterName: string;
@@ -308,6 +309,9 @@ export function VillageScreen() {
           </div>
         </div>
       </div>
+
+      {/* 게시판 (자유/공략) */}
+      <Forum />
 
       {/* 방명록 */}
       <div style={{

@@ -39,6 +39,7 @@ import prefixRoutes from './routes/prefixes.js';
 import dropLogRoutes from './routes/dropLog.js';
 import enhanceLogRoutes from './routes/enhanceLog.js';
 import guestbookRoutes from './routes/guestbook.js';
+import forumRoutes from './routes/forum.js';
 import craftRoutes from './routes/craft.js';
 import { initWebSocket } from './ws/index.js';
 import { setIo } from './ws/io.js';
@@ -139,6 +140,7 @@ app.use('/api/prefixes', prefixRoutes);
 app.use('/api/drop-log', dropLogRoutes);
 app.use('/api/enhance-log', enhanceLogRoutes);
 app.use('/api/guestbook', guestbookRoutes);
+app.use('/api/forum', forumRoutes);
 app.use('/api/craft', craftRoutes);
 app.use('/api/characters', nodeRoutes);
 app.use('/api/characters', dailyQuestRoutes);
@@ -1084,6 +1086,63 @@ async function runMigrations() {
       await query(`DELETE FROM character_equipped WHERE item_id NOT IN (SELECT id FROM items)`);
     } catch (e) {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
+    }
+  }
+  // 게시판 (자유/공략) 테이블
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'forum_v1'`);
+      if (!applied.rowCount) {
+        console.log('[migration] forum_v1: 게시판 테이블 생성...');
+        await query(`
+          CREATE TABLE IF NOT EXISTS board_posts (
+            id SERIAL PRIMARY KEY,
+            board_type VARCHAR(8) NOT NULL,
+            character_id INT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            character_name VARCHAR(40) NOT NULL,
+            class_name VARCHAR(20) NOT NULL,
+            title VARCHAR(60) NOT NULL,
+            body TEXT NOT NULL,
+            target_class VARCHAR(20),
+            target_level INT,
+            view_count INT NOT NULL DEFAULT 0,
+            comment_count INT NOT NULL DEFAULT 0,
+            report_count INT NOT NULL DEFAULT 0,
+            deleted BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_board_posts_list ON board_posts (board_type, deleted, created_at DESC)`);
+        await query(`
+          CREATE TABLE IF NOT EXISTS board_comments (
+            id SERIAL PRIMARY KEY,
+            post_id INT NOT NULL REFERENCES board_posts(id) ON DELETE CASCADE,
+            character_id INT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            character_name VARCHAR(40) NOT NULL,
+            class_name VARCHAR(20) NOT NULL,
+            body VARCHAR(500) NOT NULL,
+            deleted BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_board_comments_post ON board_comments (post_id, created_at)`);
+        await query(`
+          CREATE TABLE IF NOT EXISTS board_reports (
+            id SERIAL PRIMARY KEY,
+            post_id INT REFERENCES board_posts(id) ON DELETE CASCADE,
+            comment_id INT REFERENCES board_comments(id) ON DELETE CASCADE,
+            reporter_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reason VARCHAR(200),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_board_reports_post ON board_reports (post_id, reporter_id) WHERE post_id IS NOT NULL`);
+        await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_board_reports_comment ON board_reports (comment_id, reporter_id) WHERE comment_id IS NOT NULL`);
+        await query(`INSERT INTO _migrations (name) VALUES ('forum_v1')`);
+        console.log('[migration] forum_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[migration] forum_v1 error:', e);
     }
   }
   // 속도 → 스피드 명칭 통일 (노드/아이템/설명)
