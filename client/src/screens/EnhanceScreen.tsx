@@ -5,6 +5,7 @@ import type { ItemGrade, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
+interface PrefixDetail { id: number; statKey: string; tier: number; }
 interface EnhanceItem {
   kind: 'inventory' | 'equipped';
   slotIndex?: number; equipSlot?: string;
@@ -14,8 +15,22 @@ interface EnhanceItem {
   enhanceLevel: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
   prefixName?: string;
+  prefixDetails?: PrefixDetail[];
   quality?: number;
 }
+
+const STAT_KEY_LABEL: Record<string, string> = {
+  str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '스피드', cri: '치명타',
+  accuracy: '명중', dodge: '회피', hp_regen: 'HP재생',
+  crit_dmg_pct: '크리뎀', lifesteal_pct: '흡혈', dot_amp_pct: '도트',
+  def_reduce_pct: '약화', berserk_pct: '광전사', first_strike_pct: '약점간파',
+  ambush_pct: '각성', gauge_on_crit_pct: '재충전', guardian_pct: '수호자',
+  predator_pct: '포식자', thorns_pct: '가시', slow_pct: '저주',
+  exp_bonus_pct: '경험치', gold_bonus_pct: '골드',
+  atk_pct: '공격%', matk_pct: '마공%', hp_pct: '최대HP%',
+  damage_taken_down_pct: '데미지감소',
+};
+const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화', ring: '반지', amulet: '목걸이',
@@ -32,6 +47,7 @@ export function EnhanceScreen() {
   const [useScroll, setUseScroll] = useState(false);
   const [rerollCount, setRerollCount] = useState(0);
   const [rerolling, setRerolling] = useState(false);
+  const [rerollIndex, setRerollIndex] = useState<number | null>(null); // null=전체
 
   async function load() {
     if (!active) return;
@@ -48,7 +64,11 @@ export function EnhanceScreen() {
       return;
     }
     if (rerollCount <= 0) { alert('접두사 수치 재굴림권이 없습니다.'); return; }
-    if (!confirm('현재 접두사 수치를 새로 굴립니다. 진행하시겠습니까?')) return;
+    const details = selected.prefixDetails || [];
+    const targetLabel = rerollIndex === null
+      ? '모든 접두사'
+      : `${details[rerollIndex]?.statKey ? (STAT_KEY_LABEL[details[rerollIndex].statKey] || details[rerollIndex].statKey) : '?'} (T${details[rerollIndex]?.tier || 1})`;
+    if (!confirm(`${targetLabel} 의 수치를 새로 굴립니다. 진행하시겠습니까?`)) return;
     setRerolling(true);
     try {
       const r = await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number> }>(
@@ -58,6 +78,7 @@ export function EnhanceScreen() {
           body: JSON.stringify({
             kind: selected.kind,
             slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+            ...(rerollIndex !== null ? { prefixIndex: rerollIndex } : {}),
           }),
         }
       );
@@ -123,7 +144,7 @@ export function EnhanceScreen() {
               const q = it.quality || 0;
               const qColor = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
               return (
-                <div key={`${it.kind}-${idx}`} onClick={() => { setSelected(it); setResult(null); }}
+                <div key={`${it.kind}-${idx}`} onClick={() => { setSelected(it); setResult(null); setRerollIndex(null); }}
                   style={{
                     padding: 10, background: 'var(--bg-panel)',
                     border: `1px solid ${selected === it ? 'var(--accent)' : GRADE_COLOR[it.grade]}`,
@@ -286,6 +307,34 @@ export function EnhanceScreen() {
                 <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사</div>
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
+
+                  {/* 재굴림 대상 선택 — 접두사 2개 이상일 때만 노출 */}
+                  {(selected.prefixDetails?.length || 0) > 1 && (
+                    <div style={{ marginTop: 10, fontSize: 11 }}>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 4 }}>재굴림 대상 선택</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        <button onClick={() => setRerollIndex(null)} style={{
+                          fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
+                          background: rerollIndex === null ? 'var(--accent)' : 'transparent',
+                          color: rerollIndex === null ? '#000' : 'var(--accent)',
+                          border: '1px solid var(--accent)', fontWeight: 700,
+                        }}>전체</button>
+                        {(selected.prefixDetails || []).map((d, i) => {
+                          const active = rerollIndex === i;
+                          const c = TIER_COLOR[d.tier] || '#888';
+                          return (
+                            <button key={i} onClick={() => setRerollIndex(i)} style={{
+                              fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
+                              background: active ? c : 'transparent',
+                              color: active ? '#000' : c,
+                              border: `1px solid ${c}`, fontWeight: 700,
+                            }}>T{d.tier} {STAT_KEY_LABEL[d.statKey] || d.statKey}</button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <button onClick={rerollPrefix} disabled={rerolling || rerollCount <= 0} style={{
                     marginTop: 10, width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,
                     background: rerollCount > 0 ? 'var(--accent)' : 'transparent',
@@ -296,7 +345,9 @@ export function EnhanceScreen() {
                     {rerolling ? '재굴림 중...' : `수치 재굴림권 사용 (보유: ${rerollCount}개)`}
                   </button>
                   <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
-                    tier/옵션은 그대로, 수치만 새로 굴립니다
+                    {(selected.prefixDetails?.length || 0) > 1
+                      ? '선택한 접두사만(또는 전체) 새로 굴립니다'
+                      : 'tier/옵션은 그대로, 수치만 새로 굴립니다'}
                   </div>
                 </div>
               )}

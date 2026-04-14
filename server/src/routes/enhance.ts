@@ -111,6 +111,14 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     }
     return result;
   }
+  // 인덱스 순서를 보존한 per-접두사 정보 (재굴림 선택 UI용)
+  function buildPrefixDetails(ids: number[] | null): { id: number; statKey: string; tier: number }[] {
+    if (!ids) return [];
+    return ids.map(id => {
+      const info = prefixTierMap.get(id);
+      return info ? { id, statKey: info.statKey, tier: info.tier } : { id, statKey: 'unknown', tier: 1 };
+    });
+  }
 
   res.json({
     inventory: inv.rows.map(r => ({
@@ -123,6 +131,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
+      prefixDetails: buildPrefixDetails(r.prefix_ids),
       quality: r.quality || 0,
     })),
     equipped: eq.rows.map(r => ({
@@ -135,6 +144,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
+      prefixDetails: buildPrefixDetails(r.prefix_ids),
       quality: r.quality || 0,
     })),
     scrollCount,
@@ -291,6 +301,7 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
   const parsed = z.object({
     kind: z.enum(['inventory', 'equipped']),
     slotKey: z.union([z.number().int().min(0), z.string()]),
+    prefixIndex: z.number().int().min(0).max(2).optional(), // 단일 인덱스만 재굴림 (2~3옵에서 선택)
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
@@ -309,26 +320,29 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 대상 아이템 레벨 + 기존 prefix_ids 조회 (재굴림은 tier/stat 유지, 값만 새로 굴림)
+  // 대상 아이템 레벨 + 기존 prefix_ids/prefix_stats 조회
   let targetItemLevel = 35;
   let existingPrefixIds: number[] = [];
+  let existingPrefixStats: Record<string, number> = {};
   if (parsed.data.kind === 'inventory') {
-    const ilr = await query<{ required_level: number; prefix_ids: number[] | null }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids, ci.prefix_stats
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2`, [cid, parsed.data.slotKey]);
     if (ilr.rows[0]) {
       targetItemLevel = ilr.rows[0].required_level;
       existingPrefixIds = ilr.rows[0].prefix_ids || [];
+      existingPrefixStats = ilr.rows[0].prefix_stats || {};
     }
   } else {
-    const ilr = await query<{ required_level: number; prefix_ids: number[] | null }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids, ce.prefix_stats
        FROM character_equipped ce JOIN items i ON i.id = ce.item_id
        WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
     if (ilr.rows[0]) {
       targetItemLevel = ilr.rows[0].required_level;
       existingPrefixIds = ilr.rows[0].prefix_ids || [];
+      existingPrefixStats = ilr.rows[0].prefix_stats || {};
     }
   }
 
@@ -337,7 +351,14 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
   }
 
   // 기존 접두사의 tier/stat을 유지하고 값만 min~max 범위에서 재굴림
-  const { prefixIds, bonusStats } = await rerollPrefixValues(existingPrefixIds, targetItemLevel);
+  // prefixIndex가 지정되면 그 인덱스 1개만, 없으면 전체 재굴림
+  const { prefixIds, bonusStats } = await rerollPrefixValues(
+    existingPrefixIds,
+    targetItemLevel,
+    parsed.data.prefixIndex !== undefined
+      ? { targetIndex: parsed.data.prefixIndex, prevStats: existingPrefixStats }
+      : {},
+  );
 
   // 대상 장비에 접두사 업데이트
   if (parsed.data.kind === 'inventory') {

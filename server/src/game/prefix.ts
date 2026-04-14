@@ -97,19 +97,56 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
 
 // 기존 접두사의 tier/stat_key는 유지하고 값(value)만 min~max 범위로 재굴림
 // 재굴림권 사용 시 호출 — 기존 옵션 구성을 보존하고 수치만 새로 굴림
+//
+// targetIndex가 지정되면 prefixIds 배열의 그 인덱스에 해당하는 접두사 1개만 재굴림하고
+// 나머지는 prevStats(기존 prefix_stats)에서 그대로 유지한다.
+// targetIndex가 가리키는 접두사와 동일 stat_key를 공유하는 다른 접두사가 있으면
+// 어차피 합산되어 분리할 수 없으므로 그 stat_key 전체가 함께 재굴림된다.
 export async function rerollPrefixValues(
   prefixIds: number[],
   itemLevel: number = 35,
+  options: { targetIndex?: number; prevStats?: Record<string, number> } = {},
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
   const prefixes = await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
-  const bonusStats: Record<string, number> = {};
-  for (const pid of prefixIds) {
+  const { targetIndex, prevStats } = options;
+
+  const rollOne = (pid: number): { stat: string; value: number } | null => {
     const p = prefixes.find(x => x.id === pid);
-    if (!p) continue;
+    if (!p) return null;
     const baseValue = p.min_val + Math.floor(Math.random() * (p.max_val - p.min_val + 1));
     const value = Math.max(1, Math.round(baseValue * levelScale));
-    bonusStats[p.stat_key] = (bonusStats[p.stat_key] ?? 0) + value;
+    return { stat: p.stat_key, value };
+  };
+
+  // 단일 인덱스 재굴림
+  if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < prefixIds.length && prevStats) {
+    const targetPid = prefixIds[targetIndex];
+    const targetPrefix = prefixes.find(x => x.id === targetPid);
+    if (!targetPrefix) {
+      return { prefixIds, bonusStats: { ...prevStats } };
+    }
+    const targetStat = targetPrefix.stat_key;
+    // 동일 stat_key를 공유하는 다른 인덱스도 함께 새로 굴림 (분리 불가)
+    const sharedIndices = prefixIds
+      .map((pid, i) => ({ pid, i }))
+      .filter(({ pid }) => prefixes.find(x => x.id === pid)?.stat_key === targetStat);
+
+    const next: Record<string, number> = { ...prevStats };
+    next[targetStat] = 0;
+    for (const { pid } of sharedIndices) {
+      const r = rollOne(pid);
+      if (r) next[targetStat] += r.value;
+    }
+    return { prefixIds, bonusStats: next };
+  }
+
+  // 전체 재굴림
+  const bonusStats: Record<string, number> = {};
+  for (const pid of prefixIds) {
+    const r = rollOne(pid);
+    if (!r) continue;
+    bonusStats[r.stat] = (bonusStats[r.stat] ?? 0) + r.value;
   }
   return { prefixIds, bonusStats };
 }
