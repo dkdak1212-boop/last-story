@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { generatePrefixes, displayPrefixStats } from '../game/prefix.js';
+import { rerollPrefixValues, displayPrefixStats } from '../game/prefix.js';
 import { refreshSessionStats } from '../combat/engine.js';
 
 const router = Router();
@@ -309,22 +309,35 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 대상 아이템 레벨 조회
+  // 대상 아이템 레벨 + 기존 prefix_ids 조회 (재굴림은 tier/stat 유지, 값만 새로 굴림)
   let targetItemLevel = 35;
+  let existingPrefixIds: number[] = [];
   if (parsed.data.kind === 'inventory') {
-    const ilr = await query<{ required_level: number }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids
+       FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2`, [cid, parsed.data.slotKey]);
-    if (ilr.rows[0]) targetItemLevel = ilr.rows[0].required_level;
+    if (ilr.rows[0]) {
+      targetItemLevel = ilr.rows[0].required_level;
+      existingPrefixIds = ilr.rows[0].prefix_ids || [];
+    }
   } else {
-    const ilr = await query<{ required_level: number }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids
+       FROM character_equipped ce JOIN items i ON i.id = ce.item_id
        WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
-    if (ilr.rows[0]) targetItemLevel = ilr.rows[0].required_level;
+    if (ilr.rows[0]) {
+      targetItemLevel = ilr.rows[0].required_level;
+      existingPrefixIds = ilr.rows[0].prefix_ids || [];
+    }
   }
 
-  // 새 접두사 생성 (아이템 레벨 비례)
-  const { prefixIds, bonusStats } = await generatePrefixes(targetItemLevel);
+  if (existingPrefixIds.length === 0) {
+    return res.status(400).json({ error: '접두사가 없는 장비입니다.' });
+  }
+
+  // 기존 접두사의 tier/stat을 유지하고 값만 min~max 범위에서 재굴림
+  const { prefixIds, bonusStats } = await rerollPrefixValues(existingPrefixIds, targetItemLevel);
 
   // 대상 장비에 접두사 업데이트
   if (parsed.data.kind === 'inventory') {

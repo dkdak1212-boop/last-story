@@ -95,6 +95,25 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
   return { prefixIds, bonusStats, maxTier };
 }
 
+// 기존 접두사의 tier/stat_key는 유지하고 값(value)만 min~max 범위로 재굴림
+// 재굴림권 사용 시 호출 — 기존 옵션 구성을 보존하고 수치만 새로 굴림
+export async function rerollPrefixValues(
+  prefixIds: number[],
+  itemLevel: number = 35,
+): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
+  const prefixes = await loadPrefixes();
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  const bonusStats: Record<string, number> = {};
+  for (const pid of prefixIds) {
+    const p = prefixes.find(x => x.id === pid);
+    if (!p) continue;
+    const baseValue = p.min_val + Math.floor(Math.random() * (p.max_val - p.min_val + 1));
+    const value = Math.max(1, Math.round(baseValue * levelScale));
+    bonusStats[p.stat_key] = (bonusStats[p.stat_key] ?? 0) + value;
+  }
+  return { prefixIds, bonusStats };
+}
+
 // prefix ID 배열 → 접두사 정보 조회
 export async function resolvePrefixes(prefixIds: number[]): Promise<{ id: number; name: string; statKey: string; value: number }[]> {
   if (!prefixIds || prefixIds.length === 0) return [];
