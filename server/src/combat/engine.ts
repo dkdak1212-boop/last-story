@@ -393,11 +393,14 @@ function addLog(s: ActiveSession, msg: string) {
 }
 
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
-  // speed_mod: 같은 source + 같은 부호끼리만 갱신 (버프 vs 디버프는 공존)
-  if (effect.type === 'speed_mod') {
+  // speed_mod 머지 정책
+  //  - source='player' (몬스터에게 건 디버프): 같은 부호끼리 갱신 (AOE 중첩 방지)
+  //  - source='monster' (플레이어 자가 버프/자해 페널티): 머지하지 않고 모두 stack
+  //    → 마력집중(+)과 마력과부하(−) 공존, 서로 다른 자가 버프 복수 공존 허용
+  if (effect.type === 'speed_mod' && effect.source === 'player') {
     const sameSign = (a: number, b: number) => (a >= 0) === (b >= 0);
     const existing = s.statusEffects.find(e =>
-      e.type === 'speed_mod' && e.source === effect.source &&
+      e.type === 'speed_mod' && e.source === 'player' &&
       sameSign(e.value, effect.value) && e.remainingActions > 0
     );
     if (existing) {
@@ -1441,9 +1444,15 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       return sk.damage_mult > 0 || !hasEffect(s, 'player', 'accuracy_debuff');
     case 'poison_burst':
       return poisonCount > 0; // 독 없으면 낭비
-    case 'self_speed_mod':
-      // 자가 버프 (양수)면 중복 방지, 디버프(음수, 자해형)면 항상
-      return sk.effect_value <= 0 || !hasActivePlayerBuff(s, 'speed_mod');
+    case 'self_speed_mod': {
+      // 자해 페널티(음수)는 항상 사용 가능
+      if (sk.effect_value <= 0) return true;
+      // 양수 자가 버프 — 이미 같은 부호(+)의 자가 버프가 있을 때만 차단
+      // (과부하 -50 같은 음수 디버프가 걸려 있어도 집중은 사용 가능)
+      const hasPositiveSelfSpd = s.statusEffects.some(e =>
+        e.type === 'speed_mod' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0);
+      return !hasPositiveSelfSpd;
+    }
     default:
       return true; // damage / dot / poison / stun / etc — 항상 사용 가능
   }

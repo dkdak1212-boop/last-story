@@ -688,10 +688,22 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   if (!effects || effects.length === 0) return null;
 
   const typeLabels: Record<string, string> = {
-    dot: 'DoT', shield: '실드', speed_mod: '스피드', stun: '기절',
+    dot: 'DoT', shield: '실드', stun: '기절',
     gauge_freeze: '동결', damage_reflect: '반사', damage_reduce: '감소',
     accuracy_debuff: '명중-', invincible: '무적', resurrect: '부활', poison: '독',
     atk_buff: '공격+', damage_taken_up: '약점',
+  };
+
+  const getLabel = (e: StatusEffect): string => {
+    if (e.type === 'speed_mod') return e.value >= 0 ? '스피드+' : '스피드-';
+    return typeLabels[e.type] || e.type;
+  };
+
+  const getColor = (e: StatusEffect): string => {
+    if (e.type === 'stun' || e.type === 'gauge_freeze') return 'var(--danger)';
+    if (e.type === 'shield' || e.type === 'invincible') return 'var(--success)';
+    if (e.type === 'speed_mod' && e.value < 0) return 'var(--danger)';
+    return 'var(--accent)';
   };
 
   return (
@@ -700,10 +712,9 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
         <span key={i} style={{
           padding: '2px 6px', fontSize: 10, fontWeight: 700,
           background: 'var(--bg)', border: '1px solid var(--border)',
-          color: e.type === 'stun' || e.type === 'gauge_freeze' ? 'var(--danger)' :
-            e.type === 'shield' || e.type === 'invincible' ? 'var(--success)' : 'var(--accent)',
+          color: getColor(e),
         }}>
-          {typeLabels[e.type] || e.type} {e.remainingActions > 0 && e.remainingActions < 999 ? `(${e.remainingActions})` : ''}
+          {getLabel(e)} {e.remainingActions > 0 && e.remainingActions < 999 ? `(${e.remainingActions})` : ''}
         </span>
       ))}
     </div>
