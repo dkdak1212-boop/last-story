@@ -33,16 +33,16 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 인벤토리
-  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
-    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality
+  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
   // 장착
-  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
-    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality
+  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [cid]
@@ -91,13 +91,32 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const rerollCount = rerollR.rows[0]?.quantity || 0;
 
-  // stat_key → 최대 tier 매핑 (T4 강조용)
-  const prefixTierMap = new Map<number, { statKey: string; tier: number }>();
+  // stat_key → 최대 tier 매핑 (T4 강조용) + min/max 재굴림 범위 표시용
+  const prefixTierMap = new Map<number, { statKey: string; tier: number; minVal: number; maxVal: number }>();
   if (allPrefixIds.length > 0) {
-    const tr = await query<{ id: number; stat_key: string; tier: number }>(
-      'SELECT id, stat_key, tier FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    const tr = await query<{ id: number; stat_key: string; tier: number; min_val: number; max_val: number }>(
+      'SELECT id, stat_key, tier, min_val, max_val FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
     );
-    for (const row of tr.rows) prefixTierMap.set(row.id, { statKey: row.stat_key, tier: row.tier });
+    for (const row of tr.rows) prefixTierMap.set(row.id, { statKey: row.stat_key, tier: row.tier, minVal: row.min_val, maxVal: row.max_val });
+  }
+
+  // 재굴림 범위 계산: rerollPrefixValues 와 동일한 공식 사용 (prefix.ts 참고)
+  //   levelScale = 0.4 + (min(70, max(1, itemLv))/70) * 1.4
+  //   value = max(1, round(baseValue * levelScale))
+  function calcLevelScale(itemLevel: number): number {
+    return 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  }
+  function buildRerollRanges(ids: number[] | null, itemLevel: number): { scaledMin: number; scaledMax: number }[] {
+    const scale = calcLevelScale(itemLevel);
+    if (!ids) return [];
+    return ids.map(id => {
+      const info = prefixTierMap.get(id);
+      if (!info) return { scaledMin: 0, scaledMax: 0 };
+      return {
+        scaledMin: Math.max(1, Math.round(info.minVal * scale)),
+        scaledMax: Math.max(1, Math.round(info.maxVal * scale)),
+      };
+    });
   }
   function buildPrefixTiers(ids: number[] | null): Record<string, number> {
     const result: Record<string, number> = {};
@@ -112,11 +131,18 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     return result;
   }
   // 인덱스 순서를 보존한 per-접두사 정보 (재굴림 선택 UI용)
-  function buildPrefixDetails(ids: number[] | null): { id: number; statKey: string; tier: number }[] {
+  function buildPrefixDetails(
+    ids: number[] | null,
+    itemLevel: number,
+  ): { id: number; statKey: string; tier: number; scaledMin: number; scaledMax: number }[] {
     if (!ids) return [];
-    return ids.map(id => {
+    const ranges = buildRerollRanges(ids, itemLevel);
+    return ids.map((id, i) => {
       const info = prefixTierMap.get(id);
-      return info ? { id, statKey: info.statKey, tier: info.tier } : { id, statKey: 'unknown', tier: 1 };
+      const r = ranges[i] || { scaledMin: 0, scaledMax: 0 };
+      return info
+        ? { id, statKey: info.statKey, tier: info.tier, scaledMin: r.scaledMin, scaledMax: r.scaledMax }
+        : { id, statKey: 'unknown', tier: 1, scaledMin: 0, scaledMax: 0 };
     });
   }
 
@@ -131,7 +157,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
-      prefixDetails: buildPrefixDetails(r.prefix_ids),
+      prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
       quality: r.quality || 0,
     })),
     equipped: eq.rows.map(r => ({
@@ -144,7 +170,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
-      prefixDetails: buildPrefixDetails(r.prefix_ids),
+      prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
       quality: r.quality || 0,
     })),
     scrollCount,

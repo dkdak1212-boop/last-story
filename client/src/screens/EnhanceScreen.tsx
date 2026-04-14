@@ -5,7 +5,7 @@ import type { ItemGrade, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
-interface PrefixDetail { id: number; statKey: string; tier: number; }
+interface PrefixDetail { id: number; statKey: string; tier: number; scaledMin: number; scaledMax: number; }
 interface EnhanceItem {
   kind: 'inventory' | 'equipped';
   slotIndex?: number; equipSlot?: string;
@@ -308,27 +308,48 @@ export function EnhanceScreen() {
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사</div>
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
 
-                  {/* 재굴림 대상 선택 — 접두사 2개 이상일 때만 노출 */}
-                  {(selected.prefixDetails?.length || 0) > 1 && (
+                  {/* 재굴림 범위 표시: 접두사가 있으면 항상 노출 */}
+                  {(selected.prefixDetails?.length || 0) > 0 && (
                     <div style={{ marginTop: 10, fontSize: 11 }}>
-                      <div style={{ color: 'var(--text-dim)', marginBottom: 4 }}>재굴림 대상 선택</div>
+                      <div style={{ color: 'var(--text-dim)', marginBottom: 4 }}>
+                        재굴림 범위 {(selected.prefixDetails?.length || 0) > 1 ? '(대상 선택)' : ''}
+                      </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        <button onClick={() => setRerollIndex(null)} style={{
-                          fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
-                          background: rerollIndex === null ? 'var(--accent)' : 'transparent',
-                          color: rerollIndex === null ? '#000' : 'var(--accent)',
-                          border: '1px solid var(--accent)', fontWeight: 700,
-                        }}>전체</button>
+                        {(selected.prefixDetails?.length || 0) > 1 && (
+                          <button onClick={() => setRerollIndex(null)} style={{
+                            fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
+                            background: rerollIndex === null ? 'var(--accent)' : 'transparent',
+                            color: rerollIndex === null ? '#000' : 'var(--accent)',
+                            border: '1px solid var(--accent)', fontWeight: 700,
+                          }}>전체</button>
+                        )}
                         {(selected.prefixDetails || []).map((d, i) => {
-                          const active = rerollIndex === i;
+                          const isActive = rerollIndex === i;
                           const c = TIER_COLOR[d.tier] || '#888';
+                          const currentVal = selected.prefixStats?.[d.statKey] ?? 0;
+                          const hasRange = d.scaledMin > 0 && d.scaledMax > 0;
+                          const multiSelect = (selected.prefixDetails?.length || 0) > 1;
                           return (
-                            <button key={i} onClick={() => setRerollIndex(i)} style={{
-                              fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
-                              background: active ? c : 'transparent',
-                              color: active ? '#000' : c,
-                              border: `1px solid ${c}`, fontWeight: 700,
-                            }}>T{d.tier} {STAT_KEY_LABEL[d.statKey] || d.statKey}</button>
+                            <button
+                              key={i}
+                              onClick={() => multiSelect && setRerollIndex(i)}
+                              style={{
+                                fontSize: 10, padding: '3px 8px', borderRadius: 3,
+                                cursor: multiSelect ? 'pointer' : 'default',
+                                background: isActive ? c : 'transparent',
+                                color: isActive ? '#000' : c,
+                                border: `1px solid ${c}`, fontWeight: 700,
+                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                              }}
+                              title={hasRange ? `T${d.tier} 범위: ${d.scaledMin}~${d.scaledMax} (현재: ${currentVal})` : ''}
+                            >
+                              <div>T{d.tier} {STAT_KEY_LABEL[d.statKey] || d.statKey}</div>
+                              {hasRange && (
+                                <div style={{ fontSize: 9, opacity: 0.9, marginTop: 1 }}>
+                                  {d.scaledMin}~{d.scaledMax} <span style={{ opacity: 0.7 }}>(현재 {currentVal})</span>
+                                </div>
+                              )}
+                            </button>
                           );
                         })}
                       </div>
