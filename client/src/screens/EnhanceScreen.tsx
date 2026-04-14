@@ -30,12 +30,42 @@ export function EnhanceScreen() {
   const [busy, setBusy] = useState(false);
   const [scrollCount, setScrollCount] = useState(0);
   const [useScroll, setUseScroll] = useState(false);
+  const [rerollCount, setRerollCount] = useState(0);
+  const [rerolling, setRerolling] = useState(false);
 
   async function load() {
     if (!active) return;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     setScrollCount(d.scrollCount || 0);
+    setRerollCount(d.rerollCount || 0);
+  }
+
+  async function rerollPrefix() {
+    if (!active || !selected || rerolling) return;
+    if (!selected.prefixStats || Object.keys(selected.prefixStats).length === 0) {
+      alert('접두사가 없는 장비입니다.');
+      return;
+    }
+    if (rerollCount <= 0) { alert('접두사 수치 재굴림권이 없습니다.'); return; }
+    if (!confirm('현재 접두사 수치를 새로 굴립니다. 진행하시겠습니까?')) return;
+    setRerolling(true);
+    try {
+      await api(`/enhance/${active.id}/reroll-prefix`, {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: selected.kind,
+          slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+        }),
+      });
+      await load();
+      // 선택된 아이템 새 prefixStats 동기화
+      const fresh = items.find(it => it.kind === selected.kind &&
+        (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
+      if (fresh) setSelected(fresh);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '실패');
+    } finally { setRerolling(false); }
   }
   useEffect(() => { load(); }, [active?.id]);
 
@@ -242,11 +272,23 @@ export function EnhanceScreen() {
                 </div>
               )}
 
-              {/* 현재 접두사 표시 */}
+              {/* 현재 접두사 표시 + 수치 재굴림 */}
               {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 && (
                 <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사</div>
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
+                  <button onClick={rerollPrefix} disabled={rerolling || rerollCount <= 0} style={{
+                    marginTop: 10, width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,
+                    background: rerollCount > 0 ? 'var(--accent)' : 'transparent',
+                    color: rerollCount > 0 ? '#000' : 'var(--text-dim)',
+                    border: '1px solid var(--accent)', borderRadius: 4,
+                    cursor: rerollCount > 0 && !rerolling ? 'pointer' : 'default',
+                  }}>
+                    {rerolling ? '재굴림 중...' : `수치 재굴림권 사용 (보유: ${rerollCount}개)`}
+                  </button>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
+                    tier/옵션은 그대로, 수치만 새로 굴립니다
+                  </div>
                 </div>
               )}
             </div>
