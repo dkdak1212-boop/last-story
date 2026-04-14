@@ -186,6 +186,11 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
 
+  // 마법사 클래스 패시브: INT 1당 마법 데미지 +0.25%
+  if (char.class_name === 'mage') {
+    eff.matk = Math.round(eff.matk * (1 + eff.int * 0.0025));
+  }
+
   // 길드 stat_buff_pct: 모든 전투 능력치 % 증가 (atk/matk/def/mdef)
   const gbr = await query<{ stat_buff_pct: number }>(
     `SELECT g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
