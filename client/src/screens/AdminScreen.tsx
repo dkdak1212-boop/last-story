@@ -41,7 +41,7 @@ interface ItemSearchResult {
 interface BossInfo { id: number; name: string; level: number; max_hp: number; }
 interface ActiveEvent { id: number; name: string; current_hp: number; max_hp: number; ends_at: string; status: string; }
 
-type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantAll' | 'users' | 'audit' | 'worldEvent' | 'globalEvent' | 'systemMsg' | 'announcements' | 'feedback';
+type Tab = 'stats' | 'characters' | 'grant' | 'items' | 'grantPro' | 'grantAll' | 'users' | 'audit' | 'worldEvent' | 'globalEvent' | 'systemMsg' | 'announcements' | 'feedback';
 
 const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
 const CLASS_LABEL: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
@@ -54,6 +54,7 @@ export function AdminScreen() {
     { id: 'characters', label: '캐릭터 관리' },
     { id: 'grant', label: '개인 지급' },
     { id: 'items', label: '아이템 지급/회수' },
+    { id: 'grantPro', label: '아이템 지급+' },
     { id: 'grantAll', label: '전체 보상' },
     { id: 'users', label: '유저 관리' },
     { id: 'audit', label: '유저 감사' },
@@ -80,6 +81,7 @@ export function AdminScreen() {
       {tab === 'characters' && <CharactersTab />}
       {tab === 'grant' && <GrantTab />}
       {tab === 'items' && <ItemsTab />}
+      {tab === 'grantPro' && <GrantProTab />}
       {tab === 'grantAll' && <GrantAllTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'audit' && <AuditTab />}
@@ -1198,6 +1200,320 @@ function FeedbackTab() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ========== 아이템 지급+ ==========
+interface FullItem {
+  id: number; name: string; type: string; grade: string; slot: string | null;
+  required_level: number; stats: Record<string, number> | null;
+  unique_prefix_stats: Record<string, number> | null; description: string; stack_size: number;
+}
+interface PrefixDef {
+  id: number; name: string; tier: number; stat_key: string; min_val: number; max_val: number;
+}
+interface SelectedPrefix {
+  id: number | null; value: number;
+}
+
+const SLOT_GROUPS: { id: string; label: string; slots: string[] }[] = [
+  { id: 'all', label: '전체', slots: [] },
+  { id: 'weapon', label: '무기', slots: ['weapon'] },
+  { id: 'armor', label: '방어구', slots: ['helm', 'chest', 'boots', 'gloves', 'pants'] },
+  { id: 'accessory', label: '장신구', slots: ['ring', 'amulet', 'earring', 'necklace'] },
+  { id: 'other', label: '기타', slots: [] },
+];
+const GRADE_FILTERS = ['all', 'common', 'uncommon', 'rare', 'epic', 'unique'];
+const LEVEL_BUCKETS: { label: string; min: number; max: number }[] = [
+  { label: '1-10', min: 1, max: 10 },
+  { label: '11-20', min: 11, max: 20 },
+  { label: '21-30', min: 21, max: 30 },
+  { label: '31-40', min: 31, max: 40 },
+  { label: '41-50', min: 41, max: 50 },
+  { label: '51-60', min: 51, max: 60 },
+  { label: '61-70', min: 61, max: 70 },
+  { label: '71-80', min: 71, max: 80 },
+  { label: '81-100', min: 81, max: 100 },
+];
+const GRADE_COLOR_PRO: Record<string, string> = {
+  common: '#9a9a9a', uncommon: '#5cb85c', rare: '#5b8ecc', epic: '#b060cc',
+  legendary: '#e08030', unique: '#ffaa00',
+};
+
+function GrantProTab() {
+  const [charSearch, setCharSearch] = useState('');
+  const [charResults, setCharResults] = useState<CharSearchResult[]>([]);
+  const [selectedChar, setSelectedChar] = useState<CharSearchResult | null>(null);
+
+  const [items, setItems] = useState<FullItem[]>([]);
+  const [prefixes, setPrefixes] = useState<PrefixDef[]>([]);
+
+  const [slotFilter, setSlotFilter] = useState<string>('all');
+  const [gradeFilter, setGradeFilter] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const [selectedItem, setSelectedItem] = useState<FullItem | null>(null);
+  const [enhanceLevel, setEnhanceLevel] = useState(0);
+  const [quality, setQuality] = useState(0);
+  const [selectedPrefixes, setSelectedPrefixes] = useState<SelectedPrefix[]>([
+    { id: null, value: 0 }, { id: null, value: 0 }, { id: null, value: 0 },
+  ]);
+
+  const [msg, setMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api<{ items: FullItem[] }>('/admin/items/all').then(r => setItems(r.items));
+    api<{ prefixes: PrefixDef[] }>('/admin/prefixes/all').then(r => setPrefixes(r.prefixes));
+  }, []);
+
+  async function searchChar() {
+    if (!charSearch) return;
+    const r = await api<{ characters: CharSearchResult[] }>(`/admin/characters/search?name=${encodeURIComponent(charSearch)}`);
+    setCharResults(r.characters);
+  }
+
+  function selectItem(it: FullItem) {
+    setSelectedItem(it);
+    setEnhanceLevel(0);
+    setQuality(0);
+    setSelectedPrefixes([{ id: null, value: 0 }, { id: null, value: 0 }, { id: null, value: 0 }]);
+  }
+
+  function setPrefixSlot(idx: number, prefixId: number | null) {
+    const next = [...selectedPrefixes];
+    if (prefixId === null) {
+      next[idx] = { id: null, value: 0 };
+    } else {
+      const def = prefixes.find(p => p.id === prefixId);
+      next[idx] = { id: prefixId, value: def ? Math.round((def.min_val + def.max_val) / 2) : 0 };
+    }
+    setSelectedPrefixes(next);
+  }
+  function setPrefixValue(idx: number, value: number) {
+    const next = [...selectedPrefixes];
+    next[idx] = { ...next[idx], value };
+    setSelectedPrefixes(next);
+  }
+  function randomPrefixValue(idx: number) {
+    const sp = selectedPrefixes[idx];
+    if (sp.id === null) return;
+    const def = prefixes.find(p => p.id === sp.id);
+    if (!def) return;
+    const v = Math.floor(Math.random() * (def.max_val - def.min_val + 1)) + def.min_val;
+    setPrefixValue(idx, v);
+  }
+
+  async function grant() {
+    if (!selectedChar || !selectedItem) return;
+    setMsg('');
+    setLoading(true);
+    try {
+      const body = {
+        characterId: selectedChar.id,
+        itemId: selectedItem.id,
+        enhanceLevel,
+        quality,
+        prefixes: selectedPrefixes.filter(p => p.id !== null).map(p => ({ id: p.id!, value: p.value })),
+      };
+      const r = await api<{ message: string }>('/admin/grant-item-pro', { method: 'POST', body: JSON.stringify(body) });
+      setMsg(r.message);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '실패');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filtered = items.filter(it => {
+    if (search && !it.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (gradeFilter !== 'all' && it.grade !== gradeFilter) return false;
+    if (slotFilter !== 'all') {
+      if (slotFilter === 'other') return !it.slot;
+      const grp = SLOT_GROUPS.find(g => g.id === slotFilter);
+      if (!grp || !it.slot || !grp.slots.includes(it.slot)) return false;
+    }
+    return true;
+  });
+
+  const grouped: Record<string, FullItem[]> = {};
+  for (const b of LEVEL_BUCKETS) grouped[b.label] = [];
+  for (const it of filtered) {
+    const lv = it.required_level || 1;
+    const bucket = LEVEL_BUCKETS.find(b => lv >= b.min && lv <= b.max) ?? LEVEL_BUCKETS[LEVEL_BUCKETS.length - 1];
+    grouped[bucket.label].push(it);
+  }
+
+  const usedKeys = new Set(
+    selectedPrefixes
+      .map(sp => sp.id)
+      .filter((id): id is number => id !== null)
+      .map(id => prefixes.find(p => p.id === id)?.stat_key)
+      .filter((k): k is string => !!k)
+  );
+
+  return (
+    <div>
+      <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>1. 캐릭터 선택</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <input placeholder="캐릭터 이름..." value={charSearch} onChange={e => setCharSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && searchChar()}
+            style={{ flex: '1 1 200px', minWidth: 150 }} />
+          <button onClick={searchChar}>검색</button>
+        </div>
+        {!selectedChar && charResults.map(c => (
+          <div key={c.id} onClick={() => setSelectedChar(c)} style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, marginBottom: 2, border: '1px solid var(--border)' }}>
+            <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{c.name}</span>
+            <span style={{ color: 'var(--text-dim)', marginLeft: 8 }}>Lv.{c.level} · {c.username}</span>
+          </div>
+        ))}
+        {selectedChar && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{selectedChar.name}</span>
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>Lv.{selectedChar.level}</span>
+            <button onClick={() => setSelectedChar(null)} style={{ fontSize: 11 }}>변경</button>
+          </div>
+        )}
+      </div>
+
+      {selectedChar && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12 }}>
+          <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>2. 아이템 선택</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {SLOT_GROUPS.map(g => (
+                <button key={g.id} className={slotFilter === g.id ? 'primary' : ''}
+                  onClick={() => setSlotFilter(g.id)} style={{ fontSize: 11, padding: '4px 10px' }}>{g.label}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {GRADE_FILTERS.map(g => (
+                <button key={g} className={gradeFilter === g ? 'primary' : ''}
+                  onClick={() => setGradeFilter(g)}
+                  style={{ fontSize: 11, padding: '4px 10px', color: g !== 'all' ? GRADE_COLOR_PRO[g] : undefined }}>
+                  {g === 'all' ? '전체' : g}
+                </button>
+              ))}
+            </div>
+            <input placeholder="이름 검색..." value={search} onChange={e => setSearch(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ padding: 8, background: 'var(--bg-panel)', border: '1px solid var(--border)', maxHeight: '50vh', overflowY: 'auto' }}>
+            {LEVEL_BUCKETS.map(b => {
+              const list = grouped[b.label];
+              if (list.length === 0) return null;
+              const isCol = collapsed[b.label];
+              return (
+                <div key={b.label} style={{ marginBottom: 10 }}>
+                  <div onClick={() => setCollapsed(c => ({ ...c, [b.label]: !c[b.label] }))}
+                    style={{ cursor: 'pointer', padding: '6px 10px', background: 'var(--bg)', fontSize: 12, fontWeight: 700, color: 'var(--accent)', userSelect: 'none' }}>
+                    [{isCol ? '+' : '−'}] Lv.{b.label} ({list.length}개)
+                  </div>
+                  {!isCol && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 4, padding: 4 }}>
+                      {list.map(it => (
+                        <div key={it.id} onClick={() => selectItem(it)} style={{
+                          padding: '6px 8px', cursor: 'pointer', fontSize: 11,
+                          border: `1px solid ${selectedItem?.id === it.id ? 'var(--accent)' : 'var(--border)'}`,
+                          background: selectedItem?.id === it.id ? 'rgba(255,200,80,0.1)' : 'var(--bg)',
+                        }}>
+                          <div style={{ color: GRADE_COLOR_PRO[it.grade] || '#ccc', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {it.name}
+                          </div>
+                          <div style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                            Lv.{it.required_level} {it.slot ? `· ${it.slot}` : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {filtered.length === 0 && <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-dim)' }}>결과 없음</div>}
+          </div>
+
+          {selectedItem && (
+            <div style={{ padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>3. 옵션 설정</div>
+              <div style={{ marginBottom: 10, padding: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                <div style={{ color: GRADE_COLOR_PRO[selectedItem.grade], fontWeight: 700 }}>{selectedItem.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  Lv.{selectedItem.required_level} · {selectedItem.grade} · {selectedItem.slot || selectedItem.type}
+                </div>
+                {selectedItem.stats && (
+                  <div style={{ fontSize: 11, marginTop: 4 }}>
+                    {Object.entries(selectedItem.stats).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                  </div>
+                )}
+                {selectedItem.unique_prefix_stats && (
+                  <div style={{ fontSize: 11, marginTop: 4, color: '#ffaa00' }}>
+                    [유니크] {Object.entries(selectedItem.unique_prefix_stats).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                  </div>
+                )}
+              </div>
+
+              {selectedItem.slot && (
+                <>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: 12 }}>강화:
+                      <input type="number" min={0} max={15} value={enhanceLevel}
+                        onChange={e => setEnhanceLevel(Math.max(0, Math.min(15, Number(e.target.value))))}
+                        style={{ width: 60, marginLeft: 6 }} />
+                    </label>
+                    <label style={{ fontSize: 12 }}>품질:
+                      <input type="number" min={0} max={100} value={quality}
+                        onChange={e => setQuality(Math.max(0, Math.min(100, Number(e.target.value))))}
+                        style={{ width: 60, marginLeft: 6 }} />
+                    </label>
+                  </div>
+
+                  {[0, 1, 2].map(idx => {
+                    const sp = selectedPrefixes[idx];
+                    const def = sp.id !== null ? prefixes.find(p => p.id === sp.id) : null;
+                    return (
+                      <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, width: 40 }}>접두 {idx + 1}</span>
+                        <select value={sp.id ?? ''} onChange={e => setPrefixSlot(idx, e.target.value ? Number(e.target.value) : null)}
+                          style={{ flex: '1 1 180px', minWidth: 140, fontSize: 11 }}>
+                          <option value="">— 없음 —</option>
+                          {prefixes.map(p => {
+                            const isDup = !!p.stat_key && usedKeys.has(p.stat_key) && p.id !== sp.id;
+                            return (
+                              <option key={p.id} value={p.id} disabled={isDup}>
+                                T{p.tier} {p.name} ({p.stat_key} {p.min_val}~{p.max_val})
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {def && (
+                          <>
+                            <input type="number" value={sp.value} onChange={e => setPrefixValue(idx, Number(e.target.value))}
+                              style={{ width: 70, fontSize: 11 }} />
+                            <button onClick={() => randomPrefixValue(idx)} style={{ fontSize: 10, padding: '2px 6px' }}>랜덤</button>
+                            <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{def.min_val}~{def.max_val}</span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="primary" disabled={loading} onClick={grant}>
+                  {loading ? '지급 중...' : '지급'}
+                </button>
+                {msg && <span style={{ fontSize: 12, color: 'var(--accent)' }}>{msg}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

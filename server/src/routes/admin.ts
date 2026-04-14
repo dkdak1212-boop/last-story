@@ -705,6 +705,111 @@ router.get('/items/search', async (req, res) => {
   res.json({ items: r.rows });
 });
 
+// ========== 아이템 지급+ (전체 목록 + 접두사 + 직접 지급) ==========
+router.get('/items/all', async (_req, res) => {
+  const r = await query(
+    `SELECT id, name, type, grade, slot, required_level, stats, unique_prefix_stats, description, stack_size
+     FROM items ORDER BY required_level ASC, id ASC`
+  );
+  res.json({ items: r.rows });
+});
+
+router.get('/prefixes/all', async (_req, res) => {
+  const r = await query(
+    `SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY stat_key, tier`
+  );
+  res.json({ prefixes: r.rows });
+});
+
+router.post('/grant-item-pro', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterId: z.number().int().positive(),
+    itemId: z.number().int().positive(),
+    enhanceLevel: z.number().int().min(0).max(15).default(0),
+    quality: z.number().int().min(0).max(100).default(0),
+    prefixes: z.array(z.object({
+      id: z.number().int().positive(),
+      value: z.number().int(),
+    })).max(3).default([]),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { characterId, itemId, enhanceLevel, quality, prefixes } = parsed.data;
+
+  const charR = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+  if (charR.rowCount === 0) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+
+  const itemR = await query<{ name: string; slot: string | null; grade: string; stack_size: number; unique_prefix_stats: Record<string, number> | null }>(
+    'SELECT name, slot, grade, stack_size, unique_prefix_stats FROM items WHERE id = $1',
+    [itemId]
+  );
+  if (itemR.rowCount === 0) return res.status(404).json({ error: '아이템을 찾을 수 없습니다.' });
+  const item = itemR.rows[0];
+  const isEquipment = !!item.slot;
+  const isUnique = item.grade === 'unique';
+
+  // 접두사 stat_key 조회 → prefix_stats 빌드
+  let prefixIds: number[] = [];
+  let prefixStats: Record<string, number> = {};
+  if (prefixes.length > 0 && isEquipment) {
+    const ids = prefixes.map(p => p.id);
+    const pr = await query<{ id: number; stat_key: string }>(
+      'SELECT id, stat_key FROM item_prefixes WHERE id = ANY($1)', [ids]
+    );
+    const keyMap = new Map(pr.rows.map(r => [r.id, r.stat_key]));
+    for (const p of prefixes) {
+      const key = keyMap.get(p.id);
+      if (!key) continue;
+      prefixIds.push(p.id);
+      prefixStats[key] = (prefixStats[key] || 0) + p.value;
+    }
+  }
+  // 유니크 고정 옵션 합산
+  if (isEquipment && isUnique && item.unique_prefix_stats) {
+    for (const [k, v] of Object.entries(item.unique_prefix_stats)) {
+      prefixStats[k] = (prefixStats[k] || 0) + (v as number);
+    }
+  }
+
+  // 빈 슬롯 찾기 (장비/소비 공통: 새 슬롯에 직접 INSERT)
+  const baseSlots = 300;
+  const bonusR = await query<{ bonus: number }>('SELECT inventory_slots_bonus AS bonus FROM characters WHERE id = $1', [characterId]);
+  const maxSlots = baseSlots + (bonusR.rows[0]?.bonus || 0);
+  const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]);
+  const used = new Set(usedR.rows.map(r => r.slot_index));
+  let freeSlot = -1;
+  for (let i = 0; i < maxSlots; i++) {
+    if (!used.has(i)) { freeSlot = i; break; }
+  }
+
+  if (freeSlot < 0) {
+    // 우편 발송 (접두사/강화/품질 보존)
+    await deliverToMailbox(
+      characterId,
+      '관리자 아이템 지급+',
+      '가방이 가득 차서 우편으로 배송되었습니다.',
+      itemId,
+      1,
+      0,
+      isEquipment ? {
+        enhanceLevel,
+        prefixIds: prefixIds.length > 0 ? prefixIds : null,
+        prefixStats,
+        quality,
+      } : undefined
+    );
+    return res.json({ ok: true, mailed: true, message: `${charR.rows[0].name}: 우편 발송` });
+  }
+
+  await query(
+    `INSERT INTO character_inventory
+     (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+     VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)`,
+    [characterId, itemId, freeSlot, enhanceLevel, prefixIds, JSON.stringify(prefixStats), quality]
+  );
+
+  res.json({ ok: true, slotIndex: freeSlot, mailed: false, message: `${charR.rows[0].name}: ${item.name} 지급 완료` });
+});
+
 router.post('/grant-item', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
