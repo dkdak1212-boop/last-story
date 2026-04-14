@@ -157,6 +157,7 @@ interface ActiveSession {
   manaFlowActive: number; // 마법사 전용: 마나의 흐름 버스트 남은 행동 (0=비활성)
   dummyDamageTotal: number; // 허수아비 존: 누적 데미지
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
+  mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
   enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
@@ -387,11 +388,14 @@ function addLog(s: ActiveSession, msg: string) {
 }
 
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
-  // speed_mod: 중첩 불가 — 기존 효과를 더 강한 것으로 갱신
+  // speed_mod: 같은 source + 같은 부호끼리만 갱신 (버프 vs 디버프는 공존)
   if (effect.type === 'speed_mod') {
-    const existing = s.statusEffects.find(e => e.type === 'speed_mod' && e.source === effect.source && e.remainingActions > 0);
+    const sameSign = (a: number, b: number) => (a >= 0) === (b >= 0);
+    const existing = s.statusEffects.find(e =>
+      e.type === 'speed_mod' && e.source === effect.source &&
+      sameSign(e.value, effect.value) && e.remainingActions > 0
+    );
     if (existing) {
-      // 더 강한 감소 또는 더 긴 지속시간으로 갱신
       if (Math.abs(effect.value) >= Math.abs(existing.value)) {
         existing.value = effect.value;
         existing.remainingActions = Math.max(existing.remainingActions, effect.remainingActions);
@@ -835,6 +839,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hits = Math.round(skill.effect_value) + getPassive(s, 'extra_hit');
       const chainAmp = getPassive(s, 'chain_action_amp');
       const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
+      const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) {
@@ -842,6 +847,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         } else {
           s.monsterHp -= d.damage;
           addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}${d.crit ? '!' : ''}`);
+          // 접두사: 재충전 (치명타 시 게이지 충전) — multi_hit 각 타격마다 적용
+          if (d.crit && gaugeOnCritMulti > 0) {
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCritMulti / 100);
+          }
         }
       }
       // 무쌍난무: 25% 확률로 모든 스킬 쿨다운 초기화 (자신 제외)
@@ -881,8 +890,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const DOT_SKILL_MULT = 1.56; // 화상 도트: 기본 1.2 × 1.3배
         const dotDmg = Math.round(dotBase * DOT_SKILL_MULT);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0;
-        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
-        addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${skill.effect_duration + stormExt}행동 (방어 50% 무시)`);
+        const dotDuration = skill.effect_duration + stormExt;
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: dotDuration, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
+        addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${dotDuration}행동 (방어 50% 무시)`);
+        // 마법사 전용: DoT 즉발화 — 총 도트 데미지의 50%를 즉시 추가 (실사냥 1타킬 대응)
+        if (s.className === 'mage') {
+          const instantDot = Math.round(dotDmg * dotDuration * 0.5);
+          if (instantDot > 0) {
+            s.monsterHp -= instantDot;
+            addLog(s, `[${skill.name}] 도트 즉발 +${instantDot}`);
+          }
+        }
         // effect_value > 0이면 N% 확률로 2회 발동 (운석 폭격 등)
         if (skill.effect_value > 0 && Math.random() * 100 < skill.effect_value) {
           const d2 = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
@@ -1607,6 +1625,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const m = mr.rows[0];
   if (!m) return;
 
+  // 마법사 전용: 오버킬의 50%를 다음 스폰 몬스터에게 캐리 (실사냥 1타킬 보상)
+  if (s.className === 'mage') {
+    const overkill = Math.max(0, -s.monsterHp);
+    if (overkill > 0) {
+      s.mageOverkillCarry = Math.round(overkill * 0.5);
+    }
+  }
+
   // 접두사: 포식 (처치 시 HP 회복)
   const predator = s.equipPrefixes.predator_pct || 0;
   if (predator > 0) {
@@ -1792,6 +1818,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
   // 몬스터 관련 디버프 초기화
   s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
+  // 마법사 오버킬 캐리: 전 처치 시 발생한 초과 데미지의 50% 적용
+  if (s.className === 'mage' && s.mageOverkillCarry > 0 && !isDummyMonster(s)) {
+    const carry = Math.min(s.monsterHp - 1, s.mageOverkillCarry); // 즉사 방지 — 최소 1 HP 유지
+    s.monsterHp -= carry;
+    addLog(s, `[원소 공명] 이전 전투의 잉여 마력 −${carry}`);
+    s.mageOverkillCarry = 0;
+  }
   addLog(s, `${m.name}이(가) 나타났다!`);
 }
 
@@ -2224,6 +2257,7 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     manaFlowActive: 0,
     dummyDamageTotal: 0,
     dummyTrackStart: 0,
+    mageOverkillCarry: 0,
     lastPushAt: 0,
     enteredFieldAt: Date.now(),
     metaDirty: true,
