@@ -213,11 +213,10 @@ export function NodeTreeScreen() {
   const isSingleZone = zones.length <= 1;
   const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
   const nodeMap = useMemo(() => new Map(zoneNodes.map(n => [n.id, n])), [zoneNodes]);
-  // DB 저장된 position_x/y 사용 (소환사 444개 등 대형 트리는 서버 배치 의존)
-  // 서버 position이 전부 (0,0)이면 fallback 으로 computeRadialLayout 사용
+  // 소환사만 DB position_x/y 사용 (444개 대형 트리 전용)
+  // 다른 직업은 기존 computeRadialLayout 유지 (전사/마법사/성직자/도적 원본)
   const positions = useMemo(() => {
-    const hasServerPositions = zoneNodes.some(n => (n.positionX ?? 0) !== 0 || (n.positionY ?? 0) !== 0);
-    if (hasServerPositions) {
+    if (active?.className === 'summoner') {
       const scale = 45;
       const m = new Map<number, Position>();
       for (const n of zoneNodes) {
@@ -226,7 +225,7 @@ export function NodeTreeScreen() {
       return m;
     }
     return computeRadialLayout(zoneNodes);
-  }, [zoneNodes]);
+  }, [zoneNodes, active?.className]);
 
   const highlightChain = useMemo(() => {
     if (!selected) return new Set<number>();
