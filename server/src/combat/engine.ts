@@ -563,23 +563,101 @@ function processSummons(s: ActiveSession) {
   const frenzyEff = s.statusEffects.find(e => e.type === 'summon_frenzy_active' && e.remainingActions > 0);
   const hits = frenzyEff ? 2 : 1;
 
+  // v0.9.6 신규 노드 효과: 원소/오오라/타입
+  const auraMultiplier = 1 + (getPassive(s, 'aura_multiplier') > 0 ? 1 : 0);
+  const elementDmgSum =
+    getPassive(s, 'summon_fire_dmg') +
+    getPassive(s, 'summon_frost_dmg') +
+    getPassive(s, 'summon_lightning_dmg') +
+    getPassive(s, 'summon_earth_dmg') +
+    getPassive(s, 'summon_holy_dmg') +
+    getPassive(s, 'summon_dark_dmg');
+  const allElementDmg = getPassive(s, 'summon_all_element_dmg');
+  const auraDmg = getPassive(s, 'aura_dmg') * auraMultiplier;
+  const dpsAtk = getPassive(s, 'summon_dps_atk');
+  const hybridAll = getPassive(s, 'summon_hybrid_all');
+  const elementSynergy = getPassive(s, 'element_synergy');
+  // 원소 2종 이상 투자 시 시너지
+  const elementInvested = [
+    getPassive(s, 'summon_fire_dmg'),
+    getPassive(s, 'summon_frost_dmg'),
+    getPassive(s, 'summon_lightning_dmg'),
+    getPassive(s, 'summon_earth_dmg'),
+    getPassive(s, 'summon_holy_dmg'),
+    getPassive(s, 'summon_dark_dmg'),
+  ].filter(v => v > 0).length;
+  const synergyBonus = elementInvested >= 2 ? elementSynergy : 0;
+
+  const totalDmgBonus = summonAmp + elementDmgSum + allElementDmg + auraDmg + dpsAtk + hybridAll + synergyBonus;
+
+  // 관통: aura_pen + 원소 관통
+  const penetration =
+    getPassive(s, 'aura_pen') * auraMultiplier +
+    getPassive(s, 'summon_fire_pen') +
+    getPassive(s, 'summon_frost_pen') +
+    getPassive(s, 'summon_lightning_pen') +
+    getPassive(s, 'summon_earth_pen') +
+    getPassive(s, 'summon_holy_pen') +
+    getPassive(s, 'summon_dark_pen');
+  // 치명: aura_crit + 원소 치명
+  const critChance =
+    getPassive(s, 'aura_crit') * auraMultiplier +
+    getPassive(s, 'summon_fire_crit') +
+    getPassive(s, 'summon_frost_crit') +
+    getPassive(s, 'summon_lightning_crit') +
+    getPassive(s, 'summon_earth_crit') +
+    getPassive(s, 'summon_holy_crit') +
+    getPassive(s, 'summon_dark_crit');
+  const critDmgBonus =
+    getPassive(s, 'summon_fire_crit_dmg') +
+    getPassive(s, 'summon_frost_crit_dmg') +
+    getPassive(s, 'summon_lightning_crit_dmg') +
+    getPassive(s, 'summon_earth_crit_dmg') +
+    getPassive(s, 'summon_holy_crit_dmg') +
+    getPassive(s, 'summon_dark_crit_dmg');
+  // 흡혈: aura_lifesteal + summon_dark_lifesteal
+  const lifesteal = getPassive(s, 'aura_lifesteal') * auraMultiplier + getPassive(s, 'summon_dark_lifesteal');
+  // 원소 폭발 (원소 군주 huge): 15% 확률 추가 데미지 100%
+  const elementBurst = getPassive(s, 'summon_element_burst');
+
   let totalSummonDmg = 0;
+  let totalLifesteal = 0;
   for (const sm of summons) {
     const mult = sm.value / 100; // value = 퍼센트 (80 = 0.8x)
     for (let h = 0; h < hits; h++) {
-      let dmg = Math.round(matk * mult * buffMult * (1 + summonAmp / 100));
-      // 방어 적용
+      let dmg = Math.round(matk * mult * buffMult * (1 + totalDmgBonus / 100));
+      // 방어 적용 (관통 % 만큼 방어 무시)
       const defVal = s.monsterStats.mdef;
-      dmg = Math.max(1, dmg - Math.round(defVal * 0.5));
+      const effectiveDef = defVal * (1 - Math.min(100, penetration) / 100);
+      dmg = Math.max(1, dmg - Math.round(effectiveDef * 0.5));
       // ±10% 랜덤
       dmg = Math.round(dmg * (0.9 + Math.random() * 0.2));
+      // 치명타
+      if (critChance > 0 && Math.random() * 100 < critChance) {
+        dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
+      }
       // 20% 확률 2회 타격 (만물의 군주)
       if (summonDouble > 0 && Math.random() * 100 < summonDouble) {
         dmg *= 2;
       }
+      // 원소 폭발 (원소 군주)
+      if (elementBurst > 0 && Math.random() * 100 < elementBurst) {
+        dmg = Math.round(dmg * 2);
+      }
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
+      if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
     }
+  }
+  // 흡혈 회복
+  if (totalLifesteal > 0) {
+    s.playerHp = Math.min(s.playerMaxHp, s.playerHp + totalLifesteal);
+  }
+  // 치유 오오라: 소환수 공격 당 플레이어 HP 회복 (% of max)
+  const auraHeal = getPassive(s, 'aura_heal') * auraMultiplier + getPassive(s, 'summon_holy_heal');
+  if (auraHeal > 0 && summons.length > 0) {
+    const heal = Math.round(s.playerMaxHp * auraHeal / 1000); // 20 → 2% of max hp
+    if (heal > 0) s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
   }
   if (totalSummonDmg > 0) {
     addLog(s, `[소환수 x${summons.length}] ${totalSummonDmg.toLocaleString()} 데미지${frenzyEff ? ' (분노)' : ''}`);
@@ -626,8 +704,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     if (!manaBurst) {
       const cdReducePct = getPassive(s, 'cooldown_reduce');
       const cdFlat = getPassive(s, 'mana_flow');
+      // 소환사 신규: summon_support_cdr, summon_all_cdr, summon_tank_cdr 등 직접 감산
+      const summonCdFlat =
+        getPassive(s, 'summon_support_cdr') +
+        getPassive(s, 'summon_all_cdr') +
+        getPassive(s, 'summon_tank_cdr') +
+        getPassive(s, 'summon_dps_cdr') +
+        getPassive(s, 'summon_hybrid_cdr');
       if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
       if (cdFlat > 0) cd = cd - cdFlat;
+      if (summonCdFlat > 0) cd = cd - summonCdFlat;
     }
     cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);

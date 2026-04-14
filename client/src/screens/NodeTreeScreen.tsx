@@ -6,6 +6,7 @@ import { useCharacterStore } from '../stores/characterStore';
 interface NodeDefinition {
   id: number; name: string; description: string; zone: string; tier: string;
   cost: number; classExclusive: string | null; effects: any[]; prerequisites: number[];
+  positionX: number; positionY: number;
 }
 interface NodeTreeState {
   availablePoints: number; totalPoints: number;
@@ -212,7 +213,20 @@ export function NodeTreeScreen() {
   const isSingleZone = zones.length <= 1;
   const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
   const nodeMap = useMemo(() => new Map(zoneNodes.map(n => [n.id, n])), [zoneNodes]);
-  const positions = useMemo(() => computeRadialLayout(zoneNodes), [zoneNodes]);
+  // DB 저장된 position_x/y 사용 (소환사 444개 등 대형 트리는 서버 배치 의존)
+  // 서버 position이 전부 (0,0)이면 fallback 으로 computeRadialLayout 사용
+  const positions = useMemo(() => {
+    const hasServerPositions = zoneNodes.some(n => (n.positionX ?? 0) !== 0 || (n.positionY ?? 0) !== 0);
+    if (hasServerPositions) {
+      const scale = 45;
+      const m = new Map<number, Position>();
+      for (const n of zoneNodes) {
+        m.set(n.id, { x: (n.positionX ?? 0) * scale, y: (n.positionY ?? 0) * scale });
+      }
+      return m;
+    }
+    return computeRadialLayout(zoneNodes);
+  }, [zoneNodes]);
 
   const highlightChain = useMemo(() => {
     if (!selected) return new Set<number>();
