@@ -593,22 +593,28 @@ function processSummons(s: ActiveSession) {
   }
 }
 
+// 도적 독의 공명: 10 게이지 도달 시 독 폭발 (남은 도트 합계 × 3 데미지, 스택은 유지)
+// executeSkill 시작 + 기본공격(default attack) 시작 양쪽에서 호출되어
+// 스킬을 안 쓰는 턴에도 발동 가능.
+function tryPoisonResonanceBurst(s: ActiveSession): void {
+  if (s.className !== 'rogue' || s.poisonResonance < 10) return;
+  const poisons = s.statusEffects.filter(e =>
+    e.type === 'poison' && e.source === 'player' && e.remainingActions > 0
+  );
+  let burst = 0;
+  for (const p of poisons) burst += p.value * p.remainingActions * 3;
+  if (burst > 0) {
+    s.monsterHp -= burst;
+    // raw 숫자로 출력 — 콤마 포맷이 들어가면 클라 DPS 미터 regex가 마지막 자리만 캡처함
+    addLog(s, `💀 [독의 공명] 폭발! ${burst} 데미지`);
+    s.poisonResonance = 0;
+  }
+}
+
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
 
-  // 도적 독의 공명: 10 게이지 도달 시 다음 행동에 독 폭발 (스택은 유지)
-  if (s.className === 'rogue' && s.poisonResonance >= 10) {
-    const poisons = s.statusEffects.filter(e =>
-      e.type === 'poison' && e.source === 'player' && e.remainingActions > 0
-    );
-    let burst = 0;
-    for (const p of poisons) burst += p.value * p.remainingActions * 2;
-    if (burst > 0) {
-      s.monsterHp -= burst;
-      addLog(s, `💀 [독의 공명] 폭발! ${burst.toLocaleString()} 데미지`);
-      s.poisonResonance = 0;
-    }
-  }
+  tryPoisonResonanceBurst(s);
 
   // 쿨다운 설정
   // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
@@ -1510,6 +1516,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
   }
 
   // fallback: 모든 스킬이 쿨 또는 사용 불가일 때 기본 공격
+  // 기본공격 턴에도 독의 공명 폭발 체크 (스킬 미사용 시 게이지가 멈추는 문제 방지)
+  tryPoisonResonanceBurst(s);
   const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
   if (d.miss) addLog(s, '기본 공격 빗나감!');
   else {
