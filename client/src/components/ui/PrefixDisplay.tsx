@@ -42,10 +42,10 @@ interface Props {
 // 티어별 색상/스타일
 function getTierStyle(tier: number): { color: string; glow: boolean; bg: string } {
   switch (tier) {
-    case 4: return { color: '#ff4444', glow: true, bg: 'rgba(255,68,68,0.12)' };  // 빨강 + 발광
-    case 3: return { color: '#b060cc', glow: false, bg: 'transparent' };           // 보라
-    case 2: return { color: '#5b8ecc', glow: false, bg: 'transparent' };           // 파랑
-    default: return { color: '#66ccff', glow: false, bg: 'transparent' };          // T1 기본
+    case 4: return { color: '#ff4444', glow: true,  bg: 'rgba(255,68,68,0.12)' }; // 빨강 + 발광
+    case 3: return { color: '#ffcc33', glow: false, bg: 'transparent' };           // 황금
+    case 2: return { color: '#b060cc', glow: false, bg: 'transparent' };           // 보라
+    default: return { color: '#5b8ecc', glow: false, bg: 'transparent' };          // T1 파랑
   }
 }
 
@@ -72,7 +72,14 @@ export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
             display: 'inline-block',
             width: 'fit-content',
           }}>
-            {isT4 && <span style={{ marginRight: 3, fontWeight: 900 }}>★T4</span>}
+            <span style={{
+              marginRight: 4,
+              fontWeight: 900,
+              fontSize: 10,
+              padding: '0 3px',
+              border: `1px solid ${s.color}`,
+              borderRadius: 2,
+            }}>T{tier}</span>
             ◆ {text}
           </span>
         );
