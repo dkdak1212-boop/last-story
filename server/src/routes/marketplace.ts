@@ -20,6 +20,7 @@ router.get('/', async (req, res) => {
   const qualityMin = req.query.qualityMin ? Number(req.query.qualityMin) : null;
   const qualityMax = req.query.qualityMax ? Number(req.query.qualityMax) : null;
   const prefixStatKey = req.query.prefixStatKey as string | undefined; // ex: atk, dot_amp_pct ...
+  const prefixTier = req.query.prefixTier ? Number(req.query.prefixTier) : null; // 1~4
   const levelBracket = req.query.levelBracket as string | undefined; // '' | '1-9' | '10-19' | ... | '70+'
 
   const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()'];
@@ -37,6 +38,10 @@ router.get('/', async (req, res) => {
   if (prefixStatKey) {
     params.push(prefixStatKey);
     filters.push(`a.prefix_stats ? $${params.length}`);
+  }
+  if (prefixTier !== null && Number.isFinite(prefixTier) && prefixTier >= 1 && prefixTier <= 4) {
+    params.push(prefixTier);
+    filters.push(`EXISTS (SELECT 1 FROM item_prefixes p WHERE p.id = ANY(a.prefix_ids) AND p.tier = $${params.length})`);
   }
   // 레벨 구간 필터 (서버사이드) — egress 절감
   if (levelBracket) {

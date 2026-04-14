@@ -57,6 +57,7 @@ export function MarketplaceScreen() {
   const [qualityMin, setQualityMin] = useState<number>(0);
   const [qualityMax, setQualityMax] = useState<number>(100);
   const [prefixStatKey, setPrefixStatKey] = useState<string>('');
+  const [prefixTier, setPrefixTier] = useState<number>(0); // 0=전체, 1~4
 
   async function loadBrowse() {
     const params = new URLSearchParams();
@@ -65,6 +66,7 @@ export function MarketplaceScreen() {
     if (qualityMin > 0) params.set('qualityMin', String(qualityMin));
     if (qualityMax < 100) params.set('qualityMax', String(qualityMax));
     if (prefixStatKey) params.set('prefixStatKey', prefixStatKey);
+    if (prefixTier > 0) params.set('prefixTier', String(prefixTier));
     // 서버사이드 레벨 구간 필터 (egress 절감)
     const bracket = tab === 'unique' ? uniqueLevelBracket : browseLevelBracket;
     if (bracket) params.set('levelBracket', bracket);
@@ -86,7 +88,7 @@ export function MarketplaceScreen() {
     if (tab === 'browse' || tab === 'unique') { loadBrowse(); loadInv(); }
     if (tab === 'list') loadInv();
     if (tab === 'mine') loadMine();
-  }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, uniqueLevelBracket, browseLevelBracket, active?.id]);
+  }, [tab, slotFilter, qualityMin, qualityMax, prefixStatKey, prefixTier, uniqueLevelBracket, browseLevelBracket, active?.id]);
 
   async function buy(a: Listing) {
     if (!active) return;
@@ -165,6 +167,7 @@ export function MarketplaceScreen() {
             qualityMin={qualityMin} qualityMax={qualityMax}
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
             prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
+            prefixTier={prefixTier} setPrefixTier={setPrefixTier}
           />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 4 }}>레벨:</span>
@@ -238,6 +241,7 @@ export function MarketplaceScreen() {
             qualityMin={qualityMin} qualityMax={qualityMax}
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
             prefixStatKey={prefixStatKey} setPrefixStatKey={setPrefixStatKey}
+            prefixTier={prefixTier} setPrefixTier={setPrefixTier}
           />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 4 }}>레벨:</span>
@@ -345,10 +349,13 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'gold_bonus_pct', label: '골드 %' },
 ];
 
-function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, prefixStatKey, setPrefixStatKey }: {
+const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };
+
+function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, prefixStatKey, setPrefixStatKey, prefixTier, setPrefixTier }: {
   qualityMin: number; qualityMax: number;
   setQualityMin: (n: number) => void; setQualityMax: (n: number) => void;
   prefixStatKey: string; setPrefixStatKey: (s: string) => void;
+  prefixTier: number; setPrefixTier: (n: number) => void;
 }) {
   return (
     <div style={{
@@ -374,8 +381,24 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
           {PREFIX_STAT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
         </select>
       </div>
-      {(qualityMin > 0 || qualityMax < 100 || prefixStatKey) && (
-        <button onClick={() => { setQualityMin(0); setQualityMax(100); setPrefixStatKey(''); }}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ color: 'var(--text-dim)', marginRight: 2 }}>티어</span>
+        {[0, 1, 2, 3, 4].map(t => {
+          const active = prefixTier === t;
+          const color = t === 0 ? 'var(--accent)' : TIER_COLOR[t];
+          return (
+            <button key={t} onClick={() => setPrefixTier(t)} style={{
+              fontSize: 10, padding: '3px 8px', borderRadius: 3, cursor: 'pointer',
+              background: active ? color : 'transparent',
+              color: active ? '#000' : color,
+              border: `1px solid ${color}`,
+              fontWeight: 800,
+            }}>{t === 0 ? '전체' : `T${t}`}</button>
+          );
+        })}
+      </div>
+      {(qualityMin > 0 || qualityMax < 100 || prefixStatKey || prefixTier > 0) && (
+        <button onClick={() => { setQualityMin(0); setQualityMax(100); setPrefixStatKey(''); setPrefixTier(0); }}
           style={{ fontSize: 10, padding: '3px 8px' }}>필터 초기화</button>
       )}
     </div>
