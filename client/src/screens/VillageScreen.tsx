@@ -405,7 +405,7 @@ export function VillageScreen() {
                 { c: 'warrior', n: '전사', d: '물리 근접 딜탱. 흡혈/강타/수호 계열 스킬 중심' },
                 { c: 'mage', n: '마법사', d: '원소 마법 딜러. 동결/기절 게이지 제어 가능' },
                 { c: 'cleric', n: '성직자', d: '신성 힐/실드 + 심판 계열 광역 공격' },
-                { c: 'rogue', n: '도적', d: '독/연막/백스텝, 빠른 속도와 명중 디버프' },
+                { c: 'rogue', n: '도적', d: '독/연막/백스텝, 빠른 스피드와 명중 디버프' },
               ].map(cl => (
                 <div key={cl.c} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, padding: 6, background: 'var(--bg)', borderRadius: 4 }}>
                   <Px src={`/images/classes/${cl.c}.png`} size={24} />

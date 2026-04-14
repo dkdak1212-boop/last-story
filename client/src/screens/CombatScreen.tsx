@@ -367,6 +367,13 @@ export function CombatScreen() {
               <Bar cur={state.monster.hp} max={state.monster.maxHp} color="var(--danger)" label="HP" />
               <GaugeBar percent={monsterGaugePct} color="var(--danger)" label="게이지" />
               <EffectIcons effects={state.monster.effects} />
+              {state.killStats && (
+                <div style={{ display: 'flex', gap: 10, fontSize: 10, color: 'var(--text-dim)', marginTop: 4, flexWrap: 'wrap' }}>
+                  <span>현재 <b style={{ color: '#ffaa66' }}>{state.killStats.current.toFixed(1)}s</b></span>
+                  {state.killStats.last > 0 && <span>마지막 <b style={{ color: '#fff' }}>{state.killStats.last.toFixed(2)}s</b></span>}
+                  {state.killStats.count > 0 && <span>평균 <b style={{ color: '#66ddff' }}>{state.killStats.avg.toFixed(2)}s</b> ({state.killStats.count}킬)</span>}
+                </div>
+              )}
               <AnimatePresence>
                 {damagePopups.map(p => (
                   <motion.div
@@ -692,7 +699,7 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   if (!effects || effects.length === 0) return null;
 
   const typeLabels: Record<string, string> = {
-    dot: 'DoT', shield: '실드', speed_mod: '속도', stun: '기절',
+    dot: 'DoT', shield: '실드', speed_mod: '스피드', stun: '기절',
     gauge_freeze: '동결', damage_reflect: '반사', damage_reduce: '감소',
     accuracy_debuff: '명중-', invincible: '무적', resurrect: '부활', poison: '독',
     atk_buff: '공격+', damage_taken_up: '약점',
@@ -782,7 +789,7 @@ const SKILL_DESCRIPTIONS: Record<string, string> = {
   '무쌍난무': '연속 다중 타격',
   '불굴': '무적 + 부활 준비',
   '화염구': '화염 속성 마법 공격',
-  '냉기 창': '냉기로 적 속도 감소',
+  '냉기 창': '냉기로 적 스피드 감소',
   '게이지 폭발': '게이지를 소모하여 대미지 폭발',
   '번개 사슬': '연쇄 번개로 다중 타격',
   '빙결 감옥': '적 게이지 동결',
@@ -803,7 +810,7 @@ const SKILL_DESCRIPTIONS: Record<string, string> = {
   '그림자 연격': '다중 타격 + 흡혈',
   '사신의 낫': '적 HP 비례 대미지 10%',
   // 추가 스킬 (Lv.35~55)
-  '대지 분쇄': '2.5배 공격 + 적 속도 30% 감소',
+  '대지 분쇄': '2.5배 공격 + 적 스피드 30% 감소',
   '전쟁의 함성': '피해 감소 버프',
   '참수': '3.2배 + HP 8% 비례 피해',
   '최후의 일격': '4배 공격 + 50% 흡혈',
@@ -821,14 +828,14 @@ const SKILL_DESCRIPTIONS: Record<string, string> = {
   '그림자 폭풍': '1.5배 x 5연타 + 독',
   '사신의 포옹': '3.8배 + HP 12% 비례 피해',
   // 신규 (Lv.60~75)
-  '전장의 포효': '속도 40% 증가 (3행동)',
-  '갑옷 분쇄': '적 속도 50% 감소 (3행동)',
+  '전장의 포효': '스피드 40% 증가 (3행동)',
+  '갑옷 분쇄': '적 스피드 50% 감소 (3행동)',
   '지옥의 칼날': '4.5배 공격 + 60% 흡혈',
   '대지의 심판': '5배 공격 + HP 15% 비례 피해',
-  '마력 집중': '속도 50% 증가 (3행동)',
+  '마력 집중': '스피드 50% 증가 (3행동)',
   '시간 왜곡': '적 게이지 동결 (3행동)',
   '태양의 불꽃': '4배 마법 + 강력 도트',
-  '별의 종말': '5.5배 마법 (자기 속도 -30%)',
+  '별의 종말': '5.5배 마법 (자기 스피드 -30%)',
   '신의 축복': '피해 40% 감소 (3행동)',
   '신성 사슬': '적 기절 (2행동)',
   '빛의 심판': '3.5배 신성 + 도트',

@@ -51,6 +51,7 @@ interface CombatSnapshot {
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
+  killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
 }
 import { getIo } from '../ws/io.js';
 
@@ -160,6 +161,8 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
+  monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
+  recentKillTimes: number[]; // 최근 10킬의 처치 시간 (초)
   userId: number;
   lastPushAt: number; // egress 절감용 throttle 타임스탬프
   enteredFieldAt: number; // 사냥터 진입 시각 — 진입 후 60초간만 풀 fps push, 이후 저대역 모드
@@ -1653,6 +1656,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
+  // 처치 시간 기록 (최근 10킬 유지)
+  if (s.monsterSpawnAt > 0) {
+    const elapsedSec = (Date.now() - s.monsterSpawnAt) / 1000;
+    if (elapsedSec > 0 && elapsedSec < 600) {
+      s.recentKillTimes.push(Math.round(elapsedSec * 100) / 100);
+      if (s.recentKillTimes.length > 10) s.recentKillTimes.shift();
+    }
+  }
+
   // 접두사: 포식 (처치 시 HP 회복)
   const predator = s.equipPrefixes.predator_pct || 0;
   if (predator > 0) {
@@ -1836,6 +1848,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
+  s.monsterSpawnAt = Date.now(); // 처치 시간 측정 시작
   // 몬스터 관련 디버프 초기화
   s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
   // 마법사 오버킬 캐리: 전 처치 시 발생한 초과 데미지의 50% 적용
@@ -2156,6 +2169,15 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'rogue') {
     snapshot.poisonResonance = s.poisonResonance;
   }
+  // 처치 시간 통계 (전 직업 공통, 허수아비 제외)
+  if (!isDummyMonster(s)) {
+    const last = s.recentKillTimes.length > 0 ? s.recentKillTimes[s.recentKillTimes.length - 1] : 0;
+    const avg = s.recentKillTimes.length > 0
+      ? Math.round((s.recentKillTimes.reduce((a, b) => a + b, 0) / s.recentKillTimes.length) * 100) / 100
+      : 0;
+    const current = s.monsterSpawnAt > 0 ? Math.round((Date.now() - s.monsterSpawnAt) / 100) / 10 : 0;
+    snapshot.killStats = { last, avg, count: s.recentKillTimes.length, current };
+  }
   // 허수아비 존: 누적 데미지 + 경과 시간
   if (isDummyMonster(s)) {
     snapshot.dummy = {
@@ -2283,6 +2305,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     dummyTrackStart: 0,
     mageOverkillCarry: 0,
     poisonResonance: 0,
+    monsterSpawnAt: Date.now(),
+    recentKillTimes: [],
     lastPushAt: 0,
     enteredFieldAt: Date.now(),
     metaDirty: true,

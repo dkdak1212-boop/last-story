@@ -174,6 +174,7 @@ export interface CombatSnapshot {
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름 (5스택 → 5행동 버스트)
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10, 10 도달 시 다음 공격에 독 폭발)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
+  killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간(초): 마지막/평균/킬수/현재경과
 }
 
 export interface CombatSkillInfo {

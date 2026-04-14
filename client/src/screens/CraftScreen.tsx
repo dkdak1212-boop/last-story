@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 
 const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
-const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명타 확률' };
+const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '스피드', cri: '치명타 확률' };
 
 interface Recipe {
   id: number; name: string;
