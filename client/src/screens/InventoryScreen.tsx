@@ -231,7 +231,7 @@ export function InventoryScreen() {
                   </div>
                   <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} />
                   <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    {!locked && <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>}
+                    <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>
                     {!locked && (item.enhanceLevel || 0) < 20 && (() => {
                       const eInfo = getEnhanceInfo(item.enhanceLevel || 0, active?.level || 1);
                       return (
@@ -520,7 +520,7 @@ export function InventoryScreen() {
 
                       {/* 액션 버튼 — 큰 터치 영역 */}
                       <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                        {isEquipment && !locked && !levelTooLow && (
+                        {isEquipment && !levelTooLow && (
                           <button onClick={(e) => { e.stopPropagation(); equip(s.slotIndex); }} style={{
                             padding: '8px 20px', fontSize: 13, fontWeight: 700,
                             background: 'var(--accent)', color: '#000', border: 'none', cursor: 'pointer', borderRadius: 4,
