@@ -181,6 +181,14 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[migrations] equip overhaul error:', e);
     }
+    // 신규 마이그레이션은 별도 함수로 격리 — runMigrations 내부의 옛 'return' 패턴이
+    // 함수 자체를 종료시키므로 그 이후에 추가한 블록들이 실행되지 않음
+    try {
+      await runLateMigrations();
+      console.log('[migrations] late 마이그레이션 완료');
+    } catch (e) {
+      console.error('[migrations] late migrations error:', e);
+    }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
     loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));
   })();
@@ -1088,12 +1096,21 @@ async function runMigrations() {
       console.error('[cleanup] prefix_stats/orphan items error:', e);
     }
   }
+  console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
+}
+
+// runMigrations 내부의 옛 블록들이 'if (applied) return;' 패턴으로
+// 함수 자체를 종료시키기 때문에 새 블록은 여기서 격리 실행한다.
+// 모든 블록은 _migrations 테이블 기반으로 멱등.
+async function runLateMigrations() {
+  await query(`CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`);
+
   // 게시판 (자유/공략) 테이블
   {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'forum_v1'`);
       if (!applied.rowCount) {
-        console.log('[migration] forum_v1: 게시판 테이블 생성...');
+        console.log('[late] forum_v1: 게시판 테이블 생성...');
         await query(`
           CREATE TABLE IF NOT EXISTS board_posts (
             id SERIAL PRIMARY KEY,
@@ -1139,31 +1156,31 @@ async function runMigrations() {
         await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_board_reports_post ON board_reports (post_id, reporter_id) WHERE post_id IS NOT NULL`);
         await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_board_reports_comment ON board_reports (comment_id, reporter_id) WHERE comment_id IS NOT NULL`);
         await query(`INSERT INTO _migrations (name) VALUES ('forum_v1')`);
-        console.log('[migration] forum_v1: 완료');
+        console.log('[late] forum_v1: 완료');
       }
     } catch (e) {
-      console.error('[migration] forum_v1 error:', e);
+      console.error('[late] forum_v1 error:', e);
     }
   }
+
   // 속도 → 스피드 명칭 통일 (노드/아이템/설명)
   {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'rename_sokdo_to_speed_v1'`);
       if (!applied.rowCount) {
-        console.log('[migration] rename_sokdo_to_speed_v1: 속도 → 스피드 통일...');
+        console.log('[late] rename_sokdo_to_speed_v1: 속도 → 스피드 통일...');
         await query(`UPDATE node_definitions SET name = REPLACE(name, '속도', '스피드') WHERE name LIKE '%속도%'`);
         await query(`UPDATE node_definitions SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
         await query(`UPDATE items SET name = REPLACE(name, '속도', '스피드') WHERE name LIKE '%속도%'`);
         await query(`UPDATE items SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
         await query(`UPDATE skills SET description = REPLACE(description, '속도', '스피드') WHERE description LIKE '%속도%'`);
         await query(`INSERT INTO _migrations (name) VALUES ('rename_sokdo_to_speed_v1')`);
-        console.log('[migration] rename_sokdo_to_speed_v1: 완료');
+        console.log('[late] rename_sokdo_to_speed_v1: 완료');
       }
     } catch (e) {
-      console.error('[migration] rename_sokdo_to_speed_v1 error:', e);
+      console.error('[late] rename_sokdo_to_speed_v1 error:', e);
     }
   }
-  console.log('[migrations] 모든 마이그레이션 순차 실행 완료');
 }
 
 async function runEquipOverhaul() {
