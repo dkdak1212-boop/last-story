@@ -2,13 +2,10 @@ import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
-import { addItemToInventoryPlain, compactInventoryStacks, deliverToMailbox } from '../game/inventory.js';
 import { applyExpGain } from '../game/leveling.js';
 
 const router = Router();
 router.use(authRequired);
-
-const TORN_SCROLL_ID = 320; // 찢어진 스크롤
 
 async function todayFromDB(): Promise<string> {
   const r = await query<{ d: string }>("SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d");
@@ -91,7 +88,7 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
     return res.status(400).json({ error: '이미 보상을 수령했습니다.' });
   }
 
-  // 보상: 레벨*500 EXP + 찢어진 스크롤 1개 + EXP/골드/드랍 +50% 3시간 버프
+  // 보상: 레벨*500 EXP + EXP/골드/드랍 +50% 3시간 버프 (찢어진 스크롤 지급 제거)
   const expReward = char.level * 500;
   const lvUp = applyExpGain(char.level, char.exp, expReward, char.class_name);
   if (lvUp.levelsGained > 0) {
@@ -120,14 +117,7 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
       [lvUp.newExp, id]
     );
   }
-  const { overflow } = await addItemToInventoryPlain(id, TORN_SCROLL_ID, 10);
-  if (overflow > 0) {
-    await deliverToMailbox(id, '일일 임무 보상', '가방이 가득 차서 우편으로 배송', TORN_SCROLL_ID, overflow);
-  }
-  // 안전망: 찢어진 스크롤이 여러 row로 분산돼있으면 1개로 합침
-  await compactInventoryStacks(id, TORN_SCROLL_ID).catch(err => console.error('[daily] compact err', err));
-
-  res.json({ exp: expReward, scrollId: TORN_SCROLL_ID, scrollQty: 10, boostHours: 3 });
+  res.json({ exp: expReward, boostHours: 3 });
 });
 
 export default router;
