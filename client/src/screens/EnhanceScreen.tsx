@@ -349,6 +349,10 @@ export function EnhanceScreen() {
                           const isActive = rerollIndex === i;
                           const c = TIER_COLOR[d.tier] || '#888';
                           const currentVal = selected.prefixStats?.[d.statKey] ?? 0;
+                          // 버튼 범위는 강화 배수 적용 후 (PrefixDisplay 현재값과 동일 기준)
+                          const enhMult = 1 + (selected.enhanceLevel || 0) * 0.05;
+                          const rangeMin = Math.max(1, Math.round(d.scaledMin * enhMult));
+                          const rangeMax = Math.max(1, Math.round(d.scaledMax * enhMult));
                           const hasRange = d.scaledMin > 0 && d.scaledMax > 0;
                           const multiSelect = (selected.prefixDetails?.length || 0) > 1;
                           return (
@@ -363,12 +367,12 @@ export function EnhanceScreen() {
                                 border: `1px solid ${c}`, fontWeight: 700,
                                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                               }}
-                              title={hasRange ? `T${d.tier} 범위: ${d.scaledMin}~${d.scaledMax} (현재: ${currentVal})` : ''}
+                              title={hasRange ? `T${d.tier} 범위(강화 후): ${rangeMin}~${rangeMax} (현재: ${currentVal})` : ''}
                             >
                               <div>T{d.tier} {STAT_KEY_LABEL[d.statKey] || d.statKey}</div>
                               {hasRange && (
                                 <div style={{ fontSize: 9, opacity: 0.9, marginTop: 1 }}>
-                                  {d.scaledMin}~{d.scaledMax} <span style={{ opacity: 0.7 }}>(현재 {currentVal})</span>
+                                  {rangeMin}~{rangeMax} <span style={{ opacity: 0.7 }}>(현재 {currentVal})</span>
                                 </div>
                               )}
                             </button>
