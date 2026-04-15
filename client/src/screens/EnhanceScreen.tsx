@@ -330,11 +330,11 @@ export function EnhanceScreen() {
                     </div>
                   )}
 
-                  {/* 재굴림 범위 표시: 접두사가 있으면 항상 노출 — raw(강화전) 기준 */}
+                  {/* 재굴림 범위 표시: 접두사가 있으면 항상 노출 — 강화 후 스케일 (PrefixDisplay 값과 동일 기준) */}
                   {(selected.prefixDetails?.length || 0) > 0 && (
                     <div style={{ marginTop: 10, fontSize: 11 }}>
                       <div style={{ color: 'var(--text-dim)', marginBottom: 4 }}>
-                        재굴림 범위 <span style={{ fontSize: 9, opacity: 0.7 }}>(강화 전 기준)</span> {(selected.prefixDetails?.length || 0) > 1 ? '· 대상 선택' : ''}
+                        재굴림 범위 <span style={{ fontSize: 9, opacity: 0.7 }}>(강화 +{selected.enhanceLevel || 0} 반영)</span> {(selected.prefixDetails?.length || 0) > 1 ? '· 대상 선택' : ''}
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {(selected.prefixDetails?.length || 0) > 1 && (
@@ -348,8 +348,11 @@ export function EnhanceScreen() {
                         {(selected.prefixDetails || []).map((d, i) => {
                           const isActive = rerollIndex === i;
                           const c = TIER_COLOR[d.tier] || '#888';
-                          // "현재" 값은 raw(강화전) — 재굴림은 raw 범위에서 일어나므로 비교 기준 일치
-                          const currentRawVal = selected.prefixStatsRaw?.[d.statKey] ?? selected.prefixStats?.[d.statKey] ?? 0;
+                          // 버튼 범위/현재값 모두 "강화 후" 스케일 (PrefixDisplay 와 1:1 비교)
+                          const enhMult = 1 + (selected.enhanceLevel || 0) * 0.05;
+                          const rangeMin = Math.max(1, Math.round(d.scaledMin * enhMult));
+                          const rangeMax = Math.max(1, Math.round(d.scaledMax * enhMult));
+                          const currentVal = selected.prefixStats?.[d.statKey] ?? 0;
                           const hasRange = d.scaledMin > 0 && d.scaledMax > 0;
                           const multiSelect = (selected.prefixDetails?.length || 0) > 1;
                           return (
@@ -364,12 +367,12 @@ export function EnhanceScreen() {
                                 border: `1px solid ${c}`, fontWeight: 700,
                                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                               }}
-                              title={hasRange ? `T${d.tier} 강화 전 범위: ${d.scaledMin}~${d.scaledMax} (현재 강화 전 값: ${currentRawVal})` : ''}
+                              title={hasRange ? `T${d.tier} 강화 후 범위: ${rangeMin}~${rangeMax} (현재 ${currentVal})` : ''}
                             >
                               <div>T{d.tier} {STAT_KEY_LABEL[d.statKey] || d.statKey}</div>
                               {hasRange && (
                                 <div style={{ fontSize: 9, opacity: 0.9, marginTop: 1 }}>
-                                  {d.scaledMin}~{d.scaledMax} <span style={{ opacity: 0.7 }}>(현재 {currentRawVal})</span>
+                                  {rangeMin}~{rangeMax} <span style={{ opacity: 0.7 }}>(현재 {currentVal})</span>
                                 </div>
                               )}
                             </button>
