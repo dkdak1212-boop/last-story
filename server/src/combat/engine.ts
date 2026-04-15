@@ -943,13 +943,24 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const chainAmp = getPassive(s, 'chain_action_amp');
       const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
+      const critDmgBonusMulti = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
         } else {
-          s.monsterHp -= d.damage;
-          addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}${d.crit ? '!' : ''}`);
+          let dmg = d.damage;
+          // 치명타 추가 배율 (crit_dmg_pct + crit_damage 패시브)
+          if (d.crit && critDmgBonusMulti > 0) {
+            dmg = Math.round(dmg * (1 + critDmgBonusMulti / 100));
+          }
+          s.monsterHp -= dmg;
+          if (d.crit) {
+            const critDmgPct = 200 + critDmgBonusMulti;
+            addLog(s, `[${skill.name}] ${i + 1}타 ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
+          } else {
+            addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
+          }
           // 접두사: 재충전 (치명타 시 게이지 충전) — multi_hit 각 타격마다 적용
           if (d.crit && gaugeOnCritMulti > 0) {
             s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCritMulti / 100);
@@ -1098,8 +1109,27 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'stun': {
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        s.monsterHp -= d.damage;
-        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        let dmg = d.damage;
+        // 치명타 추가 배율 (crit_dmg_pct + crit_damage 패시브) — G3 버그 수정
+        const critDmgBonusStun = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+        if (d.crit && critDmgBonusStun > 0) {
+          dmg = Math.round(dmg * (1 + critDmgBonusStun / 100));
+        }
+        s.monsterHp -= dmg;
+        if (d.crit) {
+          const critDmgPct = 200 + critDmgBonusStun;
+          addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
+        } else {
+          addLog(s, `[${skill.name}] ${dmg} 데미지`);
+        }
+        // 접두사: 재충전 (치명타 시 게이지 충전) — G4 버그 수정
+        if (d.crit) {
+          const gaugeOnCritStun = s.equipPrefixes.gauge_on_crit_pct || 0;
+          if (gaugeOnCritStun > 0) {
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCritStun / 100);
+            addLog(s, `[재충전] 게이지 +${gaugeOnCritStun}%`);
+          }
+        }
         // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
         if (skill.name === '방패 강타') {
           const bonus = Math.round(s.playerMaxHp * 0.15);
