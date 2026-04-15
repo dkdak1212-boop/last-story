@@ -816,11 +816,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (d.crit) {
           const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
-          // 접두사: 재충전 (치명타 시 게이지 충전)
+          // 접두사: 재충전 (치명타 시 게이지 충전) — 최대 50% 캡
           const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
           if (gaugeOnCrit > 0) {
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCrit / 100);
-            addLog(s, `[재충전] 게이지 +${gaugeOnCrit}%`);
+            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCrit / 100);
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+            addLog(s, `[재충전] 게이지 +${Math.min(50, gaugeOnCrit)}%`);
           }
         }
         // 전사 분노 폭발 (rage 100 이상 → ×3)
@@ -961,9 +962,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           } else {
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
           }
-          // 접두사: 재충전 (치명타 시 게이지 충전) — multi_hit 각 타격마다 적용
+          // 접두사: 재충전 (치명타 시 게이지 충전) — multi_hit 각 타격마다 적용, 최대 50% 캡
           if (d.crit && gaugeOnCritMulti > 0) {
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCritMulti / 100);
+            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritMulti / 100);
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
           }
         }
       }
@@ -1122,12 +1124,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
         }
-        // 접두사: 재충전 (치명타 시 게이지 충전) — G4 버그 수정
+        // 접두사: 재충전 (치명타 시 게이지 충전) — G4 버그 수정, 최대 50% 캡
         if (d.crit) {
           const gaugeOnCritStun = s.equipPrefixes.gauge_on_crit_pct || 0;
           if (gaugeOnCritStun > 0) {
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + GAUGE_MAX * gaugeOnCritStun / 100);
-            addLog(s, `[재충전] 게이지 +${gaugeOnCritStun}%`);
+            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritStun / 100);
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+            addLog(s, `[재충전] 게이지 +${Math.min(50, gaugeOnCritStun)}%`);
           }
         }
         // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
