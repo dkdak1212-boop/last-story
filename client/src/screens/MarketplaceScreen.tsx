@@ -20,12 +20,13 @@ interface Listing {
   settled?: boolean; cancelled?: boolean;
 }
 
-// 무기 이름 → 직업 추론 (검=전사, 단검/대검=도적/전사, 지팡이=마법사, 홀=성직자)
+// 무기 이름 → 직업 추론 (검=전사, 단검/대검=도적/전사, 지팡이=마법사, 홀=성직자, 구슬=소환사)
 function inferWeaponClass(name: string): string | null {
   if (name.includes('지팡이')) return 'mage';
   if (name.includes('홀')) return 'cleric';
   if (name.includes('단검')) return 'rogue';
   if (name.includes('대검')) return 'warrior';
+  if (name.includes('구슬')) return 'summoner';
   if (name.includes('검')) return 'warrior';
   return null;
 }
@@ -151,6 +152,7 @@ export function MarketplaceScreen() {
                 ['mage', '마법사 (지팡이)', '#4080e0'],
                 ['cleric', '성직자 (홀)', '#daa520'],
                 ['rogue', '도적 (단검)', '#a060c0'],
+                ['summoner', '소환사 (구슬)', '#44cc88'],
               ] as const).map(([key, label, color]) => (
                 <button key={key} onClick={() => setWeaponClass(key)} style={{
                   fontSize: 10, padding: '4px 9px', borderRadius: 3, cursor: 'pointer',
