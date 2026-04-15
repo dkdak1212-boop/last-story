@@ -217,7 +217,7 @@ export function NodeTreeScreen() {
   // 다른 직업은 기존 computeRadialLayout 유지 (전사/마법사/성직자/도적 원본)
   const positions = useMemo(() => {
     if (active?.className === 'summoner') {
-      const scale = 45;
+      const scale = 65;
       const m = new Map<number, Position>();
       for (const n of zoneNodes) {
         m.set(n.id, { x: (n.positionX ?? 0) * scale, y: (n.positionY ?? 0) * scale });
