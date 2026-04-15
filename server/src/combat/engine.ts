@@ -453,7 +453,7 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
   return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
 }
 
-// 데미지 스킬 공통 접두사 파이프라인 — 광전사/약점간파/각성/치명 데미지를 일괄 적용
+// 데미지 스킬 공통 접두사 파이프라인 — atk_buff/damage_taken_up/광전사/약점간파/각성/치명 데미지를 일괄 적용
 // consumeOneShot=false 면 first_strike / ambush 소비를 건너뜀 (multi_hit 후속 타격용)
 function applyDamagePrefixes(
   s: ActiveSession,
@@ -462,6 +462,12 @@ function applyDamagePrefixes(
   opts: { consumeOneShot?: boolean; skillName?: string } = {},
 ): number {
   const consume = opts.consumeOneShot !== false;
+  // 디버프: damage_taken_up (적이 받는 데미지 증가 — 방패 강타 등)
+  const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+  if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+  // 버프: atk_buff (자가 공격력 버프 — 전쟁의 함성 등)
+  const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+  if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
   // 광전사 (내 HP 30% 이하)
   const berserk = s.equipPrefixes.berserk_pct || 0;
   if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
@@ -1381,6 +1387,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 디버프: damage_taken_up (적이 받는 데미지 증가)
         const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
         if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+        // 버프: atk_buff (전쟁의 함성 등 — 플레이어 공격력 증가)
+        const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+        if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
         // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
         // 패시브: judge_amp / holy_judge (성직자 공격 스킬 증폭) — 심판계열 핵심
