@@ -1971,8 +1971,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterGauge = 0;
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
   s.monsterSpawnAt = Date.now(); // 처치 시간 측정 시작
-  // 몬스터 관련 디버프 초기화
-  s.statusEffects = s.statusEffects.filter(e => e.source === 'monster');
+  // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지
+  s.statusEffects = s.statusEffects.filter(e =>
+    e.source === 'monster' ||
+    e.type === 'summon' ||
+    e.type === 'summon_buff_active' ||
+    e.type === 'summon_frenzy_active'
+  );
   // 마법사 오버킬 캐리: 전 처치 시 발생한 초과 데미지의 50% 적용
   if (s.className === 'mage' && s.mageOverkillCarry > 0 && !isDummyMonster(s)) {
     const carry = Math.min(s.monsterHp - 1, s.mageOverkillCarry); // 즉사 방지 — 최소 1 HP 유지
