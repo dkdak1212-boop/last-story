@@ -12,6 +12,7 @@ import {
   setAutoPotionConfig,
   getAutoPotionConfig,
   resetDummyTracking,
+  setAfkMode,
 } from '../combat/engine.js';
 
 const router = Router();
@@ -57,6 +58,17 @@ router.post('/:id/combat/toggle-auto', async (req: AuthedRequest, res: Response)
 
   const autoMode = toggleAutoMode(id);
   res.json({ ok: true, autoMode });
+});
+
+// 방치(AFK) 모드 토글
+router.post('/:id/combat/afk-mode', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const enabled = !!req.body?.enabled;
+  const ok = await setAfkMode(id, enabled);
+  res.json({ ok, enabled });
 });
 
 // 수동 스킬 사용

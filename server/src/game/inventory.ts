@@ -10,12 +10,18 @@ async function getMaxSlots(characterId: number): Promise<number> {
   return BASE_INVENTORY_SLOTS + (r.rows[0]?.bonus || 0);
 }
 
+export interface EquipDropMeta {
+  isUnique: boolean;
+  quality100: boolean;
+  isT4: boolean;
+}
+
 export async function addItemToInventory(
   characterId: number,
   itemId: number,
   quantity: number,
   mailOnOverflow?: { subject: string; body: string }
-): Promise<{ added: number; overflow: number }> {
+): Promise<{ added: number; overflow: number; equipMetas?: EquipDropMeta[] }> {
   // 아이템 조회 — 스택 가능 여부 + 장비 여부 + 유니크 여부
   const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
     'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name FROM items WHERE id = $1',
@@ -31,6 +37,7 @@ export async function addItemToInventory(
   const isUnique = itemGrade === 'unique';
 
   let remaining = quantity;
+  const equipMetas: EquipDropMeta[] = [];
 
   // 기존 스택에 합치기
   if (stackSize > 1) {
@@ -90,6 +97,8 @@ export async function addItemToInventory(
       const isQualityMax = quality >= 100;
       const is3Options = prefixIds.length >= 3;
       const isT4 = maxTier >= 4;
+      // AFK 카운터용 메타 수집
+      equipMetas.push({ isUnique, quality100: isQualityMax, isT4 });
       if (isUnique || isQualityMax || is3Options || isT4) {
         const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
         const cName = charInfo.rows[0]?.name ?? '???';
@@ -144,7 +153,7 @@ export async function addItemToInventory(
     remaining = 0;
   }
 
-  return { added: quantity - remaining, overflow: remaining };
+  return { added: quantity - remaining, overflow: remaining, equipMetas };
 }
 
 // 우편 수령용: 접두사 생성 없이 순수 아이템만 인벤토리에 넣기

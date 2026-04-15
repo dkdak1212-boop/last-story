@@ -53,6 +53,21 @@ interface CombatSnapshot {
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
   summons?: { skillName: string; element?: string; remainingActions: number }[]; // 소환사 전용: 활성 소환수 목록
+  afk?: {
+    mode: boolean;
+    elapsedMs: number;
+    exp: number;
+    gold: number;
+    kills: number;
+    damage: number;
+    dps: number;
+    quality100: number;
+    unique: number;
+    t4Prefix: number;
+    playerHp: number;
+    playerMaxHp: number;
+    dead: boolean;
+  };
 }
 import { getIo } from '../ws/io.js';
 
@@ -175,6 +190,16 @@ interface ActiveSession {
   cachedBoosts: { name: string; until: string }[];
   cachedPotions: { small: number; mid: number; high: number; max: number };
   cachedGuildBuffs: { hp: number; gold: number; exp: number; drop: number };
+  // ── AFK(방치) 모드 카운터 ──
+  afkMode: boolean;
+  afkStartedAt: number;     // ms
+  afkExpGained: number;
+  afkGoldGained: number;
+  afkKills: number;
+  afkDamage: number;        // 누적 플레이어 데미지
+  afkQuality100: number;    // 100% 품질 드랍 수
+  afkUnique: number;        // 유니크 드랍 수
+  afkT4Prefix: number;      // T4 접두사 드랍 수
 }
 
 const activeSessions = new Map<number, ActiveSession>();
@@ -1899,6 +1924,13 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await checkAndUnlockAchievements(s.characterId);
   } catch {}
 
+  // AFK 누적: 킬 + 골드 + 경험치
+  if (s.afkMode) {
+    s.afkKills += 1;
+    s.afkGoldGained += finalGold;
+    s.afkExpGained += previewExp;
+  }
+
   const char = await loadCharacter(s.characterId);
   if (!char) return;
 
@@ -1975,11 +2007,19 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     }
 
-    const { overflow } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
+    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
     if (overflow > 0) {
       addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
     } else {
       addLog(s, '아이템 획득!');
+    }
+    // AFK 카운터: 드랍된 장비별 특수 메타 누적
+    if (s.afkMode && equipMetas) {
+      for (const meta of equipMetas) {
+        if (meta.isUnique) s.afkUnique++;
+        if (meta.quality100) s.afkQuality100++;
+        if (meta.isT4) s.afkT4Prefix++;
+      }
     }
   }
 
@@ -2183,6 +2223,12 @@ async function combatTick(): Promise<void> {
           tickShield(s);
           s.dirty = true;
 
+          // AFK 데미지 누적 (플레이어 행동으로 깎인 HP)
+          if (s.afkMode) {
+            const dealt = Math.max(0, hpBeforePl - s.monsterHp);
+            if (dealt > 0) s.afkDamage += dealt;
+          }
+
           handleDummyTick(s, hpBeforePl);
           // 몬스터 처치 체크 (허수아비 제외)
           if (s.monsterHp <= 0 && !isDummyMonster(s)) {
@@ -2282,12 +2328,18 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (!io) return false;
 
   // Throttle: 강제(force) 또는 비전투(종료) 알림이 아니면 throttle 적용.
+  // AFK 모드: 5초 throttle (대역폭 절감)
   // 사냥터 진입 후 60초간은 200ms throttle (풀 fps), 이후엔 1500ms throttle (저대역 모드).
   // 호출자는 반환값이 false면 dirty를 유지해 다음 틱에서 재시도해야 한다.
   if (!force && inCombat) {
     const now = Date.now();
-    const fieldAge = now - s.enteredFieldAt;
-    const minGap = fieldAge < FULL_FPS_DURATION_MS ? PUSH_THROTTLE_FULL_MS : PUSH_THROTTLE_LITE_MS;
+    let minGap: number;
+    if (s.afkMode) {
+      minGap = 5000; // AFK 모드는 5초 throttle
+    } else {
+      const fieldAge = now - s.enteredFieldAt;
+      minGap = fieldAge < FULL_FPS_DURATION_MS ? PUSH_THROTTLE_FULL_MS : PUSH_THROTTLE_LITE_MS;
+    }
     if (now - s.lastPushAt < minGap) return false;
     s.lastPushAt = now;
   } else {
@@ -2380,12 +2432,63 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     // snapshot.territoryBuffs = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   } catch {}
 
+  // AFK 모드: 누적 통계 + 무거운 필드 제거 (대역폭 절감)
+  if (s.afkMode) {
+    const elapsedMs = s.afkStartedAt > 0 ? Date.now() - s.afkStartedAt : 0;
+    const elapsedSec = elapsedMs / 1000;
+    const dps = elapsedSec > 0 ? Math.round(s.afkDamage / elapsedSec) : 0;
+    snapshot.afk = {
+      mode: true,
+      elapsedMs,
+      exp: s.afkExpGained,
+      gold: s.afkGoldGained,
+      kills: s.afkKills,
+      damage: s.afkDamage,
+      dps,
+      quality100: s.afkQuality100,
+      unique: s.afkUnique,
+      t4Prefix: s.afkT4Prefix,
+      playerHp: Math.max(0, s.playerHp),
+      playerMaxHp: s.playerMaxHp,
+      dead: s.playerHp <= 0,
+    };
+    // AFK 모드: 무거운 필드 제거
+    snapshot.log = [];
+    snapshot.skills = [];
+    snapshot.summons = undefined;
+    snapshot.killStats = undefined;
+  }
+
   // 해당 유저의 소켓에만 emit
   io.emit(`combat:${s.characterId}`, snapshot);
   return true;
 }
 
 // ── 공개 API ──
+
+// AFK(방치) 모드 토글
+export async function setAfkMode(characterId: number, enabled: boolean): Promise<boolean> {
+  const s = activeSessions.get(characterId);
+  if (!s) return false;
+  if (enabled && !s.afkMode) {
+    // 카운터 리셋
+    s.afkMode = true;
+    s.afkStartedAt = Date.now();
+    s.afkExpGained = 0;
+    s.afkGoldGained = 0;
+    s.afkKills = 0;
+    s.afkDamage = 0;
+    s.afkQuality100 = 0;
+    s.afkUnique = 0;
+    s.afkT4Prefix = 0;
+  } else if (!enabled && s.afkMode) {
+    s.afkMode = false;
+  }
+  s.dirty = true;
+  // 즉시 한 번 강제 푸시 (UI 전환)
+  await pushCombatState(s, true, true);
+  return true;
+}
 
 export async function startCombatSession(characterId: number, fieldId: number): Promise<void> {
   // 기존 세션 정리
@@ -2503,6 +2606,15 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     cachedBoosts: [],
     cachedPotions: { small: 0, mid: 0, high: 0, max: 0 },
     cachedGuildBuffs: { hp: 0, gold: 0, exp: 0, drop: 0 },
+    afkMode: false,
+    afkStartedAt: 0,
+    afkExpGained: 0,
+    afkGoldGained: 0,
+    afkKills: 0,
+    afkDamage: 0,
+    afkQuality100: 0,
+    afkUnique: 0,
+    afkT4Prefix: 0,
   };
 
   // 패시브: counter_incarnation (상시 반사)
