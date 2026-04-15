@@ -425,6 +425,44 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
   return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
 }
 
+// 데미지 스킬 공통 접두사 파이프라인 — 광전사/약점간파/각성/치명 데미지를 일괄 적용
+// consumeOneShot=false 면 first_strike / ambush 소비를 건너뜀 (multi_hit 후속 타격용)
+function applyDamagePrefixes(
+  s: ActiveSession,
+  dmg: number,
+  isCrit: boolean,
+  opts: { consumeOneShot?: boolean; skillName?: string } = {},
+): number {
+  const consume = opts.consumeOneShot !== false;
+  // 광전사 (내 HP 30% 이하)
+  const berserk = s.equipPrefixes.berserk_pct || 0;
+  if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.3) {
+    dmg = Math.round(dmg * (1 + berserk / 100));
+  }
+  // 약점간파 (첫 공격, 1회성)
+  if (consume) {
+    const firstStrike = s.equipPrefixes.first_strike_pct || 0;
+    if (firstStrike > 0 && s.hasFirstStrike) {
+      dmg = Math.round(dmg * (1 + firstStrike / 100));
+      s.hasFirstStrike = false;
+      addLog(s, `[약점간파] 첫 공격 +${firstStrike}%`);
+    }
+    // 각성 (5초 이상 미피격)
+    const ambush = s.equipPrefixes.ambush_pct || 0;
+    if (ambush > 0 && s.ticksSinceLastHit >= 50) {
+      dmg = Math.round(dmg * (1 + ambush / 100));
+      s.ticksSinceLastHit = 0;
+      addLog(s, `[각성] 다음 공격 +${ambush}%`);
+    }
+  }
+  // 크리 추가 배율 (crit_damage 패시브 + 날카로움)
+  if (isCrit) {
+    const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+    if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+  }
+  return dmg;
+}
+
 // 버프/디버프 스킬에 damage_mult > 0이면 동시에 데미지도 처리 (1턴 손해 방지)
 // 일반 'damage' 케이스의 증폭 파이프라인과 동일한 보정을 적용한다 — 클래스 고유 노드(judge_amp 등)
 // 가 buff류 스킬에서 누락되는 문제를 막기 위함.
@@ -945,20 +983,21 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const chainAmp = getPassive(s, 'chain_action_amp');
       const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
-      const critDmgBonusMulti = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+      let firstLandedHit = true; // first_strike / ambush 는 첫 명중 타격에만 소비
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
         } else {
-          let dmg = d.damage;
-          // 치명타 추가 배율 (crit_dmg_pct + crit_damage 패시브)
-          if (d.crit && critDmgBonusMulti > 0) {
-            dmg = Math.round(dmg * (1 + critDmgBonusMulti / 100));
-          }
+          // 접두사 공통: 광전사/약점간파/각성/치명 데미지 (첫 명중 타격에서만 one-shot 소비)
+          let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
+            consumeOneShot: firstLandedHit,
+            skillName: skill.name,
+          });
+          firstLandedHit = false;
           s.monsterHp -= dmg;
           if (d.crit) {
-            const critDmgPct = 200 + critDmgBonusMulti;
+            const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
           } else {
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
@@ -985,11 +1024,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULTI_MULT = 1.8;
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
+      let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
         if (!d.miss) {
-          s.monsterHp -= d.damage;
-          addLog(s, `[${skill.name}] ${i + 1}타 ${d.damage}`);
+          const dmg = applyDamagePrefixes(s, d.damage, d.crit, {
+            consumeOneShot: firstLandedHitMP,
+            skillName: skill.name,
+          });
+          firstLandedHitMP = false;
+          s.monsterHp -= dmg;
+          addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}${d.crit ? '!' : ''}`);
           const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
           addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
         }
@@ -1001,8 +1046,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'dot': {
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        s.monsterHp -= d.damage;
-        addLog(s, `[${skill.name}] ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
+        s.monsterHp -= dmg;
+        addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const DOT_SKILL_MULT = 1.56; // 화상 도트: 기본 1.2 × 1.3배
         const dotDmg = Math.round(dotBase * DOT_SKILL_MULT);
@@ -1022,9 +1068,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (skill.effect_value > 0 && Math.random() * 100 < skill.effect_value) {
           const d2 = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
           if (!d2.miss) {
-            s.monsterHp -= d2.damage;
+            // one-shot(first_strike/ambush) 은 첫 타격에서 이미 소비
+            const dmg2 = applyDamagePrefixes(s, d2.damage, d2.crit, { consumeOneShot: false, skillName: skill.name });
+            s.monsterHp -= dmg2;
             addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
-            addLog(s, `[${skill.name}] 2회 발동! ${d2.damage}${d2.crit ? '!' : ''} +도트`);
+            addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''} +도트`);
           }
         }
       } else {
@@ -1036,8 +1084,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'poison': {
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        s.monsterHp -= d.damage;
-        addLog(s, `[${skill.name}] ${d.damage} 데미지`);
+        const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
+        s.monsterHp -= dmg;
+        addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULT = 1.8;
@@ -1112,15 +1161,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'stun': {
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        let dmg = d.damage;
-        // 치명타 추가 배율 (crit_dmg_pct + crit_damage 패시브) — G3 버그 수정
-        const critDmgBonusStun = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
-        if (d.crit && critDmgBonusStun > 0) {
-          dmg = Math.round(dmg * (1 + critDmgBonusStun / 100));
-        }
+        // 접두사 공통: 광전사/약점간파/각성/치명 데미지
+        const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         if (d.crit) {
-          const critDmgPct = 200 + critDmgBonusStun;
+          const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
@@ -1343,7 +1388,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
         const defBonus = Math.round(s.playerStats.def * (skill.effect_value || 100) / 100);
-        const total = d.damage + defBonus;
+        // 접두사 공통: 광전사/약점간파/각성/치명 데미지 (베이스 데미지 + 방어력 비례 둘 다 증폭)
+        const total = applyDamagePrefixes(s, d.damage + defBonus, d.crit, { skillName: skill.name });
         s.monsterHp -= total;
         addLog(s, `[${skill.name}] ${total} 데미지${d.crit ? '!' : ''} (방어력 +${defBonus})`);
       } else {
@@ -1357,8 +1403,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
-        s.monsterHp -= d.damage;
-        addLog(s, `[${skill.name}] 실드 파괴 + ${d.damage} 데미지${d.crit ? '!' : ''}`);
+        const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
+        s.monsterHp -= dmg;
+        addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''}`);
       }
       const buffPct = skill.effect_value || 50;
       const buffDur = skill.effect_duration || 3;
