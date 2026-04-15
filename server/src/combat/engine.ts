@@ -1672,6 +1672,13 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       return sk.damage_mult > 0 || !hasEffect(s, 'player', 'accuracy_debuff');
     case 'poison_burst':
       return poisonCount > 0; // 독 없으면 낭비
+    case 'summon_storm':
+    case 'summon_all':
+    case 'summon_sacrifice': {
+      // 활성 소환수가 없으면 낭비 — 스킵
+      const hasSummon = s.statusEffects.some(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+      return hasSummon;
+    }
     case 'self_speed_mod': {
       // 자해 페널티(음수)는 항상 사용 가능
       if (sk.effect_value <= 0) return true;
