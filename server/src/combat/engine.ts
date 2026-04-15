@@ -52,6 +52,7 @@ interface CombatSnapshot {
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
+  summons?: { skillName: string; element?: string; remainingActions: number }[]; // 소환사 전용: 활성 소환수 목록
 }
 import { getIo } from '../ws/io.js';
 
@@ -1410,7 +1411,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const healMarker = skill.effect_type === 'summon_heal' ? -1 : 0;
       const multiHits = skill.effect_type === 'summon_multi' ? 3 : 1;
       const effectiveValue = skill.effect_type === 'summon_multi' ? skill.effect_value * multiHits : skill.effect_value;
-      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined });
+      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined, summonSkillName: skill.name });
       addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, ${infinite ? '무한' : dur + '행동'})`);
       // 소환_도트: 추가로 화상 도트도 부여
       if (skill.effect_type === 'summon_dot') {
@@ -2289,6 +2290,16 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   // 도적 독의 공명
   if (s.className === 'rogue') {
     snapshot.poisonResonance = s.poisonResonance;
+  }
+  // 소환사 소환수 목록
+  if (s.className === 'summoner') {
+    snapshot.summons = s.statusEffects
+      .filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0)
+      .map(e => ({
+        skillName: e.summonSkillName || '',
+        element: e.element,
+        remainingActions: e.remainingActions,
+      }));
   }
   // 처치 시간 통계 (전 직업 공통, 허수아비 제외)
   if (!isDummyMonster(s)) {

@@ -12,6 +12,8 @@ export interface StatusEffect {
   dotUseMatk?: boolean;
   // 소환수 원소 태그 (fire/frost/lightning/earth/holy/dark) — 소환사 노드 효과 적용용
   element?: string;
+  // 소환수 원본 스킬명 — 전투 화면 아이콘 표시용
+  summonSkillName?: string;
 }
 
 // 도트는 방어력의 50%만 무시 (= def × 0.5 × 0.5 = def × 0.25 차감)

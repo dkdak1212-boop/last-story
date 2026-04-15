@@ -290,9 +290,35 @@ export function CombatScreen() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
         {/* Player */}
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {active?.className && <ClassIcon className={active.className as ClassName} size={22} />}
             {active?.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{active?.level}</span>
+            {(state.summons && state.summons.length > 0) && (
+              <div style={{ display: 'flex', gap: 4, marginLeft: 6 }}>
+                {state.summons.map((sm, i) => {
+                  const icon = getSkillIcon(sm.skillName);
+                  const elColor: Record<string, string> = {
+                    fire: '#ff6644', frost: '#66ccff', lightning: '#ffee66',
+                    earth: '#aa8855', holy: '#ffffaa', dark: '#aa66ee',
+                  };
+                  const border = sm.element && elColor[sm.element] ? elColor[sm.element] : '#44cc88';
+                  return (
+                    <div key={`${sm.skillName}-${i}`} title={`${sm.skillName}${sm.element ? ` (${sm.element})` : ''} · ${sm.remainingActions}행동`}
+                      style={{
+                        width: 26, height: 26, border: `2px solid ${border}`, borderRadius: 4,
+                        background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        overflow: 'hidden', flexShrink: 0,
+                      }}>
+                      {icon ? (
+                        <img src={icon} alt={sm.skillName} width={22} height={22} style={{ imageRendering: 'pixelated' }} />
+                      ) : (
+                        <span style={{ fontSize: 9, color: border }}>{sm.skillName.slice(0, 2)}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <Bar
             cur={state.player.hp}
