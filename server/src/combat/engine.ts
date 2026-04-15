@@ -1509,7 +1509,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'summon_buff': {
-      // 소환수 버프 (지휘/군주의 위엄)
+      // 소환수 버프 (지휘/군주의 위엄) — 중복 제거 후 단일 인스턴스 갱신
+      s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_buff_active');
       addEffect(s, { type: 'summon_buff_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 소환수 데미지 +${skill.effect_value}% ${skill.effect_duration}행동!`);
       break;
@@ -1526,7 +1527,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'summon_frenzy': {
-      // 야수의 분노 — 소환수 2회 공격
+      // 야수의 분노 — 소환수 2회 공격, 단일 인스턴스 갱신
+      s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_frenzy_active');
       addEffect(s, { type: 'summon_frenzy_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 소환수 ${skill.effect_value}회 공격 ${skill.effect_duration}행동!`);
       break;
