@@ -9,7 +9,7 @@ const CLASSES: { name: ClassName; label: string; desc: string }[] = [
   { name: 'mage', label: '마법사', desc: '원소 파괴 + 게이지 조작 제어' },
   { name: 'cleric', label: '성직자', desc: '보조/공격 양면, 신성 실드와 심판' },
   { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
-  // { name: 'summoner', label: '소환사', desc: '소환수가 대신 싸우는 군주, INT 특화' }, // 테스트 후 오픈
+  { name: 'summoner', label: '소환사', desc: '소환수가 대신 싸우는 군주, INT 특화' },
 ];
 
 export function CharacterSelectScreen() {
