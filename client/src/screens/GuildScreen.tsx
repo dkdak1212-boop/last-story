@@ -5,6 +5,9 @@ import { useCharacterStore } from '../stores/characterStore';
 interface GuildSummary {
   id: number; name: string; description: string;
   memberCount: number; leaderName: string; maxMembers: number; statBuffPct: number;
+  level: number; exp: number;
+  levelSum: number;
+  skills: { gold: number; exp: number; drop: number; hp: number };
 }
 interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null; goldDonated?: number; todayDonation?: number }
 interface GuildSkill {
@@ -241,11 +244,12 @@ export function GuildScreen() {
           </div>
         )}
 
-        <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, marginBottom: 8 }}>길드 목록</div>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, marginBottom: 8 }}>길드 랭킹 (멤버 레벨 합 기준)</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {guilds.length === 0 && <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>아직 길드가 없습니다.</div>}
-          {guilds.map(g => {
+          {guilds.map((g, idx) => {
             const full = g.memberCount >= g.maxMembers;
+            const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
             return (
               <div key={g.id} style={{
                 padding: 14, background: 'var(--bg-panel)',
@@ -254,16 +258,34 @@ export function GuildScreen() {
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, minWidth: 24 }}>{medal}</span>
                     <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 15 }}>{g.name}</span>
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                      background: 'rgba(218,165,32,0.18)', color: 'var(--accent)', fontWeight: 700,
+                    }}>길드 Lv.{g.level}</span>
                     <span style={{
                       fontSize: 10, padding: '1px 6px', borderRadius: 3,
                       background: full ? 'rgba(192,90,74,0.15)' : 'rgba(107,163,104,0.15)',
                       color: full ? 'var(--danger)' : 'var(--success)', fontWeight: 700,
                     }}>{g.memberCount}/{g.maxMembers}</span>
+                    <span style={{
+                      fontSize: 10, padding: '1px 6px', borderRadius: 3,
+                      background: 'rgba(100,150,200,0.15)', color: '#8ad', fontWeight: 700,
+                    }}>레벨합 {g.levelSum.toLocaleString()}</span>
                   </div>
                   <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <PxIcon src={ICON.leader} size={14} /> {g.leaderName}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4, fontSize: 10, color: 'var(--text-dim)' }}>
+                    <span>골드 Lv.{g.skills.gold}</span>
+                    <span>·</span>
+                    <span>경험치 Lv.{g.skills.exp}</span>
+                    <span>·</span>
+                    <span>드랍 Lv.{g.skills.drop}</span>
+                    <span>·</span>
+                    <span>HP Lv.{g.skills.hp}</span>
                   </div>
                   {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
                 </div>

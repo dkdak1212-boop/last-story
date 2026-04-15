@@ -21,17 +21,30 @@ const GUILD_COST = 100000;
 
 // 길드 목록
 router.get('/', async (_req, res) => {
-  const r = await query<{ id: number; name: string; description: string; member_count: string; leader_name: string; max_members: number; stat_buff_pct: number }>(
-    `SELECT g.id, g.name, g.description, g.max_members, g.stat_buff_pct,
+  const r = await query<{
+    id: number; name: string; description: string; member_count: string;
+    leader_name: string; max_members: number; stat_buff_pct: number;
+    level: number; exp: string; level_sum: string;
+    skill_gold: number; skill_exp: number; skill_drop: number; skill_hp: number;
+  }>(
+    `SELECT g.id, g.name, g.description, g.max_members, g.stat_buff_pct, g.level, g.exp,
             (SELECT COUNT(*) FROM guild_members gm WHERE gm.guild_id = g.id)::text AS member_count,
-            c.name AS leader_name
+            COALESCE((SELECT SUM(c2.level)::text FROM guild_members gm2 JOIN characters c2 ON c2.id = gm2.character_id WHERE gm2.guild_id = g.id), '0') AS level_sum,
+            c.name AS leader_name,
+            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'gold'), 0) AS skill_gold,
+            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'exp'), 0) AS skill_exp,
+            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'drop'), 0) AS skill_drop,
+            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'hp'), 0) AS skill_hp
      FROM guilds g JOIN characters c ON c.id = g.leader_id
-     ORDER BY member_count DESC, g.created_at ASC LIMIT 100`
+     ORDER BY level_sum::bigint DESC, member_count DESC, g.created_at ASC LIMIT 100`
   );
   res.json(r.rows.map(row => ({
     id: row.id, name: row.name, description: row.description,
     memberCount: Number(row.member_count), leaderName: row.leader_name,
     maxMembers: row.max_members, statBuffPct: Number(row.stat_buff_pct),
+    level: row.level, exp: Number(row.exp),
+    levelSum: Number(row.level_sum),
+    skills: { gold: row.skill_gold, exp: row.skill_exp, drop: row.skill_drop, hp: row.skill_hp },
   })));
 });
 
