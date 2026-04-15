@@ -803,6 +803,9 @@ function GaugeBar({ percent, color, label, highlight }: {
 
 function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   if (!effects || effects.length === 0) return null;
+  // 소환수는 닉네임 옆 전용 UI 로 표시 — effect 바에서 제외
+  const filtered = effects.filter(e => (e.type as string) !== 'summon');
+  if (filtered.length === 0) return null;
 
   const typeLabels: Record<string, string> = {
     dot: '도트', shield: '실드', stun: '기절',
@@ -810,7 +813,7 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
     accuracy_debuff: '명중-', invincible: '무적', resurrect: '부활', poison: '독',
     atk_buff: '공격+', damage_taken_up: '약점',
     cc_immune: '제어면역', crit_guaranteed: '확정치명', def_buff: '방어+',
-    summon: '소환수', summon_buff_active: '소환강화', summon_frenzy_active: '소환광폭',
+    summon_buff_active: '소환강화', summon_frenzy_active: '소환광폭',
   };
 
   const getLabel = (e: StatusEffect): string => {
@@ -827,7 +830,7 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
 
   return (
     <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
-      {effects.map((e, i) => (
+      {filtered.map((e, i) => (
         <span key={i} style={{
           padding: '2px 6px', fontSize: 10, fontWeight: 700,
           background: 'var(--bg)', border: '1px solid var(--border)',
