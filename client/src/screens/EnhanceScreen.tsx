@@ -14,6 +14,7 @@ interface EnhanceItem {
   baseStats: Partial<Stats> | null; // 원본(강화 전) 스탯
   enhanceLevel: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
+  prefixStatsRaw?: Record<string, number>;
   prefixName?: string;
   prefixDetails?: PrefixDetail[];
   quality?: number;
@@ -71,7 +72,7 @@ export function EnhanceScreen() {
     if (!confirm(`${targetLabel} 의 수치를 새로 굴립니다. 진행하시겠습니까?`)) return;
     setRerolling(true);
     try {
-      const r = await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number> }>(
+      const r = await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number>; prefixStatsRaw?: Record<string, number> }>(
         `/enhance/${active.id}/reroll-prefix`,
         {
           method: 'POST',
@@ -83,7 +84,7 @@ export function EnhanceScreen() {
         }
       );
       // 응답으로 선택 아이템 즉시 갱신 (load() 이전 state 클로저 문제 회피)
-      const updated: EnhanceItem = { ...selected, prefixIds: r.prefixIds, prefixStats: r.prefixStats };
+      const updated: EnhanceItem = { ...selected, prefixIds: r.prefixIds, prefixStats: r.prefixStats, prefixStatsRaw: r.prefixStatsRaw };
       setSelected(updated);
       setItems(prev => prev.map(it => {
         if (it.kind !== selected.kind) return it;
@@ -305,8 +306,29 @@ export function EnhanceScreen() {
               {/* 현재 접두사 표시 + 수치 재굴림 */}
               {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 && (
                 <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사 (강화 +{selected.enhanceLevel || 0})</div>
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
+
+                  {/* 강화 전/후 수치 병기 — 강화 레벨 있을 때만 */}
+                  {(selected.enhanceLevel || 0) > 0 && selected.prefixStatsRaw && (
+                    <div style={{ marginTop: 8, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>강화 전 → 강화 후</div>
+                      {Object.keys(selected.prefixStats).map(key => {
+                        const raw = selected.prefixStatsRaw?.[key] ?? 0;
+                        const scaled = selected.prefixStats?.[key] ?? 0;
+                        const label = STAT_KEY_LABEL[key] || key;
+                        const delta = scaled - raw;
+                        return (
+                          <div key={key} style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'monospace' }}>
+                            {label}: <span style={{ color: 'var(--text-dim)' }}>{raw}</span>
+                            <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>→</span>
+                            <span style={{ color: '#66ccff', fontWeight: 700 }}>{scaled}</span>
+                            {delta !== 0 && <span style={{ color: '#4caf50', marginLeft: 4, fontSize: 10 }}>(+{delta})</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* 재굴림 범위 표시: 접두사가 있으면 항상 노출 */}
                   {(selected.prefixDetails?.length || 0) > 0 && (

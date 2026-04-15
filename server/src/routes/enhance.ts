@@ -155,6 +155,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStatsRaw: displayPrefixStats(r.prefix_stats, 0),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
@@ -168,6 +169,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
       prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStatsRaw: displayPrefixStats(r.prefix_stats, 0),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
@@ -411,7 +413,8 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
 
   // 강화 배수 적용해서 반환 (클라이언트는 /list 와 동일 포맷 기대)
   const displayStats = displayPrefixStats(bonusStats, targetEnhanceLevel);
-  res.json({ success: true, prefixIds, prefixStats: displayStats });
+  const rawStats = displayPrefixStats(bonusStats, 0);
+  res.json({ success: true, prefixIds, prefixStats: displayStats, prefixStatsRaw: rawStats });
 });
 
 export default router;
