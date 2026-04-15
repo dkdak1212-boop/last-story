@@ -63,7 +63,8 @@ export function InventoryScreen() {
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
-  const [autoDismantleCommon, setAutoDismantleCommon] = useState(false);
+  const [, setAutoDismantleCommon] = useState(false);
+  const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -78,8 +79,11 @@ export function InventoryScreen() {
 
   useEffect(() => {
     if (!active) return;
-    api<{ autoDismantleCommon: boolean }>(`/characters/${active.id}/auto-dismantle`)
-      .then(d => setAutoDismantleCommon(d.autoDismantleCommon)).catch(() => {});
+    api<{ autoDismantleCommon: boolean; t1: boolean; t2: boolean; t3: boolean; t4: boolean }>(`/characters/${active.id}/auto-dismantle`)
+      .then(d => {
+        setAutoDismantleCommon(d.autoDismantleCommon);
+        setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
+      }).catch(() => {});
   }, [active?.id]);
   useEffect(() => { refresh(); }, [active]);
 
@@ -122,10 +126,15 @@ export function InventoryScreen() {
       await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '강화 실패'); } finally { setEnhanceBusy(false); }
   }
-  async function toggleAutoDismantle() {
+  async function toggleDismantleTier(tier: 't1' | 't2' | 't3' | 't4') {
     if (!active) return;
-    try { const res = await api<{ autoDismantleCommon: boolean }>(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ enabled: !autoDismantleCommon }) });
+    try {
+      const res = await api<{ autoDismantleCommon: boolean; t1: boolean; t2: boolean; t3: boolean; t4: boolean }>(
+        `/characters/${active.id}/auto-dismantle`,
+        { method: 'POST', body: JSON.stringify({ [tier]: !dismantleTiers[tier] }) }
+      );
       setAutoDismantleCommon(res.autoDismantleCommon);
+      setDismantleTiers({ t1: res.t1, t2: res.t2, t3: res.t3, t4: res.t4 });
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
 
@@ -346,12 +355,23 @@ export function InventoryScreen() {
               background: 'rgba(218,165,32,0.15)', color: 'var(--accent)',
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
             }}>전체 판매</button>
-            <button onClick={toggleAutoDismantle} style={{
-              fontSize: 10, padding: '4px 8px', borderRadius: 3,
-              background: autoDismantleCommon ? 'rgba(200,60,60,0.2)' : 'transparent',
-              color: autoDismantleCommon ? 'var(--danger)' : 'var(--text-dim)',
-              border: `1px solid ${autoDismantleCommon ? 'var(--danger)' : 'var(--border)'}`, cursor: 'pointer',
-            }}>자동분해 {autoDismantleCommon ? 'ON' : 'OFF'}</button>
+            <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
+              <span style={{ marginRight: 2 }}>자동분해:</span>
+              {(['t1','t2','t3','t4'] as const).map((tier) => {
+                const active = dismantleTiers[tier];
+                const label = tier.toUpperCase();
+                const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
+                const c = tierColor[tier];
+                return (
+                  <button key={tier} onClick={() => toggleDismantleTier(tier)} style={{
+                    fontSize: 10, padding: '4px 8px', borderRadius: 3,
+                    background: active ? c : 'transparent',
+                    color: active ? '#000' : c,
+                    border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
+                  }}>{label}</button>
+                );
+              })}
+            </div>
           </div>
 
           {/* 아이템 목록 */}

@@ -372,29 +372,75 @@ router.post('/:id/dismantle', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, name: item.name, gold });
 });
 
-// 자동분해 설정 조회
+// 자동분해 설정 조회 — T1~T4 비트마스크 기반
+// tiers 비트: bit0=T1, bit1=T2, bit2=T3, bit3=T4
 router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const r = await query<{ auto_dismantle_common: boolean }>(
-    'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1', [id]
+  const r = await query<{ auto_dismantle_tiers: number; auto_dismantle_common: boolean }>(
+    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1', [id]
   );
-  res.json({ autoDismantleCommon: r.rows[0]?.auto_dismantle_common ?? false });
+  const tiers = r.rows[0]?.auto_dismantle_tiers ?? 0;
+  res.json({
+    tiers,
+    t1: !!(tiers & 1),
+    t2: !!(tiers & 2),
+    t3: !!(tiers & 4),
+    t4: !!(tiers & 8),
+    // 하위 호환
+    autoDismantleCommon: r.rows[0]?.auto_dismantle_common ?? false,
+  });
 });
 
-// 자동분해 설정 변경
+// 자동분해 설정 변경 — T1~T4 개별 토글
 router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+  const parsed = z.object({
+    t1: z.boolean().optional(),
+    t2: z.boolean().optional(),
+    t3: z.boolean().optional(),
+    t4: z.boolean().optional(),
+    tiers: z.number().int().min(0).max(15).optional(),
+    // 레거시: enabled=true → T1+T2+T3 (이전 동작), false → 0
+    enabled: z.boolean().optional(),
+  }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  await query('UPDATE characters SET auto_dismantle_common = $1 WHERE id = $2', [parsed.data.enabled, id]);
-  res.json({ autoDismantleCommon: parsed.data.enabled });
+  let newTiers: number;
+  if (typeof parsed.data.tiers === 'number') {
+    newTiers = parsed.data.tiers;
+  } else if (parsed.data.enabled !== undefined) {
+    newTiers = parsed.data.enabled ? 7 : 0;
+  } else {
+    // 개별 토글로 받은 경우 — 현재 값 로드 후 병합
+    const cur = await query<{ auto_dismantle_tiers: number }>(
+      'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers FROM characters WHERE id = $1', [id]
+    );
+    let t = cur.rows[0]?.auto_dismantle_tiers ?? 0;
+    if (parsed.data.t1 !== undefined) t = parsed.data.t1 ? (t | 1) : (t & ~1);
+    if (parsed.data.t2 !== undefined) t = parsed.data.t2 ? (t | 2) : (t & ~2);
+    if (parsed.data.t3 !== undefined) t = parsed.data.t3 ? (t | 4) : (t & ~4);
+    if (parsed.data.t4 !== undefined) t = parsed.data.t4 ? (t | 8) : (t & ~8);
+    newTiers = t;
+  }
+
+  await query(
+    'UPDATE characters SET auto_dismantle_tiers = $1, auto_dismantle_common = $2 WHERE id = $3',
+    [newTiers, newTiers > 0, id]
+  );
+  res.json({
+    tiers: newTiers,
+    t1: !!(newTiers & 1),
+    t2: !!(newTiers & 2),
+    t3: !!(newTiers & 4),
+    t4: !!(newTiers & 8),
+    autoDismantleCommon: newTiers > 0,
+  });
 });
 
 // 등급별 일괄 판매

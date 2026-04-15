@@ -1941,16 +1941,16 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   await trackMonsterKill(s.characterId, s.monsterId!);
 
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
-  // 자동분해 설정 체크
-  const autoDismantleR = await query<{ auto_dismantle_common: boolean }>(
-    'SELECT COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1',
+  // 자동분해 설정 체크 — T1~T4 비트마스크
+  const autoDismantleR = await query<{ auto_dismantle_tiers: number }>(
+    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers FROM characters WHERE id = $1',
     [s.characterId]
   );
-  const autoDismantle = autoDismantleR.rows[0]?.auto_dismantle_common ?? false;
+  const dismantleTiers = autoDismantleR.rows[0]?.auto_dismantle_tiers ?? 0;
 
   for (const drop of drops) {
-    // 자동분해: 장비 → 골드 변환 (유니크/T4접두사/3옵 제외)
-    if (autoDismantle) {
+    // 자동분해: 설정된 tier 에 해당하는 장비만 분해 (유니크/3옵은 항상 보호)
+    if (dismantleTiers > 0) {
       const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
         'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
       );
@@ -1958,16 +1958,18 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         const { generatePrefixes } = await import('../game/prefix.js');
         const { prefixIds, bonusStats, maxTier } = await generatePrefixes(itemCheck.rows[0].required_level);
         const is3Options = prefixIds.length >= 3;
-        const isT4 = maxTier >= 4;
+        const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+        const shouldDismantle = !is3Options && (dismantleTiers & tierBit) !== 0;
 
-        if (!is3Options && !isT4) {
+        if (shouldDismantle) {
           const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
           batchAdd(s.characterId, { goldDelta: gold });
-          addLog(s, `${itemCheck.rows[0].name} 자동분해 → +${gold}G`);
+          addLog(s, `${itemCheck.rows[0].name} 자동분해 (T${maxTier}) → +${gold}G`);
           continue;
         }
-        // T4 또는 3옵 → 보호, 생성된 접두사와 함께 인벤토리에 추가
-        addLog(s, `${itemCheck.rows[0].name} 자동분해 보호! (${isT4 ? 'T4' : ''}${is3Options ? ' 3옵' : ''})`);
+        // 보호 — 이유 로그
+        const reason = is3Options ? '3옵' : `T${maxTier} 보호`;
+        addLog(s, `${itemCheck.rows[0].name} 자동분해 보호! (${reason})`);
       }
     }
 
