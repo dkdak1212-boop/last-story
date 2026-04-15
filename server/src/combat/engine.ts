@@ -1496,12 +1496,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] 화상 도트 ${dotDmg}/행동`);
       }
       // 소환_탱크: 받는 데미지 감소 버프
-      // — summon_infinite(영원의 계약자) 적용 시에도 받는 데미지 감소는 무한이 아닌
-      //   원래 effect_duration 만큼만 적용 (밸런스 보정)
+      // — 중복 누적 방지: 기존 summon_tank 발 damage_reduce 제거 후 갱신
+      // — summon_infinite 시에도 받는 데미지 감소는 effect_duration 으로 고정
       if (skill.effect_type === 'summon_tank') {
+        // 기존 damage_reduce 제거 (소환수 본체와 별개로 단일 인스턴스 유지)
+        s.statusEffects = s.statusEffects.filter(e => !(e.type === 'damage_reduce' && e.source === 'monster' && e.value === 20));
         const dmgReduceDur = skill.effect_duration;
         addEffect(s, { type: 'damage_reduce', value: 20, remainingActions: dmgReduceDur, source: 'monster' });
-        addLog(s, `[${skill.name}] 받는 데미지 20% 감소 ${dmgReduceDur}행동`);
+        addLog(s, `[${skill.name}] 받는 데미지 20% 감소 ${dmgReduceDur}행동 (갱신)`);
       }
       break;
     }
