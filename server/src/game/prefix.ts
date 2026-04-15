@@ -107,7 +107,13 @@ export async function rerollPrefixValues(
   itemLevel: number = 35,
   options: { targetIndex?: number; prevStats?: Record<string, number> } = {},
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
-  const prefixes = await loadPrefixes();
+  // 캐시가 stale 하여 새로 추가된 prefix가 누락된 경우를 대비해
+  // prefixIds 중 하나라도 캐시에서 빠져 있으면 캐시 재로딩.
+  let prefixes = await loadPrefixes();
+  if (prefixIds.some(pid => !prefixes.find(x => x.id === pid))) {
+    clearPrefixCache();
+    prefixes = await loadPrefixes();
+  }
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
   const { targetIndex, prevStats } = options;
 
@@ -119,7 +125,7 @@ export async function rerollPrefixValues(
     return { stat: p.stat_key, value };
   };
 
-  // 단일 인덱스 재굴림
+  // 단일 인덱스 재굴림 — 기존 prevStats는 방어적으로 보존
   if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < prefixIds.length && prevStats) {
     const targetPid = prefixIds[targetIndex];
     const targetPrefix = prefixes.find(x => x.id === targetPid);
@@ -133,20 +139,40 @@ export async function rerollPrefixValues(
       .filter(({ pid }) => prefixes.find(x => x.id === pid)?.stat_key === targetStat);
 
     const next: Record<string, number> = { ...prevStats };
-    next[targetStat] = 0;
+    let accumulated = 0;
+    let rolled = false;
     for (const { pid } of sharedIndices) {
       const r = rollOne(pid);
-      if (r) next[targetStat] += r.value;
+      if (r) { accumulated += r.value; rolled = true; }
     }
+    // 실제로 한 번이라도 굴렸을 때만 대체 — 실패하면 기존 값 유지
+    if (rolled) next[targetStat] = accumulated;
     return { prefixIds, bonusStats: next };
   }
 
-  // 전체 재굴림
-  const bonusStats: Record<string, number> = {};
+  // 전체 재굴림 — 기존 prevStats를 base 로 사용해 rollOne 실패 시 기존값 유지
+  const bonusStats: Record<string, number> = { ...(prevStats || {}) };
+  // 먼저 이번에 굴릴 stat_key 들을 0 으로 초기화 (굴림 성공 시 누적 대체)
+  const rolledKeys = new Set<string>();
+  for (const pid of prefixIds) {
+    const p = prefixes.find(x => x.id === pid);
+    if (p) rolledKeys.add(p.stat_key);
+  }
+  for (const k of rolledKeys) bonusStats[k] = 0;
+  let anyRolled = false;
   for (const pid of prefixIds) {
     const r = rollOne(pid);
     if (!r) continue;
+    anyRolled = true;
     bonusStats[r.stat] = (bonusStats[r.stat] ?? 0) + r.value;
+  }
+  // 하나도 못 굴리면 원래 값 유지
+  if (!anyRolled && prevStats) return { prefixIds, bonusStats: { ...prevStats } };
+  // 0으로 초기화 후 실제로 굴리지 못해 0 남은 키는 기존값으로 복원
+  if (prevStats) {
+    for (const k of rolledKeys) {
+      if (bonusStats[k] === 0 && prevStats[k] !== undefined) bonusStats[k] = prevStats[k];
+    }
   }
   return { prefixIds, bonusStats };
 }
