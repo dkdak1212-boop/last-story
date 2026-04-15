@@ -78,18 +78,7 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'class restriction' });
   }
 
-  // huge 티어(초월 노드): 직업당 1개만 학습 가능
-  if (node.tier === 'huge') {
-    const hugeCount = await query<{ cnt: string }>(
-      `SELECT COUNT(*)::text AS cnt FROM character_nodes cn
-       JOIN node_definitions nd ON nd.id = cn.node_id
-       WHERE cn.character_id = $1 AND nd.tier = 'huge'`,
-      [id]
-    );
-    if (Number(hugeCount.rows[0].cnt) >= 1) {
-      return res.status(400).json({ error: '초월 노드는 직업당 1개만 학습할 수 있습니다.' });
-    }
-  }
+  // 초월(huge) 노드 개수 제한 제거 — 포인트만 있으면 여러 개 학습 가능
 
   // 이미 투자
   const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
