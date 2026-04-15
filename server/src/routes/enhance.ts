@@ -33,16 +33,16 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 인벤토리
-  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number; unique_prefix_stats: Record<string, number> | null }>(
-    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level, i.unique_prefix_stats
+  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
   // 장착
-  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number; unique_prefix_stats: Record<string, number> | null }>(
-    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level, i.unique_prefix_stats
+  const eq = await query<{ slot: string; item_id: number; enhance_level: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ce.slot, ce.item_id, ce.enhance_level, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [cid]
@@ -71,30 +71,6 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       result[k] = Math.round((v as number) * mult);
     }
     return result;
-  }
-
-  // 유니크 고정 옵션 분리 — PrefixDisplay 중복 방지
-  function stripUniqueFromPrefix(
-    raw: Record<string, number> | null,
-    uniqueStats: Record<string, number> | null,
-    enhanceLevel: number,
-    grade: string,
-  ): Record<string, number> {
-    if (grade !== 'unique' || !uniqueStats) return displayPrefixStats(raw, enhanceLevel);
-    const total = { ...(raw || {}) };
-    const stripped: Record<string, number> = {};
-    for (const [k, v] of Object.entries(total)) {
-      const uniqueRaw = uniqueStats[k] || 0;
-      const randomRaw = v - uniqueRaw;
-      if (randomRaw > 0) stripped[k] = randomRaw;
-    }
-    if (enhanceLevel > 0) {
-      const mult = 1 + enhanceLevel * 0.05;
-      for (const k of Object.keys(stripped)) {
-        stripped[k] = Math.round(stripped[k] * mult);
-      }
-    }
-    return stripped;
   }
 
   // 강화 스크롤 보유량 조회
@@ -178,8 +154,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
-      prefixStats: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, r.enhance_level, r.grade),
-      prefixStatsRaw: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, 0, r.grade),
+      prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStatsRaw: displayPrefixStats(r.prefix_stats, 0),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
@@ -192,8 +168,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       baseStats: r.stats,
       enhanceLevel: r.enhance_level,
       prefixIds: r.prefix_ids || [],
-      prefixStats: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, r.enhance_level, r.grade),
-      prefixStatsRaw: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, 0, r.grade),
+      prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStatsRaw: displayPrefixStats(r.prefix_stats, 0),
       prefixName: buildPrefixName(r.prefix_ids),
       prefixTiers: buildPrefixTiers(r.prefix_ids),
       prefixDetails: buildPrefixDetails(r.prefix_ids, r.required_level),
