@@ -753,13 +753,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     if (!manaBurst) {
       const cdReducePct = getPassive(s, 'cooldown_reduce');
       const cdFlat = getPassive(s, 'mana_flow');
-      // 소환사 신규: summon_support_cdr, summon_all_cdr, summon_tank_cdr 등 직접 감산
-      const summonCdFlat =
+      // 소환사 신규: summon_*_cdr 는 소환 계열 스킬에만 적용
+      const isSummonSkill = skill.effect_type === 'summon' || skill.effect_type.startsWith('summon_');
+      const summonCdFlat = isSummonSkill ? (
         getPassive(s, 'summon_support_cdr') +
         getPassive(s, 'summon_all_cdr') +
         getPassive(s, 'summon_tank_cdr') +
         getPassive(s, 'summon_dps_cdr') +
-        getPassive(s, 'summon_hybrid_cdr');
+        getPassive(s, 'summon_hybrid_cdr')
+      ) : 0;
       if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
       if (cdFlat > 0) cd = cd - cdFlat;
       if (summonCdFlat > 0) cd = cd - summonCdFlat;
