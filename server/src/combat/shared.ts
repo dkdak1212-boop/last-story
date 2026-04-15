@@ -10,6 +10,8 @@ export interface StatusEffect {
   // 장비/스탯 변경 시 재계산에 쓰이는 메타 (engine.ts refreshSessionStats 전용)
   dotMult?: number;
   dotUseMatk?: boolean;
+  // 소환수 원소 태그 (fire/frost/lightning/earth/holy/dark) — 소환사 노드 효과 적용용
+  element?: string;
 }
 
 // 도트는 방어력의 50%만 무시 (= def × 0.5 × 0.5 = def × 0.25 차감)

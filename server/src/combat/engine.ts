@@ -115,6 +115,7 @@ interface SkillDef {
   effect_duration: number;
   required_level: number;
   slot_order: number;
+  element?: string | null;
 }
 
 // ── 활성 세션 관리 (인메모리) ──
@@ -317,7 +318,7 @@ async function getCharSkills(characterId: number, className: string, level: numb
   try {
     const r = await query<SkillDef>(
       `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-              s.effect_type, s.effect_value, s.effect_duration, s.required_level,
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element,
               COALESCE(cs.slot_order, 9999) AS slot_order
        FROM skills s
        JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
@@ -331,7 +332,7 @@ async function getCharSkills(characterId: number, className: string, level: numb
     // 폴백: slot_order 없이 학습한 모든 스킬 로드
     const r = await query<Omit<SkillDef, 'slot_order'>>(
       `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-              s.effect_type, s.effect_value, s.effect_duration, s.required_level
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element
        FROM skills s
        WHERE s.class_name = $1 AND s.required_level <= $2
        ORDER BY s.required_level ASC`,
@@ -563,69 +564,51 @@ function processSummons(s: ActiveSession) {
   const frenzyEff = s.statusEffects.find(e => e.type === 'summon_frenzy_active' && e.remainingActions > 0);
   const hits = frenzyEff ? 2 : 1;
 
-  // v0.9.6 신규 노드 효과: 원소/오오라/타입
+  // v0.9.6 신규 노드 효과: 원소/오오라/타입 (per-summon element 적용)
   const auraMultiplier = 1 + (getPassive(s, 'aura_multiplier') > 0 ? 1 : 0);
-  const elementDmgSum =
-    getPassive(s, 'summon_fire_dmg') +
-    getPassive(s, 'summon_frost_dmg') +
-    getPassive(s, 'summon_lightning_dmg') +
-    getPassive(s, 'summon_earth_dmg') +
-    getPassive(s, 'summon_holy_dmg') +
-    getPassive(s, 'summon_dark_dmg');
   const allElementDmg = getPassive(s, 'summon_all_element_dmg');
   const auraDmg = getPassive(s, 'aura_dmg') * auraMultiplier;
   const dpsAtk = getPassive(s, 'summon_dps_atk');
   const hybridAll = getPassive(s, 'summon_hybrid_all');
   const elementSynergy = getPassive(s, 'element_synergy');
-  // 원소 2종 이상 투자 시 시너지
-  const elementInvested = [
-    getPassive(s, 'summon_fire_dmg'),
-    getPassive(s, 'summon_frost_dmg'),
-    getPassive(s, 'summon_lightning_dmg'),
-    getPassive(s, 'summon_earth_dmg'),
-    getPassive(s, 'summon_holy_dmg'),
-    getPassive(s, 'summon_dark_dmg'),
-  ].filter(v => v > 0).length;
-  const synergyBonus = elementInvested >= 2 ? elementSynergy : 0;
 
-  const totalDmgBonus = summonAmp + elementDmgSum + allElementDmg + auraDmg + dpsAtk + hybridAll + synergyBonus;
+  // 현재 필드에 소환된 고유 원소 수 — 시너지용
+  const activeElements = new Set(summons.map(sm => sm.element).filter(Boolean));
+  const synergyBonus = activeElements.size >= 2 ? elementSynergy : 0;
 
-  // 관통: aura_pen + 원소 관통
-  const penetration =
-    getPassive(s, 'aura_pen') * auraMultiplier +
-    getPassive(s, 'summon_fire_pen') +
-    getPassive(s, 'summon_frost_pen') +
-    getPassive(s, 'summon_lightning_pen') +
-    getPassive(s, 'summon_earth_pen') +
-    getPassive(s, 'summon_holy_pen') +
-    getPassive(s, 'summon_dark_pen');
-  // 치명: aura_crit + 원소 치명
-  const critChance =
-    getPassive(s, 'aura_crit') * auraMultiplier +
-    getPassive(s, 'summon_fire_crit') +
-    getPassive(s, 'summon_frost_crit') +
-    getPassive(s, 'summon_lightning_crit') +
-    getPassive(s, 'summon_earth_crit') +
-    getPassive(s, 'summon_holy_crit') +
-    getPassive(s, 'summon_dark_crit');
-  const critDmgBonus =
-    getPassive(s, 'summon_fire_crit_dmg') +
-    getPassive(s, 'summon_frost_crit_dmg') +
-    getPassive(s, 'summon_lightning_crit_dmg') +
-    getPassive(s, 'summon_earth_crit_dmg') +
-    getPassive(s, 'summon_holy_crit_dmg') +
-    getPassive(s, 'summon_dark_crit_dmg');
-  // 흡혈: aura_lifesteal + summon_dark_lifesteal
-  const lifesteal = getPassive(s, 'aura_lifesteal') * auraMultiplier + getPassive(s, 'summon_dark_lifesteal');
+  // 원소별 보너스 테이블 (summon 하나가 해당 원소면 이 값들 적용)
+  function elementBonuses(el: string | undefined) {
+    if (!el) return { dmg: 0, pen: 0, crit: 0, critDmg: 0, lifesteal: 0 };
+    return {
+      dmg: getPassive(s, `summon_${el}_dmg`),
+      pen: getPassive(s, `summon_${el}_pen`),
+      crit: getPassive(s, `summon_${el}_crit`),
+      critDmg: getPassive(s, `summon_${el}_crit_dmg`),
+      lifesteal: el === 'dark' ? getPassive(s, 'summon_dark_lifesteal') : 0,
+    };
+  }
+
+  // 글로벌(모든 소환수 적용)
+  const globalDmgBonus = summonAmp + allElementDmg + auraDmg + dpsAtk + hybridAll + synergyBonus;
+  const globalPen = getPassive(s, 'aura_pen') * auraMultiplier;
+  const globalCrit = getPassive(s, 'aura_crit') * auraMultiplier;
+  const globalLifesteal = getPassive(s, 'aura_lifesteal') * auraMultiplier;
   // 원소 폭발 (원소 군주 huge): 15% 확률 추가 데미지 100%
   const elementBurst = getPassive(s, 'summon_element_burst');
 
   let totalSummonDmg = 0;
   let totalLifesteal = 0;
   for (const sm of summons) {
+    const eb = elementBonuses(sm.element);
+    const dmgBonus = globalDmgBonus + eb.dmg;
+    const penetration = globalPen + eb.pen;
+    const critChance = globalCrit + eb.crit;
+    const critDmgBonus = eb.critDmg;
+    const lifesteal = globalLifesteal + eb.lifesteal;
+
     const mult = sm.value / 100; // value = 퍼센트 (80 = 0.8x)
     for (let h = 0; h < hits; h++) {
-      let dmg = Math.round(matk * mult * buffMult * (1 + totalDmgBonus / 100));
+      let dmg = Math.round(matk * mult * buffMult * (1 + dmgBonus / 100));
       // 방어 적용 (관통 % 만큼 방어 무시)
       const defVal = s.monsterStats.mdef;
       const effectiveDef = defVal * (1 - Math.min(100, penetration) / 100);
@@ -640,8 +623,8 @@ function processSummons(s: ActiveSession) {
       if (summonDouble > 0 && Math.random() * 100 < summonDouble) {
         dmg *= 2;
       }
-      // 원소 폭발 (원소 군주)
-      if (elementBurst > 0 && Math.random() * 100 < elementBurst) {
+      // 원소 폭발 (원소 군주) — 원소 있는 소환수만
+      if (sm.element && elementBurst > 0 && Math.random() * 100 < elementBurst) {
         dmg = Math.round(dmg * 2);
       }
       s.monsterHp -= dmg;
@@ -1394,7 +1377,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const healMarker = skill.effect_type === 'summon_heal' ? -1 : 0;
       const multiHits = skill.effect_type === 'summon_multi' ? 3 : 1;
       const effectiveValue = skill.effect_type === 'summon_multi' ? skill.effect_value * multiHits : skill.effect_value;
-      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker });
+      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined });
       addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, ${infinite ? '무한' : dur + '행동'})`);
       // 소환_도트: 추가로 화상 도트도 부여
       if (skill.effect_type === 'summon_dot') {
