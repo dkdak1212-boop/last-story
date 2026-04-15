@@ -703,15 +703,6 @@ export function NodeTreeScreen() {
             }}>✕</button>
           </div>
 
-          {selected.tier === 'huge' && !invested.has(selected.id) && (
-            <div style={{
-              fontSize: 10, padding: '4px 8px', marginBottom: 6,
-              background: 'rgba(218,165,32,0.12)', border: '1px solid var(--accent)',
-              color: 'var(--accent)', fontWeight: 700, borderRadius: 3,
-            }}>
-              ★★ 초월 노드 · 직업당 1개만 학습 가능
-            </div>
-          )}
           {!invested.has(selected.id) && selectedUnmetCount > 1 && (
             <div style={{ fontSize: 10, color: '#ff8800', marginBottom: 6 }}>
               하위 {selectedUnmetCount - 1}개 자동 습득 · 총 {selectedTotalCost}pt
@@ -792,15 +783,6 @@ function NodeDetailPanel(props: NodeDetailPanelProps) {
         </span>
       </div>
       <div style={{ fontSize: 13, color: '#ccc', marginTop: 6, lineHeight: 1.4 }}>{selected.description}</div>
-      {selected.tier === 'huge' && !invested.has(selected.id) && (
-        <div style={{
-          fontSize: 12, marginTop: 8, padding: '6px 10px',
-          background: 'rgba(218,165,32,0.12)', border: '1px solid var(--accent)',
-          color: 'var(--accent)', fontWeight: 700, borderRadius: 3,
-        }}>
-          ★★ 초월 노드 · 직업당 1개만 학습 가능
-        </div>
-      )}
       {!invested.has(selected.id) && selectedUnmetCount > 1 && (
         <div style={{ fontSize: 12, color: '#ff8800', marginTop: 8 }}>
           하위 노드 {selectedUnmetCount - 1}개 자동 습득 (총 {selectedTotalCost}pt 필요)
