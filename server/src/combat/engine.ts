@@ -1039,8 +1039,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           }
         }
       }
-      // 무쌍난무: 25% 확률로 모든 스킬 쿨다운 초기화 (자신 제외)
-      if (skill.name === '무쌍난무' && Math.random() < 0.25) {
+      // 무쌍난무: 25% / 전장의 광란: 50% 확률로 모든 스킬 쿨다운 초기화 (자신 제외)
+      const resetChance = skill.name === '무쌍난무' ? 0.25 : (skill.name === '전장의 광란' ? 0.50 : 0);
+      if (resetChance > 0 && Math.random() < resetChance) {
         for (const skId of Array.from(s.skillCooldowns.keys())) {
           if (skId !== skill.id) s.skillCooldowns.delete(skId);
         }
