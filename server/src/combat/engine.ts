@@ -847,12 +847,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const ownShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
           if (ownShield) { dmg = Math.round(dmg * 1.5); addLog(s, `[심판자의 권능] 실드 보유 +50%`); }
         }
-        // 도적 암흑의 심판: 적에게 걸린 독 스택당 +10%
+        // 도적 암흑의 심판: 적에게 걸린 독 스택당 +8% (독 없어도 베이스 강화)
         if (skill.name === '암흑의 심판') {
           const poisonStacks = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player' && e.remainingActions > 0).length;
           if (poisonStacks > 0) {
-            dmg = Math.round(dmg * (1 + poisonStacks * 0.10));
-            addLog(s, `[암흑의 심판] 독 ${poisonStacks}중첩 +${poisonStacks * 10}%`);
+            dmg = Math.round(dmg * (1 + poisonStacks * 0.08));
+            addLog(s, `[암흑의 심판] 독 ${poisonStacks}중첩 +${poisonStacks * 8}%`);
           }
         }
         // 접두사: 광전사 (내 HP 30% 이하)
@@ -1141,12 +1141,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 패시브: poison_burst_amp
       const burstAmp = getPassive(s, 'poison_burst_amp');
       if (burstAmp > 0) totalBurst = Math.round(totalBurst * (1 + burstAmp / 100));
-      if (totalBurst > 0) {
-        s.monsterHp -= totalBurst;
+      // 독이 없어도 기본 데미지 보장 (베이스 +4배 ATK, 들쭉날쭉 완화)
+      if (totalBurst <= 0) {
+        const baseAtk = MATK_CLASSES.has(s.className) ? s.playerStats.matk : s.playerStats.atk;
+        totalBurst = Math.round(baseAtk * 4);
+        addLog(s, `[${skill.name}] 독 없음 → 기본 공격 ${totalBurst}`);
+      }
+      s.monsterHp -= totalBurst;
+      if (poisons.length > 0) {
         addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지 (독 유지)`);
-        // 독 스택은 유지 — 폭발 후에도 도트 데미지 계속 적용
-      } else {
-        addLog(s, `[${skill.name}] 독이 없어 효과 없음`);
       }
       break;
     }
@@ -2116,6 +2119,16 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.monsterHp -= carry;
     addLog(s, `[원소 공명] 이전 전투의 잉여 마력 −${carry}`);
     s.mageOverkillCarry = 0;
+  }
+  // 도적 전용: 새 몬스터에 기본 독 2스택 초기 부여 (들쭉날쭉 완화)
+  if (s.className === 'rogue' && !isDummyMonster(s)) {
+    const initDotBase = s.playerStats.atk;
+    const INIT_POISON_MULT = 1.5;
+    const initDotDmg = Math.round(initDotBase * INIT_POISON_MULT);
+    for (let i = 0; i < 2; i++) {
+      addEffect(s, { type: 'poison', value: initDotDmg, remainingActions: 3, source: 'player', dotMult: INIT_POISON_MULT, dotUseMatk: false });
+    }
+    addLog(s, `[독 사냥꾼] 몬스터 등장! 초기 독 2스택 부여`);
   }
   addLog(s, `${m.name}이(가) 나타났다!`);
 }

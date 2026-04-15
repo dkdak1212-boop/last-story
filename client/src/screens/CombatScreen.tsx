@@ -804,8 +804,21 @@ function GaugeBar({ percent, color, label, highlight }: {
 function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   if (!effects || effects.length === 0) return null;
   // 소환수는 닉네임 옆 전용 UI 로 표시 — effect 바에서 제외
-  const filtered = effects.filter(e => (e.type as string) !== 'summon');
-  if (filtered.length === 0) return null;
+  const noSummon = effects.filter(e => (e.type as string) !== 'summon');
+  if (noSummon.length === 0) return null;
+
+  // 독 스택 집계: 같은 source 의 독을 1개로 표시 (x스택 수)
+  const poisonEffects = noSummon.filter(e => e.type === 'poison');
+  const otherEffects = noSummon.filter(e => e.type !== 'poison');
+  const filtered: (StatusEffect & { stackCount?: number })[] = [...otherEffects];
+  if (poisonEffects.length > 0) {
+    const maxRem = Math.max(...poisonEffects.map(e => e.remainingActions));
+    filtered.push({
+      ...poisonEffects[0],
+      remainingActions: maxRem,
+      stackCount: poisonEffects.length,
+    });
+  }
 
   const typeLabels: Record<string, string> = {
     dot: '도트', shield: '실드', stun: '기절',
@@ -830,15 +843,18 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
 
   return (
     <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
-      {filtered.map((e, i) => (
-        <span key={i} style={{
-          padding: '2px 6px', fontSize: 10, fontWeight: 700,
-          background: 'var(--bg)', border: '1px solid var(--border)',
-          color: getColor(e),
-        }}>
-          {getLabel(e)} {e.remainingActions > 0 && e.remainingActions < 999 ? `(${e.remainingActions})` : ''}
-        </span>
-      ))}
+      {filtered.map((e, i) => {
+        const stackSuffix = e.stackCount && e.stackCount > 1 ? ` x${e.stackCount}` : '';
+        return (
+          <span key={i} style={{
+            padding: '2px 6px', fontSize: 10, fontWeight: 700,
+            background: 'var(--bg)', border: '1px solid var(--border)',
+            color: getColor(e),
+          }}>
+            {getLabel(e)}{stackSuffix} {e.remainingActions > 0 && e.remainingActions < 999 ? `(${e.remainingActions})` : ''}
+          </span>
+        );
+      })}
     </div>
   );
 }
