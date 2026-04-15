@@ -787,6 +787,9 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
   '드래곤 소환': { cls: 'summoner', lv: 45 }, '희생': { cls: 'summoner', lv: 50 }, '피닉스 소환': { cls: 'summoner', lv: 55 },
   '군주의 위엄': { cls: 'summoner', lv: 60 }, '하이드라 소환': { cls: 'summoner', lv: 65 }, '영혼 폭풍': { cls: 'summoner', lv: 70 },
   '고대 용 소환': { cls: 'summoner', lv: 75 },
+  '얼음 여왕 소환': { cls: 'summoner', lv: 80 }, '뇌신 소환': { cls: 'summoner', lv: 85 },
+  '대지 거신 소환': { cls: 'summoner', lv: 90 }, '천상의 수호자': { cls: 'summoner', lv: 95 },
+  '시공의 지배자': { cls: 'summoner', lv: 100 },
 };
 function getSkillIcon(name: string): string {
   const m = SKILL_CLASS_MAP[name];
