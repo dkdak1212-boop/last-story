@@ -87,15 +87,18 @@ export function GuildScreen() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [applications, setApplications] = useState<GuildApplication[]>([]);
+  // 'list' = 길드 랭킹 목록, 'my' = 내 길드 상세. 길드 가입자도 랭킹 볼 수 있도록 토글 지원
+  const [view, setView] = useState<'list' | 'my'>('my');
 
   async function load() {
     if (!active) return;
     const res = await api<{ guild: MyGuild | null }>(`/guilds/my/${active.id}`);
     setMy(res.guild);
-    if (!res.guild) {
-      const list = await api<GuildSummary[]>('/guilds');
-      setGuilds(list);
-    }
+    // 랭킹 목록은 항상 로드 — 길드원도 다른 길드 확인 가능
+    const list = await api<GuildSummary[]>('/guilds');
+    setGuilds(list);
+    // 길드 미가입이면 자동으로 랭킹 뷰
+    if (!res.guild) setView('list');
   }
   useEffect(() => { load(); }, [active?.id]);
 
@@ -209,8 +212,8 @@ export function GuildScreen() {
   useEffect(() => { if (tab === 'territory') loadTerritories(); }, [tab, active?.id]);
   useEffect(() => { if (tab === 'applications') loadApplications(); }, [tab, active?.id, my?.id]);
 
-  // ── 길드 가입 안 한 상태 (목록 + 생성) ──
-  if (!my) {
+  // ── 길드 랭킹 목록 뷰 (가입자 / 미가입자 공통) ──
+  if (!my || view === 'list') {
     return (
       <div>
         <div style={{
@@ -227,9 +230,18 @@ export function GuildScreen() {
                 길드에 가입해 동료들과 함께 강해지세요. 길드 스킬과 일일 기여로 큰 보너스를 얻습니다.
               </div>
             </div>
-            <button className="primary" onClick={() => setCreating(!creating)}>
-              {creating ? '취소' : '길드 생성 (100,000G)'}
-            </button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {my && (
+                <button className="primary" onClick={() => setView('my')}>
+                  내 길드 가기 ({my.name})
+                </button>
+              )}
+              {!my && (
+                <button className="primary" onClick={() => setCreating(!creating)}>
+                  {creating ? '취소' : '길드 생성 (100,000G)'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -289,7 +301,15 @@ export function GuildScreen() {
                   </div>
                   {g.description && <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>{g.description}</div>}
                 </div>
-                <button onClick={() => apply(g.id)} disabled={full}>가입 신청</button>
+                {my ? (
+                  my.id === g.id ? (
+                    <button className="primary" onClick={() => setView('my')}>내 길드</button>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>—</span>
+                  )
+                ) : (
+                  <button onClick={() => apply(g.id)} disabled={full}>가입 신청</button>
+                )}
               </div>
             );
           })}
@@ -354,7 +374,8 @@ export function GuildScreen() {
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={() => setView('list')} style={{ fontSize: 11 }}>길드 랭킹</button>
             {my.isLeader && <button onClick={disband} style={{ fontSize: 11 }}>해산</button>}
             {!my.isLeader && <button onClick={leave} style={{ fontSize: 11 }}>탈퇴</button>}
           </div>
