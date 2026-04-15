@@ -213,8 +213,8 @@ export function NodeTreeScreen() {
   const isSingleZone = zones.length <= 1;
   const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
   const nodeMap = useMemo(() => new Map(zoneNodes.map(n => [n.id, n])), [zoneNodes]);
-  // 소환사만 DB position_x/y 사용 (444개 대형 트리 전용)
-  // 다른 직업은 기존 computeRadialLayout 유지 (전사/마법사/성직자/도적 원본)
+  // 소환사: DB position_x/y 직접 사용 (444개 대형 트리 전용)
+  // 그 외 직업: computeRadialLayout 자동 레이아웃 + 초월 노드만 DB position 으로 override
   const positions = useMemo(() => {
     if (active?.className === 'summoner') {
       const scale = 65;
@@ -224,7 +224,16 @@ export function NodeTreeScreen() {
       }
       return m;
     }
-    return computeRadialLayout(zoneNodes);
+    // 자동 레이아웃
+    const m = computeRadialLayout(zoneNodes);
+    // 초월(huge) 노드만 DB 위치로 override — 원하는 지점에 고정 배치
+    const HUGE_SCALE = 22;
+    for (const n of zoneNodes) {
+      if (n.tier === 'huge' && ((n.positionX ?? 0) !== 0 || (n.positionY ?? 0) !== 0)) {
+        m.set(n.id, { x: (n.positionX ?? 0) * HUGE_SCALE, y: (n.positionY ?? 0) * HUGE_SCALE });
+      }
+    }
+    return m;
   }, [zoneNodes, active?.className]);
 
   const highlightChain = useMemo(() => {
