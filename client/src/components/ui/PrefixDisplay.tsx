@@ -80,7 +80,7 @@ export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
               border: `1px solid ${s.color}`,
               borderRadius: 2,
             }}>T{tier}</span>
-            ◆ {text}
+            {text}
           </span>
         );
       })}
