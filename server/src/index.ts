@@ -1066,9 +1066,11 @@ async function runMigrations() {
       // 1) 컬럼 보장 (IF NOT EXISTS)
       await query(`ALTER TABLE character_skills ADD COLUMN IF NOT EXISTS slot_order INT NOT NULL DEFAULT 0`);
       // 2) cd=0 기본기는 항상 auto_use=TRUE로 강제 (off로 빠진 캐릭터 복구)
+      //    예외: 소환사 늑대 소환 — 유저가 직접 on/off 토글할 수 있도록 강제 제외
       await query(`
         UPDATE character_skills cs SET auto_use = TRUE
         FROM skills s WHERE s.id = cs.skill_id AND s.cooldown_actions = 0 AND cs.auto_use = FALSE
+          AND NOT (s.class_name = 'summoner' AND s.name = '늑대 소환')
       `);
       // 3) slot_order가 0인(=초기화 안 된) 행만 required_level 순으로 부여
       await query(`

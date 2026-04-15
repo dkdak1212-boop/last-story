@@ -306,12 +306,14 @@ async function getCharSkills(characterId: number, className: string, level: numb
   }
 
   // 안전망: cd=0 기본기는 무조건 auto_use=TRUE로 강제
+  // 예외: 소환사 늑대 소환 — 유저가 on/off 토글할 수 있도록 강제하지 않음
   try {
     await query(`
       UPDATE character_skills cs SET auto_use = TRUE
       FROM skills s
       WHERE s.id = cs.skill_id AND cs.character_id = $1
         AND s.cooldown_actions = 0 AND cs.auto_use = FALSE
+        AND NOT (s.class_name = 'summoner' AND s.name = '늑대 소환')
     `, [characterId]);
   } catch {}
 
@@ -2507,19 +2509,6 @@ export async function startCombatSession(characterId: number, fieldId: number): 
   const counterInc = pMap.get('counter_incarnation') || 0;
   if (counterInc > 0) {
     session.statusEffects.push({ id: 'counter_inc', type: 'damage_reflect', value: counterInc, remainingActions: 99999, source: 'monster' });
-  }
-
-  // 소환사: 전투 시작 시 기본 늑대 1마리 자동 소환 (셋업 비용 제거)
-  if (char.class_name === 'summoner' && session.statusEffects.every(e => e.type !== 'summon')) {
-    session.statusEffects.push({
-      id: `init_wolf_${Date.now()}`,
-      type: 'summon',
-      value: 120, // 늑대 소환 val 와 동일
-      remainingActions: 10,
-      source: 'player',
-      element: 'earth',
-      summonSkillName: '늑대 소환',
-    });
   }
 
   // DB 세션
