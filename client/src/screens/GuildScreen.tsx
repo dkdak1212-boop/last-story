@@ -216,6 +216,27 @@ export function GuildScreen() {
   if (!my || view === 'list') {
     return (
       <div>
+        {/* 뷰 토글 탭 — 가입자에게만 노출 */}
+        {my && (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '2px solid var(--border)' }}>
+            <button onClick={() => setView('my')} style={{
+              flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 700,
+              border: 'none', cursor: 'pointer',
+              background: 'transparent',
+              color: 'var(--text-dim)',
+              borderBottom: '3px solid transparent',
+              marginBottom: -2,
+            }}>내 길드</button>
+            <button onClick={() => setView('list')} style={{
+              flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 700,
+              border: 'none', cursor: 'pointer',
+              background: 'var(--bg-panel)',
+              color: 'var(--accent)',
+              borderBottom: '3px solid var(--accent)',
+              marginBottom: -2,
+            }}>전체 길드 랭킹</button>
+          </div>
+        )}
         <div style={{
           padding: 20, marginBottom: 16, borderRadius: 6,
           background: 'linear-gradient(135deg, rgba(218,165,32,0.12), rgba(218,165,32,0.04))',
@@ -325,6 +346,26 @@ export function GuildScreen() {
 
   return (
     <div>
+      {/* 뷰 토글: 내 길드 ↔ 길드 랭킹 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '2px solid var(--border)' }}>
+        <button onClick={() => setView('my')} style={{
+          flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 700,
+          border: 'none', cursor: 'pointer',
+          background: 'var(--bg-panel)',
+          color: 'var(--accent)',
+          borderBottom: '3px solid var(--accent)',
+          marginBottom: -2,
+        }}>내 길드</button>
+        <button onClick={() => setView('list')} style={{
+          flex: 1, padding: '10px 0', fontSize: 13, fontWeight: 700,
+          border: 'none', cursor: 'pointer',
+          background: 'transparent',
+          color: 'var(--text-dim)',
+          borderBottom: '3px solid transparent',
+          marginBottom: -2,
+        }}>전체 길드 랭킹</button>
+      </div>
+
       {/* ── HERO ── */}
       <div style={{
         padding: 20, marginBottom: 14, borderRadius: 6,
