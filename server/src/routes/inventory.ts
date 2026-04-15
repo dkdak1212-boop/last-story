@@ -71,11 +71,12 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
     class_restriction: string | null; quality: number;
+    unique_prefix_stats: Record<string, number> | null;
   }>(
     `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
-            i.class_restriction, COALESCE(ci.quality, 0) AS quality
+            i.class_restriction, COALESCE(ci.quality, 0) AS quality, i.unique_prefix_stats
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
     [id]
@@ -95,6 +96,31 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       }
     }
     return stats;
+  }
+
+  // 유니크 고정 옵션을 병합 저장된 prefix_stats 에서 제거 → 순수 랜덤 접두사만 반환
+  // description 에 이미 '[유니크] X, Y' 로 표기되므로 PrefixDisplay 중복 방지
+  function stripUniqueFromPrefix(
+    raw: Record<string, number> | null,
+    uniqueStats: Record<string, number> | null,
+    enhanceLevel: number,
+    grade: string,
+  ): Record<string, number> {
+    if (grade !== 'unique' || !uniqueStats) return safePrefixStats(raw, enhanceLevel);
+    const total = { ...(raw || {}) };
+    const stripped: Record<string, number> = {};
+    for (const [k, v] of Object.entries(total)) {
+      const uniqueRaw = uniqueStats[k] || 0;
+      const randomRaw = v - uniqueRaw;
+      if (randomRaw > 0) stripped[k] = randomRaw;
+    }
+    if (enhanceLevel > 0) {
+      const mult = 1 + enhanceLevel * 0.05;
+      for (const k of Object.keys(stripped)) {
+        stripped[k] = Math.round(stripped[k] * mult);
+      }
+    }
+    return stripped;
   }
 
   // 강화 배율 + 품질 보너스 (덧셈 합산)
@@ -120,7 +146,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       quantity: r.quantity,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStats: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, r.enhance_level, r.grade),
       prefixName: pName,
       prefixTiers: pTiers,
       locked: r.locked,
@@ -144,10 +170,11 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     name: string; type: string; grade: string;
     item_slot: string | null; stats: Record<string, number> | null; description: string;
     class_restriction: string | null; quality: number;
+    unique_prefix_stats: Record<string, number> | null;
   }>(
     `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats, ce.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description, i.class_restriction,
-            COALESCE(ce.quality, 0) AS quality
+            COALESCE(ce.quality, 0) AS quality, i.unique_prefix_stats
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
   );
@@ -168,7 +195,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       description: r.description, stackSize: 1, sellPrice: 0,
       enhanceLevel: r.enhance_level,
       prefixIds: pIds,
-      prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
+      prefixStats: stripUniqueFromPrefix(r.prefix_stats, r.unique_prefix_stats, r.enhance_level, r.grade),
       prefixTiers: pTiers,
       locked: r.locked,
       classRestriction: r.class_restriction,
