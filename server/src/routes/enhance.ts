@@ -348,14 +348,15 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 대상 아이템 레벨 + 기존 prefix_ids/prefix_stats + 강화 레벨 조회
+  // 대상 아이템 레벨 + 기존 prefix_ids/prefix_stats + 강화 레벨 + 유니크 고유옵 조회
   let targetItemLevel = 35;
   let existingPrefixIds: number[] = [];
   let existingPrefixStats: Record<string, number> = {};
   let targetEnhanceLevel = 0;
+  let uniqueFixedStats: Record<string, number> = {};
   if (parsed.data.kind === 'inventory') {
-    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; enhance_level: number }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids, ci.prefix_stats, ci.enhance_level
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; enhance_level: number; unique_prefix_stats: Record<string, number> | null; grade: string }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids, ci.prefix_stats, ci.enhance_level, i.unique_prefix_stats, i.grade
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2`, [cid, parsed.data.slotKey]);
     if (ilr.rows[0]) {
@@ -363,10 +364,11 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
       existingPrefixIds = ilr.rows[0].prefix_ids || [];
       existingPrefixStats = ilr.rows[0].prefix_stats || {};
       targetEnhanceLevel = ilr.rows[0].enhance_level || 0;
+      if (ilr.rows[0].grade === 'unique') uniqueFixedStats = ilr.rows[0].unique_prefix_stats || {};
     }
   } else {
-    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; enhance_level: number }>(
-      `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids, ce.prefix_stats, ce.enhance_level
+    const ilr = await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; enhance_level: number; unique_prefix_stats: Record<string, number> | null; grade: string }>(
+      `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids, ce.prefix_stats, ce.enhance_level, i.unique_prefix_stats, i.grade
        FROM character_equipped ce JOIN items i ON i.id = ce.item_id
        WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
     if (ilr.rows[0]) {
@@ -374,6 +376,7 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
       existingPrefixIds = ilr.rows[0].prefix_ids || [];
       existingPrefixStats = ilr.rows[0].prefix_stats || {};
       targetEnhanceLevel = ilr.rows[0].enhance_level || 0;
+      if (ilr.rows[0].grade === 'unique') uniqueFixedStats = ilr.rows[0].unique_prefix_stats || {};
     }
   }
 
@@ -381,16 +384,33 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     return res.status(400).json({ error: '접두사가 없는 장비입니다.' });
   }
 
+  // 유니크 고유옵은 prefix_stats에 병합 저장되어 있음 — 재굴림 전에 분리
+  //   pureRandomStats = existingPrefixStats - uniqueFixedStats
+  // 재굴림 후 uniqueFixedStats 를 다시 병합해서 저장
+  const pureRandomStats: Record<string, number> = { ...existingPrefixStats };
+  for (const [k, v] of Object.entries(uniqueFixedStats)) {
+    if (pureRandomStats[k] !== undefined) {
+      pureRandomStats[k] = pureRandomStats[k] - v;
+      if (pureRandomStats[k] <= 0) delete pureRandomStats[k];
+    }
+  }
+
   // 기존 접두사의 tier/stat을 유지하고 값만 min~max 범위에서 재굴림
   // prefixIndex가 지정되면 그 인덱스 1개만, 없으면 전체 재굴림
-  // 두 경우 모두 prevStats 전달 — rollOne 실패 시 기존 값 유지 (방어적)
-  const { prefixIds, bonusStats } = await rerollPrefixValues(
+  // 두 경우 모두 pureRandomStats 전달 — rollOne 실패 시 기존 값 유지 (방어적)
+  const { prefixIds, bonusStats: rolledRandom } = await rerollPrefixValues(
     existingPrefixIds,
     targetItemLevel,
     parsed.data.prefixIndex !== undefined
-      ? { targetIndex: parsed.data.prefixIndex, prevStats: existingPrefixStats }
-      : { prevStats: existingPrefixStats },
+      ? { targetIndex: parsed.data.prefixIndex, prevStats: pureRandomStats }
+      : { prevStats: pureRandomStats },
   );
+
+  // 유니크 고유옵 재병합
+  const bonusStats: Record<string, number> = { ...rolledRandom };
+  for (const [k, v] of Object.entries(uniqueFixedStats)) {
+    bonusStats[k] = (bonusStats[k] ?? 0) + v;
+  }
 
   // 대상 장비에 접두사 업데이트
   if (parsed.data.kind === 'inventory') {
