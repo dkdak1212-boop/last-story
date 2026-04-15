@@ -79,10 +79,10 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   // 캐릭터 슬롯 한도 체크
   const u = await query<{ max_character_slots: number }>(
-    'SELECT COALESCE(max_character_slots, 2) AS max_character_slots FROM users WHERE id = $1',
+    'SELECT COALESCE(max_character_slots, 3) AS max_character_slots FROM users WHERE id = $1',
     [req.userId]
   );
-  const maxSlots = u.rows[0]?.max_character_slots || 2;
+  const maxSlots = u.rows[0]?.max_character_slots || 3;
   const curCount = await query<{ cnt: string }>(
     'SELECT COUNT(*)::text AS cnt FROM characters WHERE user_id = $1',
     [req.userId]

@@ -66,7 +66,7 @@ router.post('/register', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await query<{ id: number }>(
-      'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 2) RETURNING id',
+      'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 3) RETURNING id',
       [username, hash, email.toLowerCase(), ip]
     );
     const userId = result.rows[0].id;
