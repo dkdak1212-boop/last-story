@@ -1470,11 +1470,20 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'summon_dot':
     case 'summon_heal':
     case 'summon_multi': {
-      // 최대 소환수 체크
+      // 같은 종류 소환수 캡 = 3 (per-type)
+      const PER_TYPE_CAP = 3;
+      const sameType = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.summonSkillName === skill.name);
+      if (sameType.length >= PER_TYPE_CAP) {
+        // 같은 종류 중 가장 오래된 것 교체
+        const oldestSame = sameType.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
+        s.statusEffects = s.statusEffects.filter(e => e.id !== oldestSame.id);
+        addLog(s, `[${skill.name}] 같은 종류 교체!`);
+      }
+      // 전체 소환수 캡 (글로벌)
       const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra');
       const activeSummons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
       if (activeSummons.length >= maxSummons) {
-        // 가장 오래된 소환수 제거
+        // 가장 오래된 소환수 제거 (다른 종류 포함)
         const oldest = activeSummons.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
         s.statusEffects = s.statusEffects.filter(e => e.id !== oldest.id);
         addLog(s, `[소환] ${skill.name} 교체 소환!`);
