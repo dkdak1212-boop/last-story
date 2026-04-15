@@ -199,6 +199,7 @@ export interface CombatSkillInfo {
   cooldownMax: number;
   cooldownLeft: number;  // 남은 행동 횟수
   usable: boolean;
+  description?: string;  // 툴팁 (DB 자동 생성)
 }
 
 // ── 노드 관련 타입 ──

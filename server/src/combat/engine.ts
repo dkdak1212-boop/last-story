@@ -132,6 +132,7 @@ interface SkillDef {
   required_level: number;
   slot_order: number;
   element?: string | null;
+  description?: string;
 }
 
 // ── 활성 세션 관리 (인메모리) ──
@@ -346,7 +347,7 @@ async function getCharSkills(characterId: number, className: string, level: numb
   try {
     const r = await query<SkillDef>(
       `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element,
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element, s.description,
               COALESCE(cs.slot_order, 9999) AS slot_order
        FROM skills s
        JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $3
@@ -360,7 +361,7 @@ async function getCharSkills(characterId: number, className: string, level: numb
     // 폴백: slot_order 없이 학습한 모든 스킬 로드
     const r = await query<Omit<SkillDef, 'slot_order'>>(
       `SELECT s.id, s.name, s.damage_mult, s.kind, s.cooldown_actions, s.flat_damage,
-              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element
+              s.effect_type, s.effect_value, s.effect_duration, s.required_level, s.element, s.description
        FROM skills s
        WHERE s.class_name = $1 AND s.required_level <= $2
        ORDER BY s.required_level ASC`,
@@ -1481,14 +1482,36 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.statusEffects = s.statusEffects.filter(e => e.id !== oldestSame.id);
         addLog(s, `[${skill.name}] 같은 종류 교체!`);
       }
-      // 전체 소환수 캡 (글로벌)
+      // 전체 소환수 캡 (글로벌) — 다른 종류 보호: 가장 많이 차지한 종류부터 우선 제거
       const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra');
       const activeSummons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
       if (activeSummons.length >= maxSummons) {
-        // 가장 오래된 소환수 제거 (다른 종류 포함)
-        const oldest = activeSummons.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
-        s.statusEffects = s.statusEffects.filter(e => e.id !== oldest.id);
-        addLog(s, `[소환] ${skill.name} 교체 소환!`);
+        // 종류별 카운트
+        const typeCount = new Map<string, number>();
+        for (const sm of activeSummons) {
+          const k = sm.summonSkillName || '?';
+          typeCount.set(k, (typeCount.get(k) || 0) + 1);
+        }
+        // 가장 많이 차지한 종류 (자기자신 제외 우선)
+        let dominantType = '';
+        let dominantCount = 0;
+        for (const [k, c] of typeCount) {
+          if (k === skill.name) continue; // 자기자신 종류는 후순위
+          if (c > dominantCount) { dominantCount = c; dominantType = k; }
+        }
+        // 자기자신만 있으면 자기 종류에서 제거
+        if (!dominantType) {
+          for (const [k, c] of typeCount) {
+            if (c > dominantCount) { dominantCount = c; dominantType = k; }
+          }
+        }
+        // 지배 종류 중 가장 오래된 1마리 제거
+        const candidates = activeSummons.filter(e => (e.summonSkillName || '?') === dominantType);
+        if (candidates.length > 0) {
+          const oldest = candidates.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
+          s.statusEffects = s.statusEffects.filter(e => e.id !== oldest.id);
+          addLog(s, `[소환] ${skill.name} 교체 소환! (${dominantType} 정리)`);
+        }
       }
       const durBonus = getPassive(s, 'summon_duration');
       const infinite = getPassive(s, 'summon_infinite') > 0;
@@ -2395,6 +2418,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       cooldownMax: sk.cooldown_actions,
       cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
       usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
+      description: sk.description,
     })),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
@@ -2792,6 +2816,7 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
       cooldownMax: sk.cooldown_actions,
       cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
       usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
+      description: sk.description,
     })),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },

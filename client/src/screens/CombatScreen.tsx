@@ -1128,7 +1128,7 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
                     {fx.icon} {sk.name}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
-                    {SKILL_DESCRIPTIONS[sk.name] || '스킬 효과'}
+                    {sk.description || SKILL_DESCRIPTIONS[sk.name] || '스킬 효과'}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                     {isBasic ? '기본기 (쿨다운 없음)' : `쿨다운: ${sk.cooldownMax}턴`}
