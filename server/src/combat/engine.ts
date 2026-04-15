@@ -2509,6 +2509,19 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     session.statusEffects.push({ id: 'counter_inc', type: 'damage_reflect', value: counterInc, remainingActions: 99999, source: 'monster' });
   }
 
+  // 소환사: 전투 시작 시 기본 늑대 1마리 자동 소환 (셋업 비용 제거)
+  if (char.class_name === 'summoner' && session.statusEffects.every(e => e.type !== 'summon')) {
+    session.statusEffects.push({
+      id: `init_wolf_${Date.now()}`,
+      type: 'summon',
+      value: 120, // 늑대 소환 val 와 동일
+      remainingActions: 10,
+      source: 'player',
+      element: 'earth',
+      summonSkillName: '늑대 소환',
+    });
+  }
+
   // DB 세션
   await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
   await query(
