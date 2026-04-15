@@ -22,21 +22,24 @@ const GUILD_COST = 100000;
 // 길드 목록
 router.get('/', async (_req, res) => {
   const r = await query<{
-    id: number; name: string; description: string; member_count: string;
+    id: number; name: string; description: string; member_count: number;
     leader_name: string; max_members: number; stat_buff_pct: number;
-    level: number; exp: string; level_sum: string;
+    level: number; exp: string; level_sum: number;
     skill_gold: number; skill_exp: number; skill_drop: number; skill_hp: number;
   }>(
-    `SELECT g.id, g.name, g.description, g.max_members, g.stat_buff_pct, g.level, g.exp,
-            (SELECT COUNT(*) FROM guild_members gm WHERE gm.guild_id = g.id)::text AS member_count,
-            COALESCE((SELECT SUM(c2.level)::text FROM guild_members gm2 JOIN characters c2 ON c2.id = gm2.character_id WHERE gm2.guild_id = g.id), '0') AS level_sum,
-            c.name AS leader_name,
-            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'gold'), 0) AS skill_gold,
-            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'exp'), 0) AS skill_exp,
-            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'drop'), 0) AS skill_drop,
-            COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'hp'), 0) AS skill_hp
-     FROM guilds g JOIN characters c ON c.id = g.leader_id
-     ORDER BY level_sum::bigint DESC, member_count DESC, g.created_at ASC LIMIT 100`
+    `SELECT * FROM (
+       SELECT g.id, g.name, g.description, g.max_members, g.stat_buff_pct, g.level, g.exp,
+              COALESCE((SELECT COUNT(*)::int FROM guild_members gm WHERE gm.guild_id = g.id), 0) AS member_count,
+              COALESCE((SELECT SUM(c2.level)::bigint FROM guild_members gm2 JOIN characters c2 ON c2.id = gm2.character_id WHERE gm2.guild_id = g.id), 0) AS level_sum,
+              c.name AS leader_name,
+              g.created_at,
+              COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'gold'), 0) AS skill_gold,
+              COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'exp'), 0) AS skill_exp,
+              COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'drop'), 0) AS skill_drop,
+              COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'hp'), 0) AS skill_hp
+       FROM guilds g JOIN characters c ON c.id = g.leader_id
+     ) x
+     ORDER BY level_sum DESC, member_count DESC, created_at ASC LIMIT 100`
   );
   res.json(r.rows.map(row => ({
     id: row.id, name: row.name, description: row.description,
