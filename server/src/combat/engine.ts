@@ -1122,7 +1122,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const POISON_MULTI_MULT = 1.8;
+      const POISON_MULTI_MULT = 2.0;
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
@@ -1189,7 +1189,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const POISON_MULT = 1.8;
+      const POISON_MULT = 2.0;
       const dotDmg = Math.round(dotBase * POISON_MULT);
       const poisonLordExt2 = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration + poisonLordExt2, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
@@ -1367,9 +1367,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 독안개/맹독의 안개: 설명상 독 도트 효과 추가
       if (skill.name === '독안개' || skill.name === '맹독의 안개') {
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-        const dotDmg = Math.round(dotBase * 1.5);
+        const dotDmg = Math.round(dotBase * 1.7);
         const poisonLordExt3 = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
-        addEffect(s, { type: 'poison', value: dotDmg, remainingActions: debuffDur + poisonLordExt3, source: 'player', dotMult: 1.5, dotUseMatk: useMatk });
+        addEffect(s, { type: 'poison', value: dotDmg, remainingActions: debuffDur + poisonLordExt3, source: 'player', dotMult: 1.7, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x${debuffDur}행동 (방어 50% 무시)`);
       }
       break;
@@ -2217,7 +2217,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   // 도적 전용: 새 몬스터에 기본 독 2스택 초기 부여 (들쭉날쭉 완화)
   if (s.className === 'rogue' && !isDummyMonster(s)) {
     const initDotBase = s.playerStats.atk;
-    const INIT_POISON_MULT = 1.5;
+    const INIT_POISON_MULT = 1.7;
     const initDotDmg = Math.round(initDotBase * INIT_POISON_MULT);
     for (let i = 0; i < 2; i++) {
       addEffect(s, { type: 'poison', value: initDotDmg, remainingActions: 3, source: 'player', dotMult: INIT_POISON_MULT, dotUseMatk: false });
