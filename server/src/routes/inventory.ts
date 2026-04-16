@@ -381,15 +381,14 @@ router.post('/:id/dismantle', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, name: item.name, gold });
 });
 
-// 자동분해 설정 조회 — T1~T4 비트마스크 기반
-// tiers 비트: bit0=T1, bit1=T2, bit2=T3, bit3=T4
+// 자동판매 설정 조회
 router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const r = await query<{ auto_dismantle_tiers: number; auto_dismantle_common: boolean }>(
-    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_dismantle_common, FALSE) AS auto_dismantle_common FROM characters WHERE id = $1', [id]
+  const r = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number }>(
+    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max FROM characters WHERE id = $1', [id]
   );
   const tiers = r.rows[0]?.auto_dismantle_tiers ?? 0;
   res.json({
@@ -398,12 +397,11 @@ router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
     t2: !!(tiers & 2),
     t3: !!(tiers & 4),
     t4: !!(tiers & 8),
-    // 하위 호환
-    autoDismantleCommon: r.rows[0]?.auto_dismantle_common ?? false,
+    qualityMax: r.rows[0]?.auto_sell_quality_max ?? 0,
   });
 });
 
-// 자동분해 설정 변경 — T1~T4 개별 토글
+// 자동판매 설정 변경
 router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
@@ -415,7 +413,7 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
     t3: z.boolean().optional(),
     t4: z.boolean().optional(),
     tiers: z.number().int().min(0).max(15).optional(),
-    // 레거시: enabled=true → T1+T2+T3 (이전 동작), false → 0
+    qualityMax: z.number().int().min(0).max(100).optional(),
     enabled: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
@@ -426,7 +424,6 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   } else if (parsed.data.enabled !== undefined) {
     newTiers = parsed.data.enabled ? 7 : 0;
   } else {
-    // 개별 토글로 받은 경우 — 현재 값 로드 후 병합
     const cur = await query<{ auto_dismantle_tiers: number }>(
       'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers FROM characters WHERE id = $1', [id]
     );
@@ -438,17 +435,26 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
     newTiers = t;
   }
 
-  await query(
-    'UPDATE characters SET auto_dismantle_tiers = $1, auto_dismantle_common = $2 WHERE id = $3',
-    [newTiers, newTiers > 0, id]
+  const updates: string[] = ['auto_dismantle_tiers = $1', 'auto_dismantle_common = $2'];
+  const params: unknown[] = [newTiers, newTiers > 0];
+  if (parsed.data.qualityMax !== undefined) {
+    updates.push(`auto_sell_quality_max = $${params.length + 1}`);
+    params.push(parsed.data.qualityMax);
+  }
+  params.push(id);
+  await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+
+  const fresh = await query<{ auto_sell_quality_max: number }>(
+    'SELECT COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max FROM characters WHERE id = $1', [id]
   );
+
   res.json({
     tiers: newTiers,
     t1: !!(newTiers & 1),
     t2: !!(newTiers & 2),
     t3: !!(newTiers & 4),
     t4: !!(newTiers & 8),
-    autoDismantleCommon: newTiers > 0,
+    qualityMax: fresh.rows[0]?.auto_sell_quality_max ?? 0,
   });
 });
 

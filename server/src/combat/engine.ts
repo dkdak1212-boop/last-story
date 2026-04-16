@@ -2112,35 +2112,45 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     .catch(err => console.error('[combat] trackMonsterKill err', err));
 
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
-  // 자동분해 설정 체크 — T1~T4 비트마스크
-  const autoDismantleR = await query<{ auto_dismantle_tiers: number }>(
-    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers FROM characters WHERE id = $1',
+  // 자동판매 설정 체크 — T1~T4 비트마스크 + 품질 상한
+  const autoSellR = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number }>(
+    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max FROM characters WHERE id = $1',
     [s.characterId]
   );
-  const dismantleTiers = autoDismantleR.rows[0]?.auto_dismantle_tiers ?? 0;
+  const sellTiers = autoSellR.rows[0]?.auto_dismantle_tiers ?? 0;
+  const sellQualityMax = autoSellR.rows[0]?.auto_sell_quality_max ?? 0;
 
   for (const drop of drops) {
-    // 자동분해: 설정된 tier 에 해당하는 장비만 분해 (유니크/3옵은 항상 보호)
-    if (dismantleTiers > 0) {
+    // 자동판매: 설정된 tier + 품질 기준 이하 장비만 판매 (유니크/3옵은 항상 보호)
+    if (sellTiers > 0) {
       const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
         'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
       );
       if (itemCheck.rows[0] && itemCheck.rows[0].slot && itemCheck.rows[0].grade !== 'unique') {
         const { generatePrefixes } = await import('../game/prefix.js');
         const { prefixIds, bonusStats, maxTier } = await generatePrefixes(itemCheck.rows[0].required_level);
+        const quality = Math.floor(Math.random() * 101);
         const is3Options = prefixIds.length >= 3;
         const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
-        const shouldDismantle = !is3Options && (dismantleTiers & tierBit) !== 0;
+        const tierMatch = (sellTiers & tierBit) !== 0;
+        const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
+        const shouldSell = !is3Options && tierMatch && qualityMatch;
 
-        if (shouldDismantle) {
+        if (shouldSell) {
           const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
           batchAdd(s.characterId, { goldDelta: gold });
-          addLog(s, `${itemCheck.rows[0].name} 자동분해 (T${maxTier}) → +${gold}G`);
+          addLog(s, `${itemCheck.rows[0].name} 자동판매 (T${maxTier}, ${quality}%) → +${gold}G`);
           continue;
         }
-        // 보호 — 이유 로그
-        const reason = is3Options ? '3옵' : `T${maxTier} 보호`;
-        addLog(s, `${itemCheck.rows[0].name} 자동분해 보호! (${reason})`);
+        if (tierMatch && !qualityMatch) {
+          // 티어는 매칭되지만 품질이 높아서 보호 — 정상 드랍으로 진행 (품질 재사용)
+          (drop as any)._prerolledQuality = quality;
+          (drop as any)._prerolledPrefixIds = prefixIds;
+          (drop as any)._prerolledBonusStats = bonusStats;
+        }
+        if (is3Options) {
+          addLog(s, `${itemCheck.rows[0].name} 자동판매 보호! (3옵)`);
+        }
       }
     }
 

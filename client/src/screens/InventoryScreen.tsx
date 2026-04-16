@@ -63,8 +63,9 @@ export function InventoryScreen() {
   const [inv, setInv] = useState<InventorySlot[]>([]);
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
-  const [, setAutoDismantleCommon] = useState(false);
+  const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
+  const [sellQualityMax, setSellQualityMax] = useState(0);
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -80,10 +81,10 @@ export function InventoryScreen() {
 
   useEffect(() => {
     if (!active) return;
-    api<{ autoDismantleCommon: boolean; t1: boolean; t2: boolean; t3: boolean; t4: boolean }>(`/characters/${active.id}/auto-dismantle`)
+    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number }>(`/characters/${active.id}/auto-dismantle`)
       .then(d => {
-        setAutoDismantleCommon(d.autoDismantleCommon);
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
+        setSellQualityMax(d.qualityMax ?? 0);
       }).catch(() => {});
   }, [active?.id]);
   useEffect(() => { refresh(); }, [active, sortMode]);
@@ -127,15 +128,22 @@ export function InventoryScreen() {
       await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '강화 실패'); } finally { setEnhanceBusy(false); }
   }
-  async function toggleDismantleTier(tier: 't1' | 't2' | 't3' | 't4') {
+  async function toggleSellTier(tier: 't1' | 't2' | 't3' | 't4') {
     if (!active) return;
     try {
-      const res = await api<{ autoDismantleCommon: boolean; t1: boolean; t2: boolean; t3: boolean; t4: boolean }>(
+      const res = await api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number }>(
         `/characters/${active.id}/auto-dismantle`,
         { method: 'POST', body: JSON.stringify({ [tier]: !dismantleTiers[tier] }) }
       );
-      setAutoDismantleCommon(res.autoDismantleCommon);
       setDismantleTiers({ t1: res.t1, t2: res.t2, t3: res.t3, t4: res.t4 });
+      setSellQualityMax(res.qualityMax);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function updateSellQuality(val: number) {
+    if (!active) return;
+    setSellQualityMax(val);
+    try {
+      await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
 
@@ -368,22 +376,35 @@ export function InventoryScreen() {
               background: 'rgba(218,165,32,0.15)', color: 'var(--accent)',
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
             }}>전체 판매</button>
-            <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
-              <span style={{ marginRight: 2 }}>자동분해:</span>
-              {(['t1','t2','t3','t4'] as const).map((tier) => {
-                const active = dismantleTiers[tier];
-                const label = tier.toUpperCase();
-                const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
-                const c = tierColor[tier];
-                return (
-                  <button key={tier} onClick={() => toggleDismantleTier(tier)} style={{
-                    fontSize: 10, padding: '4px 8px', borderRadius: 3,
-                    background: active ? c : 'transparent',
-                    color: active ? '#000' : c,
-                    border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
-                  }}>{label}</button>
-                );
-              })}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
+                <span style={{ marginRight: 2 }}>자동판매:</span>
+                {(['t1','t2','t3','t4'] as const).map((tier) => {
+                  const on = dismantleTiers[tier];
+                  const label = tier.toUpperCase();
+                  const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
+                  const c = tierColor[tier];
+                  return (
+                    <button key={tier} onClick={() => toggleSellTier(tier)} style={{
+                      fontSize: 10, padding: '4px 8px', borderRadius: 3,
+                      background: on ? c : 'transparent',
+                      color: on ? '#000' : c,
+                      border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
+                  <span>품질 {sellQualityMax}% 이하 판매</span>
+                  <input type="range" min={0} max={100} step={5} value={sellQualityMax}
+                    onChange={e => updateSellQuality(Number(e.target.value))}
+                    style={{ flex: 1, maxWidth: 120, height: 14, accentColor: 'var(--accent)' }} />
+                  <span style={{ fontWeight: 700, color: sellQualityMax === 0 ? 'var(--text-dim)' : 'var(--accent)', minWidth: 28, textAlign: 'right' }}>
+                    {sellQualityMax === 0 ? 'OFF' : `${sellQualityMax}%`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
