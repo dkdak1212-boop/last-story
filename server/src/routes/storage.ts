@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query, withTransaction, type TxOk, type TxErr } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
+import { displayPrefixStats } from '../game/prefix.js';
 
 const router = Router();
 router.use(authRequired);
@@ -32,25 +33,56 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
   const goldR = await query<{ storage_gold: string }>(
     'SELECT storage_gold::text FROM users WHERE id = $1', [userId]
   );
+  // 접두사 이름 매핑
+  const allPrefixIds = [...new Set(itemsR.rows.flatMap(r => r.prefix_ids || []))];
+  const prefixInfoMap = new Map<number, { name: string; tier: number; statKey: string }>();
+  if (allPrefixIds.length > 0) {
+    const pr = await query<{ id: number; name: string; tier: number; stat_key: string }>(
+      'SELECT id, name, tier, stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [allPrefixIds]
+    );
+    for (const p of pr.rows) prefixInfoMap.set(p.id, { name: p.name, tier: p.tier, statKey: p.stat_key });
+  }
+  function buildPrefixName(ids: number[]): string {
+    return ids.map(id => prefixInfoMap.get(id)?.name).filter(Boolean).join(' ');
+  }
+  function buildPrefixTiers(ids: number[]): Record<string, number> {
+    const result: Record<string, number> = {};
+    for (const id of ids) {
+      const info = prefixInfoMap.get(id);
+      if (!info) continue;
+      if (!result[info.statKey] || result[info.statKey] < info.tier) result[info.statKey] = info.tier;
+    }
+    return result;
+  }
+
   res.json({
     maxSlots: STORAGE_SLOTS,
     gold: Number(goldR.rows[0]?.storage_gold || 0),
-    items: itemsR.rows.map(r => ({
-      id: r.id,
-      slotIndex: r.slot_index,
-      itemId: r.item_id,
-      quantity: r.quantity,
-      enhanceLevel: r.enhance_level,
-      prefixIds: r.prefix_ids || [],
-      prefixStats: r.prefix_stats || {},
-      quality: r.quality,
-      item: {
-        id: r.item_id, name: r.item_name, grade: r.item_grade,
-        slot: r.item_slot, type: r.item_type, description: r.item_description,
-        stats: r.item_stats, classRestriction: r.class_restriction,
-        requiredLevel: r.required_level,
-      },
-    })),
+    items: itemsR.rows.map(r => {
+      const pIds = r.prefix_ids || [];
+      const prefixName = buildPrefixName(pIds);
+      return {
+        id: r.id,
+        slotIndex: r.slot_index,
+        itemId: r.item_id,
+        quantity: r.quantity,
+        enhanceLevel: r.enhance_level,
+        prefixIds: pIds,
+        prefixStats: displayPrefixStats(r.prefix_stats, r.enhance_level || 0),
+        prefixName,
+        prefixTiers: buildPrefixTiers(pIds),
+        quality: r.quality,
+        item: {
+          id: r.item_id,
+          name: prefixName ? `${prefixName} ${r.item_name}` : r.item_name,
+          baseName: r.item_name,
+          grade: r.item_grade,
+          slot: r.item_slot, type: r.item_type, description: r.item_description,
+          stats: r.item_stats, classRestriction: r.class_restriction,
+          requiredLevel: r.required_level,
+        },
+      };
+    }),
   });
 });
 
