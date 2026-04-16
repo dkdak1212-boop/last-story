@@ -251,6 +251,26 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
+// 소환수/쿨다운 상태를 DB에 주기적 저장 (30초)
+let lastSummonSave = 0;
+setInterval(async () => {
+  if (Date.now() - lastSummonSave < 30000) return;
+  lastSummonSave = Date.now();
+  for (const [charId, s] of activeSessions) {
+    if (s.className !== 'summoner') continue;
+    const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+    if (summons.length === 0) continue;
+    try {
+      const cdObj: Record<string, number> = {};
+      for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
+      await query(
+        'UPDATE combat_sessions SET status_effects = $1::jsonb, skill_cooldowns = $2::jsonb WHERE character_id = $3',
+        [JSON.stringify(summons), JSON.stringify(cdObj), charId]
+      );
+    } catch {}
+  }
+}, 10000);
+
 // ── 헬퍼 ──
 
 function monsterToEffective(m: MonsterDef): EffectiveStats {
@@ -2823,7 +2843,22 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     session.statusEffects.push({ id: 'counter_inc', type: 'damage_reflect', value: counterInc, remainingActions: 99999, source: 'monster' });
   }
 
-  // DB 세션
+  // DB 세션 — 소환수 복원용으로 기존 세션 먼저 읽기
+  let savedSummons: any[] | null = null;
+  let savedCooldowns: Record<string, number> | null = null;
+  if (char.class_name === 'summoner') {
+    try {
+      const prev = await query<{ status_effects: any; skill_cooldowns: any }>(
+        'SELECT status_effects, skill_cooldowns FROM combat_sessions WHERE character_id = $1', [characterId]
+      );
+      if (prev.rows[0]?.status_effects && Array.isArray(prev.rows[0].status_effects)) {
+        savedSummons = prev.rows[0].status_effects.filter((e: any) => e.type === 'summon' && e.remainingActions > 0);
+      }
+      if (prev.rows[0]?.skill_cooldowns && typeof prev.rows[0].skill_cooldowns === 'object') {
+        savedCooldowns = prev.rows[0].skill_cooldowns;
+      }
+    } catch {}
+  }
   await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
   await query(
     `INSERT INTO combat_sessions
@@ -2833,6 +2868,24 @@ export async function startCombatSession(characterId: number, fieldId: number): 
   );
   await query('UPDATE characters SET location = $1, last_online_at = NOW() WHERE id = $2',
     [`field:${fieldId}`, characterId]);
+
+  // 소환수 복원: 이전 세션에서 저장된 소환수 + 쿨다운 복원
+  if (savedSummons && savedSummons.length > 0) {
+    for (const eff of savedSummons) {
+      session.statusEffects.push({
+        id: `restored_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: eff.type, value: eff.value, remainingActions: eff.remainingActions,
+        source: eff.source || 'player', dotMult: eff.dotMult,
+        element: eff.element, summonSkillName: eff.summonSkillName, dotUseMatk: eff.dotUseMatk,
+      });
+    }
+    console.log(`[combat] restored ${savedSummons.length} summons for char ${characterId}`);
+  }
+  if (savedCooldowns) {
+    for (const [k, v] of Object.entries(savedCooldowns)) {
+      if (typeof v === 'number' && v > 0) session.skillCooldowns.set(Number(k), v);
+    }
+  }
 
   await spawnMonsterForSession(session);
   activeSessions.set(characterId, session);
@@ -2846,7 +2899,18 @@ export async function stopCombatSession(characterId: number): Promise<void> {
   await flushCharBatch(characterId);
   const s = activeSessions.get(characterId);
   if (s) {
-    // 현재 HP 저장 — DB의 max_hp로 clamp (in-memory playerMaxHp는 장비/노드 포함한 유효값이므로 DB보다 클 수 있음)
+    // 소환수 상태 저장 (복원용)
+    if (s.className === 'summoner') {
+      const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+      const cdObj: Record<string, number> = {};
+      for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
+      try {
+        await query(
+          'UPDATE combat_sessions SET status_effects = $1::jsonb, skill_cooldowns = $2::jsonb WHERE character_id = $3',
+          [JSON.stringify(summons), JSON.stringify(cdObj), characterId]
+        );
+      } catch {}
+    }
     await query(
       'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
       [s.playerHp, 'village', characterId]
@@ -3063,12 +3127,43 @@ function ensureCombatLoop() {
 
 // 서버 시작 시 기존 DB 세션 복구
 export async function restoreCombatSessions(): Promise<void> {
-  const r = await query<{ character_id: number; field_id: number; player_hp: number; player_speed: number; auto_mode: boolean }>(
-    'SELECT character_id, field_id, player_hp, player_speed, auto_mode FROM combat_sessions'
+  const r = await query<{
+    character_id: number; field_id: number; player_hp: number; player_speed: number; auto_mode: boolean;
+    status_effects: any; skill_cooldowns: any;
+  }>(
+    'SELECT character_id, field_id, player_hp, player_speed, auto_mode, status_effects, skill_cooldowns FROM combat_sessions'
   );
   for (const row of r.rows) {
     try {
       await startCombatSession(row.character_id, row.field_id);
+      // 소환수 복원
+      const s = activeSessions.get(row.character_id);
+      if (s && row.status_effects && Array.isArray(row.status_effects)) {
+        for (const eff of row.status_effects) {
+          if (eff.type === 'summon' && eff.remainingActions > 0) {
+            s.statusEffects.push({
+              id: `restored_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: eff.type,
+              value: eff.value,
+              remainingActions: eff.remainingActions,
+              source: eff.source || 'player',
+              dotMult: eff.dotMult,
+              element: eff.element,
+              summonSkillName: eff.summonSkillName,
+              dotUseMatk: eff.dotUseMatk,
+            });
+          }
+        }
+        if (s.statusEffects.filter(e => e.type === 'summon').length > 0) {
+          console.log(`[combat] restored ${s.statusEffects.filter(e => e.type === 'summon').length} summons for char ${row.character_id}`);
+        }
+      }
+      // 쿨다운 복원
+      if (s && row.skill_cooldowns && typeof row.skill_cooldowns === 'object') {
+        for (const [k, v] of Object.entries(row.skill_cooldowns)) {
+          if (typeof v === 'number' && v > 0) s.skillCooldowns.set(Number(k), v);
+        }
+      }
     } catch (e) {
       console.error(`[combat] restore failed for char ${row.character_id}:`, e);
     }
