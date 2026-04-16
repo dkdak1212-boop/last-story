@@ -73,8 +73,8 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const { nodeId } = parsed.data;
 
   // 노드 존재 체크
-  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[]; tier: string; hidden: boolean }>(
-    'SELECT cost, class_exclusive, prerequisites, tier, COALESCE(hidden, FALSE) AS hidden FROM node_definitions WHERE id = $1', [nodeId]
+  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[]; tier: string; hidden: boolean; effects: any; zone: string }>(
+    'SELECT cost, class_exclusive, prerequisites, tier, COALESCE(hidden, FALSE) AS hidden, effects, zone FROM node_definitions WHERE id = $1', [nodeId]
   );
   if (nodeR.rowCount === 0) return res.status(404).json({ error: 'node not found' });
   const node = nodeR.rows[0];
@@ -90,7 +90,35 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'class restriction' });
   }
 
-  // 초월(huge) 노드 개수 제한 제거 — 포인트만 있으면 여러 개 학습 가능
+  // 계단식 선택형 (tier_group) 체크
+  const tierGroupEff = Array.isArray(node.effects) ? node.effects.find((e: any) => e.type === 'tier_group') : null;
+  if (tierGroupEff) {
+    const tierNum = tierGroupEff.value as number;
+    // 같은 층에 이미 선택한 노드가 있는지 확인
+    const sameTierNodes = await query<{ id: number }>(
+      `SELECT nd.id FROM node_definitions nd
+       JOIN character_nodes cn ON cn.node_id = nd.id AND cn.character_id = $1
+       WHERE nd.zone = $2 AND nd.class_exclusive = $3
+         AND nd.effects @> $4::jsonb`,
+      [id, node.zone, node.class_exclusive, JSON.stringify([{ type: 'tier_group', value: tierNum }])]
+    );
+    if (sameTierNodes.rowCount && sameTierNodes.rowCount > 0) {
+      return res.status(400).json({ error: `${tierNum}층은 이미 선택 완료` });
+    }
+    // 이전 층이 선택되어 있는지 확인 (1층은 무조건 가능)
+    if (tierNum > 1) {
+      const prevTierNodes = await query<{ id: number }>(
+        `SELECT nd.id FROM node_definitions nd
+         JOIN character_nodes cn ON cn.node_id = nd.id AND cn.character_id = $1
+         WHERE nd.zone = $2 AND nd.class_exclusive = $3
+           AND nd.effects @> $4::jsonb`,
+        [id, node.zone, node.class_exclusive, JSON.stringify([{ type: 'tier_group', value: tierNum - 1 }])]
+      );
+      if (!prevTierNodes.rowCount || prevTierNodes.rowCount === 0) {
+        return res.status(400).json({ error: `${tierNum - 1}층을 먼저 선택하세요` });
+      }
+    }
+  }
 
   // 이미 투자
   const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);

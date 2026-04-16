@@ -212,6 +212,7 @@ export function NodeTreeScreen() {
   const zones = treeState ? [...new Set(treeState.nodes.map(n => n.zone))] : [];
   const isSingleZone = zones.length <= 1;
   const zoneNodes = treeState ? (isSingleZone ? treeState.nodes : treeState.nodes.filter(n => n.zone === activeZone)) : [];
+  const isTierMode = zoneNodes.some(n => Array.isArray(n.effects) && n.effects.some((e: any) => e.type === 'tier_group'));
   const nodeMap = useMemo(() => new Map(zoneNodes.map(n => [n.id, n])), [zoneNodes]);
   // 소환사: DB position_x/y 직접 사용 (444개 대형 트리 전용)
   // 그 외 직업: computeRadialLayout 자동 레이아웃 + 초월 노드만 DB position 으로 override
@@ -492,7 +493,16 @@ export function NodeTreeScreen() {
         borderRadius: isMobile ? 3 : 0,
       }}>{msg}</div>}
 
-      {/* SVG 트리 */}
+      {/* 계단식 선택형 노드 */}
+      {isTierMode && (
+        <StaircaseView
+          nodes={zoneNodes} invested={invested} availablePoints={treeState?.availablePoints ?? 0}
+          onInvest={invest} loading={loading} isMobile={isMobile}
+        />
+      )}
+
+      {/* SVG 트리 (계단식이 아닌 경우만) */}
+      {!isTierMode && (
       <div style={{
         position: 'relative', width: '100%', height: isMobile ? 560 : 700,
         border: `1px solid ${isMobile ? 'var(--accent)' : 'var(--border)'}`,
@@ -667,6 +677,7 @@ export function NodeTreeScreen() {
           <span style={{ color: '#ff8800' }}>● 선행</span>
         </div>
       </div>
+      )}
 
       {/* 선택 노드 패널: 데스크톱 inline */}
       {selected && !isMobile && (
@@ -903,6 +914,130 @@ function NodePresetBar({ characterId, onLoad, setMsg }: { characterId?: number; 
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ── 계단식 선택형 뷰 ── */
+const TIER_LABELS: Record<number, string> = {
+  1: '기본', 2: '공격 기초', 3: '특화 선택', 4: '스탯 강화', 5: '핵심 전투',
+  6: '유틸리티', 7: '상위 전투', 8: '극한 스탯', 9: '상위 특화', 10: '초월',
+};
+
+function StaircaseView({ nodes, invested, availablePoints, onInvest, loading, isMobile }: {
+  nodes: NodeDefinition[]; invested: Set<number>; availablePoints: number;
+  onInvest: (id: number) => void; loading: boolean; isMobile: boolean;
+}) {
+  const tierMap = new Map<number, NodeDefinition[]>();
+  for (const n of nodes) {
+    const tg = Array.isArray(n.effects) ? n.effects.find((e: any) => e.type === 'tier_group') : null;
+    if (!tg) continue;
+    const tier = (tg as any).value as number;
+    if (!tierMap.has(tier)) tierMap.set(tier, []);
+    tierMap.get(tier)!.push(n);
+  }
+  const tiers = [...tierMap.entries()].sort((a, b) => a[0] - b[0]);
+
+  function getTierStatus(tierNum: number): 'locked' | 'available' | 'done' {
+    const tierNodes = tierMap.get(tierNum) || [];
+    if (tierNodes.some(n => invested.has(n.id))) return 'done';
+    if (tierNum === 1) return 'available';
+    const prevNodes = tierMap.get(tierNum - 1) || [];
+    if (prevNodes.some(n => invested.has(n.id))) return 'available';
+    return 'locked';
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 10,
+      padding: isMobile ? '8px 4px' : '12px 8px',
+      maxHeight: isMobile ? 520 : 660, overflowY: 'auto',
+      background: 'linear-gradient(180deg, #0a0a14 0%, #050510 100%)',
+      border: '1px solid var(--border)', borderRadius: 6,
+      marginBottom: 12,
+    }}>
+      {tiers.map(([tierNum, tierNodes]) => {
+        const status = getTierStatus(tierNum);
+        const tierColor = tierNum === 10 ? '#ff4444' : tierNum >= 7 ? '#ffcc33' : tierNum >= 4 ? '#b060cc' : '#5b8ecc';
+
+        return (
+          <div key={tierNum} style={{
+            padding: isMobile ? '10px 8px' : '12px 14px',
+            background: status === 'done' ? `${tierColor}10` : 'rgba(20,20,30,0.8)',
+            border: `1px solid ${status === 'done' ? tierColor + '60' : status === 'available' ? 'var(--accent)40' : '#222'}`,
+            borderRadius: 6, opacity: status === 'locked' ? 0.4 : 1,
+          }}>
+            {/* 층 헤더 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                fontSize: isMobile ? 11 : 12, fontWeight: 800, color: tierColor,
+                background: `${tierColor}20`, padding: '2px 8px', borderRadius: 3,
+              }}>{tierNum}층</span>
+              <span style={{ fontSize: isMobile ? 11 : 12, color: '#888', fontWeight: 600 }}>
+                {TIER_LABELS[tierNum] || ''}
+              </span>
+              <span style={{ fontSize: 10, color: '#555', marginLeft: 'auto' }}>
+                {tierNodes[0]?.cost}pt
+              </span>
+              {status === 'done' && <span style={{ fontSize: 10, color: tierColor, fontWeight: 700 }}>선택됨</span>}
+            </div>
+
+            {/* 3개 옵션 */}
+            <div style={{ display: 'flex', gap: isMobile ? 4 : 6 }}>
+              {tierNodes.map(n => {
+                const isSelected = invested.has(n.id);
+                const isLocked = status === 'locked' || (status === 'done' && !isSelected);
+                const canSelect = status === 'available' && availablePoints >= n.cost && !loading;
+                const effectsDisplay = Array.isArray(n.effects)
+                  ? n.effects.filter((e: any) => e.type !== 'tier_group').map((e: any) => {
+                    if (e.type === 'stat') return `${(e.stat as string).toUpperCase()} +${e.value}`;
+                    if (e.type === 'passive') {
+                      const labels: Record<string, string> = {
+                        crit_damage: '치명뎀', extra_hit: '추가타', chain_action_amp: '연쇄',
+                        armor_pierce: '방관', blade_flurry: '칼날', poison_amp: '독증폭',
+                        shadow_strike: '첫타', blade_storm_amp: '누적뎀', speed_to_dmg: 'SPD변환',
+                        crit_lifesteal: '치흡', lethal_tempo: '킬가속', combo_kill_bonus: '연킬',
+                        assassin_execute: '즉사', poison_burst_amp: '독폭발',
+                      };
+                      return `${labels[e.key] || e.key} +${e.value}${e.key.includes('pct') || e.key.includes('amp') || e.key.includes('damage') || e.key.includes('strike') || e.key.includes('lifesteal') || e.key.includes('pierce') || e.key.includes('bonus') || e.key.includes('execute') || e.key.includes('flurry') || e.key.includes('dmg') ? '%' : ''}`;
+                    }
+                    return '';
+                  }).filter(Boolean)
+                  : [];
+
+                return (
+                  <div key={n.id}
+                    onClick={() => canSelect && onInvest(n.id)}
+                    style={{
+                      flex: 1, padding: isMobile ? '8px 6px' : '10px 10px',
+                      borderRadius: 6, cursor: canSelect ? 'pointer' : 'default',
+                      background: isSelected ? `${tierColor}25` : isLocked ? '#111' : '#161620',
+                      border: `2px solid ${isSelected ? tierColor : canSelect ? 'var(--accent)50' : '#222'}`,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{
+                      fontSize: isMobile ? 11 : 12, fontWeight: 700, marginBottom: 4,
+                      color: isSelected ? tierColor : isLocked ? '#555' : '#ddd',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {isSelected && '✓ '}{n.name}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {effectsDisplay.map((txt, i) => (
+                        <span key={i} style={{
+                          fontSize: isMobile ? 9 : 10,
+                          color: isSelected ? '#ccc' : isLocked ? '#444' : '#999',
+                        }}>{txt}</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
