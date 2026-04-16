@@ -25,6 +25,8 @@ export function CharacterSelectScreen() {
     e.stopPropagation();
     if (busy) return;
     if (!confirm(`정말로 "${charName}" 캐릭터를 삭제하시겠습니까?\n\n레벨, 아이템, 골드, 진행도 등 모든 데이터가 영구적으로 삭제되며 복구할 수 없습니다.`)) return;
+    const typed = prompt(`삭제를 확인하려면 캐릭터 이름을 정확히 입력하세요:\n\n"${charName}"`);
+    if (typed !== charName) { alert('이름이 일치하지 않아 삭제가 취소되었습니다.'); return; }
     setBusy(true);
     try {
       await deleteCharacter(id);

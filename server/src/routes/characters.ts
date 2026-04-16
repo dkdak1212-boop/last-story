@@ -109,13 +109,24 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 });
 
 // 캐릭터 삭제 (관련 데이터 cascade 정리)
+const deleteTimestamps = new Map<number, number>();
 router.delete('/:characterId', async (req: AuthedRequest, res: Response) => {
   const cid = Number(req.params.characterId);
-  const own = await query<{ id: number }>(
-    'SELECT id FROM characters WHERE id = $1 AND user_id = $2',
+  const own = await query<{ id: number; level: number }>(
+    'SELECT id, level FROM characters WHERE id = $1 AND user_id = $2',
     [cid, req.userId]
   );
   if (own.rowCount === 0) return res.status(404).json({ error: 'not found' });
+
+  // Lv.20 이상: 10분 쿨다운
+  if (own.rows[0].level >= 20) {
+    const lastDel = deleteTimestamps.get(req.userId!) || 0;
+    const elapsed = Date.now() - lastDel;
+    if (elapsed < 10 * 60 * 1000) {
+      const remaining = Math.ceil((10 * 60 * 1000 - elapsed) / 1000);
+      return res.status(429).json({ error: `캐릭터 삭제 쿨타임: ${remaining}초 후 다시 시도해주세요.` });
+    }
+  }
 
   // FK 참조 정리
   const tables = [
@@ -143,6 +154,7 @@ router.delete('/:characterId', async (req: AuthedRequest, res: Response) => {
   try { await query('DELETE FROM guilds WHERE leader_id = $1', [cid]); } catch {}
 
   await query('DELETE FROM characters WHERE id = $1', [cid]);
+  deleteTimestamps.set(req.userId!, Date.now());
   res.json({ ok: true });
 });
 
