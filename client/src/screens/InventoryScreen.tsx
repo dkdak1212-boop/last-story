@@ -66,7 +66,8 @@ export function InventoryScreen() {
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
   const [sellQualityMax, setSellQualityMax] = useState(0);
-  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false });
+  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean; protectPrefixes: string[] }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false, protectPrefixes: [] });
+  const [sellProtectPrefixes, setSellProtectPrefixes] = useState<string[]>([]);
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -82,10 +83,11 @@ export function InventoryScreen() {
 
   useEffect(() => {
     if (!active) return;
-    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number }>(`/characters/${active.id}/auto-dismantle`)
+    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; protectPrefixes: string[] }>(`/characters/${active.id}/auto-dismantle`)
       .then(d => {
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
         setSellQualityMax(d.qualityMax ?? 0);
+        setSellProtectPrefixes(d.protectPrefixes ?? []);
       }).catch(() => {});
     api<typeof dropFilter>(`/characters/${active.id}/drop-filter`)
       .then(d => setDropFilter(d)).catch(() => {});
@@ -159,6 +161,21 @@ export function InventoryScreen() {
       );
       setDropFilter(res);
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function toggleSellPrefix(key: string) {
+    if (!active) return;
+    const next = sellProtectPrefixes.includes(key) ? sellProtectPrefixes.filter(k => k !== key) : [...sellProtectPrefixes, key];
+    setSellProtectPrefixes(next);
+    try { await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ protectPrefixes: next }) }); }
+    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function toggleDropPrefix(key: string) {
+    if (!active) return;
+    const cur = dropFilter.protectPrefixes;
+    const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key];
+    setDropFilter(prev => ({ ...prev, protectPrefixes: next }));
+    try { await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ protectPrefixes: next }) }); }
+    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
   async function updateDropFilterQuality(val: number) {
     if (!active) return;
@@ -415,7 +432,7 @@ export function InventoryScreen() {
                   );
                 })}
               </div>
-              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (
+              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (<>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
                   <span>품질 {sellQualityMax}% 이하 판매</span>
                   <input type="range" min={0} max={100} step={5} value={sellQualityMax}
@@ -425,7 +442,8 @@ export function InventoryScreen() {
                     {sellQualityMax === 0 ? 'OFF' : `${sellQualityMax}%`}
                   </span>
                 </div>
-              )}
+                <PrefixProtectRow label="보호 접두" selected={sellProtectPrefixes} onToggle={toggleSellPrefix} />
+              </>)}
               <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
                 <span style={{ marginRight: 2 }}>드랍필터:</span>
                 <button onClick={() => toggleDropFilter('common')} style={{
@@ -449,7 +467,7 @@ export function InventoryScreen() {
                 })}
                 <span style={{ fontSize: 8, color: '#666', marginLeft: 2 }}>ON=안줍기</span>
               </div>
-              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (
+              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (<>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
                   <span>품질 {dropFilter.qualityMax}% 이하 안줍기</span>
                   <input type="range" min={0} max={100} step={5} value={dropFilter.qualityMax}
@@ -459,7 +477,8 @@ export function InventoryScreen() {
                     {dropFilter.qualityMax === 0 ? 'OFF' : `${dropFilter.qualityMax}%`}
                   </span>
                 </div>
-              )}
+                <PrefixProtectRow label="보호 접두" selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
+              </>)}
             </div>
           </div>
 
@@ -683,4 +702,53 @@ function btnStyle(color: string, border: string): React.CSSProperties {
 }
 function actionBtn(color: string): React.CSSProperties {
   return { padding: '6px 14px', fontSize: 11, background: 'transparent', color, border: `1px solid ${color}50`, cursor: 'pointer', borderRadius: 4 };
+}
+
+const PREFIX_OPTIONS: { key: string; label: string; color: string }[] = [
+  { key: 'str', label: 'STR', color: '#ff6644' },
+  { key: 'dex', label: 'DEX', color: '#44cc88' },
+  { key: 'int', label: 'INT', color: '#6688ff' },
+  { key: 'vit', label: 'VIT', color: '#88aa44' },
+  { key: 'spd', label: 'SPD', color: '#44cccc' },
+  { key: 'cri', label: 'CRI', color: '#ff4488' },
+  { key: 'crit_dmg_pct', label: '치명뎀', color: '#ff6688' },
+  { key: 'dodge', label: '회피', color: '#88ccff' },
+  { key: 'accuracy', label: '명중', color: '#ccaa44' },
+  { key: 'lifesteal_pct', label: '흡혈', color: '#cc4444' },
+  { key: 'dot_amp_pct', label: '도트', color: '#88ff44' },
+  { key: 'exp_bonus_pct', label: '경험치', color: '#aaddff' },
+  { key: 'gold_bonus_pct', label: '골드', color: '#ffdd44' },
+  { key: 'guardian_pct', label: '방어', color: '#8888cc' },
+  { key: 'gauge_on_crit_pct', label: '게이지', color: '#ff8844' },
+  { key: 'first_strike_pct', label: '선제', color: '#cc88ff' },
+  { key: 'berserk_pct', label: '광전사', color: '#ff4444' },
+  { key: 'ambush_pct', label: '각성', color: '#aa66ff' },
+  { key: 'predator_pct', label: '포식', color: '#66aa44' },
+  { key: 'def_reduce_pct', label: '방관', color: '#cc6644' },
+  { key: 'hp_regen', label: '재생', color: '#44cc44' },
+  { key: 'slow_pct', label: '감속', color: '#6688aa' },
+  { key: 'thorns_pct', label: '반사', color: '#aa8844' },
+];
+
+function PrefixProtectRow({ label, selected, onToggle }: { label: string; selected: string[]; onToggle: (key: string) => void }) {
+  const set = new Set(selected);
+  return (
+    <div style={{ display: 'flex', gap: 2, alignItems: 'center', fontSize: 8, color: 'var(--text-dim)', flexWrap: 'wrap' }}>
+      <span style={{ marginRight: 2, fontSize: 9, whiteSpace: 'nowrap' }}>{label}:</span>
+      {PREFIX_OPTIONS.map(p => {
+        const on = set.has(p.key);
+        return (
+          <button key={p.key} onClick={() => onToggle(p.key)} style={{
+            fontSize: 8, padding: '2px 5px', borderRadius: 2,
+            background: on ? p.color : 'transparent',
+            color: on ? '#000' : p.color,
+            border: `1px solid ${on ? p.color : p.color + '60'}`,
+            cursor: 'pointer', fontWeight: on ? 700 : 400,
+            lineHeight: 1.2,
+          }}>{p.label}</button>
+        );
+      })}
+      {selected.length > 0 && <span style={{ fontSize: 8, color: '#888', marginLeft: 2 }}>={selected.length}개 보호</span>}
+    </div>
+  );
 }

@@ -2134,22 +2134,26 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
   // 자동판매 + 드랍필터 설정
   const autoSellR = await query<{
-    auto_dismantle_tiers: number; auto_sell_quality_max: number;
-    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean;
+    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[];
+    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[];
   }>(
     `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
             COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
             COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
             COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
-            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
+            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
      FROM characters WHERE id = $1`,
     [s.characterId]
   );
   const sellTiers = autoSellR.rows[0]?.auto_dismantle_tiers ?? 0;
   const sellQualityMax = autoSellR.rows[0]?.auto_sell_quality_max ?? 0;
+  const sellProtect = new Set(autoSellR.rows[0]?.auto_sell_protect_prefixes ?? []);
   const dfTiers = autoSellR.rows[0]?.drop_filter_tiers ?? 0;
   const dfQualityMax = autoSellR.rows[0]?.drop_filter_quality_max ?? 0;
   const dfCommon = autoSellR.rows[0]?.drop_filter_common ?? false;
+  const dfProtect = new Set(autoSellR.rows[0]?.drop_filter_protect_prefixes ?? []);
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   for (const drop of drops) {
@@ -2173,7 +2177,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
           const dfTierBit = dfMaxTier >= 1 && dfMaxTier <= 4 ? (1 << (dfMaxTier - 1)) : 0;
           const dfTierMatch = (dfTiers & dfTierBit) !== 0;
           const dfQualMatch = dfQualityMax > 0 ? dfQuality <= dfQualityMax : true;
-          if (!dfIs3Opt && dfTierMatch && dfQualMatch) {
+          const dfHasProtected = dfProtect.size > 0 && dfPIds.length > 0 ? await (async () => {
+            const pr = await query<{ stat_key: string }>('SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [dfPIds]);
+            return pr.rows.some(r => dfProtect.has(r.stat_key));
+          })() : false;
+          if (!dfIs3Opt && !dfHasProtected && dfTierMatch && dfQualMatch) {
             continue;
           }
         }
@@ -2192,7 +2200,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
         const tierMatch = (sellTiers & tierBit) !== 0;
         const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
-        const shouldSell = !is3Options && tierMatch && qualityMatch;
+        const hasProtectedPrefix = sellProtect.size > 0 && prefixIds.length > 0 ? await (async () => {
+          const pr = await query<{ stat_key: string }>('SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [prefixIds]);
+          return pr.rows.some(r => sellProtect.has(r.stat_key));
+        })() : false;
+        const shouldSell = !is3Options && !hasProtectedPrefix && tierMatch && qualityMatch;
 
         if (shouldSell) {
           const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));

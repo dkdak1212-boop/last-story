@@ -387,17 +387,18 @@ router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const r = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number }>(
-    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max FROM characters WHERE id = $1', [id]
+  const r = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[] }>(
+    `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes
+     FROM characters WHERE id = $1`, [id]
   );
   const tiers = r.rows[0]?.auto_dismantle_tiers ?? 0;
   res.json({
     tiers,
-    t1: !!(tiers & 1),
-    t2: !!(tiers & 2),
-    t3: !!(tiers & 4),
-    t4: !!(tiers & 8),
+    t1: !!(tiers & 1), t2: !!(tiers & 2), t3: !!(tiers & 4), t4: !!(tiers & 8),
     qualityMax: r.rows[0]?.auto_sell_quality_max ?? 0,
+    protectPrefixes: r.rows[0]?.auto_sell_protect_prefixes ?? [],
   });
 });
 
@@ -414,6 +415,7 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
     t4: z.boolean().optional(),
     tiers: z.number().int().min(0).max(15).optional(),
     qualityMax: z.number().int().min(0).max(100).optional(),
+    protectPrefixes: z.array(z.string()).optional(),
     enabled: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
@@ -441,20 +443,24 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
     updates.push(`auto_sell_quality_max = $${params.length + 1}`);
     params.push(parsed.data.qualityMax);
   }
+  if (parsed.data.protectPrefixes !== undefined) {
+    updates.push(`auto_sell_protect_prefixes = $${params.length + 1}`);
+    params.push(parsed.data.protectPrefixes);
+  }
   params.push(id);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
 
-  const fresh = await query<{ auto_sell_quality_max: number }>(
-    'SELECT COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max FROM characters WHERE id = $1', [id]
+  const fresh = await query<{ auto_sell_quality_max: number; auto_sell_protect_prefixes: string[] }>(
+    `SELECT COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes
+     FROM characters WHERE id = $1`, [id]
   );
 
   res.json({
     tiers: newTiers,
-    t1: !!(newTiers & 1),
-    t2: !!(newTiers & 2),
-    t3: !!(newTiers & 4),
-    t4: !!(newTiers & 8),
+    t1: !!(newTiers & 1), t2: !!(newTiers & 2), t3: !!(newTiers & 4), t4: !!(newTiers & 8),
     qualityMax: fresh.rows[0]?.auto_sell_quality_max ?? 0,
+    protectPrefixes: fresh.rows[0]?.auto_sell_protect_prefixes ?? [],
   });
 });
 
@@ -463,10 +469,11 @@ router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
-  const r = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean }>(
+  const r = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[] }>(
     `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
             COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
-            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
+            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
      FROM characters WHERE id = $1`, [id]
   );
   const t = r.rows[0]?.drop_filter_tiers ?? 0;
@@ -474,6 +481,7 @@ router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
     qualityMax: r.rows[0]?.drop_filter_quality_max ?? 0,
     common: r.rows[0]?.drop_filter_common ?? false,
+    protectPrefixes: r.rows[0]?.drop_filter_protect_prefixes ?? [],
   });
 });
 
@@ -489,6 +497,7 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
     t4: z.boolean().optional(),
     qualityMax: z.number().int().min(0).max(100).optional(),
     common: z.boolean().optional(),
+    protectPrefixes: z.array(z.string()).optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
@@ -505,11 +514,21 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   if (parsed.data.t4 !== undefined) t = parsed.data.t4 ? (t | 8) : (t & ~8);
   const qm = parsed.data.qualityMax ?? cur.rows[0]?.drop_filter_quality_max ?? 0;
   const cm = parsed.data.common ?? cur.rows[0]?.drop_filter_common ?? false;
-
-  await query('UPDATE characters SET drop_filter_tiers = $1, drop_filter_quality_max = $2, drop_filter_common = $3 WHERE id = $4', [t, qm, cm, id]);
+  const updates = ['drop_filter_tiers = $1', 'drop_filter_quality_max = $2', 'drop_filter_common = $3'];
+  const params: unknown[] = [t, qm, cm];
+  if (parsed.data.protectPrefixes !== undefined) {
+    updates.push(`drop_filter_protect_prefixes = $${params.length + 1}`);
+    params.push(parsed.data.protectPrefixes);
+  }
+  params.push(id);
+  await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+  const fresh = await query<{ drop_filter_protect_prefixes: string[] }>(
+    `SELECT COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes FROM characters WHERE id = $1`, [id]
+  );
   res.json({
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
     qualityMax: qm, common: cm,
+    protectPrefixes: fresh.rows[0]?.drop_filter_protect_prefixes ?? [],
   });
 });
 

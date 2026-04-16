@@ -5,3 +5,6 @@ ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_grades INT NOT NULL 
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_tiers INT NOT NULL DEFAULT 0;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_quality_max INT NOT NULL DEFAULT 0;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_common BOOLEAN NOT NULL DEFAULT FALSE;
+-- 접두사 보호 (자동판매/드랍필터에서 해당 접두사가 있으면 보호)
+ALTER TABLE characters ADD COLUMN IF NOT EXISTS auto_sell_protect_prefixes TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_protect_prefixes TEXT[] NOT NULL DEFAULT '{}';
