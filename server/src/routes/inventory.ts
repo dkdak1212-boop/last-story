@@ -458,16 +458,23 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   });
 });
 
-// 드랍 필터 조회
+// 드랍 필터 조회 (T1~T4 + 품질 + 일반등급)
 router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
-  const r = await query<{ drop_filter_grades: number }>(
-    'SELECT COALESCE(drop_filter_grades, 0) AS drop_filter_grades FROM characters WHERE id = $1', [id]
+  const r = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean }>(
+    `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
+            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+     FROM characters WHERE id = $1`, [id]
   );
-  const g = r.rows[0]?.drop_filter_grades ?? 0;
-  res.json({ common: !!(g & 1), rare: !!(g & 2), epic: !!(g & 4) });
+  const t = r.rows[0]?.drop_filter_tiers ?? 0;
+  res.json({
+    t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
+    qualityMax: r.rows[0]?.drop_filter_quality_max ?? 0,
+    common: r.rows[0]?.drop_filter_common ?? false,
+  });
 });
 
 // 드랍 필터 설정
@@ -476,20 +483,34 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
   const parsed = z.object({
+    t1: z.boolean().optional(),
+    t2: z.boolean().optional(),
+    t3: z.boolean().optional(),
+    t4: z.boolean().optional(),
+    qualityMax: z.number().int().min(0).max(100).optional(),
     common: z.boolean().optional(),
-    rare: z.boolean().optional(),
-    epic: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
-  const cur = await query<{ drop_filter_grades: number }>(
-    'SELECT COALESCE(drop_filter_grades, 0) AS drop_filter_grades FROM characters WHERE id = $1', [id]
+
+  const cur = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean }>(
+    `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
+            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+     FROM characters WHERE id = $1`, [id]
   );
-  let g = cur.rows[0]?.drop_filter_grades ?? 0;
-  if (parsed.data.common !== undefined) g = parsed.data.common ? (g | 1) : (g & ~1);
-  if (parsed.data.rare !== undefined) g = parsed.data.rare ? (g | 2) : (g & ~2);
-  if (parsed.data.epic !== undefined) g = parsed.data.epic ? (g | 4) : (g & ~4);
-  await query('UPDATE characters SET drop_filter_grades = $1 WHERE id = $2', [g, id]);
-  res.json({ common: !!(g & 1), rare: !!(g & 2), epic: !!(g & 4) });
+  let t = cur.rows[0]?.drop_filter_tiers ?? 0;
+  if (parsed.data.t1 !== undefined) t = parsed.data.t1 ? (t | 1) : (t & ~1);
+  if (parsed.data.t2 !== undefined) t = parsed.data.t2 ? (t | 2) : (t & ~2);
+  if (parsed.data.t3 !== undefined) t = parsed.data.t3 ? (t | 4) : (t & ~4);
+  if (parsed.data.t4 !== undefined) t = parsed.data.t4 ? (t | 8) : (t & ~8);
+  const qm = parsed.data.qualityMax ?? cur.rows[0]?.drop_filter_quality_max ?? 0;
+  const cm = parsed.data.common ?? cur.rows[0]?.drop_filter_common ?? false;
+
+  await query('UPDATE characters SET drop_filter_tiers = $1, drop_filter_quality_max = $2, drop_filter_common = $3 WHERE id = $4', [t, qm, cm, id]);
+  res.json({
+    t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
+    qualityMax: qm, common: cm,
+  });
 });
 
 // 등급별 일괄 판매

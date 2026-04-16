@@ -2113,26 +2113,49 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
   // 자동판매 + 드랍필터 설정
-  const autoSellR = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number; drop_filter_grades: number }>(
-    'SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers, COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max, COALESCE(drop_filter_grades, 0) AS drop_filter_grades FROM characters WHERE id = $1',
+  const autoSellR = await query<{
+    auto_dismantle_tiers: number; auto_sell_quality_max: number;
+    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean;
+  }>(
+    `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
+            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+     FROM characters WHERE id = $1`,
     [s.characterId]
   );
   const sellTiers = autoSellR.rows[0]?.auto_dismantle_tiers ?? 0;
   const sellQualityMax = autoSellR.rows[0]?.auto_sell_quality_max ?? 0;
-  const dropFilterGrades = autoSellR.rows[0]?.drop_filter_grades ?? 0;
-  const GRADE_BITS: Record<string, number> = { common: 1, rare: 2, epic: 4 };
+  const dfTiers = autoSellR.rows[0]?.drop_filter_tiers ?? 0;
+  const dfQualityMax = autoSellR.rows[0]?.drop_filter_quality_max ?? 0;
+  const dfCommon = autoSellR.rows[0]?.drop_filter_common ?? false;
+  const hasDropFilter = dfTiers > 0 || dfCommon;
 
   for (const drop of drops) {
-    // 드랍 필터: 설정된 등급의 장비는 아예 줍지 않음 (유니크는 항상 보호)
-    if (dropFilterGrades > 0) {
-      const itemGradeR = await query<{ grade: string; slot: string | null }>(
-        'SELECT grade, slot FROM items WHERE id = $1', [drop.itemId]
+    // 드랍 필터: 조건에 맞는 장비는 줍지 않음 (유니크/전설 항상 보호)
+    if (hasDropFilter) {
+      const dfItemR = await query<{ grade: string; slot: string | null; required_level: number }>(
+        'SELECT grade, slot, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
       );
-      const gi = itemGradeR.rows[0];
-      if (gi && gi.slot && gi.grade !== 'unique' && gi.grade !== 'legendary') {
-        const bit = GRADE_BITS[gi.grade] || 0;
-        if (bit > 0 && (dropFilterGrades & bit) !== 0) {
+      const dfi = dfItemR.rows[0];
+      if (dfi && dfi.slot && dfi.grade !== 'unique' && dfi.grade !== 'legendary') {
+        // 일반(common) 등급 필터
+        if (dfCommon && dfi.grade === 'common') {
           continue;
+        }
+        // T1~T4 + 품질 필터 (접두사 생성해서 체크)
+        if (dfTiers > 0) {
+          const { generatePrefixes } = await import('../game/prefix.js');
+          const { prefixIds: dfPIds, maxTier: dfMaxTier } = await generatePrefixes(dfi.required_level);
+          const dfQuality = Math.floor(Math.random() * 101);
+          const dfIs3Opt = dfPIds.length >= 3;
+          const dfTierBit = dfMaxTier >= 1 && dfMaxTier <= 4 ? (1 << (dfMaxTier - 1)) : 0;
+          const dfTierMatch = (dfTiers & dfTierBit) !== 0;
+          const dfQualMatch = dfQualityMax > 0 ? dfQuality <= dfQualityMax : true;
+          if (!dfIs3Opt && dfTierMatch && dfQualMatch) {
+            continue;
+          }
         }
       }
     }

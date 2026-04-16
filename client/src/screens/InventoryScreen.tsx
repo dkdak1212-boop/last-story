@@ -66,7 +66,7 @@ export function InventoryScreen() {
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
   const [sellQualityMax, setSellQualityMax] = useState(0);
-  const [dropFilter, setDropFilter] = useState<{ common: boolean; rare: boolean; epic: boolean }>({ common: false, rare: false, epic: false });
+  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false });
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -87,7 +87,7 @@ export function InventoryScreen() {
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
         setSellQualityMax(d.qualityMax ?? 0);
       }).catch(() => {});
-    api<{ common: boolean; rare: boolean; epic: boolean }>(`/characters/${active.id}/drop-filter`)
+    api<typeof dropFilter>(`/characters/${active.id}/drop-filter`)
       .then(d => setDropFilter(d)).catch(() => {});
   }, [active?.id]);
   useEffect(() => { refresh(); }, [active, sortMode]);
@@ -149,14 +149,22 @@ export function InventoryScreen() {
       await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
-  async function toggleDropFilter(grade: 'common' | 'rare' | 'epic') {
+  async function toggleDropFilter(key: string) {
     if (!active) return;
+    const val = !(dropFilter as any)[key];
     try {
-      const res = await api<{ common: boolean; rare: boolean; epic: boolean }>(
+      const res = await api<typeof dropFilter>(
         `/characters/${active.id}/drop-filter`,
-        { method: 'POST', body: JSON.stringify({ [grade]: !dropFilter[grade] }) }
+        { method: 'POST', body: JSON.stringify({ [key]: val }) }
       );
       setDropFilter(res);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function updateDropFilterQuality(val: number) {
+    if (!active) return;
+    setDropFilter(prev => ({ ...prev, qualityMax: val }));
+    try {
+      await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
 
@@ -420,19 +428,38 @@ export function InventoryScreen() {
               )}
               <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
                 <span style={{ marginRight: 2 }}>드랍필터:</span>
-                {([['common', '일반', '#aaa'], ['rare', '희귀', '#5b8ecc'], ['epic', '에픽', '#b060cc']] as const).map(([grade, label, c]) => {
-                  const on = dropFilter[grade];
+                <button onClick={() => toggleDropFilter('common')} style={{
+                  fontSize: 10, padding: '4px 8px', borderRadius: 3,
+                  background: dropFilter.common ? '#aaa' : 'transparent',
+                  color: dropFilter.common ? '#000' : '#aaa',
+                  border: '1px solid #aaa', cursor: 'pointer', fontWeight: 700,
+                }}>일반{dropFilter.common ? ' ✕' : ''}</button>
+                {(['t1','t2','t3','t4'] as const).map((tier) => {
+                  const on = dropFilter[tier];
+                  const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
+                  const c = tierColor[tier];
                   return (
-                    <button key={grade} onClick={() => toggleDropFilter(grade)} style={{
+                    <button key={tier} onClick={() => toggleDropFilter(tier)} style={{
                       fontSize: 10, padding: '4px 8px', borderRadius: 3,
                       background: on ? c : 'transparent',
                       color: on ? '#000' : c,
                       border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
-                    }}>{label}{on ? ' ✕' : ''}</button>
+                    }}>{tier.toUpperCase()}{on ? ' ✕' : ''}</button>
                   );
                 })}
                 <span style={{ fontSize: 8, color: '#666', marginLeft: 2 }}>ON=안줍기</span>
               </div>
+              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
+                  <span>품질 {dropFilter.qualityMax}% 이하 안줍기</span>
+                  <input type="range" min={0} max={100} step={5} value={dropFilter.qualityMax}
+                    onChange={e => updateDropFilterQuality(Number(e.target.value))}
+                    style={{ flex: 1, maxWidth: 120, height: 14, accentColor: '#ff6666' }} />
+                  <span style={{ fontWeight: 700, color: dropFilter.qualityMax === 0 ? 'var(--text-dim)' : '#ff6666', minWidth: 28, textAlign: 'right' }}>
+                    {dropFilter.qualityMax === 0 ? 'OFF' : `${dropFilter.qualityMax}%`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
