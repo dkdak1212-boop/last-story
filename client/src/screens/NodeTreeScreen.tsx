@@ -217,8 +217,10 @@ export function NodeTreeScreen() {
   // 소환사: DB position_x/y 직접 사용 (444개 대형 트리 전용)
   // 그 외 직업: computeRadialLayout 자동 레이아웃 + 초월 노드만 DB position 으로 override
   const positions = useMemo(() => {
-    if (active?.className === 'summoner') {
-      const scale = 65;
+    // 소환사 / 분기형(north_rogue 등): DB position 직접 사용
+    const hasExplicitPositions = zoneNodes.length > 0 && zoneNodes.every(n => (n.positionX ?? 0) !== 0 || (n.positionY ?? 0) !== 0 || zoneNodes.length < 50);
+    if (active?.className === 'summoner' || (hasExplicitPositions && zoneNodes.length <= 50 && activeZone !== 'core')) {
+      const scale = active?.className === 'summoner' ? 65 : 38;
       const m = new Map<number, Position>();
       for (const n of zoneNodes) {
         m.set(n.id, { x: (n.positionX ?? 0) * scale, y: (n.positionY ?? 0) * scale });
@@ -235,7 +237,7 @@ export function NodeTreeScreen() {
       }
     }
     return m;
-  }, [zoneNodes, active?.className]);
+  }, [zoneNodes, active?.className, activeZone]);
 
   const highlightChain = useMemo(() => {
     if (!selected) return new Set<number>();
