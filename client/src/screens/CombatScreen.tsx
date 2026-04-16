@@ -703,7 +703,7 @@ function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: number;
   );
 }
 
-function AfkOverlay({ state, onToggle, onLeave }: {
+function AfkOverlay({ state, active, onToggle, onLeave }: {
   state: CombatSnapshot; active: any; onToggle: () => void; onLeave: () => void;
 }) {
   const a = state.afk!;
@@ -726,6 +726,9 @@ function AfkOverlay({ state, onToggle, onLeave }: {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       gap: 32, color: '#fff',
     }}>
+      <div style={{ fontSize: 14, color: '#666', fontWeight: 600 }}>
+        {active?.name || ''}
+      </div>
       <div style={{ fontSize: 28, fontWeight: 700, color: '#888', letterSpacing: 4 }}>
         사냥중...
       </div>
