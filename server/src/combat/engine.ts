@@ -179,6 +179,8 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
+  comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
+  hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
   recentKillTimes: number[]; // 최근 10킬의 처치 시간 (초)
   userId: number;
@@ -489,10 +491,39 @@ function applyDamagePrefixes(
       addLog(s, `[각성] 다음 공격 +${ambush}%`);
     }
   }
+  // shadow_strike: 전투 시작 후 첫 스킬 데미지 증가
+  if (consume && s.hasFirstSkill) {
+    const shadowStrike = getPassive(s, 'shadow_strike');
+    if (shadowStrike > 0) {
+      dmg = Math.round(dmg * (1 + shadowStrike / 100));
+      s.hasFirstSkill = false;
+      addLog(s, `[그림자 일격] 첫 스킬 +${shadowStrike}%`);
+    }
+  }
+  // combo_kill_bonus: 연속킬 데미지 보너스 (최대 5중첩)
+  const comboBonus = getPassive(s, 'combo_kill_bonus');
+  if (comboBonus > 0 && s.comboKills > 0) {
+    const stacks = Math.min(5, s.comboKills);
+    dmg = Math.round(dmg * (1 + (comboBonus * stacks) / 100));
+  }
+  // speed_to_dmg: SPD → ATK 변환
+  const speedToDmg = getPassive(s, 'speed_to_dmg');
+  if (speedToDmg > 0) {
+    const spdBonus = Math.round(s.playerStats.spd * speedToDmg / 100);
+    if (spdBonus > 0) dmg += spdBonus;
+  }
   // 크리 추가 배율 (crit_damage 패시브 + 날카로움)
   if (isCrit) {
-    const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+    const critDmgBonus = getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+    // assassin_execute: 치명타 시 적 HP 15% 이하면 즉사 확률
+    const execute = getPassive(s, 'assassin_execute');
+    if (execute > 0 && s.monsterHp > 0 && s.monsterHp <= s.monsterMaxHp * 0.15) {
+      if (Math.random() * 100 < execute) {
+        dmg = s.monsterHp + 1;
+        addLog(s, `[그림자 처형] 즉사!`);
+      }
+    }
   }
   return dmg;
 }
@@ -535,7 +566,7 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   // 사용자 의도: 메인 딜 스킬에 차지를 보존.
   // 크리 추가 배율
   if (d.crit) {
-    const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+    const critDmgBonus = getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
   }
   s.monsterHp -= dmg;
@@ -554,6 +585,25 @@ function buildPassiveMap(rows: { key: string; value: number }[]): Map<string, nu
     m.set(p.key, (m.get(p.key) ?? 0) + p.value);
   }
   return m;
+}
+
+// 총 도트 증폭% (노드+접두사 합산) — dot_to_crit 변환 계산용
+function getTotalDotAmpRaw(s: ActiveSession): number {
+  return getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
+    + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
+    + getPassive(s, 'elemental_storm')
+    + getPassive(s, 'poison_lord')
+    + (s.equipPrefixes.dot_amp_pct || 0);
+}
+
+// 크리티컬 데미지 보너스% (dot_to_crit 변환 포함)
+function getCritDmgBonus(s: ActiveSession): number {
+  let bonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+  const dotToCrit = getPassive(s, 'dot_to_crit');
+  if (dotToCrit > 0) {
+    bonus += Math.round(getTotalDotAmpRaw(s) * dotToCrit / 100);
+  }
+  return bonus;
 }
 
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
@@ -599,11 +649,9 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     let monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
     if (totalPierce > 0) monsterDef = Math.round(monsterDef * (1 - totalPierce / 100));
     defenderDef = monsterDef;
-    dotAmpPct = getPassive(s, 'dot_amp') + getPassive(s, 'poison_amp') + getPassive(s, 'bleed_amp')
-      + getPassive(s, 'burn_amp') + getPassive(s, 'holy_dot_amp')
-      + getPassive(s, 'elemental_storm')
-      + getPassive(s, 'poison_lord')
-      + (s.equipPrefixes.dot_amp_pct || 0);
+    dotAmpPct = getTotalDotAmpRaw(s);
+    const dotPenalty = getPassive(s, 'dot_penalty');
+    if (dotPenalty > 0) dotAmpPct -= dotPenalty;
   } else {
     defenderDef = s.playerStats.def;
     dotResistPct = getPassive(s, 'dot_resist');
@@ -893,7 +941,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (ambushProc) addLog(s, `[각성] 다음 공격 +${ambush}%`);
         // 패시브: crit_damage (치명타 추가 배율) + 접두사: 날카로움(crit_dmg_pct)
         if (d.crit) {
-          const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
           // 접두사: 재충전 (치명타 시 게이지 충전) — 최대 50% 캡
           const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
@@ -916,7 +964,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (rageProc) {
           addLog(s, `🔥 [분노 폭발!] ${dmg} 데미지 (×3)`);
         } else if (d.crit) {
-          const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          const critDmgPct = 200 + getCritDmgBonus(s);
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
@@ -987,7 +1035,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               let dmg2 = d2.damage;
               if (spellAmp > 0) dmg2 = Math.round(dmg2 * (1 + spellAmp / 100));
               if (d2.crit) {
-                const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+                const critDmgBonus = getCritDmgBonus(s);
                 if (critDmgBonus > 0) dmg2 = Math.round(dmg2 * (1 + critDmgBonus / 100));
               }
               s.monsterHp -= dmg2;
@@ -1005,6 +1053,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             addLog(s, `추가 타격! ${d2.damage}`);
           }
         }
+        // blade_flurry: 칼날 추가타 확률 (일반 공격에 추가 타격)
+        const bladeFlurry = getPassive(s, 'blade_flurry');
+        if (bladeFlurry > 0 && Math.random() * 100 < bladeFlurry) {
+          const d3 = calcDamage(s.playerStats, defModStats, skill.damage_mult * 0.6, useMatk);
+          if (!d3.miss) {
+            const dmg3 = applyDamagePrefixes(s, d3.damage, d3.crit, { consumeOneShot: false, skillName: skill.name });
+            s.monsterHp -= dmg3;
+            addLog(s, `[칼날 추가타] ${dmg3}${d3.crit ? '!' : ''}`);
+          }
+        }
       }
       if (skill.effect_type === 'self_damage_pct') {
         const cost = Math.round(s.playerMaxHp * skill.effect_value / 100);
@@ -1019,23 +1077,26 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'multi_hit': {
       const hits = Math.round(skill.effect_value) + getPassive(s, 'extra_hit');
       const chainAmp = getPassive(s, 'chain_action_amp');
+      const bladeStormAmp = getPassive(s, 'blade_storm_amp');
       const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
-      let firstLandedHit = true; // first_strike / ambush 는 첫 명중 타격에만 소비
+      let firstLandedHit = true;
+      let landedCount = 0;
       for (let i = 0; i < hits; i++) {
-        const d = calcDamage(s.playerStats, s.monsterStats, hitMult, useMatk, skill.flat_damage);
+        const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
+        const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, skill.flat_damage);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
         } else {
-          // 접두사 공통: 광전사/약점간파/각성/치명 데미지 (첫 명중 타격에서만 one-shot 소비)
           let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
             consumeOneShot: firstLandedHit,
             skillName: skill.name,
           });
           firstLandedHit = false;
+          landedCount++;
           s.monsterHp -= dmg;
           if (d.crit) {
-            const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+            const critDmgPct = 200 + getCritDmgBonus(s);
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
           } else {
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
@@ -1207,7 +1268,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         if (d.crit) {
-          const critDmgPct = 200 + getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          const critDmgPct = 200 + getCritDmgBonus(s);
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
@@ -1418,7 +1479,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         // 크리 추가 배율: crit_damage 패시브 + 접두사 crit_dmg_pct
         if (d.crit) {
-          const critDmgBonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+          const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
         }
         s.monsterHp -= dmg;
@@ -1924,6 +1985,18 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
+  // lethal_tempo: 킬 시 모든 스킬 쿨다운 감소
+  const lethalTempo = getPassive(s, 'lethal_tempo');
+  if (lethalTempo > 0) {
+    for (const [skId, cd] of s.skillCooldowns) {
+      s.skillCooldowns.set(skId, Math.max(0, cd - lethalTempo));
+    }
+  }
+  // combo_kill_bonus: 연속킬 카운터 (최대 5)
+  if (getPassive(s, 'combo_kill_bonus') > 0) {
+    s.comboKills = Math.min(5, s.comboKills + 1);
+  }
+
   // 접두사: 포식 (처치 시 HP 회복)
   const predator = s.equipPrefixes.predator_pct || 0;
   if (predator > 0) {
@@ -2125,6 +2198,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
+  s.hasFirstSkill = true; // 새 몬스터 → shadow_strike 다시
   s.monsterSpawnAt = Date.now(); // 처치 시간 측정 시작
   // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지
   s.statusEffects = s.statusEffects.filter(e =>
@@ -2672,6 +2746,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     dummyTrackStart: 0,
     mageOverkillCarry: 0,
     poisonResonance: 0,
+    comboKills: 0,
+    hasFirstSkill: true,
     monsterSpawnAt: Date.now(),
     recentKillTimes: [],
     lastPushAt: 0,

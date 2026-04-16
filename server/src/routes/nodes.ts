@@ -14,18 +14,24 @@ router.get('/:id/nodes', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  const adminR = await query<{ is_admin: boolean }>(
+    'SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]
+  );
+  const isAdmin = adminR.rows[0]?.is_admin ?? false;
+
   const nodesR = await query<{
     id: number; name: string; description: string; zone: string; tier: string;
     cost: number; class_exclusive: string | null; effects: any; prerequisites: number[];
-    position_x: number; position_y: number;
+    position_x: number; position_y: number; hidden: boolean;
   }>(
     `SELECT id, name, description, zone, tier, cost, class_exclusive, effects,
-            prerequisites, position_x, position_y
+            prerequisites, position_x, position_y, COALESCE(hidden, FALSE) AS hidden
      FROM node_definitions
-     WHERE (class_exclusive = $1)
-        OR (class_exclusive IS NULL AND NOT ($1 = 'summoner' AND zone = 'core'))
+     WHERE ((class_exclusive = $1)
+        OR (class_exclusive IS NULL AND NOT ($1 = 'summoner' AND zone = 'core')))
+       AND (COALESCE(hidden, FALSE) = FALSE OR $2 = TRUE)
      ORDER BY zone, tier, id`,
-    [char.class_name]
+    [char.class_name, isAdmin]
   );
 
   const investedR = await query<{ node_id: number }>(
@@ -67,11 +73,17 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const { nodeId } = parsed.data;
 
   // 노드 존재 체크
-  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[]; tier: string }>(
-    'SELECT cost, class_exclusive, prerequisites, tier FROM node_definitions WHERE id = $1', [nodeId]
+  const nodeR = await query<{ cost: number; class_exclusive: string | null; prerequisites: number[]; tier: string; hidden: boolean }>(
+    'SELECT cost, class_exclusive, prerequisites, tier, COALESCE(hidden, FALSE) AS hidden FROM node_definitions WHERE id = $1', [nodeId]
   );
   if (nodeR.rowCount === 0) return res.status(404).json({ error: 'node not found' });
   const node = nodeR.rows[0];
+
+  // hidden 노드는 어드민만 투자 가능
+  if (node.hidden) {
+    const admR = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
+    if (!admR.rows[0]?.is_admin) return res.status(403).json({ error: 'admin only' });
+  }
 
   // 직업 제한
   if (node.class_exclusive && node.class_exclusive !== char.class_name) {

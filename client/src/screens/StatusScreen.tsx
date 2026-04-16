@@ -95,6 +95,15 @@ const PASSIVE_LABEL: Record<string, string> = {
   sanctuary_guard: '성역의 수호 (HP +%)',
   balance_apostle: '균형의 사도 (전스탯 +%)',
   counter_incarnation: '반격의 화신 (반사)',
+  dot_to_crit: '도트→치명타 변환 (도트1%당 치명타+0.5%)',
+  dot_penalty: '도트 데미지 감소 %',
+  assassin_execute: '즉사 확률 % (적 HP 15% 이하 치명타 시)',
+  blade_storm_amp: 'multi_hit 타격당 누적 데미지 +%',
+  speed_to_dmg: 'SPD→ATK 변환 %',
+  combo_kill_bonus: '연속킬 데미지 보너스 % (최대 5중첩)',
+  blade_flurry: '칼날 추가타 확률 %',
+  lethal_tempo: '킬 시 쿨다운 감소 (행동)',
+  shadow_strike: '첫 스킬 데미지 +%',
 };
 
 type BonusCategory = { label: string; entries: [string, number, string][] };
