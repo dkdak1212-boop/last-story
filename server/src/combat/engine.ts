@@ -3148,34 +3148,6 @@ export async function restoreCombatSessions(): Promise<void> {
   for (const row of r.rows) {
     try {
       await startCombatSession(row.character_id, row.field_id);
-      // 소환수 복원
-      const s = activeSessions.get(row.character_id);
-      if (s && row.status_effects && Array.isArray(row.status_effects)) {
-        for (const eff of row.status_effects) {
-          if (eff.type === 'summon' && eff.remainingActions > 0) {
-            s.statusEffects.push({
-              id: `restored_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-              type: eff.type,
-              value: eff.value,
-              remainingActions: eff.remainingActions,
-              source: eff.source || 'player',
-              dotMult: eff.dotMult,
-              element: eff.element,
-              summonSkillName: eff.summonSkillName,
-              dotUseMatk: eff.dotUseMatk,
-            });
-          }
-        }
-        if (s.statusEffects.filter(e => e.type === 'summon').length > 0) {
-          console.log(`[combat] restored ${s.statusEffects.filter(e => e.type === 'summon').length} summons for char ${row.character_id}`);
-        }
-      }
-      // 쿨다운 복원
-      if (s && row.skill_cooldowns && typeof row.skill_cooldowns === 'object') {
-        for (const [k, v] of Object.entries(row.skill_cooldowns)) {
-          if (typeof v === 'number' && v > 0) s.skillCooldowns.set(Number(k), v);
-        }
-      }
     } catch (e) {
       console.error(`[combat] restore failed for char ${row.character_id}:`, e);
     }
