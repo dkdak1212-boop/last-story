@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects } from '../game/character.js';
+import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects, getNodePassives } from '../game/character.js';
 import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
 import { getCombatHp, refreshSessionStats } from '../combat/engine.js';
@@ -109,6 +109,27 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   const nodeBonus = sumNodeStats(nodeEffects);
   const effective = await getEffectiveStats(char);
 
+  // 접두사 합산 (장비별 prefix_stats)
+  const prefixR = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
+    `SELECT ce.enhance_level, ce.prefix_stats FROM character_equipped ce WHERE ce.character_id = $1`,
+    [cid]
+  );
+  const prefixTotals: Record<string, number> = {};
+  for (const row of prefixR.rows) {
+    if (!row.prefix_stats) continue;
+    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    for (const [k, v] of Object.entries(row.prefix_stats)) {
+      prefixTotals[k] = (prefixTotals[k] || 0) + Math.round((v as number) * mult);
+    }
+  }
+
+  // 노드 패시브 합산
+  const passivesRaw = await getNodePassives(cid);
+  const passiveTotals: Record<string, number> = {};
+  for (const p of passivesRaw) {
+    passiveTotals[p.key] = (passiveTotals[p.key] || 0) + p.value;
+  }
+
   const gr = await query<{ name: string; stat_buff_pct: number }>(
     `SELECT g.name, g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
     [cid]
@@ -143,6 +164,8 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
       accuracy: Math.round(effective.accuracy * 10) / 10,
     },
     guildBuff: guildBuff ? { name: guildBuff.name, pct: guildBuff.stat_buff_pct } : null,
+    prefixBonuses: prefixTotals,
+    passiveBonuses: passiveTotals,
   });
 });
 

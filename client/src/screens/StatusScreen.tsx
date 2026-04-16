@@ -14,11 +14,108 @@ interface CharStatus {
   nodeBonus: Partial<Stats>;
   effective: Stats & { maxHp: number; atk: number; matk: number; def: number; mdef: number; dodge: number; accuracy: number };
   guildBuff: { name: string; pct: number } | null;
+  prefixBonuses: Record<string, number>;
+  passiveBonuses: Record<string, number>;
 }
 
 const CLASS_LABEL: Record<string, string> = {
   warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사',
 };
+
+const PREFIX_LABEL: Record<string, string> = {
+  berserk_pct: '광폭 (데미지 +%)',
+  first_strike_pct: '약점간파 (첫 공격 +%)',
+  ambush_pct: '각성 (5초 미피격 시 +%)',
+  crit_dmg_pct: '치명타 데미지 +%',
+  lifesteal_pct: '생명력 흡수 %',
+  gauge_on_crit_pct: '치명타 시 게이지 +%',
+  thorns_pct: '가시 반사 %',
+  guardian_pct: '수호 (피해감소 %)',
+  damage_taken_down_pct: '받는 피해 감소 %',
+  predator_pct: '포식 (처치 시 HP회복 %)',
+  hp_regen: 'HP 재생 (/초)',
+  slow_pct: '저주 (몬스터 속도 -%)',
+  def_reduce_pct: '방어 관통 %',
+  dot_amp_pct: '도트 데미지 +%',
+  gold_bonus_pct: '골드 획득 +%',
+  exp_bonus_pct: '경험치 획득 +%',
+  atk_pct: '물리 공격 +%',
+  matk_pct: '마법 공격 +%',
+};
+
+const PASSIVE_LABEL: Record<string, string> = {
+  crit_damage: '치명타 데미지 +%',
+  armor_pierce: '방어 관통',
+  spell_amp: '스킬 데미지 +%',
+  dot_amp: '도트 데미지 +%',
+  poison_amp: '독 데미지 +%',
+  bleed_amp: '출혈 데미지 +%',
+  burn_amp: '화상 데미지 +%',
+  holy_dot_amp: '신성 도트 +%',
+  elemental_storm: '원소 폭풍 +%',
+  poison_lord: '독의 군주 +%',
+  judge_amp: '심판 데미지 +%',
+  holy_judge: '신성 심판 +%',
+  cooldown_reduce: '쿨다운 감소 %',
+  mana_flow: '마나의 흐름 (쿨 -)',
+  dot_resist: '도트 저항 %',
+  shield_amp: '쉴드 강화 %',
+  extra_hit: '추가 타격',
+  chain_action_amp: '연쇄 공격 +%',
+  bleed_on_hit: '출혈 확률 %',
+  crit_lifesteal: '치명타 흡혈 %',
+  lifesteal_amp: '흡혈 증폭 %',
+  rage_reduce: '분노 소모 감소',
+  freeze_extend: '동결 연장',
+  stun_extend: '기절 연장',
+  smoke_extend: '연막 연장',
+  control_amp: 'CC 증폭 %',
+  gauge_control_amp: '게이지 조절 +%',
+  frost_amp: '빙결 데미지 +%',
+  poison_burst_amp: '독 폭발 +%',
+  summon_amp: '소환수 데미지 +%',
+  summon_double_hit: '소환수 2회 공격 %',
+  summon_duration: '소환 지속 +턴',
+  summon_infinite: '소환 영구 유지',
+  summon_max_extra: '최대 소환수 +',
+  aura_dmg: '오오라 데미지 +%',
+  aura_heal: '오오라 회복',
+  aura_pen: '오오라 관통',
+  aura_crit: '오오라 치명타 %',
+  aura_lifesteal: '오오라 흡혈 %',
+  aura_multiplier: '오오라 배율 2배',
+  element_synergy: '원소 시너지 +%',
+  war_god: '전쟁의 신 (ATK +%)',
+  shadow_dance: '그림자 춤 (회피 +)',
+  trickster: '트릭스터 (치명타 +)',
+  iron_will: '강철의 의지 (DEF +%)',
+  mana_overload: '마나 과부하 (MATK +%)',
+  focus_mastery: '집중 숙련 (명중 +)',
+  berserker_heart: '광전사의 심장 (ATK+/DEF-)',
+  sanctuary_guard: '성역의 수호 (HP +%)',
+  balance_apostle: '균형의 사도 (전스탯 +%)',
+  counter_incarnation: '반격의 화신 (반사)',
+};
+
+type BonusCategory = { label: string; entries: [string, number, string][] };
+function categorizeBonuses(prefixes: Record<string, number>, passives: Record<string, number>): BonusCategory[] {
+  const cats: BonusCategory[] = [];
+  const prefixEntries: [string, number, string][] = [];
+  for (const [k, v] of Object.entries(prefixes)) {
+    if (v === 0) continue;
+    prefixEntries.push([k, v, PREFIX_LABEL[k] || k]);
+  }
+  if (prefixEntries.length > 0) cats.push({ label: '장비 접두사', entries: prefixEntries });
+
+  const passiveEntries: [string, number, string][] = [];
+  for (const [k, v] of Object.entries(passives)) {
+    if (v === 0) continue;
+    passiveEntries.push([k, v, PASSIVE_LABEL[k] || k]);
+  }
+  if (passiveEntries.length > 0) cats.push({ label: '노드 패시브', entries: passiveEntries });
+
+  return cats;
+}
 
 const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
@@ -175,6 +272,32 @@ export function StatusScreen() {
           모든 전투 능력치 +{status.guildBuff.pct}%
         </div>
       )}
+
+      {/* 추가 능력치 (접두사 + 노드 패시브) */}
+      {(() => {
+        const cats = categorizeBonuses(status.prefixBonuses || {}, status.passiveBonuses || {});
+        if (cats.length === 0) return null;
+        return (
+          <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+            <h3 style={{ fontSize: 14, marginBottom: 12, color: 'var(--accent)' }}>추가 능력치</h3>
+            {cats.map(cat => (
+              <div key={cat.label} style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 700, marginBottom: 6, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>
+                  {cat.label}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '3px 12px', fontSize: 12 }}>
+                  {cat.entries.map(([key, val, label]) => (
+                    <div key={key} style={{ display: 'contents' }}>
+                      <span style={{ color: 'var(--text)' }}>{label}</span>
+                      <span style={{ color: 'var(--accent)', fontWeight: 700, textAlign: 'right' }}>{val > 0 ? `+${val}` : val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
