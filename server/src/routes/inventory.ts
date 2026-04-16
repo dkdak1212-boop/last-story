@@ -65,6 +65,14 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
   // 삭제된 아이템 참조 정리
   await query(`DELETE FROM character_inventory WHERE character_id = $1 AND item_id NOT IN (SELECT id FROM items)`, [id]);
 
+  const sort = (req.query.sort as string) || 'recent';
+  const orderClause =
+    sort === 'grade' ? 'ORDER BY CASE i.grade WHEN \'unique\' THEN 0 WHEN \'legendary\' THEN 1 WHEN \'epic\' THEN 2 WHEN \'rare\' THEN 3 ELSE 4 END, ci.id DESC' :
+    sort === 'type' ? 'ORDER BY i.type, i.slot NULLS LAST, i.grade, ci.id DESC' :
+    sort === 'level' ? 'ORDER BY COALESCE(i.required_level, 1) DESC, ci.id DESC' :
+    sort === 'slot' ? 'ORDER BY ci.slot_index' :
+    'ORDER BY ci.id DESC';
+
   const invR = await query<{
     slot_index: number; quantity: number; enhance_level: number;
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
@@ -77,7 +85,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
             i.class_restriction, COALESCE(ci.quality, 0) AS quality
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 ORDER BY ci.slot_index`,
+     WHERE ci.character_id = $1 ${orderClause}`,
     [id]
   );
   const prefixNames = await getPrefixNames();
@@ -224,8 +232,9 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   }
   const equipPrefixIds = prefix_ids && prefix_ids.length > 0 ? prefix_ids : [];
   const equipPrefixStats = prefix_stats || {};
-  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)',
-    [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats), quality || 0]);
+  const equipLocked = invR.rows[0].locked === true;
+  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)',
+    [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats), quality || 0, equipLocked]);
 
   await refreshCombatSessionStats(id);
   res.json({ ok: true });

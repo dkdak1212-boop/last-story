@@ -70,10 +70,11 @@ export function InventoryScreen() {
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
   const [storageOpen, setStorageOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<'recent' | 'grade' | 'type' | 'level'>('recent');
 
   async function refresh() {
     if (!active) return;
-    const data = await api<{ inventory: InventorySlot[]; equipped: Equipped }>(`/characters/${active.id}/inventory`);
+    const data = await api<{ inventory: InventorySlot[]; equipped: Equipped }>(`/characters/${active.id}/inventory?sort=${sortMode}`);
     setInv(data.inventory); setEquipped(data.equipped);
   }
 
@@ -85,7 +86,7 @@ export function InventoryScreen() {
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
       }).catch(() => {});
   }, [active?.id]);
-  useEffect(() => { refresh(); }, [active]);
+  useEffect(() => { refresh(); }, [active, sortMode]);
 
   async function equip(slotIndex: number) {
     if (!active) return; setMsg('');
@@ -339,6 +340,18 @@ export function InventoryScreen() {
                 }}>{label} {count > 0 && `(${count})`}</button>
               );
             })}
+          </div>
+          {/* 정렬 */}
+          <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
+            {([['recent', '최신순'], ['grade', '등급순'], ['type', '종류순'], ['level', '레벨순']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setSortMode(key)} style={{
+                fontSize: 10, padding: '3px 8px', borderRadius: 3,
+                background: sortMode === key ? 'var(--accent)' : 'transparent',
+                color: sortMode === key ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${sortMode === key ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: sortMode === key ? 700 : 400, cursor: 'pointer',
+              }}>{label}</button>
+            ))}
           </div>
           {/* 자동분해 + 전체판매 */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 8 }}>
