@@ -66,6 +66,7 @@ export function InventoryScreen() {
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
   const [sellQualityMax, setSellQualityMax] = useState(0);
+  const [dropFilter, setDropFilter] = useState<{ common: boolean; rare: boolean; epic: boolean }>({ common: false, rare: false, epic: false });
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -86,6 +87,8 @@ export function InventoryScreen() {
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
         setSellQualityMax(d.qualityMax ?? 0);
       }).catch(() => {});
+    api<{ common: boolean; rare: boolean; epic: boolean }>(`/characters/${active.id}/drop-filter`)
+      .then(d => setDropFilter(d)).catch(() => {});
   }, [active?.id]);
   useEffect(() => { refresh(); }, [active, sortMode]);
 
@@ -144,6 +147,16 @@ export function InventoryScreen() {
     setSellQualityMax(val);
     try {
       await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
+    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function toggleDropFilter(grade: 'common' | 'rare' | 'epic') {
+    if (!active) return;
+    try {
+      const res = await api<{ common: boolean; rare: boolean; epic: boolean }>(
+        `/characters/${active.id}/drop-filter`,
+        { method: 'POST', body: JSON.stringify({ [grade]: !dropFilter[grade] }) }
+      );
+      setDropFilter(res);
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
 
@@ -405,6 +418,21 @@ export function InventoryScreen() {
                   </span>
                 </div>
               )}
+              <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
+                <span style={{ marginRight: 2 }}>드랍필터:</span>
+                {([['common', '일반', '#aaa'], ['rare', '희귀', '#5b8ecc'], ['epic', '에픽', '#b060cc']] as const).map(([grade, label, c]) => {
+                  const on = dropFilter[grade];
+                  return (
+                    <button key={grade} onClick={() => toggleDropFilter(grade)} style={{
+                      fontSize: 10, padding: '4px 8px', borderRadius: 3,
+                      background: on ? c : 'transparent',
+                      color: on ? '#000' : c,
+                      border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
+                    }}>{label}{on ? ' ✕' : ''}</button>
+                  );
+                })}
+                <span style={{ fontSize: 8, color: '#666', marginLeft: 2 }}>ON=안줍기</span>
+              </div>
             </div>
           </div>
 

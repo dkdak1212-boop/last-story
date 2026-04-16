@@ -458,6 +458,40 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   });
 });
 
+// 드랍 필터 조회
+router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const r = await query<{ drop_filter_grades: number }>(
+    'SELECT COALESCE(drop_filter_grades, 0) AS drop_filter_grades FROM characters WHERE id = $1', [id]
+  );
+  const g = r.rows[0]?.drop_filter_grades ?? 0;
+  res.json({ common: !!(g & 1), rare: !!(g & 2), epic: !!(g & 4) });
+});
+
+// 드랍 필터 설정
+router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const parsed = z.object({
+    common: z.boolean().optional(),
+    rare: z.boolean().optional(),
+    epic: z.boolean().optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const cur = await query<{ drop_filter_grades: number }>(
+    'SELECT COALESCE(drop_filter_grades, 0) AS drop_filter_grades FROM characters WHERE id = $1', [id]
+  );
+  let g = cur.rows[0]?.drop_filter_grades ?? 0;
+  if (parsed.data.common !== undefined) g = parsed.data.common ? (g | 1) : (g & ~1);
+  if (parsed.data.rare !== undefined) g = parsed.data.rare ? (g | 2) : (g & ~2);
+  if (parsed.data.epic !== undefined) g = parsed.data.epic ? (g | 4) : (g & ~4);
+  await query('UPDATE characters SET drop_filter_grades = $1 WHERE id = $2', [g, id]);
+  res.json({ common: !!(g & 1), rare: !!(g & 2), epic: !!(g & 4) });
+});
+
 // 등급별 일괄 판매
 // 전체 장비 판매 (잠금 제외)
 router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
