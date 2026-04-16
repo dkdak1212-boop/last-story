@@ -74,6 +74,7 @@ export function InventoryScreen() {
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
   const [storageOpen, setStorageOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'recent' | 'grade' | 'type' | 'level'>('recent');
+  const [filterPanel, setFilterPanel] = useState<'sell' | 'drop' | null>(null);
 
   async function refresh() {
     if (!active) return;
@@ -186,6 +187,7 @@ export function InventoryScreen() {
   }
 
   // 장비/기타 분리
+  const dfTiers = dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4;
   const equipmentItems = inv.filter(s => !!s.item.slot);
   const etcItems = inv.filter(s => !s.item.slot);
 
@@ -399,8 +401,8 @@ export function InventoryScreen() {
               }}>{label}</button>
             ))}
           </div>
-          {/* 자동분해 + 전체판매 */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 8 }}>
+          {/* 전체 판매 + 필터 설정 */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
             <button onClick={async () => {
               if (!active || !confirm('잠금되지 않은 모든 장비를 판매하시겠습니까?')) return;
               setMsg('');
@@ -410,77 +412,60 @@ export function InventoryScreen() {
                 await Promise.all([refresh(), refreshActive()]);
               } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
             }} style={{
-              fontSize: 11, padding: '5px 12px', borderRadius: 3,
+              fontSize: 12, padding: '8px 14px', borderRadius: 4,
               background: 'rgba(218,165,32,0.15)', color: 'var(--accent)',
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
+              whiteSpace: 'nowrap',
             }}>전체 판매</button>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
-                <span style={{ marginRight: 2 }}>자동판매:</span>
-                {(['t1','t2','t3','t4'] as const).map((tier) => {
-                  const on = dismantleTiers[tier];
-                  const label = tier.toUpperCase();
-                  const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
-                  const c = tierColor[tier];
-                  return (
-                    <button key={tier} onClick={() => toggleSellTier(tier)} style={{
-                      fontSize: 10, padding: '4px 8px', borderRadius: 3,
-                      background: on ? c : 'transparent',
-                      color: on ? '#000' : c,
-                      border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
-                    }}>{label}</button>
-                  );
-                })}
-              </div>
-              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (<>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
-                  <span>품질 {sellQualityMax}% 이하 판매</span>
-                  <input type="range" min={0} max={100} step={5} value={sellQualityMax}
-                    onChange={e => updateSellQuality(Number(e.target.value))}
-                    style={{ flex: 1, maxWidth: 120, height: 14, accentColor: 'var(--accent)' }} />
-                  <span style={{ fontWeight: 700, color: sellQualityMax === 0 ? 'var(--text-dim)' : 'var(--accent)', minWidth: 28, textAlign: 'right' }}>
-                    {sellQualityMax === 0 ? 'OFF' : `${sellQualityMax}%`}
-                  </span>
-                </div>
-                <PrefixProtectRow label="보호 접두" selected={sellProtectPrefixes} onToggle={toggleSellPrefix} />
-              </>)}
-              <div style={{ display: 'flex', gap: 3, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
-                <span style={{ marginRight: 2 }}>드랍필터:</span>
-                <button onClick={() => toggleDropFilter('common')} style={{
-                  fontSize: 10, padding: '4px 8px', borderRadius: 3,
-                  background: dropFilter.common ? '#aaa' : 'transparent',
-                  color: dropFilter.common ? '#000' : '#aaa',
-                  border: '1px solid #aaa', cursor: 'pointer', fontWeight: 700,
-                }}>일반{dropFilter.common ? ' ✕' : ''}</button>
-                {(['t1','t2','t3','t4'] as const).map((tier) => {
-                  const on = dropFilter[tier];
-                  const tierColor: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
-                  const c = tierColor[tier];
-                  return (
-                    <button key={tier} onClick={() => toggleDropFilter(tier)} style={{
-                      fontSize: 10, padding: '4px 8px', borderRadius: 3,
-                      background: on ? c : 'transparent',
-                      color: on ? '#000' : c,
-                      border: `1px solid ${c}`, cursor: 'pointer', fontWeight: 700,
-                    }}>{tier.toUpperCase()}{on ? ' ✕' : ''}</button>
-                  );
-                })}
-                <span style={{ fontSize: 8, color: '#666', marginLeft: 2 }}>ON=안줍기</span>
-              </div>
-              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (<>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 9, color: 'var(--text-dim)' }}>
-                  <span>품질 {dropFilter.qualityMax}% 이하 안줍기</span>
-                  <input type="range" min={0} max={100} step={5} value={dropFilter.qualityMax}
-                    onChange={e => updateDropFilterQuality(Number(e.target.value))}
-                    style={{ flex: 1, maxWidth: 120, height: 14, accentColor: '#ff6666' }} />
-                  <span style={{ fontWeight: 700, color: dropFilter.qualityMax === 0 ? 'var(--text-dim)' : '#ff6666', minWidth: 28, textAlign: 'right' }}>
-                    {dropFilter.qualityMax === 0 ? 'OFF' : `${dropFilter.qualityMax}%`}
-                  </span>
-                </div>
-                <PrefixProtectRow label="보호 접두" selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
-              </>)}
-            </div>
+            <FilterToggleButton label="자동판매" active={dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4} color="var(--accent)" onClick={() => setFilterPanel(filterPanel === 'sell' ? null : 'sell')} open={filterPanel === 'sell'} />
+            <FilterToggleButton label="드랍필터" active={!!dfTiers || dropFilter.common} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
           </div>
+
+          {/* 자동판매 패널 */}
+          {filterPanel === 'sell' && (
+            <FilterPanel title="자동판매 설정" subtitle="사냥 시 조건에 맞는 장비를 자동으로 골드 변환" accentColor="var(--accent)" onClose={() => setFilterPanel(null)}>
+              <FilterSection label="접두사 등급">
+                <TierButtons tiers={dismantleTiers} onToggle={toggleSellTier} />
+              </FilterSection>
+              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (<>
+                <FilterSection label="품질 상한">
+                  <QualitySlider value={sellQualityMax} onChange={updateSellQuality} color="var(--accent)" suffix="이하 판매" />
+                </FilterSection>
+                <FilterSection label="보호 접두사">
+                  <PrefixProtectGrid selected={sellProtectPrefixes} onToggle={toggleSellPrefix} />
+                </FilterSection>
+              </>)}
+              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 3옵 · 보호접두 아이템은 항상 보호</div>
+            </FilterPanel>
+          )}
+
+          {/* 드랍필터 패널 */}
+          {filterPanel === 'drop' && (
+            <FilterPanel title="드랍필터 설정" subtitle="사냥 시 조건에 맞는 장비를 줍지 않음" accentColor="#ff6666" onClose={() => setFilterPanel(null)}>
+              <FilterSection label="등급 필터">
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => toggleDropFilter('common')} style={{
+                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
+                    background: dropFilter.common ? '#888' : 'transparent',
+                    color: dropFilter.common ? '#000' : '#888',
+                    border: '1px solid #888', cursor: 'pointer', fontWeight: 700,
+                  }}>일반{dropFilter.common ? ' ✕' : ''}</button>
+                </div>
+              </FilterSection>
+              <FilterSection label="접두사 등급">
+                <TierButtons tiers={dropFilter} onToggle={(t) => toggleDropFilter(t)} suffix=" ✕" />
+              </FilterSection>
+              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (<>
+                <FilterSection label="품질 상한">
+                  <QualitySlider value={dropFilter.qualityMax} onChange={updateDropFilterQuality} color="#ff6666" suffix="이하 안줍기" />
+                </FilterSection>
+                <FilterSection label="보호 접두사">
+                  <PrefixProtectGrid selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
+                </FilterSection>
+              </>)}
+              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 전설 · 3옵 · 보호접두 아이템은 항상 보호</div>
+            </FilterPanel>
+          )}
 
           {/* 아이템 목록 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -704,51 +689,142 @@ function actionBtn(color: string): React.CSSProperties {
   return { padding: '6px 14px', fontSize: 11, background: 'transparent', color, border: `1px solid ${color}50`, cursor: 'pointer', borderRadius: 4 };
 }
 
-const PREFIX_OPTIONS: { key: string; label: string; color: string }[] = [
-  { key: 'str', label: 'STR', color: '#ff6644' },
-  { key: 'dex', label: 'DEX', color: '#44cc88' },
-  { key: 'int', label: 'INT', color: '#6688ff' },
-  { key: 'vit', label: 'VIT', color: '#88aa44' },
-  { key: 'spd', label: 'SPD', color: '#44cccc' },
-  { key: 'cri', label: 'CRI', color: '#ff4488' },
-  { key: 'crit_dmg_pct', label: '치명뎀', color: '#ff6688' },
-  { key: 'dodge', label: '회피', color: '#88ccff' },
-  { key: 'accuracy', label: '명중', color: '#ccaa44' },
-  { key: 'lifesteal_pct', label: '흡혈', color: '#cc4444' },
-  { key: 'dot_amp_pct', label: '도트', color: '#88ff44' },
-  { key: 'exp_bonus_pct', label: '경험치', color: '#aaddff' },
-  { key: 'gold_bonus_pct', label: '골드', color: '#ffdd44' },
-  { key: 'guardian_pct', label: '방어', color: '#8888cc' },
-  { key: 'gauge_on_crit_pct', label: '게이지', color: '#ff8844' },
-  { key: 'first_strike_pct', label: '선제', color: '#cc88ff' },
-  { key: 'berserk_pct', label: '광전사', color: '#ff4444' },
-  { key: 'ambush_pct', label: '각성', color: '#aa66ff' },
-  { key: 'predator_pct', label: '포식', color: '#66aa44' },
-  { key: 'def_reduce_pct', label: '방관', color: '#cc6644' },
-  { key: 'hp_regen', label: '재생', color: '#44cc44' },
-  { key: 'slow_pct', label: '감속', color: '#6688aa' },
-  { key: 'thorns_pct', label: '반사', color: '#aa8844' },
+const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string }[] = [
+  { key: 'str', label: 'STR', color: '#ff6644', group: '스탯' },
+  { key: 'dex', label: 'DEX', color: '#44cc88', group: '스탯' },
+  { key: 'int', label: 'INT', color: '#6688ff', group: '스탯' },
+  { key: 'vit', label: 'VIT', color: '#88aa44', group: '스탯' },
+  { key: 'spd', label: 'SPD', color: '#44cccc', group: '스탯' },
+  { key: 'cri', label: 'CRI', color: '#ff4488', group: '공격' },
+  { key: 'crit_dmg_pct', label: '치명뎀', color: '#ff6688', group: '공격' },
+  { key: 'accuracy', label: '명중', color: '#ccaa44', group: '공격' },
+  { key: 'def_reduce_pct', label: '방관', color: '#cc6644', group: '공격' },
+  { key: 'dot_amp_pct', label: '도트', color: '#88ff44', group: '공격' },
+  { key: 'lifesteal_pct', label: '흡혈', color: '#cc4444', group: '유틸' },
+  { key: 'dodge', label: '회피', color: '#88ccff', group: '유틸' },
+  { key: 'guardian_pct', label: '방어', color: '#8888cc', group: '유틸' },
+  { key: 'hp_regen', label: '재생', color: '#44cc44', group: '유틸' },
+  { key: 'predator_pct', label: '포식', color: '#66aa44', group: '유틸' },
+  { key: 'gauge_on_crit_pct', label: '게이지', color: '#ff8844', group: '특수' },
+  { key: 'first_strike_pct', label: '선제', color: '#cc88ff', group: '특수' },
+  { key: 'berserk_pct', label: '광전사', color: '#ff4444', group: '특수' },
+  { key: 'ambush_pct', label: '각성', color: '#aa66ff', group: '특수' },
+  { key: 'exp_bonus_pct', label: '경험치', color: '#aaddff', group: '보상' },
+  { key: 'gold_bonus_pct', label: '골드', color: '#ffdd44', group: '보상' },
+  { key: 'slow_pct', label: '감속', color: '#6688aa', group: '기타' },
+  { key: 'thorns_pct', label: '반사', color: '#aa8844', group: '기타' },
 ];
 
-function PrefixProtectRow({ label, selected, onToggle }: { label: string; selected: string[]; onToggle: (key: string) => void }) {
-  const set = new Set(selected);
+function FilterToggleButton({ label, active, color, onClick, open }: { label: string; active: boolean; color: string; onClick: () => void; open: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 2, alignItems: 'center', fontSize: 8, color: 'var(--text-dim)', flexWrap: 'wrap' }}>
-      <span style={{ marginRight: 2, fontSize: 9, whiteSpace: 'nowrap' }}>{label}:</span>
-      {PREFIX_OPTIONS.map(p => {
-        const on = set.has(p.key);
+    <button onClick={onClick} style={{
+      fontSize: 12, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', fontWeight: 700,
+      background: open ? color : active ? `${color}20` : 'transparent',
+      color: open ? '#000' : active ? color : 'var(--text-dim)',
+      border: `1px solid ${active || open ? color : 'var(--border)'}`,
+      whiteSpace: 'nowrap', flex: 1,
+    }}>
+      {label}{active && !open ? ' ●' : ''}
+    </button>
+  );
+}
+
+function FilterPanel({ title, subtitle, accentColor, onClose, children }: {
+  title: string; subtitle: string; accentColor: string; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div style={{
+      marginBottom: 10, padding: '14px 16px', borderRadius: 8,
+      background: 'var(--bg-panel)', border: `1px solid ${accentColor}40`,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: accentColor }}>{title}</div>
+          <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>{subtitle}</div>
+        </div>
+        <button onClick={onClose} style={{
+          fontSize: 11, padding: '4px 10px', background: 'transparent',
+          color: 'var(--text-dim)', border: '1px solid var(--border)',
+          borderRadius: 4, cursor: 'pointer',
+        }}>닫기</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+    </div>
+  );
+}
+
+function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 6 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+const TIER_COLORS: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
+
+function TierButtons({ tiers, onToggle, suffix }: { tiers: { t1: boolean; t2: boolean; t3: boolean; t4: boolean }; onToggle: (t: 't1'|'t2'|'t3'|'t4') => void; suffix?: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {(['t1','t2','t3','t4'] as const).map(t => {
+        const on = tiers[t];
+        const c = TIER_COLORS[t];
         return (
-          <button key={p.key} onClick={() => onToggle(p.key)} style={{
-            fontSize: 8, padding: '2px 5px', borderRadius: 2,
-            background: on ? p.color : 'transparent',
-            color: on ? '#000' : p.color,
-            border: `1px solid ${on ? p.color : p.color + '60'}`,
-            cursor: 'pointer', fontWeight: on ? 700 : 400,
-            lineHeight: 1.2,
-          }}>{p.label}</button>
+          <button key={t} onClick={() => onToggle(t)} style={{
+            fontSize: 13, padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
+            background: on ? c : 'transparent', color: on ? '#000' : c,
+            border: `2px solid ${c}`, minWidth: 54, textAlign: 'center',
+          }}>{t.toUpperCase()}{on && suffix ? suffix : ''}</button>
         );
       })}
-      {selected.length > 0 && <span style={{ fontSize: 8, color: '#888', marginLeft: 2 }}>={selected.length}개 보호</span>}
+    </div>
+  );
+}
+
+function QualitySlider({ value, onChange, color, suffix }: { value: number; onChange: (v: number) => void; color: string; suffix: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <input type="range" min={0} max={100} step={5} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ flex: 1, height: 20, accentColor: color }} />
+      <span style={{
+        fontWeight: 700, fontSize: 14, minWidth: 80, textAlign: 'right',
+        color: value === 0 ? 'var(--text-dim)' : color,
+      }}>
+        {value === 0 ? 'OFF' : `${value}% ${suffix}`}
+      </span>
+    </div>
+  );
+}
+
+function PrefixProtectGrid({ selected, onToggle }: { selected: string[]; onToggle: (key: string) => void }) {
+  const set = new Set(selected);
+  const groups = [...new Set(PREFIX_OPTIONS.map(p => p.group))];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {groups.map(group => (
+        <div key={group}>
+          <div style={{ fontSize: 9, color: '#666', marginBottom: 3 }}>{group}</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {PREFIX_OPTIONS.filter(p => p.group === group).map(p => {
+              const on = set.has(p.key);
+              return (
+                <button key={p.key} onClick={() => onToggle(p.key)} style={{
+                  fontSize: 11, padding: '5px 10px', borderRadius: 4,
+                  background: on ? p.color : 'transparent',
+                  color: on ? '#000' : p.color,
+                  border: `1px solid ${on ? p.color : p.color + '50'}`,
+                  cursor: 'pointer', fontWeight: on ? 700 : 500,
+                }}>{p.label}</button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {selected.length > 0 && (
+        <div style={{ fontSize: 10, color: 'var(--accent)' }}>{selected.length}개 접두사 보호 중</div>
+      )}
     </div>
   );
 }
