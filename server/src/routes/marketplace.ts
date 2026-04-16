@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { query } from '../db/pool.js';
+import { query, withTransaction, type TxOk, type TxErr } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { deliverToMailbox } from '../game/inventory.js';
@@ -141,40 +141,44 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 계정(=동일 user_id가 보유한 모든 캐릭터의 활성 등록 합) 5개 제한
-  const cntR = await query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt FROM auctions a
-     JOIN characters c ON c.id = a.seller_id
-     WHERE c.user_id = $1 AND a.settled = FALSE AND a.cancelled = FALSE AND a.ends_at > NOW()`,
-    [req.userId]
-  );
-  const activeCnt = Number(cntR.rows[0].cnt);
-  if (activeCnt >= MAX_LISTINGS_PER_ACCOUNT) {
-    return res.status(400).json({ error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다. (현재 ${activeCnt}개 활성)` });
-  }
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const cntR = await tx.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM auctions a
+       JOIN characters c ON c.id = a.seller_id
+       WHERE c.user_id = $1 AND a.settled = FALSE AND a.cancelled = FALSE AND a.ends_at > NOW()`,
+      [req.userId]
+    );
+    const activeCnt = Number(cntR.rows[0].cnt);
+    if (activeCnt >= MAX_LISTINGS_PER_ACCOUNT) {
+      return { error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다. (현재 ${activeCnt}개 활성)`, status: 400 };
+    }
 
-  const inv = await query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
-    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
-    [characterId, slotIndex]
-  );
-  if (inv.rowCount === 0) return res.status(404).json({ error: 'item not in slot' });
-  if (inv.rows[0].quantity < quantity) return res.status(400).json({ error: 'insufficient quantity' });
+    const inv = await tx.query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
+      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
+      [characterId, slotIndex]
+    );
+    if (inv.rowCount === 0) return { error: 'item not in slot', status: 404 };
+    if (inv.rows[0].quantity < quantity) return { error: 'insufficient quantity', status: 400 };
 
-  const invRow = inv.rows[0];
+    const invRow = inv.rows[0];
 
-  await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, invRow.id]);
-  await query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [invRow.id]);
+    await tx.query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, invRow.id]);
+    await tx.query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [invRow.id]);
 
-  const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000).toISOString();
-  await query(
-    `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9)`,
-    [characterId, invRow.item_id, quantity, price, endsAt,
-     invRow.enhance_level || 0,
-     invRow.prefix_ids || null,
-     invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null,
-     invRow.quality || 0]
-  );
+    const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000).toISOString();
+    await tx.query(
+      `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9)`,
+      [characterId, invRow.item_id, quantity, price, endsAt,
+       invRow.enhance_level || 0,
+       invRow.prefix_ids || null,
+       invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null,
+       invRow.quality || 0]
+    );
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -187,80 +191,86 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const a = await query<{
-    seller_id: number; buyout_price: string | null; item_id: number; item_quantity: number;
-    settled: boolean; cancelled: boolean; ends_at: string;
-  }>(
-    'SELECT seller_id, buyout_price, item_id, item_quantity, settled, cancelled, ends_at FROM auctions WHERE id = $1',
-    [auctionId]
-  );
-  if (a.rowCount === 0) return res.status(404).json({ error: 'item not found' });
-  const au = a.rows[0];
-  if (au.settled || au.cancelled) return res.status(400).json({ error: '판매 종료됨' });
-  if (new Date(au.ends_at) < new Date()) return res.status(400).json({ error: '등록 만료' });
-  if (!au.buyout_price) return res.status(400).json({ error: 'no price' });
-  if (au.seller_id === parsed.data.characterId) return res.status(400).json({ error: '본인 아이템은 살 수 없습니다' });
-  const price = Number(au.buyout_price);
-  if (char.gold < price) return res.status(400).json({ error: '골드 부족' });
-
-  // 판매 아이템 이름 + 접두사 조회 (판매 정산 메시지용)
-  const itemMeta = await query<{ name: string; grade: string; enhance_level: number; prefix_ids: number[] | null }>(
-    `SELECT i.name, i.grade, a.enhance_level, a.prefix_ids FROM auctions a JOIN items i ON i.id = a.item_id WHERE a.id = $1`,
-    [auctionId]
-  );
-  const metaRow = itemMeta.rows[0];
-  const prefixNames = metaRow?.prefix_ids && metaRow.prefix_ids.length > 0
-    ? (await query<{ name: string }>(`SELECT name FROM item_prefixes WHERE id = ANY($1::int[])`, [metaRow.prefix_ids])).rows.map(r => r.name).join(' ')
-    : '';
-  const fullName = [
-    prefixNames,
-    metaRow?.name || '아이템',
-  ].filter(Boolean).join(' ') + (metaRow && metaRow.enhance_level > 0 ? ` +${metaRow.enhance_level}` : '');
-  const qtyStr = au.item_quantity > 1 ? ` x${au.item_quantity}` : '';
-
-  // 결제 & 정산 (수수료 10%) — 판매금은 우편으로만 지급 (즉시 입금 X)
-  await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [price, parsed.data.characterId]);
-  const sellerGet = Math.floor(price * (1 - FEE_PCT));
-  await deliverToMailbox(
-    au.seller_id,
-    `판매 완료: ${fullName}${qtyStr}`,
-    `[${fullName}${qtyStr}] 판매 완료\n판매가 ${price.toLocaleString()}G · 수수료 ${Math.round(FEE_PCT*100)}%\n수령 ${sellerGet.toLocaleString()}G`,
-    0, 0, sellerGet
-  );
-
-  // 아이템 지급 (강화/접두사/품질 완전 보존)
-  const auctionDetail = await query<{ enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number }>(
-    'SELECT enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM auctions WHERE id = $1', [auctionId]
-  );
-  const ad = auctionDetail.rows[0];
-  const enhLv = ad?.enhance_level || 0;
-  const pIds = ad?.prefix_ids || [];
-  const pStats = ad?.prefix_stats ? JSON.stringify(ad.prefix_stats) : '{}';
-  const qual = ad?.quality || 0;
-
-  // 빈 인벤 슬롯 찾기
-  const usedR = await query<{ slot_index: number }>(
-    'SELECT slot_index FROM character_inventory WHERE character_id = $1', [parsed.data.characterId]
-  );
-  const usedSlots = new Set(usedR.rows.map(r => r.slot_index));
-  let freeSlot = -1;
-  for (let i = 0; i < 300; i++) if (!usedSlots.has(i)) { freeSlot = i; break; }
-
-  if (freeSlot >= 0) {
-    await query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-      [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual]
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const a = await tx.query<{
+      seller_id: number; buyout_price: string | null; item_id: number; item_quantity: number;
+      settled: boolean; cancelled: boolean; ends_at: string;
+      enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+    }>(
+      `SELECT seller_id, buyout_price, item_id, item_quantity, settled, cancelled, ends_at,
+              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+       FROM auctions WHERE id = $1 FOR UPDATE`,
+      [auctionId]
     );
-  } else {
-    await deliverToMailbox(
-      parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송',
-      au.item_id, au.item_quantity, 0,
-      { enhanceLevel: enhLv, prefixIds: pIds, prefixStats: ad?.prefix_stats || null, quality: qual }
-    );
-  }
+    if (a.rowCount === 0) return { error: 'item not found', status: 404 };
+    const au = a.rows[0];
+    if (au.settled || au.cancelled) return { error: '판매 종료됨', status: 400 };
+    if (new Date(au.ends_at) < new Date()) return { error: '등록 만료', status: 400 };
+    if (!au.buyout_price) return { error: 'no price', status: 400 };
+    if (au.seller_id === parsed.data.characterId) return { error: '본인 아이템은 살 수 없습니다', status: 400 };
+    const price = Number(au.buyout_price);
 
-  await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [auctionId]);
+    const goldR = await tx.query<{ gold: number }>(
+      'SELECT gold FROM characters WHERE id = $1 FOR UPDATE', [parsed.data.characterId]
+    );
+    if (goldR.rows[0].gold < price) return { error: '골드 부족', status: 400 };
+
+    await tx.query('UPDATE auctions SET settled = TRUE WHERE id = $1', [auctionId]);
+    await tx.query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [price, parsed.data.characterId]);
+
+    const itemMeta = await tx.query<{ name: string; grade: string }>(
+      'SELECT name, grade FROM items WHERE id = $1', [au.item_id]
+    );
+    const metaRow = itemMeta.rows[0];
+    const prefixNames = au.prefix_ids && au.prefix_ids.length > 0
+      ? (await tx.query<{ name: string }>(`SELECT name FROM item_prefixes WHERE id = ANY($1::int[])`, [au.prefix_ids])).rows.map(r => r.name).join(' ')
+      : '';
+    const fullName = [
+      prefixNames,
+      metaRow?.name || '아이템',
+    ].filter(Boolean).join(' ') + (au.enhance_level > 0 ? ` +${au.enhance_level}` : '');
+    const qtyStr = au.item_quantity > 1 ? ` x${au.item_quantity}` : '';
+
+    const sellerGet = Math.floor(price * (1 - FEE_PCT));
+    await tx.query(
+      `INSERT INTO mailbox (character_id, subject, body, gold)
+       VALUES ($1, $2, $3, $4)`,
+      [au.seller_id, `판매 완료: ${fullName}${qtyStr}`,
+       `[${fullName}${qtyStr}] 판매 완료\n판매가 ${price.toLocaleString()}G · 수수료 ${Math.round(FEE_PCT*100)}%\n수령 ${sellerGet.toLocaleString()}G`,
+       sellerGet]
+    );
+
+    const enhLv = au.enhance_level || 0;
+    const pIds = au.prefix_ids || [];
+    const pStats = au.prefix_stats ? JSON.stringify(au.prefix_stats) : '{}';
+    const qual = au.quality || 0;
+
+    const usedR = await tx.query<{ slot_index: number }>(
+      'SELECT slot_index FROM character_inventory WHERE character_id = $1', [parsed.data.characterId]
+    );
+    const usedSlots = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < 300; i++) if (!usedSlots.has(i)) { freeSlot = i; break; }
+
+    if (freeSlot >= 0) {
+      await tx.query(
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+        [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual]
+      );
+    } else {
+      await tx.query(
+        `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, enhance_level, prefix_ids, prefix_stats, quality)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+        [parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송',
+         au.item_id, au.item_quantity, enhLv, pIds.length > 0 ? pIds : null, au.prefix_stats ? JSON.stringify(au.prefix_stats) : null, qual]
+      );
+    }
+
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -273,32 +283,38 @@ router.post('/:auctionId/cancel', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const a = await query<{
-    seller_id: number; item_id: number; item_quantity: number;
-    settled: boolean; cancelled: boolean;
-    enhance_level: number; prefix_ids: number[] | null;
-    prefix_stats: Record<string, number> | null; quality: number;
-  }>(
-    `SELECT seller_id, item_id, item_quantity, settled, cancelled,
-            enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
-     FROM auctions WHERE id = $1`, [auctionId]
-  );
-  if (a.rowCount === 0) return res.status(404).json({ error: 'not found' });
-  const ar = a.rows[0];
-  if (ar.seller_id !== parsed.data.characterId) return res.status(403).json({ error: 'not owner' });
-  if (ar.settled || ar.cancelled) return res.status(400).json({ error: 'already closed' });
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const a = await tx.query<{
+      seller_id: number; item_id: number; item_quantity: number;
+      settled: boolean; cancelled: boolean;
+      enhance_level: number; prefix_ids: number[] | null;
+      prefix_stats: Record<string, number> | null; quality: number;
+    }>(
+      `SELECT seller_id, item_id, item_quantity, settled, cancelled,
+              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+       FROM auctions WHERE id = $1 FOR UPDATE`, [auctionId]
+    );
+    if (a.rowCount === 0) return { error: 'not found', status: 404 };
+    const ar = a.rows[0];
+    if (ar.seller_id !== parsed.data.characterId) return { error: 'not owner', status: 403 };
+    if (ar.settled || ar.cancelled) return { error: 'already closed', status: 400 };
 
-  await query('UPDATE auctions SET cancelled = TRUE WHERE id = $1', [auctionId]);
-  await deliverToMailbox(
-    parsed.data.characterId, '거래소 등록 취소', '취소된 아이템을 돌려드립니다.',
-    ar.item_id, ar.item_quantity, 0,
-    {
-      enhanceLevel: ar.enhance_level || 0,
-      prefixIds: ar.prefix_ids || null,
-      prefixStats: ar.prefix_stats || null,
-      quality: ar.quality || 0,
-    }
-  );
+    await tx.query('UPDATE auctions SET cancelled = TRUE WHERE id = $1', [auctionId]);
+    await tx.query(
+      `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
+                             enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8::jsonb, $9)`,
+      [parsed.data.characterId, '거래소 등록 취소', '취소된 아이템을 돌려드립니다.',
+       ar.item_id, ar.item_quantity,
+       ar.enhance_level || 0,
+       ar.prefix_ids && ar.prefix_ids.length > 0 ? ar.prefix_ids : null,
+       ar.prefix_stats ? JSON.stringify(ar.prefix_stats) : null,
+       ar.quality || 0]
+    );
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 

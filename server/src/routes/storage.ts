@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { query } from '../db/pool.js';
+import { query, withTransaction, type TxOk, type TxErr } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 
@@ -65,36 +65,39 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const inv = await query<{
-    id: number; item_id: number; quantity: number; enhance_level: number;
-    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-  }>(
-    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
-    [characterId, inventorySlotIndex]
-  );
-  if (inv.rowCount === 0) return res.status(404).json({ error: '아이템 없음' });
-  const it = inv.rows[0];
-  if (it.item_id === 320) return res.status(400).json({ error: '찢어진 스크롤은 창고에 보관할 수 없습니다.' });
-  if (it.item_id === 321) return res.status(400).json({ error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.' });
+  const userId = req.userId!;
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const inv = await tx.query<{
+      id: number; item_id: number; quantity: number; enhance_level: number;
+      prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+    }>(
+      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
+      [characterId, inventorySlotIndex]
+    );
+    if (inv.rowCount === 0) return { error: '아이템 없음', status: 404 };
+    const it = inv.rows[0];
+    if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
+    if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
 
-  // 빈 창고 슬롯
-  const usedR = await query<{ slot_index: number }>(
-    'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [req.userId]
-  );
-  const used = new Set(usedR.rows.map(r => r.slot_index));
-  let freeSlot = -1;
-  for (let i = 0; i < STORAGE_SLOTS; i++) if (!used.has(i)) { freeSlot = i; break; }
-  if (freeSlot < 0) return res.status(400).json({ error: '창고가 가득 찼습니다' });
+    const usedR = await tx.query<{ slot_index: number }>(
+      'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]
+    );
+    const used = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < STORAGE_SLOTS; i++) if (!used.has(i)) { freeSlot = i; break; }
+    if (freeSlot < 0) return { error: '창고가 가득 찼습니다', status: 400 };
 
-  await query(
-    `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-    [
-      req.userId, freeSlot, it.item_id, it.quantity, it.enhance_level,
-      it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality,
-    ]
-  );
-  await query('DELETE FROM character_inventory WHERE id = $1', [it.id]);
+    await tx.query(
+      `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      [userId, freeSlot, it.item_id, it.quantity, it.enhance_level,
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality]
+    );
+    await tx.query('DELETE FROM character_inventory WHERE id = $1', [it.id]);
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -109,34 +112,37 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const sr = await query<{
-    id: number; item_id: number; quantity: number; enhance_level: number;
-    prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-  }>(
-    'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM account_storage_items WHERE id = $1 AND user_id = $2',
-    [storageItemId, req.userId]
-  );
-  if (sr.rowCount === 0) return res.status(404).json({ error: '창고 아이템 없음' });
-  const it = sr.rows[0];
+  const userId = req.userId!;
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const sr = await tx.query<{
+      id: number; item_id: number; quantity: number; enhance_level: number;
+      prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+    }>(
+      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM account_storage_items WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      [storageItemId, userId]
+    );
+    if (sr.rowCount === 0) return { error: '창고 아이템 없음', status: 404 };
+    const it = sr.rows[0];
 
-  // 빈 인벤 슬롯
-  const usedR = await query<{ slot_index: number }>(
-    'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
-  );
-  const used = new Set(usedR.rows.map(r => r.slot_index));
-  let freeSlot = -1;
-  for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
-  if (freeSlot < 0) return res.status(400).json({ error: '인벤토리가 가득 찼습니다' });
+    const usedR = await tx.query<{ slot_index: number }>(
+      'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+    );
+    const used = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
+    if (freeSlot < 0) return { error: '인벤토리가 가득 찼습니다', status: 400 };
 
-  await query(
-    `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-    [
-      characterId, it.item_id, freeSlot, it.quantity, it.enhance_level,
-      it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality,
-    ]
-  );
-  await query('DELETE FROM account_storage_items WHERE id = $1', [it.id]);
+    await tx.query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      [characterId, it.item_id, freeSlot, it.quantity, it.enhance_level,
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality]
+    );
+    await tx.query('DELETE FROM account_storage_items WHERE id = $1', [it.id]);
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -150,10 +156,19 @@ router.post('/gold/deposit', async (req: AuthedRequest, res: Response) => {
   const { characterId, amount } = parsed.data;
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
-  if (char.gold < amount) return res.status(400).json({ error: '골드 부족' });
+  const userId = req.userId!;
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const gr = await tx.query<{ gold: number }>(
+      'SELECT gold FROM characters WHERE id = $1 FOR UPDATE', [characterId]
+    );
+    if (gr.rows[0].gold < amount) return { error: '골드 부족', status: 400 };
 
-  await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [amount, characterId]);
-  await query('UPDATE users SET storage_gold = storage_gold + $1 WHERE id = $2', [amount, req.userId]);
+    await tx.query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [amount, characterId]);
+    await tx.query('UPDATE users SET storage_gold = storage_gold + $1 WHERE id = $2', [amount, userId]);
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -168,14 +183,20 @@ router.post('/gold/withdraw', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const gr = await query<{ storage_gold: string }>(
-    'SELECT storage_gold::text FROM users WHERE id = $1', [req.userId]
-  );
-  const have = Number(gr.rows[0]?.storage_gold || 0);
-  if (have < amount) return res.status(400).json({ error: '창고 골드 부족' });
+  const userId = req.userId!;
+  const result = await withTransaction<TxOk | TxErr>(async (tx) => {
+    const gr = await tx.query<{ storage_gold: string }>(
+      'SELECT storage_gold::text FROM users WHERE id = $1 FOR UPDATE', [userId]
+    );
+    const have = Number(gr.rows[0]?.storage_gold || 0);
+    if (have < amount) return { error: '창고 골드 부족', status: 400 };
 
-  await query('UPDATE users SET storage_gold = storage_gold - $1 WHERE id = $2', [amount, req.userId]);
-  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [amount, characterId]);
+    await tx.query('UPDATE users SET storage_gold = storage_gold - $1 WHERE id = $2', [amount, userId]);
+    await tx.query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [amount, characterId]);
+    return { ok: true };
+  });
+
+  if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 

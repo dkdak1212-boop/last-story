@@ -42,3 +42,32 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
 ): Promise<pg.QueryResult<T>> {
   return pool.query<T>(text, params);
 }
+
+export type TxClient = {
+  query: <T extends pg.QueryResultRow = pg.QueryResultRow>(
+    text: string,
+    params?: unknown[]
+  ) => Promise<pg.QueryResult<T>>;
+};
+
+export type TxOk = { ok: true };
+export type TxErr = { error: string; status: number };
+
+export async function withTransaction<T>(fn: (tx: TxClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const tx: TxClient = {
+      query: <R extends pg.QueryResultRow>(text: string, params?: unknown[]) =>
+        client.query<R>(text, params),
+    };
+    const result = await fn(tx);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
