@@ -207,4 +207,106 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
 });
 
+// ═══ 노드 프리셋 ═══
+
+// 목록 조회
+router.get('/:id/node-presets', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const r = await query<{ preset_idx: number; name: string; node_ids: number[] }>(
+    'SELECT preset_idx, name, node_ids FROM character_node_presets WHERE character_id = $1 ORDER BY preset_idx', [id]
+  );
+  const map = new Map(r.rows.map(row => [row.preset_idx, row]));
+  const presets = [1, 2, 3].map(idx => {
+    const p = map.get(idx);
+    return { idx, name: p?.name || `프리셋 ${idx}`, nodeIds: p?.node_ids || [], empty: !p };
+  });
+  res.json(presets);
+});
+
+// 현재 노드 → 프리셋 저장
+router.post('/:id/node-presets/:idx/save', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  if (idx < 1 || idx > 3) return res.status(400).json({ error: 'invalid preset index' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const nr = await query<{ node_id: number }>('SELECT node_id FROM character_nodes WHERE character_id = $1', [id]);
+  const nodeIds = nr.rows.map(r => r.node_id);
+
+  await query(
+    `INSERT INTO character_node_presets (character_id, preset_idx, node_ids)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (character_id, preset_idx) DO UPDATE SET node_ids = $3`,
+    [id, idx, nodeIds]
+  );
+  res.json({ ok: true, count: nodeIds.length });
+});
+
+// 프리셋 → 노드 로드 (전체 리셋 후 재투자)
+router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  if (idx < 1 || idx > 3) return res.status(400).json({ error: 'invalid preset index' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const pr = await query<{ node_ids: number[] }>(
+    'SELECT node_ids FROM character_node_presets WHERE character_id = $1 AND preset_idx = $2', [id, idx]
+  );
+  if (pr.rowCount === 0 || pr.rows[0].node_ids.length === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
+  const targetNodeIds = pr.rows[0].node_ids;
+
+  // 현재 노드 전체 환불
+  const totalR = await query<{ total: string }>(
+    `SELECT COALESCE(SUM(nd.cost), 0)::text AS total FROM character_nodes cn
+     JOIN node_definitions nd ON nd.id = cn.node_id WHERE cn.character_id = $1`, [id]
+  );
+  const refund = Number(totalR.rows[0].total);
+  await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
+  await query('UPDATE characters SET node_points = node_points + $1 WHERE id = $2', [refund, id]);
+
+  // 프리셋 노드 투자 (존재하는 노드만, 포인트 충분한 만큼)
+  const charR = await query<{ node_points: number }>('SELECT node_points FROM characters WHERE id = $1', [id]);
+  let points = charR.rows[0].node_points;
+  let invested = 0;
+
+  // 노드를 cost 순으로 정렬해서 선행 노드부터 투자
+  const nodeDefsR = await query<{ id: number; cost: number }>(
+    'SELECT id, cost FROM node_definitions WHERE id = ANY($1::int[])', [targetNodeIds]
+  );
+  const nodeCostMap = new Map(nodeDefsR.rows.map(r => [r.id, r.cost]));
+
+  for (const nid of targetNodeIds) {
+    const cost = nodeCostMap.get(nid);
+    if (!cost || points < cost) continue;
+    await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+    points -= cost;
+    invested++;
+  }
+  await query('UPDATE characters SET node_points = $1 WHERE id = $2', [points, id]);
+  await refreshSessionStats(id).catch(() => {});
+
+  res.json({ ok: true, invested, remainingPoints: points });
+});
+
+// 프리셋 이름 변경
+router.post('/:id/node-presets/:idx/rename', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  const parsed = z.object({ name: z.string().max(20) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  await query(
+    `INSERT INTO character_node_presets (character_id, preset_idx, name, node_ids)
+     VALUES ($1, $2, $3, '{}')
+     ON CONFLICT (character_id, preset_idx) DO UPDATE SET name = $3`,
+    [id, idx, parsed.data.name]
+  );
+  res.json({ ok: true });
+});
+
 export default router;

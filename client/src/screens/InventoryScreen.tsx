@@ -346,6 +346,7 @@ export function InventoryScreen() {
               {renderSlot('ring', '반지')}
               {renderSlot('boots', '장화')}
             </div>
+            <PresetBar type="equip" characterId={active?.id} onLoad={async () => { await Promise.all([refresh(), refreshActive()]); }} setMsg={setMsg} />
           </div>
         );
       })()}
@@ -825,6 +826,81 @@ function PrefixProtectGrid({ selected, onToggle }: { selected: string[]; onToggl
       {selected.length > 0 && (
         <div style={{ fontSize: 10, color: 'var(--accent)' }}>{selected.length}개 접두사 보호 중</div>
       )}
+    </div>
+  );
+}
+
+function PresetBar({ characterId, onLoad, setMsg }: { type?: string; characterId?: number; onLoad: () => Promise<void>; setMsg: (s: string) => void }) {
+  const [presets, setPresets] = useState<{ idx: number; name: string; empty: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!characterId) return;
+    api<{ idx: number; name: string; empty: boolean }[]>(`/characters/${characterId}/equip-presets`)
+      .then(setPresets).catch(() => {});
+  }, [characterId]);
+
+  async function save(idx: number) {
+    if (!characterId || busy) return;
+    setBusy(true);
+    try {
+      await api(`/characters/${characterId}/equip-presets/${idx}/save`, { method: 'POST' });
+      setMsg(`프리셋 ${idx} 저장 완료`);
+      const fresh = await api<{ idx: number; name: string; empty: boolean }[]>(`/characters/${characterId}/equip-presets`);
+      setPresets(fresh);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '저장 실패'); }
+    setBusy(false);
+  }
+
+  async function load(idx: number) {
+    if (!characterId || busy) return;
+    if (!confirm(`프리셋 ${idx}을 불러오시겠습니까?\n현재 장비가 인벤토리로 이동됩니다.`)) return;
+    setBusy(true);
+    try {
+      const r = await api<{ equipped: number }>(`/characters/${characterId}/equip-presets/${idx}/load`, { method: 'POST' });
+      setMsg(`프리셋 ${idx} 로드 완료 (${r.equipped}개 장착)`);
+      await onLoad();
+    } catch (e) { setMsg(e instanceof Error ? e.message : '로드 실패'); }
+    setBusy(false);
+  }
+
+  async function rename(idx: number) {
+    if (!characterId) return;
+    const name = prompt('프리셋 이름을 입력하세요 (최대 20자)', presets.find(p => p.idx === idx)?.name || '');
+    if (name === null) return;
+    try {
+      await api(`/characters/${characterId}/equip-presets/${idx}/rename`, { method: 'POST', body: JSON.stringify({ name }) });
+      const fresh = await api<{ idx: number; name: string; empty: boolean }[]>(`/characters/${characterId}/equip-presets`);
+      setPresets(fresh);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '이름 변경 실패'); }
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 8 }}>장비 프리셋</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {presets.map(p => (
+          <div key={p.idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <button onClick={() => rename(p.idx)} style={{
+              fontSize: 11, fontWeight: 700, padding: '4px 0', background: 'transparent',
+              color: p.empty ? 'var(--text-dim)' : 'var(--accent)', border: 'none', cursor: 'pointer',
+              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{p.name}</button>
+            <div style={{ display: 'flex', gap: 3 }}>
+              <button onClick={() => save(p.idx)} disabled={busy} style={{
+                flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 4, cursor: 'pointer', fontWeight: 600,
+                background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)',
+              }}>저장</button>
+              <button onClick={() => load(p.idx)} disabled={busy || p.empty} style={{
+                flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 4, cursor: 'pointer', fontWeight: 600,
+                background: p.empty ? 'transparent' : 'var(--accent)', color: p.empty ? 'var(--text-dim)' : '#000',
+                border: `1px solid ${p.empty ? 'var(--border)' : 'var(--accent)'}`,
+                opacity: p.empty ? 0.4 : 1,
+              }}>로드</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

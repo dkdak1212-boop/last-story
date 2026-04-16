@@ -757,6 +757,9 @@ export function NodeTreeScreen() {
           color: 'var(--danger)', fontWeight: 600,
         }}>전체 리셋 5,000G</button>
       </div>
+
+      {/* 노드 프리셋 */}
+      <NodePresetBar characterId={active?.id} onLoad={async () => { await fetchNodes(); await refreshActive(); }} setMsg={setMsg} />
     </div>
   );
 }
@@ -821,6 +824,84 @@ function NodeDetailPanel(props: NodeDetailPanelProps) {
         ) : (
           <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>포인트 부족 ({selectedTotalCost}pt)</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function NodePresetBar({ characterId, onLoad, setMsg }: { characterId?: number; onLoad: () => Promise<void>; setMsg: (s: string) => void }) {
+  const [presets, setPresets] = useState<{ idx: number; name: string; nodeIds: number[]; empty: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!characterId) return;
+    api<typeof presets>(`/characters/${characterId}/node-presets`)
+      .then(setPresets).catch(() => {});
+  }, [characterId]);
+
+  async function save(idx: number) {
+    if (!characterId || busy) return;
+    setBusy(true);
+    try {
+      const r = await api<{ count: number }>(`/characters/${characterId}/node-presets/${idx}/save`, { method: 'POST' });
+      setMsg(`노드 프리셋 ${idx} 저장 완료 (${r.count}개 노드)`);
+      const fresh = await api<typeof presets>(`/characters/${characterId}/node-presets`);
+      setPresets(fresh);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '저장 실패'); }
+    setBusy(false);
+  }
+
+  async function load(idx: number) {
+    if (!characterId || busy) return;
+    if (!confirm(`노드 프리셋 ${idx}을 불러오시겠습니까?\n현재 노드가 전체 리셋 후 재투자됩니다.\n(골드 비용 없음)`)) return;
+    setBusy(true);
+    try {
+      const r = await api<{ invested: number; remainingPoints: number }>(`/characters/${characterId}/node-presets/${idx}/load`, { method: 'POST' });
+      setMsg(`노드 프리셋 로드 완료 (${r.invested}개 투자, 잔여 ${r.remainingPoints}pt)`);
+      await onLoad();
+    } catch (e) { setMsg(e instanceof Error ? e.message : '로드 실패'); }
+    setBusy(false);
+  }
+
+  async function rename(idx: number) {
+    if (!characterId) return;
+    const name = prompt('프리셋 이름을 입력하세요 (최대 20자)', presets.find(p => p.idx === idx)?.name || '');
+    if (name === null) return;
+    try {
+      await api(`/characters/${characterId}/node-presets/${idx}/rename`, { method: 'POST', body: JSON.stringify({ name }) });
+      const fresh = await api<typeof presets>(`/characters/${characterId}/node-presets`);
+      setPresets(fresh);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '이름 변경 실패'); }
+  }
+
+  return (
+    <div style={{ marginTop: 8, padding: '10px 12px', background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', marginBottom: 8 }}>노드 프리셋</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {presets.map(p => (
+          <div key={p.idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <button onClick={() => rename(p.idx)} style={{
+              fontSize: 11, fontWeight: 700, padding: '4px 0', background: 'transparent',
+              color: p.empty ? 'var(--text-dim)' : 'var(--accent)', border: 'none', cursor: 'pointer',
+              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {p.name}
+              {!p.empty && <span style={{ fontSize: 9, color: '#888', fontWeight: 400 }}> ({p.nodeIds.length})</span>}
+            </button>
+            <div style={{ display: 'flex', gap: 3 }}>
+              <button onClick={() => save(p.idx)} disabled={busy} style={{
+                flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 4, cursor: 'pointer', fontWeight: 600,
+                background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)',
+              }}>저장</button>
+              <button onClick={() => load(p.idx)} disabled={busy || p.empty} style={{
+                flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 4, cursor: 'pointer', fontWeight: 600,
+                background: p.empty ? 'transparent' : 'var(--accent)', color: p.empty ? 'var(--text-dim)' : '#000',
+                border: `1px solid ${p.empty ? 'var(--border)' : 'var(--accent)'}`,
+                opacity: p.empty ? 0.4 : 1,
+              }}>로드</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

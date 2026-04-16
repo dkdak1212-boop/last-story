@@ -564,4 +564,120 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, count: totalCount, gold: totalGold });
 });
 
+// ═══ 장비 프리셋 ═══
+
+// 목록 조회
+router.get('/:id/equip-presets', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const r = await query<{ preset_idx: number; name: string; slots: any }>(
+    'SELECT preset_idx, name, slots FROM character_equip_presets WHERE character_id = $1 ORDER BY preset_idx', [id]
+  );
+  const map = new Map(r.rows.map(row => [row.preset_idx, row]));
+  const presets = [1, 2, 3].map(idx => {
+    const p = map.get(idx);
+    return { idx, name: p?.name || `프리셋 ${idx}`, slots: p?.slots || {}, empty: !p };
+  });
+  res.json(presets);
+});
+
+// 현재 장착 → 프리셋 저장
+router.post('/:id/equip-presets/:idx/save', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  if (idx < 1 || idx > 3) return res.status(400).json({ error: 'invalid preset index' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const eqR = await query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean }>(
+    'SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, locked FROM character_equipped WHERE character_id = $1', [id]
+  );
+  const slots: Record<string, any> = {};
+  for (const row of eqR.rows) {
+    slots[row.slot] = { itemId: row.item_id, enhanceLevel: row.enhance_level, prefixIds: row.prefix_ids || [], prefixStats: row.prefix_stats || {}, quality: row.quality, locked: row.locked };
+  }
+
+  await query(
+    `INSERT INTO character_equip_presets (character_id, preset_idx, slots)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (character_id, preset_idx) DO UPDATE SET slots = $3`,
+    [id, idx, JSON.stringify(slots)]
+  );
+  res.json({ ok: true });
+});
+
+// 프리셋 → 장착 로드
+router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  if (idx < 1 || idx > 3) return res.status(400).json({ error: 'invalid preset index' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const pr = await query<{ slots: any }>(
+    'SELECT slots FROM character_equip_presets WHERE character_id = $1 AND preset_idx = $2', [id, idx]
+  );
+  if (pr.rowCount === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
+  const savedSlots = pr.rows[0].slots as Record<string, { itemId: number; enhanceLevel: number; prefixIds: number[]; prefixStats: any; quality: number; locked: boolean }>;
+
+  // 현재 장착 해제 → 인벤토리로
+  const curEq = await query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean }>(
+    'SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, locked FROM character_equipped WHERE character_id = $1', [id]
+  );
+  for (const eq of curEq.rows) {
+    const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]);
+    const used = new Set(usedR.rows.map(r => r.slot_index));
+    let freeSlot = -1;
+    for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
+    if (freeSlot < 0) return res.status(400).json({ error: '인벤토리가 가득 찼습니다' });
+    await query(
+      'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1,$2,$3,1,$4,$5,$6::jsonb,$7,$8)',
+      [id, eq.item_id, freeSlot, eq.enhance_level, eq.prefix_ids || [], JSON.stringify(eq.prefix_stats || {}), eq.quality, eq.locked === true]
+    );
+  }
+  await query('DELETE FROM character_equipped WHERE character_id = $1', [id]);
+
+  // 프리셋 아이템 장착 (인벤토리에서 매칭)
+  let equipped = 0;
+  for (const [slot, saved] of Object.entries(savedSlots)) {
+    // 인벤토리에서 동일 아이템 찾기 (item_id + enhance_level + quality 매칭)
+    const match = await query<{ id: number; slot_index: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean }>(
+      `SELECT ci.id, ci.slot_index, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, ci.locked
+       FROM character_inventory ci
+       WHERE ci.character_id = $1 AND ci.item_id = $2 AND ci.enhance_level = $3 AND COALESCE(ci.quality, 0) = $4
+       LIMIT 1`,
+      [id, saved.itemId, saved.enhanceLevel, saved.quality]
+    );
+    if (match.rowCount === 0) continue;
+    const m = match.rows[0];
+    await query(
+      'INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)',
+      [id, slot, saved.itemId, saved.enhanceLevel, m.prefix_ids || [], JSON.stringify(m.prefix_stats || {}), m.quality, m.locked === true]
+    );
+    await query('DELETE FROM character_inventory WHERE id = $1', [m.id]);
+    equipped++;
+  }
+
+  await refreshCombatSessionStats(id);
+  res.json({ ok: true, equipped });
+});
+
+// 프리셋 이름 변경
+router.post('/:id/equip-presets/:idx/rename', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = Number(req.params.idx);
+  const parsed = z.object({ name: z.string().max(20) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  await query(
+    `INSERT INTO character_equip_presets (character_id, preset_idx, name, slots)
+     VALUES ($1, $2, $3, '{}')
+     ON CONFLICT (character_id, preset_idx) DO UPDATE SET name = $3`,
+    [id, idx, parsed.data.name]
+  );
+  res.json({ ok: true });
+});
+
 export default router;
