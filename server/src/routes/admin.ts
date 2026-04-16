@@ -6,7 +6,7 @@ import { adminRequired } from '../middleware/admin.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { getIo } from '../ws/io.js';
 import { getActiveEvent, finishEvent } from '../game/worldEvent.js';
-import { stopCombatSession } from '../combat/engine.js';
+import { stopCombatSession, getKillStats } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -270,6 +270,30 @@ router.post('/characters/:id/kick-combat', async (req: AuthedRequest, res: Respo
   } catch {
     res.json({ ok: true, message: '전투 세션이 없거나 이미 종료됨' });
   }
+});
+
+// ========== 실시간 킬 통계 (인메모리 세션) ==========
+router.get('/characters/:id/kill-stats', async (req: AuthedRequest, res: Response) => {
+  const charId = Number(req.params.id);
+  if (!Number.isFinite(charId)) return res.status(400).json({ error: 'invalid id' });
+  const charRow = await query<{ id: number; name: string; level: number; class_name: string }>(
+    'SELECT id, name, level, class_name FROM characters WHERE id = $1', [charId]
+  );
+  if (charRow.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+  const stats = getKillStats(charId);
+  res.json({ character: charRow.rows[0], stats });
+});
+
+// 이름으로 조회 (편의)
+router.get('/characters/by-name/:name/kill-stats', async (req: AuthedRequest, res: Response) => {
+  const name = String(req.params.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const charRow = await query<{ id: number; name: string; level: number; class_name: string }>(
+    'SELECT id, name, level, class_name FROM characters WHERE name = $1', [name]
+  );
+  if (charRow.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+  const stats = getKillStats(charRow.rows[0].id);
+  res.json({ character: charRow.rows[0], stats });
 });
 
 // ========== 개인 우편 발송 ==========

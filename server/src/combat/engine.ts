@@ -166,7 +166,7 @@ interface ActiveSession {
   actionCount: number;
   log: string[];
   skills: SkillDef[];
-  passives: { key: string; value: number }[];
+  passives: Map<string, number>;
   equipPrefixes: Record<string, number>;
   fieldName: string;
   dirty: boolean;
@@ -545,11 +545,15 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
 
 // 패시브 값 조회 — 동일 키가 여러 노드에 있으면 합산
 function getPassive(s: ActiveSession, key: string): number {
-  let total = 0;
-  for (const p of s.passives) {
-    if (p.key === key) total += p.value;
+  return s.passives.get(key) ?? 0;
+}
+
+function buildPassiveMap(rows: { key: string; value: number }[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const p of rows) {
+    m.set(p.key, (m.get(p.key) ?? 0) + p.value);
   }
-  return total;
+  return m;
 }
 
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
@@ -1976,12 +1980,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const goldSuffix = goldExtra > 0 ? ` (기본 ${baseGoldRaw} +${goldExtra})` : '';
   addLog(s, `${m.name}을(를) 처치! +${previewExp}exp${expSuffix}, +${finalGold}G${goldSuffix}`);
 
-  // 일일퀘 + 업적 트래킹
-  try {
-    await trackDailyQuestProgress(s.characterId, 'kill_monsters', 1);
-    batchAdd(s.characterId, { killDelta: 1, goldEarnedDelta: finalGold });
-    await checkAndUnlockAchievements(s.characterId);
-  } catch {}
+  // 일일퀘 + 업적 트래킹 — fire-and-forget (전투 루프 논블로킹)
+  batchAdd(s.characterId, { killDelta: 1, goldEarnedDelta: finalGold });
+  trackDailyQuestProgress(s.characterId, 'kill_monsters', 1)
+    .catch(err => console.error('[combat] trackDailyQuestProgress err', err));
+  checkAndUnlockAchievements(s.characterId)
+    .catch(err => console.error('[combat] checkAndUnlockAchievements err', err));
 
   // AFK 누적: 킬 + 골드 + 경험치
   if (s.afkMode) {
@@ -2031,7 +2035,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.cachedExp = result.newExp;
   }
 
-  await trackMonsterKill(s.characterId, s.monsterId!);
+  trackMonsterKill(s.characterId, s.monsterId!)
+    .catch(err => console.error('[combat] trackMonsterKill err', err));
 
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
   // 자동분해 설정 체크 — T1~T4 비트마스크
@@ -2572,11 +2577,12 @@ export async function startCombatSession(characterId: number, fieldId: number): 
 
   const eff = await getEffectiveStats(char);
   const skills = await getCharSkills(characterId, char.class_name, char.level);
-  const passives = await getNodePassives(characterId);
+  const passivesRaw = await getNodePassives(characterId);
+  const passives = buildPassiveMap(passivesRaw);
   const equipPrefixes = await loadEquipPrefixes(characterId);
 
   // 키스톤 패시브 적용: 전투 시작 시 스탯 수정
-  const pMap = new Map(passives.map(p => [p.key, p.value]));
+  const pMap = passives;
   // war_god: 공격력 +N%
   if (pMap.has('war_god')) { eff.atk = Math.round(eff.atk * (1 + (pMap.get('war_god')! / 100))); }
   // shadow_dance: 회피 +N
@@ -2861,6 +2867,36 @@ export function isInCombat(characterId: number): boolean {
   return activeSessions.has(characterId);
 }
 
+// 관리자용: 실시간 킬 통계 조회 (인메모리 세션에서만 유효)
+export function getKillStats(characterId: number): {
+  inCombat: boolean;
+  fieldName?: string;
+  monsterName?: string;
+  recentKillTimes: number[];
+  avg: number;
+  last: number;
+  count: number;
+  currentMonsterElapsedSec: number;
+} | null {
+  const s = activeSessions.get(characterId);
+  if (!s) return { inCombat: false, recentKillTimes: [], avg: 0, last: 0, count: 0, currentMonsterElapsedSec: 0 };
+  const times = s.recentKillTimes.slice();
+  const count = times.length;
+  const avg = count > 0 ? Math.round((times.reduce((a, b) => a + b, 0) / count) * 100) / 100 : 0;
+  const last = count > 0 ? times[count - 1] : 0;
+  const current = s.monsterSpawnAt > 0 ? Math.round((Date.now() - s.monsterSpawnAt) / 100) / 10 : 0;
+  return {
+    inCombat: true,
+    fieldName: s.fieldName,
+    monsterName: s.monsterName,
+    recentKillTimes: times,
+    avg,
+    last,
+    count,
+    currentMonsterElapsedSec: current,
+  };
+}
+
 // 장비/노드 변경 시 인메모리 세션 스탯 갱신
 export async function refreshSessionStats(characterId: number): Promise<void> {
   const s = activeSessions.get(characterId);
@@ -2872,7 +2908,7 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   s.playerMaxHp = eff.maxHp;
   s.playerSpeed = eff.spd;
   s.equipPrefixes = await loadEquipPrefixes(characterId);
-  s.passives = await getNodePassives(characterId); // 노드 패시브 재로드
+  s.passives = buildPassiveMap(await getNodePassives(characterId)); // 노드 패시브 재로드
   // 활성 도트 데미지 재계산 (장비/스탯 변경 즉시 반영)
   for (const eff of s.statusEffects) {
     if ((eff.type === 'dot' || eff.type === 'poison') && eff.source === 'player' && eff.dotMult !== undefined) {

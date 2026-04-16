@@ -129,6 +129,19 @@ function CharactersTab() {
   const [results, setResults] = useState<CharSearchResult[]>([]);
   const [detail, setDetail] = useState<CharDetail | null>(null);
   const [msg, setMsg] = useState('');
+  const [killStats, setKillStats] = useState<{
+    character: { id: number; name: string; level: number; class_name: string };
+    stats: {
+      inCombat: boolean;
+      fieldName?: string;
+      monsterName?: string;
+      recentKillTimes: number[];
+      avg: number;
+      last: number;
+      count: number;
+      currentMonsterElapsedSec: number;
+    } | null;
+  } | null>(null);
 
   async function doSearch() {
     if (!search) return;
@@ -187,6 +200,14 @@ function CharactersTab() {
     try {
       const r = await api<{ message: string }>(`/admin/characters/${detail.character.id}/kick-combat`, { method: 'POST' });
       setMsg(r.message); loadDetail(detail.character.id);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
+  }
+
+  async function loadKillStats() {
+    if (!detail) return;
+    try {
+      const r = await api<typeof killStats>(`/admin/characters/${detail.character.id}/kill-stats`);
+      setKillStats(r);
     } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
 
@@ -278,9 +299,43 @@ function CharactersTab() {
               <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
                 <button className="primary" onClick={saveEdit}>수정 저장</button>
                 <button onClick={teleportVillage}>마을 이동</button>
+                <button onClick={loadKillStats}>킬 통계</button>
                 {detail.inCombat && <button onClick={kickCombat} style={{ color: 'var(--danger)', border: '1px solid var(--danger)' }}>전투 강제종료</button>}
                 <button onClick={clearInventory} style={{ color: 'var(--danger)', border: '1px solid var(--danger)' }}>인벤 초기화</button>
               </div>
+              {killStats && killStats.character.id === detail.character.id && (
+                <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-dark)', border: '1px solid var(--border)', fontSize: 13 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontWeight: 700, color: 'var(--accent)' }}>실시간 킬 통계</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={loadKillStats} style={{ fontSize: 11, padding: '2px 8px' }}>새로고침</button>
+                      <button onClick={() => setKillStats(null)} style={{ fontSize: 11, padding: '2px 8px' }}>닫기</button>
+                    </div>
+                  </div>
+                  {!killStats.stats || !killStats.stats.inCombat ? (
+                    <div style={{ color: 'var(--text-dim)' }}>전투 중이 아닙니다 (인메모리 세션 없음)</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>필드</div><div>{killStats.stats.fieldName || '—'}</div></div>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>현재 몬스터</div><div>{killStats.stats.monsterName || '—'}</div></div>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>평균 처치</div><div style={{ color: 'var(--accent)', fontWeight: 700 }}>{killStats.stats.avg}초</div></div>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>마지막 처치</div><div>{killStats.stats.last}초</div></div>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>표본 수</div><div>{killStats.stats.count}킬</div></div>
+                      <div><div style={{ color: 'var(--text-dim)', fontSize: 11 }}>현 몬스터 경과</div><div>{killStats.stats.currentMonsterElapsedSec}초</div></div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <div style={{ color: 'var(--text-dim)', fontSize: 11, marginBottom: 4 }}>최근 10킬 (초)</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {killStats.stats.recentKillTimes.length === 0
+                            ? <span style={{ color: 'var(--text-dim)' }}>—</span>
+                            : killStats.stats.recentKillTimes.map((t, i) => (
+                                <span key={i} style={{ padding: '2px 6px', background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 11 }}>{t}</span>
+                              ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* 개인 우편 발송 */}
