@@ -2806,16 +2806,16 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 }
 
 // ── WebSocket Push ──
-const PUSH_THROTTLE_FULL_MS = 100; // 진입 후 60초간 — 풀 10fps
-const PUSH_THROTTLE_LITE_MS = 1500; // 60초 후 — 저대역 모드 ~0.67fps
-const FULL_FPS_DURATION_MS = 60_000;
+const PUSH_THROTTLE_FULL_MS = 100; // 진입 후 5분간 — 풀 10fps
+const PUSH_THROTTLE_LITE_MS = 500; // 5분 후 — 저대역 모드 2fps (체감 렉 최소화)
+const FULL_FPS_DURATION_MS = 300_000;
 async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
   const io = getIo();
   if (!io) return false;
 
   // Throttle: 강제(force) 또는 비전투(종료) 알림이 아니면 throttle 적용.
   // AFK 모드: 5초 throttle (대역폭 절감)
-  // 사냥터 진입 후 60초간은 200ms throttle (풀 fps), 이후엔 1500ms throttle (저대역 모드).
+  // 사냥터 진입 후 5분간은 100ms throttle (풀 10fps), 이후엔 500ms throttle (저대역 모드 2fps).
   // 호출자는 반환값이 false면 dirty를 유지해 다음 틱에서 재시도해야 한다.
   if (!force && inCombat) {
     const now = Date.now();
