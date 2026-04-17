@@ -28,7 +28,7 @@ function gen(s) {
     '절대 파괴': `${mult}배 데미지 + 적 방어력 100% 무시 · 쿨 ${cd}행동`,
     '대멸절': `${mult}배 데미지 + 적 방어력 100% 무시 · 쿨 ${cd}행동`,
     '마나 폭주': `자기 INT 1당 +1000 고정 데미지 + ${mult}배 마법 데미지 · 쿨 ${cd}행동`,
-    '마력 과부하': `자기 스피드 -25% / 마법 데미지 +80% (${dur}행동) · 쿨 ${cd}행동`,
+    '마력 과부하': `마법 데미지 +${val}% (${dur}행동) · 쿨 ${cd}행동`,
     '독의 공명': `현재 독 스택 폭발 (총 도트 데미지 × 3) · 쿨 ${cd}행동`,
     '심판자의 권능': `${mult}배 데미지 · 자기 실드 보유 시 +50% · 쿨 ${cd}행동`,
     '암흑의 심판': `${mult}배 데미지 · 적 독 스택당 +8% · 쿨 ${cd}행동`,
@@ -42,8 +42,18 @@ function gen(s) {
     '지옥의 칼날': `${mult}배 데미지 · 흡혈 ${val}% + 흡혈량만큼 추가 데미지 · 쿨 ${cd}행동`,
     '피의 향연': `${mult}배 데미지 · 흡혈 ${val}% + 흡혈량만큼 추가 데미지 · 쿨 ${cd}행동`,
   };
-  if (SPECIAL[s.name]) return SPECIAL[s.name];
+  if (SPECIAL[s.name]) return appendFreeAction(s, SPECIAL[s.name]);
 
+  const desc = byEffectType(s, el, mult, val, dur, flatStr, cdStr);
+  return appendFreeAction(s, desc);
+}
+
+function appendFreeAction(s, desc) {
+  if (s.kind === 'buff' && !desc.includes('자유행동')) return desc + ' · 자유행동';
+  return desc;
+}
+
+function byEffectType(s, el, mult, val, dur, flatStr, cdStr) {
   switch (s.effect_type) {
     case 'damage':
     case 'self_damage_pct':
@@ -132,7 +142,7 @@ function gen(s) {
 (async () => {
   const r = await pool.query(`
     SELECT id, class_name, name, required_level, damage_mult, effect_type, effect_value, effect_duration,
-           cooldown_actions, flat_damage, element, description AS old_desc
+           cooldown_actions, flat_damage, element, kind, description AS old_desc
     FROM skills ORDER BY class_name, required_level
   `);
   console.log(`총 ${r.rowCount} 스킬\n`);
