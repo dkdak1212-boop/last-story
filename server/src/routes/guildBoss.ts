@@ -483,17 +483,20 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
       [run.guild_id, today, totalDamageNum]
     );
     // 이 run의 데미지가 임계값을 넘으면 길드원 전원에게 해당 티어 상자 배포 (일일 1회/티어)
+    // 한 run에서는 달성한 가장 높은 티어 "하나만" 발동 (낮은 티어는 같은 run에서 동시 발동 안 함)
     const gd = await query<{ global_chest_milestones: number }>(
       'SELECT global_chest_milestones FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
       [run.guild_id, today]
     );
     let milestones = gd.rows[0]?.global_chest_milestones ?? 0;
-    const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
+    let highestTier: typeof GUILD_TIER_MILESTONES[number] | null = null;
     for (const m of GUILD_TIER_MILESTONES) {
-      if ((milestones & m.bit) === 0 && totalDamage >= m.damage) {
-        milestones |= m.bit;
-        newlyPassed.push(m);
-      }
+      if (totalDamage >= m.damage) highestTier = m; // 최상위 갱신
+    }
+    const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
+    if (highestTier && (milestones & highestTier.bit) === 0) {
+      milestones |= highestTier.bit;
+      newlyPassed.push(highestTier);
     }
     if (newlyPassed.length > 0) {
       await query(
