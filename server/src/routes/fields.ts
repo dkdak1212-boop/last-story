@@ -8,7 +8,9 @@ router.get('/', async (_req, res) => {
     id: number; name: string; requiredLevel: number; monsterPool: number[]; description: string;
   }>(
     `SELECT id, name, required_level AS "requiredLevel", monster_pool AS "monsterPool", description
-     FROM fields ORDER BY required_level ASC`
+     FROM fields
+     WHERE id < 999 -- id=999는 길드 보스 전용 (사냥터 목록 미노출)
+     ORDER BY required_level ASC`
   );
 
   // 모든 몬스터 ID 수집

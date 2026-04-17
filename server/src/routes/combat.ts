@@ -30,6 +30,11 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const { fieldId } = parsed.data;
 
+  // 길드 보스 전용 필드는 /guild-boss/enter 경로로만 진입 가능
+  if (fieldId === 999) {
+    return res.status(400).json({ error: '길드 보스는 길드 메뉴에서만 진입 가능합니다.' });
+  }
+
   const fr = await query<{ required_level: number }>('SELECT required_level FROM fields WHERE id = $1', [fieldId]);
   if (fr.rowCount === 0) return res.status(404).json({ error: 'field not found' });
   if (char.level < fr.rows[0].required_level) {
