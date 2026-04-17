@@ -714,6 +714,15 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'gold_bonus_pct', label: '골드', color: '#ffdd44', group: '보상' },
   { key: 'slow_pct', label: '감속', color: '#6688aa', group: '기타' },
   { key: 'thorns_pct', label: '반사', color: '#aa8844', group: '기타' },
+  // 신규 8종 (4월 패치)
+  { key: 'max_hp_pct', label: '최대HP%', color: '#44dd66', group: '스탯' },
+  { key: 'atk_pct', label: '공격%', color: '#ff8844', group: '공격' },
+  { key: 'matk_pct', label: '마공%', color: '#aa66ff', group: '공격' },
+  { key: 'def_pierce_pct', label: '추가방관', color: '#cc6644', group: '공격' },
+  { key: 'multi_hit_amp_pct', label: '다단뎀', color: '#ff6644', group: '공격' },
+  { key: 'miss_combo_pct', label: '빗누적', color: '#66ccaa', group: '특수' },
+  { key: 'evasion_burst_pct', label: '회피반격', color: '#88ccff', group: '특수' },
+  { key: 'drop_rate_pct', label: '드랍률', color: '#ffaadd', group: '보상' },
 ];
 
 function FilterToggleButton({ label, active, color, onClick, open }: { label: string; active: boolean; color: string; onClick: () => void; open: boolean }) {

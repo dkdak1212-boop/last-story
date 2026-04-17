@@ -349,6 +349,15 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'slow_pct', label: '저주 %' },
   { key: 'exp_bonus_pct', label: '경험치 %' },
   { key: 'gold_bonus_pct', label: '골드 %' },
+  // 신규 8종 (4월 패치)
+  { key: 'max_hp_pct', label: '최대 HP %' },
+  { key: 'atk_pct', label: '공격력 %' },
+  { key: 'matk_pct', label: '마법공격 %' },
+  { key: 'def_pierce_pct', label: '추가 방어 무시 %' },
+  { key: 'multi_hit_amp_pct', label: '다단 타격 데미지 %' },
+  { key: 'miss_combo_pct', label: '빗나감 누적 보너스 %' },
+  { key: 'evasion_burst_pct', label: '회피 반격 %' },
+  { key: 'drop_rate_pct', label: '드랍률 %' },
 ];
 
 const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };
