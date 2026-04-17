@@ -64,6 +64,16 @@ const ELEMENT_LABEL: Record<string, string> = {
   fire: '화염', frost: '빙결', lightning: '번개', earth: '대지', holy: '신성', dark: '암흑',
 };
 
+const BOSS_IMAGE_KEY: Record<string, string> = {
+  '강철의 거인':   'iron_golem',
+  '광속의 환영':   'shadow',
+  '화염의 군주':   'fire_giant_new',
+  '그림자 황제':   'boss_dark',
+  '시계태엽 거인': 'stone_giant',
+  '천공의 용':     'golden_dragon',
+  '차원의 지배자': 'ancient_lich',
+};
+
 const THRESHOLD_COPPER = 100_000_000n;
 const THRESHOLD_SILVER = 500_000_000n;
 const THRESHOLD_GOLD = 1_000_000_000n;
@@ -160,143 +170,286 @@ export function GuildBossScreen() {
   const boss = state.boss;
   const activeRun = state.activeRun;
   const dailyDmg = BigInt(state.dailyDamageTotal || '0');
-  const guildDmg = BigInt(state.guildDaily.total_damage || '0');
+
+  const bossImageKey = BOSS_IMAGE_KEY[boss.name] ?? 'boss_dark';
 
   return (
-    <div style={{ padding: 20, maxWidth: 900, margin: '0 auto', color: '#e8e2d0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 24 }}>길드 보스</h1>
+    <div style={{
+      padding: 20, maxWidth: 960, margin: '0 auto', color: '#e8e2d0',
+      minHeight: '100vh',
+      background: 'radial-gradient(ellipse at top, rgba(218,165,32,0.06), transparent 60%)',
+    }}>
+      {/* 상단 네비 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{
+            fontSize: 11, letterSpacing: 2, color: '#daa520',
+            textTransform: 'uppercase', fontWeight: 700,
+          }}>GUILD BOSS</span>
+          <span style={{ fontSize: 10, color: '#6a6258' }}>길드 전용 레이드</span>
+        </div>
         <button onClick={() => navigate('/guild')} style={navButtonStyle()}>← 길드로</button>
       </div>
 
-      {/* 오늘의 보스 카드 */}
-      <div style={{ border: '1px solid #daa520', padding: 16, background: '#1a1612', marginBottom: 20 }}>
-        <div style={{ fontSize: 14, color: '#daa520', marginBottom: 6 }}>
-          {WEEKDAY_LABEL[boss.weekday]}요일 — 오늘의 보스
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{boss.name}</div>
-        <div style={{ fontSize: 12, color: '#a09888', marginBottom: 8 }}>{boss.appearance}</div>
-        <div style={{ fontSize: 13 }}>{boss.description}</div>
-        <div style={{ marginTop: 10, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#9a9180' }}>
-          {boss.element_immune && <span>{ELEMENT_LABEL[boss.element_immune]} 면역</span>}
-          {boss.element_weak && <span>{ELEMENT_LABEL[boss.element_weak]} 약점 +{boss.weak_amp_pct}%</span>}
-          {boss.dot_immune && <span>도트 면역</span>}
-          {boss.hp_recover_pct > 0 && <span>60초마다 HP {boss.hp_recover_pct}% 회복</span>}
-          {boss.random_weakness && <span>약점 원소 랜덤 (입장 시 배정)</span>}
-          {boss.alternating_immune && <span>ATK / MATK 면역 교대 (30초 주기)</span>}
-        </div>
-      </div>
-
-      {/* 상태 요약 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
-        <StatCard label="남은 입장키" value={`${state.keysRemaining} / 2`} />
-        <StatCard label="내 일일 누적" value={fmt(dailyDmg.toString())} />
-        <StatCard label="길드 보스 메달" value={state.guildMedals.toLocaleString()} />
-        <StatCard label="활성 입장" value={activeRun ? '진행 중' : '없음'} />
-      </div>
-
-      {/* 오늘 길드에 지급된 티어 상자 (1인이 임계값 넘으면 전원 지급) */}
-      <div style={{ border: '1px solid #444', padding: 12, marginBottom: 20, background: '#0e0c0a' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
-          오늘 길드 공용 상자 <span style={{ fontSize: 11, color: '#9a9180', fontWeight: 400 }}>(한 명이 임계값 달성 시 길드 전원 수령)</span>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {GUILD_TIER_MILESTONES_BN.map((m) => {
-            const passed = (state.guildDaily.global_chest_milestones & m.bit) !== 0;
-            return (
-              <div key={m.bit} style={{
-                flex: 1, minWidth: 120,
-                padding: 10,
-                border: `1px solid ${passed ? m.color : '#333'}`,
-                background: passed ? `${m.color}22` : 'transparent',
-                textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 12, color: passed ? m.color : '#777', fontWeight: 700 }}>
-                  {m.label}
-                </div>
-                <div style={{ fontSize: 11, color: passed ? '#fff' : '#555', marginTop: 2 }}>
-                  {passed ? '지급 완료' : '미달성'}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ fontSize: 11, color: '#9a9180', marginTop: 8 }}>
-          길드 일일 누적 데미지 (랭킹용): {fmt(guildDmg.toString())}
-        </div>
-      </div>
-
-      {/* 길드 랭킹 + MVP */}
-      {rankings.length > 0 && (
-        <div style={{ border: '1px solid #444', padding: 12, marginBottom: 20, background: '#0e0c0a' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: '#daa520' }}>
-            오늘의 길드 랭킹 (TOP {Math.min(20, rankings.length)})
+      {/* 히어로 배너 — 오늘의 보스 */}
+      <div style={{
+        position: 'relative', overflow: 'hidden', marginBottom: 22,
+        padding: '24px 28px',
+        background: 'linear-gradient(135deg, #1a1209 0%, #0d0805 50%, #1a0d0a 100%)',
+        border: '1px solid #3a2a15',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.6), inset 0 0 60px rgba(218,165,32,0.08)',
+      }}>
+        {/* 배경 글로우 */}
+        <div style={{
+          position: 'absolute', top: -40, right: -40, width: 280, height: 280,
+          background: 'radial-gradient(circle, rgba(218,165,32,0.15) 0%, transparent 65%)',
+          pointerEvents: 'none',
+        }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, position: 'relative' }}>
+          <div style={{
+            width: 96, height: 96, flexShrink: 0,
+            border: '2px solid #daa520',
+            background: 'linear-gradient(180deg, rgba(218,165,32,0.12), rgba(0,0,0,0.4))',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 0 20px rgba(218,165,32,0.4), inset 0 0 20px rgba(0,0,0,0.6)',
+          }}>
+            <img src={`/images/monsters/${bossImageKey}.png`} alt={boss.name}
+              width={72} height={72} style={{ imageRendering: 'pixelated' }} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr 140px 180px', gap: 8, fontSize: 11, color: '#9a9180', padding: '4px 0', borderBottom: '1px solid #333' }}>
-            <span>순위</span>
-            <span>길드</span>
-            <span style={{ textAlign: 'right' }}>누적 데미지</span>
-            <span>MVP</span>
-          </div>
-          {rankings.map((g, idx) => (
-            <div key={g.guildId} style={{
-              display: 'grid', gridTemplateColumns: '30px 1fr 140px 180px', gap: 8,
-              fontSize: 12, padding: '6px 0', borderBottom: '1px solid #222',
-              alignItems: 'center',
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: 11, color: '#c97e3a', marginBottom: 4,
+              letterSpacing: 3, fontWeight: 700, textTransform: 'uppercase',
             }}>
-              <span style={{ color: idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#c97e3a' : '#9a9180', fontWeight: 700 }}>
-                #{idx + 1}
-              </span>
-              <span style={{ fontWeight: 600 }}>
-                {g.guildName} <span style={{ fontSize: 10, color: '#777' }}>({g.memberCount}명)</span>
-              </span>
-              <span style={{ textAlign: 'right', color: '#e8e2d0', fontWeight: 700 }}>
-                {fmt(g.totalDamage)}
-              </span>
-              <span style={{ fontSize: 11 }}>
-                {g.mvp ? (
-                  <>
-                    <span style={{ color: '#ffd700' }}>★ {g.mvp.name}</span>
-                    <span style={{ color: '#9a9180' }}> ({fmt(g.mvp.damage)})</span>
-                  </>
-                ) : <span style={{ color: '#555' }}>-</span>}
-              </span>
+              {WEEKDAY_LABEL[boss.weekday]}요일의 보스
             </div>
-          ))}
+            <div style={{
+              fontSize: 32, fontWeight: 900, letterSpacing: 1,
+              background: 'linear-gradient(180deg, #ffd66b 0%, #daa520 60%, #8a6510 100%)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              textShadow: '0 0 30px rgba(218,165,32,0.3)',
+              marginBottom: 4,
+            }}>
+              {boss.name}
+            </div>
+            <div style={{ fontSize: 12, color: '#9a9180', marginBottom: 10, fontStyle: 'italic' }}>
+              {boss.appearance}
+            </div>
+            <div style={{ fontSize: 13, color: '#d8cfb8', lineHeight: 1.5 }}>
+              {boss.description}
+            </div>
+          </div>
         </div>
+        {/* 특성 배지 */}
+        <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative' }}>
+          {boss.element_immune && <BossTag color="#6688aa" label={`${ELEMENT_LABEL[boss.element_immune]} 면역`} />}
+          {boss.element_weak && <BossTag color="#66ccff" label={`${ELEMENT_LABEL[boss.element_weak]} 약점 +${boss.weak_amp_pct}%`} />}
+          {boss.dot_immune && <BossTag color="#aa66cc" label="도트 면역" />}
+          {boss.hp_recover_pct > 0 && <BossTag color="#66dd66" label={`60초마다 HP ${boss.hp_recover_pct}% 회복`} />}
+          {boss.random_weakness && <BossTag color="#ffaa44" label="약점 원소 랜덤" />}
+          {boss.alternating_immune && <BossTag color="#ff6666" label="ATK / MATK 면역 교대" />}
+        </div>
+      </div>
+
+      {/* 상태 타일 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 22 }}>
+        <StatTile label="남은 입장키" value={`${state.keysRemaining}`} sub="/ 2" accent="#daa520" />
+        <StatTile label="내 일일 누적" value={fmt(dailyDmg.toString())} accent="#66ccff" />
+        <StatTile label="보유 메달" value={state.guildMedals.toLocaleString()} accent="#ffd700" />
+        <StatTile
+          label="활성 입장"
+          value={activeRun ? '진행 중' : '대기'}
+          accent={activeRun ? '#66dd66' : '#666'}
+        />
+      </div>
+
+      {/* 길드 공용 상자 */}
+      <SectionTitle text="오늘 길드 공용 상자" subtext="한 명이 임계값 달성 시 길드 전원 수령" />
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
+        marginBottom: 22,
+      }}>
+        {GUILD_TIER_MILESTONES_BN.map((m) => {
+          const passed = (state.guildDaily.global_chest_milestones & m.bit) !== 0;
+          return (
+            <div key={m.bit} style={{
+              padding: '18px 16px',
+              border: `1px solid ${passed ? m.color : '#333'}`,
+              background: passed
+                ? `linear-gradient(180deg, ${m.color}33 0%, ${m.color}08 100%)`
+                : 'linear-gradient(180deg, #141211 0%, #0a0908 100%)',
+              textAlign: 'center', position: 'relative', overflow: 'hidden',
+              boxShadow: passed ? `0 0 24px ${m.color}33, inset 0 0 20px ${m.color}1a` : 'none',
+            }}>
+              <div style={{
+                fontSize: 10, letterSpacing: 2, color: passed ? m.color : '#555',
+                textTransform: 'uppercase', fontWeight: 700, marginBottom: 6,
+              }}>
+                {m.label.split(' ')[0]}
+              </div>
+              <div style={{
+                fontSize: 20, fontWeight: 900,
+                color: passed ? m.color : '#3a3835',
+                textShadow: passed ? `0 0 12px ${m.color}` : 'none',
+                marginBottom: 4,
+              }}>
+                {m.label.match(/\((.+)\)/)?.[1]}
+              </div>
+              <div style={{
+                fontSize: 11, color: passed ? '#fff' : '#444',
+                letterSpacing: 1, fontWeight: 600,
+              }}>
+                {passed ? 'UNLOCKED' : 'LOCKED'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 길드 랭킹 */}
+      {rankings.length > 0 && (
+        <>
+          <SectionTitle
+            text="오늘의 길드 랭킹"
+            subtext={`TOP ${Math.min(20, rankings.length)}`}
+          />
+          <div style={{
+            marginBottom: 22, border: '1px solid #2a2824',
+            background: 'linear-gradient(180deg, #141211 0%, #0a0908 100%)',
+          }}>
+            <div style={{
+              display: 'grid', gridTemplateColumns: '50px 1fr 160px 200px',
+              gap: 8, fontSize: 10, color: '#6a6258', padding: '10px 14px',
+              borderBottom: '1px solid #2a2824',
+              textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 700,
+            }}>
+              <span>순위</span>
+              <span>길드</span>
+              <span style={{ textAlign: 'right' }}>누적 데미지</span>
+              <span>MVP</span>
+            </div>
+            {rankings.map((g, idx) => {
+              const rankColor = idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#c97e3a' : '#6a6258';
+              const rowAccent = idx < 3 ? `${rankColor}0d` : 'transparent';
+              return (
+                <div key={g.guildId} style={{
+                  display: 'grid', gridTemplateColumns: '50px 1fr 160px 200px',
+                  gap: 8, fontSize: 13, padding: '12px 14px',
+                  borderBottom: '1px solid #1f1d1a',
+                  alignItems: 'center',
+                  background: rowAccent,
+                  transition: 'background 0.2s',
+                }}>
+                  <span style={{
+                    color: rankColor, fontWeight: 900, fontSize: 15,
+                    textShadow: idx < 3 ? `0 0 8px ${rankColor}80` : 'none',
+                  }}>
+                    {idx + 1}
+                  </span>
+                  <span style={{ fontWeight: 700 }}>
+                    {g.guildName}
+                    <span style={{ fontSize: 10, color: '#6a6258', marginLeft: 6, fontWeight: 400 }}>
+                      {g.memberCount}명
+                    </span>
+                  </span>
+                  <span style={{ textAlign: 'right', color: '#e8e2d0', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(g.totalDamage)}
+                  </span>
+                  <span style={{ fontSize: 12 }}>
+                    {g.mvp ? (
+                      <>
+                        <span style={{ color: '#ffd700', fontWeight: 700 }}>◆ {g.mvp.name}</span>
+                        <span style={{ color: '#6a6258', marginLeft: 4 }}>({fmt(g.mvp.damage)})</span>
+                      </>
+                    ) : <span style={{ color: '#444' }}>—</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
-      {/* 활성 run 또는 입장 버튼 */}
+      {/* 활성 run 또는 입장 */}
       {activeRun ? (
-        <div style={{ border: '1px solid #66dd66', padding: 16, background: '#0e1a0e' }}>
-          <div style={{ fontSize: 14, color: '#66dd66', marginBottom: 6 }}>입장 진행 중</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>누적 데미지: {fmt(activeRun.total_damage)}</div>
+        <div style={{
+          padding: 20,
+          background: 'linear-gradient(180deg, #0e1a0e 0%, #050a05 100%)',
+          border: '1px solid #66dd66',
+          boxShadow: '0 0 30px rgba(102,221,102,0.15), inset 0 0 30px rgba(102,221,102,0.05)',
+        }}>
+          <div style={{
+            fontSize: 11, letterSpacing: 2, color: '#66dd66',
+            textTransform: 'uppercase', fontWeight: 700, marginBottom: 8,
+          }}>
+            IN COMBAT · 진행 중
+          </div>
+          <div style={{
+            fontSize: 28, fontWeight: 900, marginBottom: 16,
+            color: '#d8f8d8', textShadow: '0 0 20px rgba(102,221,102,0.4)',
+            fontVariantNumeric: 'tabular-nums',
+          }}>
+            {fmt(activeRun.total_damage)}
+            <span style={{ fontSize: 12, color: '#6a9a6a', marginLeft: 10, fontWeight: 400 }}>
+              누적 데미지
+            </span>
+          </div>
           <ProgressBars damage={BigInt(activeRun.total_damage)} />
-          <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
-            <button onClick={() => handleExit('exit')} disabled={busy} style={navButtonStyle(true)}>
-              퇴장 (상자 수령)
+          <div style={{ marginTop: 18, display: 'flex', gap: 10 }}>
+            <button onClick={() => handleExit('exit')} disabled={busy} style={{
+              ...navButtonStyle(true), padding: '12px 24px', fontSize: 14, flex: 1,
+            }}>
+              퇴장 · 상자 수령
             </button>
             <button onClick={loadState} disabled={busy} style={navButtonStyle()}>
-              상태 새로고침
+              새로고침
             </button>
           </div>
-          <div style={{ marginTop: 10, fontSize: 11, color: '#9a9180' }}>
-            ※ 자동 전투로 보스를 공격 중입니다. 퇴장 버튼을 누르기 전까지 계속 진행되며, 사망 시 자동 종료됩니다.
+          <div style={{ marginTop: 14, fontSize: 11, color: '#5a7a5a', lineHeight: 1.6 }}>
+            자동 전투로 보스를 공격 중입니다. 퇴장 버튼을 누르기 전까지 계속 진행되며, 사망 시 자동 종료됩니다.
           </div>
         </div>
       ) : (
-        <div style={{ border: '1px solid #daa520', padding: 16, background: '#1a1612', textAlign: 'center' }}>
+        <div style={{
+          padding: '30px 20px', textAlign: 'center',
+          background: 'linear-gradient(180deg, #1a1612 0%, #0a0805 100%)',
+          border: '1px solid #3a2a15',
+          boxShadow: 'inset 0 0 40px rgba(218,165,32,0.06)',
+        }}>
+          <div style={{
+            fontSize: 10, letterSpacing: 3, color: '#6a6258',
+            textTransform: 'uppercase', marginBottom: 14,
+          }}>
+            준비 완료
+          </div>
           <button
             onClick={handleEnter}
             disabled={busy || state.keysRemaining <= 0}
             style={{
-              padding: '14px 40px', fontSize: 16, fontWeight: 700,
-              background: state.keysRemaining > 0 ? '#daa520' : '#555',
-              color: '#000', border: 'none',
+              padding: '18px 48px', fontSize: 16, fontWeight: 900,
+              letterSpacing: 2, textTransform: 'uppercase',
+              background: state.keysRemaining > 0
+                ? 'linear-gradient(180deg, #ffd66b 0%, #daa520 60%, #a67d1a 100%)'
+                : '#3a3835',
+              color: state.keysRemaining > 0 ? '#1a0f00' : '#6a6258',
+              border: state.keysRemaining > 0 ? '1px solid #ffd66b' : '1px solid #555',
               cursor: state.keysRemaining > 0 ? 'pointer' : 'not-allowed',
-            }}>
-            {state.keysRemaining > 0 ? '입장하기 (-1 키)' : '오늘 입장키 없음'}
+              boxShadow: state.keysRemaining > 0
+                ? '0 0 30px rgba(218,165,32,0.5), inset 0 0 20px rgba(255,255,255,0.2)'
+                : 'none',
+              transition: 'transform 0.1s',
+            }}
+            onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.97)')}
+            onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+          >
+            {state.keysRemaining > 0 ? '입장하기' : '입장키 없음'}
           </button>
+          {state.keysRemaining > 0 && (
+            <div style={{ fontSize: 11, color: '#6a6258', marginTop: 12 }}>
+              입장 시 입장키 1개 소모 · 사망하면 상자 수령 후 마을로 귀환
+            </div>
+          )}
         </div>
       )}
 
@@ -343,12 +496,65 @@ export function GuildBossScreen() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent: string }) {
   return (
-    <div style={{ border: '1px solid #333', background: '#0e0c0a', padding: 10 }}>
-      <div style={{ fontSize: 11, color: '#9a9180', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700 }}>{value}</div>
+    <div style={{
+      padding: '14px 16px',
+      background: 'linear-gradient(180deg, #141211 0%, #0a0908 100%)',
+      border: '1px solid #2a2824',
+      borderLeft: `3px solid ${accent}`,
+      position: 'relative',
+    }}>
+      <div style={{
+        fontSize: 10, letterSpacing: 1.5, color: '#6a6258',
+        textTransform: 'uppercase', fontWeight: 700, marginBottom: 6,
+      }}>
+        {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+        <span style={{ fontSize: 22, fontWeight: 900, color: accent, fontVariantNumeric: 'tabular-nums' }}>
+          {value}
+        </span>
+        {sub && <span style={{ fontSize: 11, color: '#6a6258' }}>{sub}</span>}
+      </div>
     </div>
+  );
+}
+
+function SectionTitle({ text, subtext }: { text: string; subtext?: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'baseline', gap: 10,
+      marginBottom: 10, paddingBottom: 6,
+      borderBottom: '1px solid #2a2824',
+    }}>
+      <span style={{
+        fontSize: 13, fontWeight: 700, color: '#daa520',
+        letterSpacing: 1.5, textTransform: 'uppercase',
+      }}>
+        {text}
+      </span>
+      {subtext && (
+        <span style={{ fontSize: 10, color: '#6a6258', letterSpacing: 1 }}>
+          {subtext}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function BossTag({ color, label }: { color: string; label: string }) {
+  return (
+    <span style={{
+      fontSize: 10, letterSpacing: 1, fontWeight: 700,
+      padding: '4px 10px',
+      border: `1px solid ${color}80`,
+      color,
+      background: `${color}15`,
+      textTransform: 'uppercase',
+    }}>
+      {label}
+    </span>
   );
 }
 
@@ -385,10 +591,12 @@ function tierLabel(t: 'gold' | 'silver' | 'copper'): string {
 
 function navButtonStyle(primary = false): React.CSSProperties {
   return {
-    padding: '8px 16px', fontSize: 13, fontWeight: 700,
-    background: primary ? '#daa520' : 'transparent',
-    color: primary ? '#000' : '#daa520',
+    padding: '10px 18px', fontSize: 12, fontWeight: 700,
+    letterSpacing: 1.5, textTransform: 'uppercase',
+    background: primary ? 'linear-gradient(180deg, #ffd66b, #daa520)' : 'transparent',
+    color: primary ? '#1a0f00' : '#daa520',
     border: '1px solid #daa520',
     cursor: 'pointer',
+    transition: 'all 0.15s',
   };
 }
