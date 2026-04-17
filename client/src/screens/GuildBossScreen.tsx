@@ -207,7 +207,7 @@ export function GuildBossScreen() {
             </button>
           </div>
           <div style={{ marginTop: 10, fontSize: 11, color: '#9a9180' }}>
-            ※ 전투 통합은 Phase 4b에서 구현 예정. 현재는 입장 / 퇴장 / 상자 지급만 동작합니다.
+            ※ 자동 전투로 보스를 공격 중입니다. 퇴장 버튼을 누르기 전까지 계속 진행되며, 사망 시 자동 종료됩니다.
           </div>
         </div>
       ) : (
