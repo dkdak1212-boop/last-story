@@ -28,6 +28,20 @@ interface BossState {
   guildDaily: { total_damage: string; global_chest_milestones: number };
 }
 
+interface GuildRanking {
+  guildId: number;
+  guildName: string;
+  totalDamage: string;
+  memberCount: number;
+  mvp: {
+    characterId: number;
+    name: string;
+    className: string;
+    level: number;
+    damage: string;
+  } | null;
+}
+
 interface ExitResult {
   ok: boolean;
   totalDamage: string;
@@ -74,10 +88,12 @@ export function GuildBossScreen() {
   const [err, setErr] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const [exitResult, setExitResult] = useState<ExitResult | null>(null);
+  const [rankings, setRankings] = useState<GuildRanking[]>([]);
 
   useEffect(() => {
     if (!active) return;
     loadState();
+    loadRankings();
   }, [active?.id]);
 
   async function loadState() {
@@ -88,6 +104,16 @@ export function GuildBossScreen() {
       setErr('');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function loadRankings() {
+    try {
+      const r = await api<{ guilds: GuildRanking[] }>(`/guild-boss/rankings`);
+      setRankings(r.guilds);
+    } catch (e) {
+      // 랭킹 실패는 전체 화면 막지 않음
+      console.error('rankings load fail', e);
     }
   }
 
@@ -191,6 +217,46 @@ export function GuildBossScreen() {
           })}
         </div>
       </div>
+
+      {/* 길드 랭킹 + MVP */}
+      {rankings.length > 0 && (
+        <div style={{ border: '1px solid #444', padding: 12, marginBottom: 20, background: '#0e0c0a' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: '#daa520' }}>
+            오늘의 길드 랭킹 (TOP {Math.min(20, rankings.length)})
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr 140px 180px', gap: 8, fontSize: 11, color: '#9a9180', padding: '4px 0', borderBottom: '1px solid #333' }}>
+            <span>순위</span>
+            <span>길드</span>
+            <span style={{ textAlign: 'right' }}>누적 데미지</span>
+            <span>MVP</span>
+          </div>
+          {rankings.map((g, idx) => (
+            <div key={g.guildId} style={{
+              display: 'grid', gridTemplateColumns: '30px 1fr 140px 180px', gap: 8,
+              fontSize: 12, padding: '6px 0', borderBottom: '1px solid #222',
+              alignItems: 'center',
+            }}>
+              <span style={{ color: idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#c97e3a' : '#9a9180', fontWeight: 700 }}>
+                #{idx + 1}
+              </span>
+              <span style={{ fontWeight: 600 }}>
+                {g.guildName} <span style={{ fontSize: 10, color: '#777' }}>({g.memberCount}명)</span>
+              </span>
+              <span style={{ textAlign: 'right', color: '#e8e2d0', fontWeight: 700 }}>
+                {fmt(g.totalDamage)}
+              </span>
+              <span style={{ fontSize: 11 }}>
+                {g.mvp ? (
+                  <>
+                    <span style={{ color: '#ffd700' }}>★ {g.mvp.name}</span>
+                    <span style={{ color: '#9a9180' }}> ({fmt(g.mvp.damage)})</span>
+                  </>
+                ) : <span style={{ color: '#555' }}>-</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 활성 run 또는 입장 버튼 */}
       {activeRun ? (

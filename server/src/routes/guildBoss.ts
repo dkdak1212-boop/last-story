@@ -132,6 +132,56 @@ router.get('/state/:characterId', async (req: AuthedRequest, res: Response) => {
 });
 
 // ============================================================
+// GET /guild-boss/rankings — 전체 길드 순위 + 각 길드별 MVP
+// ============================================================
+router.get('/rankings', async (_req: AuthedRequest, res: Response) => {
+  const today = await todayKst();
+  // 길드별 일일 총 데미지 상위 20
+  const guildR = await query<{ guild_id: number; guild_name: string; total_damage: string; member_count: number }>(
+    `SELECT gbd.guild_id, g.name AS guild_name, gbd.total_damage::text,
+            COALESCE((SELECT COUNT(*)::int FROM guild_members gm WHERE gm.guild_id = gbd.guild_id), 0) AS member_count
+     FROM guild_boss_guild_daily gbd
+     JOIN guilds g ON g.id = gbd.guild_id
+     WHERE gbd.date = $1 AND gbd.total_damage > 0
+     ORDER BY gbd.total_damage DESC
+     LIMIT 20`,
+    [today]
+  );
+
+  // 각 길드별 MVP (캐릭 누적 데미지 최대)
+  const mvps: Record<number, { characterId: number; name: string; className: string; level: number; damage: string }> = {};
+  if (guildR.rowCount && guildR.rowCount > 0) {
+    const guildIds = guildR.rows.map(g => g.guild_id);
+    const mvpR = await query<{ guild_id: number; character_id: number; name: string; class_name: string; level: number; damage: string }>(
+      `SELECT DISTINCT ON (gm.guild_id)
+              gm.guild_id, c.id AS character_id, c.name, c.class_name, c.level, gbd.daily_damage_total::text AS damage
+       FROM guild_boss_daily gbd
+       JOIN characters c ON c.id = gbd.character_id
+       JOIN guild_members gm ON gm.character_id = c.id
+       WHERE gbd.date = $1 AND gm.guild_id = ANY($2::int[])
+       ORDER BY gm.guild_id, gbd.daily_damage_total DESC`,
+      [today, guildIds]
+    );
+    for (const m of mvpR.rows) {
+      mvps[m.guild_id] = {
+        characterId: m.character_id, name: m.name, className: m.class_name,
+        level: m.level, damage: m.damage,
+      };
+    }
+  }
+
+  res.json({
+    guilds: guildR.rows.map(g => ({
+      guildId: g.guild_id,
+      guildName: g.guild_name,
+      totalDamage: g.total_damage,
+      memberCount: g.member_count,
+      mvp: mvps[g.guild_id] ?? null,
+    })),
+  });
+});
+
+// ============================================================
 // POST /guild-boss/enter/:characterId — 입장 (키 1개 소모, 새 run 생성)
 // ============================================================
 router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => {
