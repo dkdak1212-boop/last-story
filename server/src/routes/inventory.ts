@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, loadCharacter, getEffectiveStats } from '../game/character.js';
-import { refreshSessionStats } from '../combat/engine.js';
+import { refreshSessionStats, invalidateAutoSellCache } from '../combat/engine.js';
 import { addItemToInventory } from '../game/inventory.js';
 import { pickRandomUnique } from './guildBoss.js';
 
@@ -486,6 +486,7 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   }
   params.push(id);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+  invalidateAutoSellCache(id); // 전투 세션이 있으면 다음 킬에 재로드
 
   const fresh = await query<{ auto_sell_quality_max: number; auto_sell_protect_prefixes: string[] }>(
     `SELECT COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
@@ -559,6 +560,7 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   }
   params.push(id);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+  invalidateAutoSellCache(id);
   const fresh = await query<{ drop_filter_protect_prefixes: string[] }>(
     `SELECT COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes FROM characters WHERE id = $1`, [id]
   );

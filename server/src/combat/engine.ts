@@ -12,6 +12,7 @@ import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 import { getActiveGlobalEvent } from '../game/globalEvent.js';
+import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
 import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
 import type { StatusEffect } from './shared.js';
@@ -203,6 +204,16 @@ interface ActiveSession {
   cachedBoosts: { name: string; until: string }[];
   cachedPotions: { small: number; mid: number; high: number; max: number };
   cachedGuildBuffs: { hp: number; gold: number; exp: number; drop: number };
+  monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
+  autoSellCache: {
+    auto_dismantle_tiers: number;
+    auto_sell_quality_max: number;
+    auto_sell_protect_prefixes: string[];
+    drop_filter_tiers: number;
+    drop_filter_quality_max: number;
+    drop_filter_common: boolean;
+    drop_filter_protect_prefixes: string[];
+  } | null; // 자동판매/드랍필터 설정 세션 캐시 (설정 변경 시 invalidateAutoSellCache 호출)
   // ── AFK(방치) 모드 카운터 ──
   afkMode: boolean;
   afkStartedAt: number;     // ms
@@ -2104,11 +2115,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     return;
   }
 
-  const mr = await query<MonsterDef>(
-    'SELECT id, name, level, max_hp, exp_reward, gold_reward, drop_table, stats FROM monsters WHERE id = $1',
-    [s.monsterId]
-  );
-  const m = mr.rows[0];
+  // 스폰 시 캐시된 몬스터 정의 재사용 (킬당 DB 1 쿼리 절감)
+  const m = s.monsterDef;
   if (!m) return;
 
   // 마법사 전용: 오버킬의 50%를 다음 스폰 몬스터에게 캐리 (실사냥 1타킬 보상)
@@ -2270,28 +2278,18 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop);
-  // 자동판매 + 드랍필터 설정
-  const autoSellR = await query<{
-    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[];
-    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[];
-  }>(
-    `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
-            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
-            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
-            COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
-            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
-            COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
-            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
-     FROM characters WHERE id = $1`,
-    [s.characterId]
-  );
-  const sellTiers = autoSellR.rows[0]?.auto_dismantle_tiers ?? 0;
-  const sellQualityMax = autoSellR.rows[0]?.auto_sell_quality_max ?? 0;
-  const sellProtect = new Set(autoSellR.rows[0]?.auto_sell_protect_prefixes ?? []);
-  const dfTiers = autoSellR.rows[0]?.drop_filter_tiers ?? 0;
-  const dfQualityMax = autoSellR.rows[0]?.drop_filter_quality_max ?? 0;
-  const dfCommon = autoSellR.rows[0]?.drop_filter_common ?? false;
-  const dfProtect = new Set(autoSellR.rows[0]?.drop_filter_protect_prefixes ?? []);
+  // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)
+  if (!s.autoSellCache) {
+    await loadAutoSellCache(s);
+  }
+  const ac = s.autoSellCache!;
+  const sellTiers = ac.auto_dismantle_tiers;
+  const sellQualityMax = ac.auto_sell_quality_max;
+  const sellProtect = new Set(ac.auto_sell_protect_prefixes);
+  const dfTiers = ac.drop_filter_tiers;
+  const dfQualityMax = ac.drop_filter_quality_max;
+  const dfCommon = ac.drop_filter_common;
+  const dfProtect = new Set(ac.drop_filter_protect_prefixes);
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
@@ -2299,12 +2297,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const generatePrefixes = needPrefixModule ? (await import('../game/prefix.js')).generatePrefixes : null;
 
   for (const drop of drops) {
-    // 1) 아이템 정보 1회 조회 (필터/판매 공통)
-    const itemR = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
-      'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1',
-      [drop.itemId]
-    );
-    const item = itemR.rows[0];
+    // 1) 아이템 정보 — 메모리 캐시 (items 마스터 테이블은 런타임 변경 없음)
+    const item = await getItemDef(drop.itemId);
 
     let preroll: EquipPreroll | undefined;
     // 장비 + 비유니크일 때만 prerolling (유니크는 addItemToInventory에서 처리)
@@ -2316,14 +2310,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const is3Options = prefixIds.length >= 3;
       const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
 
-      // 보호 접두사 검사 (필터/판매 모두 한 번만 조회)
+      // 보호 접두사 검사 — 메모리 캐시 (item_prefixes 마스터 테이블 변경 없음)
       let protectStats: Set<string> | null = null;
       const needProtectLookup = prefixIds.length > 0 && (sellProtect.size > 0 || dfProtect.size > 0);
       if (needProtectLookup) {
-        const pr = await query<{ stat_key: string }>(
-          'SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [prefixIds]
-        );
-        protectStats = new Set(pr.rows.map(r => r.stat_key));
+        const keys = await getPrefixStatKeys(prefixIds);
+        protectStats = new Set(keys);
       }
       const sellHasProtected = protectStats && sellProtect.size > 0
         ? [...protectStats].some(st => sellProtect.has(st)) : false;
@@ -2455,9 +2447,11 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   const m = await pickRandomMonster(s.fieldId);
   if (!m) {
     s.monsterId = null;
+    s.monsterDef = null;
     return;
   }
   s.monsterId = m.id;
+  s.monsterDef = m; // handleMonsterDeath 에서 재사용 (중복 쿼리 제거)
   s.monsterName = m.name;
   s.monsterLevel = m.level;
   s.monsterHp = m.max_hp;
@@ -2805,6 +2799,42 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
   s.metaDirty = false;
 }
 
+// ── 자동판매/드랍필터 세션 캐시 ──
+// 킬마다 characters 테이블 조회하던 것을 세션 캐시로 전환.
+// 설정 변경 엔드포인트(inventory.ts POST /auto-dismantle, /drop-filter)에서
+// invalidateAutoSellCache(characterId) 호출 → null 로 리셋 → 다음 킬에 재로드.
+async function loadAutoSellCache(s: ActiveSession): Promise<void> {
+  const r = await query<{
+    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[];
+    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[];
+  }>(
+    `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
+            COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
+            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
+            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
+     FROM characters WHERE id = $1`,
+    [s.characterId]
+  );
+  const row = r.rows[0];
+  s.autoSellCache = {
+    auto_dismantle_tiers: row?.auto_dismantle_tiers ?? 0,
+    auto_sell_quality_max: row?.auto_sell_quality_max ?? 0,
+    auto_sell_protect_prefixes: row?.auto_sell_protect_prefixes ?? [],
+    drop_filter_tiers: row?.drop_filter_tiers ?? 0,
+    drop_filter_quality_max: row?.drop_filter_quality_max ?? 0,
+    drop_filter_common: row?.drop_filter_common ?? false,
+    drop_filter_protect_prefixes: row?.drop_filter_protect_prefixes ?? [],
+  };
+}
+
+export function invalidateAutoSellCache(characterId: number): void {
+  const s = activeSessions.get(characterId);
+  if (s) s.autoSellCache = null;
+}
+
 // ── WebSocket Push ──
 const PUSH_THROTTLE_FULL_MS = 100; // 진입 후 5분간 — 풀 10fps
 const PUSH_THROTTLE_LITE_MS = 500; // 5분 후 — 저대역 모드 2fps (체감 렉 최소화)
@@ -3074,6 +3104,8 @@ export async function startCombatSession(
     cachedBoosts: [],
     cachedPotions: { small: 0, mid: 0, high: 0, max: 0 },
     cachedGuildBuffs: { hp: 0, gold: 0, exp: 0, drop: 0 },
+    monsterDef: null,
+    autoSellCache: null,
     afkMode: false,
     afkStartedAt: 0,
     afkExpGained: 0,
