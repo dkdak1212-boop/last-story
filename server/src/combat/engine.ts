@@ -1945,7 +1945,24 @@ function monsterAction(s: ActiveSession): void {
     };
   }
 
-  const d = calcDamage(s.monsterStats, playerDefStats, 1.0, false);
+  // 길드 보스 특수 공격 패턴 — 무작위로 광폭 / 강타 / 일반 선택
+  let bossPattern: 'fury' | 'heavy' | 'normal' = 'normal';
+  let skillMultForAttack = 1.0;
+  let bossAttackName: string | null = null;
+  if (s.guildBossRunId) {
+    const roll = Math.random();
+    if (roll < 0.08) {
+      bossPattern = 'fury';   // 8% 확률 — 광폭 (×4)
+      skillMultForAttack = 4.0;
+      bossAttackName = '광폭 일격';
+    } else if (roll < 0.28) {
+      bossPattern = 'heavy';  // 20% 확률 — 강타 (×2)
+      skillMultForAttack = 2.0;
+      bossAttackName = '강타';
+    }
+  }
+
+  const d = calcDamage(s.monsterStats, playerDefStats, skillMultForAttack, false);
 
   // 명중률 디버프
   const accDebuff = s.statusEffects.find(e => e.type === 'accuracy_debuff' && e.source === 'player');
@@ -1955,10 +1972,13 @@ function monsterAction(s: ActiveSession): void {
   }
 
   if (d.miss) {
-    addLog(s, '몬스터 공격 빗나감!');
+    addLog(s, bossAttackName ? `[${s.monsterName}] ${bossAttackName} 빗나감!` : '몬스터 공격 빗나감!');
     s.dodgeBurstPending = true;
   } else {
     let dmg = d.damage;
+    if (bossPattern !== 'normal' && bossAttackName) {
+      addLog(s, `[${s.monsterName}] ${bossAttackName}! (×${skillMultForAttack.toFixed(1)})`);
+    }
 
     // 무적 체크
     if (hasEffect(s, 'monster', 'invincible')) {
@@ -2384,13 +2404,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.monsterMaxHp = BOSS_HP_VIRTUAL;
     s.monsterStats = {
       str: 100, dex: 100, int: 100, vit: 100,
-      spd: 100, cri: 0,
+      spd: 300, cri: 15,
       maxHp: BOSS_HP_VIRTUAL,
       atk: boss.base_atk, matk: boss.base_atk,
       def: boss.base_def, mdef: boss.base_mdef,
-      dodge: boss.base_dodge, accuracy: 100,
+      dodge: boss.base_dodge, accuracy: 120,
     };
-    s.monsterSpeed = 100;
+    s.monsterSpeed = 300; // 길드 보스는 일반보다 빠르게 (공격 빈도↑)
     s.monsterGauge = 0;
     s.hasFirstStrike = true;
     s.hasFirstSkill = true;
