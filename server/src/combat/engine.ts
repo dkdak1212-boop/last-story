@@ -462,7 +462,17 @@ function addLog(s: ActiveSession, msg: string) {
   s.dirty = true;
 }
 
+// 길드 보스에 면역인 CC 계열 이펙트 (플레이어가 몬스터에게 거는 디버프)
+const CC_EFFECT_TYPES = new Set(['stun', 'gauge_freeze', 'gauge_reset', 'accuracy_debuff', 'damage_taken_up']);
+
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
+  // 길드 보스: 플레이어가 건 CC/디버프 면역 (speed_mod 음수 포함)
+  if (s.guildBossRunId && effect.source === 'player') {
+    const isSlow = effect.type === 'speed_mod' && effect.value < 0;
+    if (CC_EFFECT_TYPES.has(effect.type) || isSlow) {
+      return; // 적용 없이 조용히 무시
+    }
+  }
   // speed_mod 머지 정책
   //  - source='player' (몬스터에게 건 디버프): 같은 부호끼리 갱신 (AOE 중첩 방지)
   //  - source='monster' (플레이어 자가 버프/자해 페널티): 머지하지 않고 모두 stack
@@ -1075,6 +1085,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (skill.effect_type === 'hp_pct_damage') {
           if (isDummyMonster(s)) {
             addLog(s, `[${skill.name}] HP% 데미지 무효 (허수아비)`);
+          } else if (s.guildBossRunId) {
+            addLog(s, `[${skill.name}] HP% 데미지 무효 (길드 보스)`);
           } else {
             const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
             s.monsterHp -= extra;
@@ -1308,6 +1320,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'gauge_reset': {
+      if (s.guildBossRunId) {
+        addLog(s, `[${skill.name}] 길드 보스는 게이지 조작 면역`);
+        break;
+      }
       s.monsterGauge = 0;
       const gcAmp = getPassive(s, 'gauge_control_amp');
       const stunChance = skill.effect_value * (1 + gcAmp / 100);
@@ -2443,13 +2459,21 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
-  // 길드 보스: 부활/불굴의 의지 모두 무시, 즉시 run 종료
+  // 길드 보스: 부활/불굴의 의지 모두 무시, run 종료 + 마을로 이동 (정상 사망 플로우 재사용)
   if (s.guildBossRunId) {
     await flushGuildBossDamage(s);
     await markRunEndedByEngine(s.guildBossRunId, 'death').catch(e => console.error('[guild-boss] markRunEnded', e));
     addLog(s, '사망 — 길드 보스 입장 종료');
+    s.playerHp = 0; // 클라이언트에 사망 상태 전달
     s.guildBossRunId = null;
     s.guildBossBoss = null;
+    await flushCharBatch(s.characterId);
+    await query(
+      'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
+      ['village', s.characterId]
+    );
+    await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
+    await pushCombatState(s, true, true);
     activeSessions.delete(s.characterId);
     return;
   }
