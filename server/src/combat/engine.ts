@@ -2871,8 +2871,11 @@ export async function setAfkMode(characterId: number, enabled: boolean): Promise
   return true;
 }
 
+// 길드 보스 전용 필드 (DB에 id=999로 등록 — fields 테이블 FK 충족용)
+const GUILD_BOSS_FIELD_ID = 999;
+
 export async function startGuildBossCombatSession(characterId: number, runId: string, boss: GuildBossData): Promise<void> {
-  await startCombatSession(characterId, 0, { guildBossRunId: runId, guildBossBoss: boss });
+  await startCombatSession(characterId, GUILD_BOSS_FIELD_ID, { guildBossRunId: runId, guildBossBoss: boss });
 }
 
 export async function endGuildBossCombatSession(characterId: number): Promise<void> {
