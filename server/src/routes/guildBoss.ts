@@ -18,9 +18,10 @@ router.use(adminRequired);
 const ITEM_ENHANCE_SCROLL = 286;      // 강화 성공률 스크롤
 const ITEM_PREFIX_REROLL = 322;       // 접두사 수치 재굴림권
 const ITEM_QUALITY_REROLL = 476;      // 품질 재굴림권 (migration 031)
+const ITEM_UNIQUE_TICKET = 477;       // 유니크 무작위 추첨권 (migration 033)
 
 // 캐릭 레벨 기준 유니크 풀에서 무작위 1개 선택
-async function pickRandomUnique(characterLevel: number): Promise<number | null> {
+export async function pickRandomUnique(characterLevel: number): Promise<number | null> {
   const low = Math.max(1, characterLevel - 10);
   const high = characterLevel + 10;
   const r = await query<{ id: number }>(
@@ -601,13 +602,9 @@ async function grantChest(characterId: number, tier: 'gold' | 'silver' | 'copper
       }
     }
     if (Math.random() < 0.01) {
-      // 유니크 무작위 추첨권 — 즉시 유니크 1개 지급
-      const uid = await pickRandomUnique(c.level);
-      if (uid) {
-        await addItemToInventory(characterId, uid, 1).catch(() => {});
-        const ur = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [uid]);
-        result.jackpots.push(`유니크 추첨: ${ur.rows[0]?.name || '알 수 없는 유니크'}`);
-      }
+      // 유니크 무작위 추첨권 — 추첨권 아이템 인벤 지급 (유저가 사용 시 유니크 추첨)
+      await addItemToInventory(characterId, ITEM_UNIQUE_TICKET, 1).catch(() => {});
+      result.jackpots.push('유니크 무작위 추첨권');
     }
   } else if (tier === 'silver') {
     if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_QUALITY_REROLL, 1).catch(() => {}); result.jackpots.push('품질 재굴림권'); }

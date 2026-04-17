@@ -4,6 +4,8 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned, loadCharacter, getEffectiveStats } from '../game/character.js';
 import { refreshSessionStats } from '../combat/engine.js';
+import { addItemToInventory } from '../game/inventory.js';
+import { pickRandomUnique } from './guildBoss.js';
 
 // 접두사 ID → {name, tier, stat_key} 매핑 (캐시)
 interface PrefixInfo { name: string; tier: number; statKey: string; }
@@ -275,6 +277,41 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
   res.json({ ok: true });
+});
+
+// 유니크 무작위 추첨권 사용 — 캐릭 레벨 ±10 범위의 유니크 1개 지급
+router.post('/:id/use-unique-ticket', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 추첨권 1개 소모
+  const ticketR = await query<{ id: number; quantity: number }>(
+    `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '유니크 무작위 추첨권' AND ci.quantity > 0
+     ORDER BY ci.slot_index LIMIT 1`, [id]
+  );
+  if (ticketR.rowCount === 0) return res.status(400).json({ error: '유니크 무작위 추첨권이 없습니다.' });
+  const ticket = ticketR.rows[0];
+
+  const uniqueItemId = await pickRandomUnique(char.level);
+  if (!uniqueItemId) return res.status(500).json({ error: '해당 레벨 범위의 유니크 아이템이 없습니다.' });
+
+  // 인벤에 유니크 먼저 지급 (실패 시 추첨권 소모 X)
+  const { added, overflow } = await addItemToInventory(id, uniqueItemId, 1);
+  if (added <= 0 || overflow > 0) {
+    return res.status(400).json({ error: '인벤토리가 가득 찼습니다. 공간을 확보한 후 사용해주세요.' });
+  }
+
+  // 추첨권 소모
+  if (ticket.quantity <= 1) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
+  } else {
+    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
+  }
+
+  const nameR = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [uniqueItemId]);
+  res.json({ ok: true, uniqueItemId, uniqueItemName: nameR.rows[0]?.name || '알 수 없는 유니크' });
 });
 
 // 잠금 토글 (인벤토리)
