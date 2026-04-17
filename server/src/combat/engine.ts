@@ -181,6 +181,7 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
+  rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 30)
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
@@ -2040,6 +2041,20 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
+  // 도적 전용: 사망 직전 부여돼 있던 player-source 독 스택을 다음 몬스터로 전이 (cap 30)
+  if (s.className === 'rogue') {
+    const carry = s.statusEffects
+      .filter(e => e.type === 'poison' && e.source === 'player' && e.remainingActions > 0)
+      .slice(0, 30)
+      .map(e => ({
+        value: e.value,
+        remainingActions: e.remainingActions,
+        dotMult: e.dotMult ?? 1.0,
+        dotUseMatk: e.dotUseMatk ?? false,
+      }));
+    s.rogueDotCarry = carry;
+  }
+
   // 처치 시간 기록 (최근 10킬 유지)
   if (s.monsterSpawnAt > 0) {
     const elapsedSec = (Date.now() - s.monsterSpawnAt) / 1000;
@@ -2348,6 +2363,17 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
       addEffect(s, { type: 'poison', value: initDotDmg, remainingActions: 3, source: 'player', dotMult: INIT_POISON_MULT, dotUseMatk: false });
     }
     addLog(s, `[독 사냥꾼] 몬스터 등장! 초기 독 2스택 부여`);
+  }
+
+  // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 30)
+  if (s.className === 'rogue' && !isDummyMonster(s) && s.rogueDotCarry && s.rogueDotCarry.length > 0) {
+    const transferCount = Math.min(30, s.rogueDotCarry.length);
+    for (let i = 0; i < transferCount; i++) {
+      const c = s.rogueDotCarry[i];
+      addEffect(s, { type: 'poison', value: c.value, remainingActions: c.remainingActions, source: 'player', dotMult: c.dotMult, dotUseMatk: c.dotUseMatk });
+    }
+    addLog(s, `[독 전이] 이전 몬스터의 독 ${transferCount}스택이 옮겨졌습니다`);
+    s.rogueDotCarry = [];
   }
   addLog(s, `${m.name}이(가) 나타났다!`);
 }
