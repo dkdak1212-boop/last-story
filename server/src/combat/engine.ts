@@ -2971,53 +2971,9 @@ export async function startCombatSession(
   const passives = buildPassiveMap(passivesRaw);
   const equipPrefixes = await loadEquipPrefixes(characterId);
 
-  // 키스톤 패시브 적용: 전투 시작 시 스탯 수정
-  const pMap = passives;
-  // war_god: 공격력 +N%
-  if (pMap.has('war_god')) { eff.atk = Math.round(eff.atk * (1 + (pMap.get('war_god')! / 100))); }
-  // shadow_dance: 회피 +N
-  if (pMap.has('shadow_dance')) { eff.dodge += pMap.get('shadow_dance')!; }
-  // trickster: 치명타 +N
-  if (pMap.has('trickster')) { eff.cri += pMap.get('trickster')!; }
-  // iron_will: 방어 +N%
-  if (pMap.has('iron_will')) { eff.def = Math.round(eff.def * (1 + (pMap.get('iron_will')! / 100))); }
-  // mana_overload: 마법공격 +N% (mana_flow는 쿨다운 추가 감소로 사용 — executeSkill에서 처리)
-  const matkBonus = pMap.get('mana_overload') || 0;
-  if (matkBonus > 0) { eff.matk = Math.round(eff.matk * (1 + matkBonus / 100)); }
-  // focus_mastery: 명중 +N
-  if (pMap.has('focus_mastery')) { eff.accuracy += pMap.get('focus_mastery')!; }
-  // berserker_heart: 공격 +N% 방어 -N%
-  if (pMap.has('berserker_heart')) {
-    const v = pMap.get('berserker_heart')!;
-    eff.atk = Math.round(eff.atk * (1 + v / 100));
-    eff.def = Math.round(eff.def * (1 - v / 200)); // 절반만 감소
-  }
-  // elemental_storm: 도트 데미지 대폭 증가 (dot_amp처럼 작동하지만 별도)
-  // counter_incarnation: 반사 데미지 상시 적용
-  // sanctuary_guard: 최대HP +N%
-  if (pMap.has('sanctuary_guard')) {
-    const bonus = Math.round(char.max_hp * pMap.get('sanctuary_guard')! / 100);
-    eff.maxHp += bonus;
-  }
-  // balance_apostle: 모든 스탯 소폭 증가
-  if (pMap.has('balance_apostle')) {
-    const v = pMap.get('balance_apostle')!;
-    eff.atk = Math.round(eff.atk * (1 + v / 100));
-    eff.matk = Math.round(eff.matk * (1 + v / 100));
-    eff.def = Math.round(eff.def * (1 + v / 100));
-  }
-  // poison_lord: 독 데미지 +value% (processDots의 dotAmpPct 합산)
-  // 과거 atk -15% 페널티가 있었으나 다른 dot_amp 스택이 큰 경우 역효과(독 데미지 감소)를
-  // 일으켜 제거됨. 노드 효과는 순수 dot_amp 보너스.
-  // holy_judge: 신성 데미지 추가 (spell_amp처럼 작동) — executeSkill에서 judge_amp와 합산됨
-
-  // 유니크 접두사: atk_pct / matk_pct — 공격/마법공격 % 증폭
-  if (equipPrefixes.atk_pct) {
-    eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
-  }
-  if (equipPrefixes.matk_pct) {
-    eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
-  }
+  // 키스톤 패시브 + atk_pct/matk_pct/max_hp_pct 접두사 적용은 getEffectiveStats에서 이미 처리됨.
+  // 과거 여기에서 중복 적용하여 전투 시작 직후 스탯이 이중 버프되었고, 장비 조작 시
+  // refreshSessionStats가 단일 적용으로 되돌리면서 데미지가 드랍되던 이슈를 수정.
 
   const session: ActiveSession = {
     characterId,
