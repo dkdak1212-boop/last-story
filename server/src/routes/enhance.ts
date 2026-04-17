@@ -91,6 +91,15 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const rerollCount = rerollR.rows[0]?.quantity || 0;
 
+  // 품질 재굴림권 보유량 조회
+  const qualityRerollR = await query<{ quantity: number }>(
+    `SELECT COALESCE(SUM(ci.quantity), 0)::int AS quantity
+     FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '품질 재굴림권'`,
+    [cid]
+  );
+  const qualityRerollCount = qualityRerollR.rows[0]?.quantity || 0;
+
   // stat_key → 최대 tier 매핑 (T4 강조용) + min/max 재굴림 범위 표시용
   const prefixTierMap = new Map<number, { statKey: string; tier: number; minVal: number; maxVal: number }>();
   if (allPrefixIds.length > 0) {
@@ -177,6 +186,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     })),
     scrollCount,
     rerollCount,
+    qualityRerollCount,
   });
 });
 

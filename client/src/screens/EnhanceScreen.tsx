@@ -51,13 +51,16 @@ export function EnhanceScreen() {
   const [rerollCount, setRerollCount] = useState(0);
   const [rerolling, setRerolling] = useState(false);
   const [rerollIndex, setRerollIndex] = useState<number | null>(null); // null=전체
+  const [qualityRerollCount, setQualityRerollCount] = useState(0);
+  const [qualityRerolling, setQualityRerolling] = useState(false);
 
   async function load() {
     if (!active) return;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     setScrollCount(d.scrollCount || 0);
     setRerollCount(d.rerollCount || 0);
+    setQualityRerollCount(d.qualityRerollCount || 0);
   }
 
   async function rerollPrefix() {
@@ -99,6 +102,37 @@ export function EnhanceScreen() {
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setRerolling(false); }
+  }
+
+  async function rerollQuality() {
+    if (!active || !selected || qualityRerolling) return;
+    if (qualityRerollCount <= 0) { alert('품질 재굴림권이 없습니다.'); return; }
+    if (!confirm(`현재 품질 ${selected.quality ?? 0}% 를 새로 굴립니다. (0~100 무작위) 진행하시겠습니까?`)) return;
+    setQualityRerolling(true);
+    try {
+      const r = await api<{ success: boolean; quality: number }>(
+        `/enhance/${active.id}/reroll-quality`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: selected.kind,
+            slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+          }),
+        }
+      );
+      const updated: EnhanceItem = { ...selected, quality: r.quality };
+      setSelected(updated);
+      setItems(prev => prev.map(it => {
+        if (it.kind !== selected.kind) return it;
+        const sameSlot = selected.kind === 'inventory'
+          ? it.slotIndex === selected.slotIndex
+          : it.equipSlot === selected.equipSlot;
+        return sameSlot ? updated : it;
+      }));
+      setQualityRerollCount(c => Math.max(0, c - 1));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '실패');
+    } finally { setQualityRerolling(false); }
   }
   useEffect(() => { load(); }, [active?.id]);
 
@@ -400,6 +434,30 @@ export function EnhanceScreen() {
                   </div>
                 </div>
               )}
+
+              {/* 품질 재굴림 섹션 — 장비라면 항상 표시 */}
+              {selected.equipSlot !== undefined || selected.kind === 'inventory' ? (
+                <div style={{ marginTop: 12, padding: 10, border: '1px solid #333', borderRadius: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>현재 품질</span>
+                    <span style={{ color: (selected.quality ?? 0) >= 70 ? '#daa520' : '#ccc', fontWeight: 700 }}>
+                      {selected.quality ?? 0}%
+                    </span>
+                  </div>
+                  <button onClick={rerollQuality} disabled={qualityRerolling || qualityRerollCount <= 0} style={{
+                    width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,
+                    background: qualityRerollCount > 0 ? '#daa520' : 'transparent',
+                    color: qualityRerollCount > 0 ? '#000' : 'var(--text-dim)',
+                    border: '1px solid #daa520', borderRadius: 4,
+                    cursor: qualityRerollCount > 0 && !qualityRerolling ? 'pointer' : 'default',
+                  }}>
+                    {qualityRerolling ? '굴리는 중...' : `품질 재굴림권 사용 (보유: ${qualityRerollCount}개)`}
+                  </button>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
+                    품질을 0~100% 범위에서 새로 굴립니다
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
