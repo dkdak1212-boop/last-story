@@ -1178,6 +1178,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (d.crit && gaugeOnCritMulti > 0) {
             const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritMulti / 100);
             s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+            addLog(s, `[재충전] ${i + 1}타 치명타 → 게이지 +${Math.min(50, gaugeOnCritMulti)}%`);
           }
         }
       }
@@ -1203,6 +1204,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
       const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
       const poisonHitMult = multiAmpPoison > 0 ? skill.damage_mult * (1 + multiAmpPoison / 100) : skill.damage_mult;
+      const gaugeOnCritMultiPoison = s.equipPrefixes.gauge_on_crit_pct || 0;
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, poisonHitMult, useMatk);
@@ -1216,6 +1218,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}${d.crit ? '!' : ''}`);
           const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
           addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
+          // 접두사: 재충전 (치명타 시 게이지 충전) — 타격마다 적용, 최대 50% 캡
+          if (d.crit && gaugeOnCritMultiPoison > 0) {
+            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritMultiPoison / 100);
+            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+            addLog(s, `[재충전] ${i + 1}타 치명타 → 게이지 +${Math.min(50, gaugeOnCritMultiPoison)}%`);
+          }
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
