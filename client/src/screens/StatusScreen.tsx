@@ -41,6 +41,12 @@ const PREFIX_LABEL: Record<string, string> = {
   exp_bonus_pct: '경험치 획득 +%',
   atk_pct: '물리 공격 +%',
   matk_pct: '마법 공격 +%',
+  max_hp_pct: '최대 HP +%',
+  drop_rate_pct: '드랍률 +%',
+  multi_hit_amp_pct: '다단 타격 데미지 +%',
+  def_pierce_pct: '방어 추가 무시 %',
+  miss_combo_pct: '빗나감 누적 보너스 +%',
+  evasion_burst_pct: '회피 직후 다음 공격 +%',
 };
 
 const PASSIVE_LABEL: Record<string, string> = {

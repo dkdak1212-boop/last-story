@@ -32,6 +32,13 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   matk_pct: v => `마법공격 ${v}% 증가`,
   hp_pct: v => `최대 HP ${v}% 증가`,
   damage_taken_down_pct: v => `받는 데미지 ${v}% 감소`,
+  // 신규 8종 (4월 패치)
+  max_hp_pct: v => `최대 HP ${v}% 증가`,
+  drop_rate_pct: v => `아이템 드랍률 ${v}% 증가`,
+  multi_hit_amp_pct: v => `다단 타격 데미지 ${v}% 증가`,
+  def_pierce_pct: v => `적 방어 ${v}% 추가 무시`,
+  miss_combo_pct: v => `빗나감 1회당 다음 공격 +${v}% (5스택)`,
+  evasion_burst_pct: v => `회피 성공 후 다음 공격 +${v}%`,
 };
 
 interface Props {
