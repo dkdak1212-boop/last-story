@@ -330,18 +330,26 @@ async function getCharSkills(characterId: number, className: string, level: numb
 
   // 자동 학습 (신규 스킬)
   try {
-    const newSkills = await query<{ id: number; cooldown_actions: number }>(
-      `SELECT s.id, s.cooldown_actions FROM skills s
+    const newSkills = await query<{ id: number; cooldown_actions: number; kind: string }>(
+      `SELECT s.id, s.cooldown_actions, s.kind FROM skills s
        WHERE s.class_name = $1 AND s.required_level <= $2
          AND NOT EXISTS (SELECT 1 FROM character_skills cs WHERE cs.character_id = $3 AND cs.skill_id = s.id)`,
       [className, level, characterId]
     );
     for (const sk of newSkills.rows) {
-      const countR = await query<{ cnt: string }>(
-        `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-         WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0`, [characterId]
-      );
-      const autoOn = sk.cooldown_actions === 0 ? true : Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+      // 자유행동(buff)·기본기(cd=0)는 슬롯 카운트에 포함되지 않으며 항상 ON
+      const isFreeAction = sk.kind === 'buff' || sk.cooldown_actions === 0;
+      let autoOn: boolean;
+      if (isFreeAction) {
+        autoOn = true;
+      } else {
+        const countR = await query<{ cnt: string }>(
+          `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+           WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0 AND s.kind != 'buff'`,
+          [characterId]
+        );
+        autoOn = Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
+      }
       const maxR = await query<{ mx: number | null }>(
         `SELECT COALESCE(MAX(slot_order), 0) AS mx FROM character_skills WHERE character_id = $1`, [characterId]
       );
@@ -355,14 +363,14 @@ async function getCharSkills(characterId: number, className: string, level: numb
     console.error('[getCharSkills] auto-learn failed:', e);
   }
 
-  // 안전망: cd=0 기본기는 무조건 auto_use=TRUE로 강제
+  // 안전망: cd=0 기본기·자유행동(kind='buff')은 무조건 auto_use=TRUE로 강제
   // 예외: 소환사 늑대 소환 — 유저가 on/off 토글할 수 있도록 강제하지 않음
   try {
     await query(`
       UPDATE character_skills cs SET auto_use = TRUE
       FROM skills s
       WHERE s.id = cs.skill_id AND cs.character_id = $1
-        AND s.cooldown_actions = 0 AND cs.auto_use = FALSE
+        AND (s.cooldown_actions = 0 OR s.kind = 'buff') AND cs.auto_use = FALSE
         AND NOT (s.class_name = 'summoner' AND s.name = '늑대 소환')
     `, [characterId]);
   } catch {}
