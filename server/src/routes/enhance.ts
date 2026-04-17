@@ -437,4 +437,54 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
   res.json({ success: true, prefixIds, prefixStats: displayStats, prefixStatsRaw: rawStats });
 });
 
+// 품질 재굴림 — 길드 보스 보상으로 지급되는 품질 재굴림권 소모
+router.post('/:characterId/reroll-quality', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({
+    kind: z.enum(['inventory', 'equipped']),
+    slotKey: z.union([z.number().int().min(0), z.string()]),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // 재굴림권 소모
+  const ticketR = await query<{ id: number; quantity: number }>(
+    `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '품질 재굴림권' AND ci.quantity > 0
+     ORDER BY ci.slot_index LIMIT 1`, [cid]
+  );
+  if (ticketR.rowCount === 0) return res.status(400).json({ error: '품질 재굴림권이 없습니다.' });
+  const ticket = ticketR.rows[0];
+  if (ticket.quantity <= 1) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
+  } else {
+    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
+  }
+
+  // 새 품질 굴림 (0~100)
+  const newQuality = Math.floor(Math.random() * 101);
+
+  if (parsed.data.kind === 'inventory') {
+    const r = await query(
+      `UPDATE character_inventory SET quality = $1
+       WHERE character_id = $2 AND slot_index = $3
+       RETURNING slot_index`,
+      [newQuality, cid, parsed.data.slotKey]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  } else {
+    const r = await query(
+      `UPDATE character_equipped SET quality = $1
+       WHERE character_id = $2 AND slot = $3
+       RETURNING slot`,
+      [newQuality, cid, parsed.data.slotKey]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  }
+
+  res.json({ success: true, quality: newQuality });
+});
+
 export default router;

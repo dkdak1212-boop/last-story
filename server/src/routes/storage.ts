@@ -8,7 +8,12 @@ import { displayPrefixStats } from '../game/prefix.js';
 const router = Router();
 router.use(authRequired);
 
-const STORAGE_SLOTS = 60;
+const STORAGE_SLOTS_BASE = 60;
+
+async function maxStorageSlots(userId: number): Promise<number> {
+  const r = await query<{ bonus: number }>('SELECT storage_slots_bonus AS bonus FROM users WHERE id = $1', [userId]);
+  return STORAGE_SLOTS_BASE + (r.rows[0]?.bonus || 0);
+}
 
 // 창고 조회 (계정 단위)
 router.get('/', async (req: AuthedRequest, res: Response) => {
@@ -55,8 +60,9 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
     return result;
   }
 
+  const maxSlots = await maxStorageSlots(userId);
   res.json({
-    maxSlots: STORAGE_SLOTS,
+    maxSlots,
     gold: Number(goldR.rows[0]?.storage_gold || 0),
     items: itemsR.rows.map(r => {
       const pIds = r.prefix_ids || [];
@@ -115,8 +121,10 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
       'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]
     );
     const used = new Set(usedR.rows.map(r => r.slot_index));
+    const maxR = await tx.query<{ bonus: number }>('SELECT storage_slots_bonus AS bonus FROM users WHERE id = $1', [userId]);
+    const maxSlots = STORAGE_SLOTS_BASE + (maxR.rows[0]?.bonus || 0);
     let freeSlot = -1;
-    for (let i = 0; i < STORAGE_SLOTS; i++) if (!used.has(i)) { freeSlot = i; break; }
+    for (let i = 0; i < maxSlots; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return { error: '창고가 가득 찼습니다', status: 400 };
 
     await tx.query(

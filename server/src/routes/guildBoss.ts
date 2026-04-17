@@ -17,6 +17,20 @@ router.use(adminRequired);
 // 아이템 ID (라이브 DB 조회 결과 기반)
 const ITEM_ENHANCE_SCROLL = 286;      // 강화 성공률 스크롤
 const ITEM_PREFIX_REROLL = 322;       // 접두사 수치 재굴림권
+const ITEM_QUALITY_REROLL = 476;      // 품질 재굴림권 (migration 031)
+
+// 캐릭 레벨 기준 유니크 풀에서 무작위 1개 선택
+async function pickRandomUnique(characterLevel: number): Promise<number | null> {
+  const low = Math.max(1, characterLevel - 10);
+  const high = characterLevel + 10;
+  const r = await query<{ id: number }>(
+    `SELECT id FROM items
+     WHERE grade = 'unique' AND required_level BETWEEN $1 AND $2
+     ORDER BY RANDOM() LIMIT 1`,
+    [low, high]
+  );
+  return r.rows[0]?.id ?? null;
+}
 
 // 데미지 임계값 (단위: 실제 입힌 데미지)
 const THRESHOLD_COPPER = 100_000_000;      // 1억
@@ -574,11 +588,26 @@ async function grantChest(characterId: number, tier: 'gold' | 'silver' | 'copper
   // 잭팟 굴림
   if (tier === 'gold') {
     if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_PREFIX_REROLL, 1).catch(() => {}); result.jackpots.push('접두사 수치 재굴림권'); }
-    if (Math.random() < 0.01) result.jackpots.push('품질 재굴림권 (아이템 TODO)');
-    if (Math.random() < 0.01) result.jackpots.push('창고 슬롯 영구 +1 (시스템 TODO)');
-    if (Math.random() < 0.01) result.jackpots.push('유니크 무작위 추첨권 (시스템 TODO)');
+    if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_QUALITY_REROLL, 1).catch(() => {}); result.jackpots.push('품질 재굴림권'); }
+    if (Math.random() < 0.01) {
+      // 창고 슬롯 영구 +1 — users.storage_slots_bonus 증가
+      const ur = await query<{ user_id: number }>('SELECT user_id FROM characters WHERE id = $1', [characterId]);
+      if (ur.rowCount) {
+        await query('UPDATE users SET storage_slots_bonus = storage_slots_bonus + 1 WHERE id = $1', [ur.rows[0].user_id]);
+        result.jackpots.push('창고 슬롯 영구 +1');
+      }
+    }
+    if (Math.random() < 0.01) {
+      // 유니크 무작위 추첨권 — 즉시 유니크 1개 지급
+      const uid = await pickRandomUnique(c.level);
+      if (uid) {
+        await addItemToInventory(characterId, uid, 1).catch(() => {});
+        const ur = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [uid]);
+        result.jackpots.push(`유니크 추첨: ${ur.rows[0]?.name || '알 수 없는 유니크'}`);
+      }
+    }
   } else if (tier === 'silver') {
-    if (Math.random() < 0.01) result.jackpots.push('품질 재굴림권 (아이템 TODO)');
+    if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_QUALITY_REROLL, 1).catch(() => {}); result.jackpots.push('품질 재굴림권'); }
     if (Math.random() < 0.05) { await addItemToInventory(characterId, ITEM_PREFIX_REROLL, 1).catch(() => {}); result.jackpots.push('접두사 수치 재굴림권'); }
   } else if (tier === 'copper') {
     if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_PREFIX_REROLL, 1).catch(() => {}); result.jackpots.push('접두사 수치 재굴림권'); }
