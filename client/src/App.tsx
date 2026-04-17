@@ -30,6 +30,7 @@ const ShopScreen = lazyRetry(() => import('./screens/ShopScreen').then((m) => ({
 const MailboxScreen = lazyRetry(() => import('./screens/MailboxScreen').then((m) => ({ default: m.MailboxScreen })));
 const RankingScreen = lazyRetry(() => import('./screens/RankingScreen').then((m) => ({ default: m.RankingScreen })));
 const GuildScreen = lazyRetry(() => import('./screens/GuildScreen').then((m) => ({ default: m.GuildScreen })));
+const GuildBossScreen = lazyRetry(() => import('./screens/GuildBossScreen').then((m) => ({ default: m.GuildBossScreen })));
 const NodeTreeScreen = lazyRetry(() => import('./screens/NodeTreeScreen').then((m) => ({ default: m.NodeTreeScreen })));
 const MarketplaceScreen = lazyRetry(() => import('./screens/MarketplaceScreen').then((m) => ({ default: m.MarketplaceScreen })));
 const PvPScreen = lazyRetry(() => import('./screens/PvPScreen').then((m) => ({ default: m.PvPScreen })));
@@ -125,6 +126,7 @@ export default function App() {
                       <Route path="/mailbox" element={<MailboxScreen />} />
                       <Route path="/ranking" element={<RankingScreen />} />
                       <Route path="/guild" element={<GuildScreen />} />
+                      <Route path="/guild-boss" element={<GuildBossScreen />} />
                       <Route path="/nodes" element={<NodeTreeScreen />} />
                       <Route path="/marketplace" element={<MarketplaceScreen />} />
                       <Route path="/pvp" element={<PvPScreen />} />

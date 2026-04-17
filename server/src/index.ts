@@ -46,6 +46,7 @@ import { setIo } from './ws/io.js';
 import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEvent.js';
 import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
+import guildBossRoutes from './routes/guildBoss.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import { query } from './db/pool.js';
@@ -144,6 +145,7 @@ app.use('/api/forum', forumRoutes);
 app.use('/api/craft', craftRoutes);
 app.use('/api/characters', nodeRoutes);
 app.use('/api/characters', dailyQuestRoutes);
+app.use('/api/guild-boss', guildBossRoutes);
 app.use('/api/characters', achievementRoutes);
 
 // 프로덕션: 빌드된 클라이언트 정적 파일 서빙

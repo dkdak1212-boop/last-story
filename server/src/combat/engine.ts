@@ -12,6 +12,7 @@ import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 import { getActiveGlobalEvent } from '../game/globalEvent.js';
+import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
 import type { StatusEffect } from './shared.js';
 import { calcDotTickDamage } from './shared.js';
@@ -182,6 +183,10 @@ interface ActiveSession {
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
   rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 30)
+  guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
+  guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
+  guildBossDmgBuffer: number; // flush 전 누적 raw 데미지
+  guildBossHitsBuffer: number; // flush 전 누적 타격 수
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
@@ -2026,6 +2031,13 @@ function monsterAction(s: ActiveSession): void {
 
 // ── 몬스터 처치 ──
 async function handleMonsterDeath(s: ActiveSession): Promise<void> {
+  // 길드 보스: 절대 죽지 않음 — HP 복구 후 종료
+  if (s.guildBossRunId) {
+    s.monsterHp = s.monsterMaxHp;
+    s.dirty = true;
+    return;
+  }
+
   const mr = await query<MonsterDef>(
     'SELECT id, name, level, max_hp, exp_reward, gold_reward, drop_table, stats FROM monsters WHERE id = $1',
     [s.monsterId]
@@ -2312,6 +2324,26 @@ function isDummyMonster(s: ActiveSession): boolean {
   return !!s.monsterName && s.monsterName.startsWith('허수아비');
 }
 
+// 길드 보스 데미지 flush — 버퍼를 DB에 반영하고 메커닉 적용
+async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
+  if (!s.guildBossRunId) return;
+  if (s.guildBossDmgBuffer <= 0 && s.guildBossHitsBuffer <= 0) return;
+  const dmg = s.guildBossDmgBuffer;
+  const hits = s.guildBossHitsBuffer;
+  s.guildBossDmgBuffer = 0;
+  s.guildBossHitsBuffer = 0;
+  try {
+    // Phase 4b MVP: 메커닉의 damageType/element/isDot 메타는 알 수 없어 physical/no-element/non-dot로 가정.
+    // 공통 메커닉 (약점시간대 / 누적디버프 / HP회복)은 정상 작동. 특정 보스 원소·도트·페이즈 면역은 추후 개선.
+    const r = await applyDamageToRun(s.guildBossRunId, dmg, hits, { damageType: 'physical', element: null, isDot: false });
+    if (r.applied.length > 0) {
+      addLog(s, `[보스] ${r.applied.join(' · ')} → ${r.effective}`);
+    }
+  } catch (e) {
+    console.error('[guild-boss] flush fail', e);
+  }
+}
+
 // 행동 전후 HP 델타를 누적 + HP가 0 이하면 즉시 풀피 복원 (절대 죽지 않음)
 function handleDummyTick(s: ActiveSession, hpBefore: number): void {
   if (!isDummyMonster(s)) return;
@@ -2324,6 +2356,36 @@ function handleDummyTick(s: ActiveSession, hpBefore: number): void {
 }
 
 async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
+  // 길드 보스 세션은 보스를 "가상 몬스터"로 스폰 (필드 풀 무시)
+  if (s.guildBossRunId && s.guildBossBoss) {
+    const boss = s.guildBossBoss;
+    const BOSS_HP_VIRTUAL = 10_000_000_000; // 사실상 무한 (99억, 도달 거의 불가능)
+    s.monsterId = -1 * boss.id; // 음수로 표기해 실 몬스터와 구분
+    s.monsterName = boss.name;
+    s.monsterLevel = 100;
+    s.monsterHp = BOSS_HP_VIRTUAL;
+    s.monsterMaxHp = BOSS_HP_VIRTUAL;
+    s.monsterStats = {
+      str: 100, dex: 100, int: 100, vit: 100,
+      spd: 100, cri: 0,
+      maxHp: BOSS_HP_VIRTUAL,
+      atk: boss.base_atk, matk: boss.base_atk,
+      def: boss.base_def, mdef: boss.base_mdef,
+      dodge: boss.base_dodge, accuracy: 100,
+    };
+    s.monsterSpeed = 100;
+    s.monsterGauge = 0;
+    s.hasFirstStrike = true;
+    s.hasFirstSkill = true;
+    s.monsterSpawnAt = Date.now();
+    // 플레이어 걸린 효과만 정리 (몬스터 디버프는 운영상 무관)
+    s.statusEffects = s.statusEffects.filter(e =>
+      e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
+    );
+    addLog(s, `${boss.name}이(가) 나타났다!`);
+    return;
+  }
+
   const m = await pickRandomMonster(s.fieldId);
   if (!m) {
     s.monsterId = null;
@@ -2380,6 +2442,17 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
+  // 길드 보스: 부활/불굴의 의지 모두 무시, 즉시 run 종료
+  if (s.guildBossRunId) {
+    await flushGuildBossDamage(s);
+    await markRunEndedByEngine(s.guildBossRunId, 'death').catch(e => console.error('[guild-boss] markRunEnded', e));
+    addLog(s, '사망 — 길드 보스 입장 종료');
+    s.guildBossRunId = null;
+    s.guildBossBoss = null;
+    activeSessions.delete(s.characterId);
+    return;
+  }
+
   // 부활 체크 (전투당 1회, 패시브: resurrect_amp 회복량 증가)
   const resurrect = s.statusEffects.find(e => e.type === 'resurrect' && e.source === 'monster');
   const alreadyResurrected = s.statusEffects.some(e => e.type === 'resurrect' && e.id === 'resurrect_used');
@@ -2522,10 +2595,17 @@ async function combatTick(): Promise<void> {
           tickShield(s);
           s.dirty = true;
 
+          // 이번 행동에서 몬스터에게 가한 데미지 (오버킬 포함)
+          const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
+
           // AFK 데미지 누적 (플레이어 행동으로 깎인 HP)
-          if (s.afkMode) {
-            const dealt = Math.max(0, hpBeforePl - s.monsterHp);
-            if (dealt > 0) s.afkDamage += dealt;
+          if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
+
+          // 길드 보스 데미지 누적 → 즉시 flush
+          if (s.guildBossRunId && dealtThisAction > 0) {
+            s.guildBossDmgBuffer += dealtThisAction;
+            s.guildBossHitsBuffer += 1;
+            await flushGuildBossDamage(s);
           }
 
           handleDummyTick(s, hpBeforePl);
@@ -2790,7 +2870,24 @@ export async function setAfkMode(characterId: number, enabled: boolean): Promise
   return true;
 }
 
-export async function startCombatSession(characterId: number, fieldId: number): Promise<void> {
+export async function startGuildBossCombatSession(characterId: number, runId: string, boss: GuildBossData): Promise<void> {
+  await startCombatSession(characterId, 0, { guildBossRunId: runId, guildBossBoss: boss });
+}
+
+export async function endGuildBossCombatSession(characterId: number): Promise<void> {
+  const s = activeSessions.get(characterId);
+  if (!s) return;
+  if (s.guildBossRunId) await flushGuildBossDamage(s);
+  s.guildBossRunId = null;
+  s.guildBossBoss = null;
+  activeSessions.delete(characterId);
+}
+
+export async function startCombatSession(
+  characterId: number,
+  fieldId: number,
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData }
+): Promise<void> {
   // 기존 세션 정리
   activeSessions.delete(characterId);
 
@@ -2920,6 +3017,10 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     afkQuality100: 0,
     afkUnique: 0,
     afkT4Prefix: 0,
+    guildBossRunId: guildBossOpts?.guildBossRunId ?? null,
+    guildBossBoss: guildBossOpts?.guildBossBoss ?? null,
+    guildBossDmgBuffer: 0,
+    guildBossHitsBuffer: 0,
   };
 
   // 패시브: counter_incarnation (상시 반사)
