@@ -5,7 +5,7 @@ import { applyExpGain } from '../game/leveling.js';
 import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
 import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
-import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
+import { addItemToInventory, deliverToMailbox, type EquipPreroll } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
 import { trackMonsterKill } from '../routes/quests.js';
 import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
@@ -172,6 +172,8 @@ interface ActiveSession {
   dirty: boolean;
   ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
   hasFirstStrike: boolean; // 약점간파 (몬스터당 첫 공격)
+  missStack: number; // 신중한 (miss_combo_pct) — 빗나감 누적 (cap 5)
+  dodgeBurstPending: boolean; // 회피의 (evasion_burst_pct) — 회피 직후 다음 공격 보너스
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
   manaFlowStacks: number; // 마법사 전용: 마나의 흐름 스택 (0~5)
   manaFlowActive: number; // 마법사 전용: 마나의 흐름 버스트 남은 행동 (0=비활성)
@@ -510,6 +512,21 @@ function applyDamagePrefixes(
       s.ticksSinceLastHit = 0;
       addLog(s, `[각성] 다음 공격 +${ambush}%`);
     }
+    // 신중한 (miss_combo_pct) — 누적 빗나감 1회당 +pct%
+    const missCombo = s.equipPrefixes.miss_combo_pct || 0;
+    if (missCombo > 0 && s.missStack > 0) {
+      const bonus = missCombo * s.missStack;
+      dmg = Math.round(dmg * (1 + bonus / 100));
+      addLog(s, `[신중한] +${bonus}% (×${s.missStack})`);
+      s.missStack = 0;
+    }
+    // 회피의 (evasion_burst_pct) — 직전 회피 성공 시 다음 공격 +pct%
+    const dodgeBurst = s.equipPrefixes.evasion_burst_pct || 0;
+    if (dodgeBurst > 0 && s.dodgeBurstPending) {
+      dmg = Math.round(dmg * (1 + dodgeBurst / 100));
+      addLog(s, `[회피의] +${dodgeBurst}%`);
+      s.dodgeBurstPending = false;
+    }
   }
   // shadow_strike: 전투 시작 후 첫 스킬 데미지 증가
   if (consume && s.hasFirstSkill) {
@@ -555,7 +572,8 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   if (skill.damage_mult <= 0) return false;
   const armorPierce = getPassive(s, 'armor_pierce');
   const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
-  const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+  const prefixDefPierce = s.equipPrefixes.def_pierce_pct || 0;
+  const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
   const defModStats = totalDefReduce > 0 ? {
     ...s.monsterStats,
     def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
@@ -564,6 +582,7 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
   if (d.miss) {
     addLog(s, `[${skill.name}] 빗나감!`);
+    s.missStack = Math.min(5, s.missStack + 1);
     return true;
   }
   let dmg = d.damage;
@@ -665,7 +684,8 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
   if (target === 'monster') {
     const armorPierce = getPassive(s, 'armor_pierce');
     const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
-    const totalPierce = Math.min(80, armorPierce + prefixDefReduce);
+    const prefixDefPierce = s.equipPrefixes.def_pierce_pct || 0;
+    const totalPierce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
     let monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
     if (totalPierce > 0) monsterDef = Math.round(monsterDef * (1 - totalPierce / 100));
     defenderDef = monsterDef;
@@ -859,8 +879,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용), armor_pierce (방어 무시)
   const spellAmp = getPassive(s, 'spell_amp');
   const armorPierce = getPassive(s, 'armor_pierce');
-  // 접두사: 약화(def_reduce_pct)
+  // 접두사: 약화(def_reduce_pct) + 꿰뚫는(def_pierce_pct)
   const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
+  const prefixDefPierce = s.equipPrefixes.def_pierce_pct || 0;
 
   switch (skill.effect_type) {
     case 'damage':
@@ -877,7 +898,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const furyPierce =
         skill.name === '분노의 일격' ? 50 :
         (skill.name === '절대 파괴' || skill.name === '대멸절') ? 100 : 0;
-      const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + furyPierce);
+      const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + prefixDefPierce + furyPierce);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
@@ -897,6 +918,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       }
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
+        s.missStack = Math.min(5, s.missStack + 1);
       } else {
         let dmg = d.damage;
         // 디버프: damage_taken_up (방패 강타 등 — 적이 받는 데미지 증가)
@@ -1098,7 +1120,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hits = Math.round(skill.effect_value) + getPassive(s, 'extra_hit');
       const chainAmp = getPassive(s, 'chain_action_amp');
       const bladeStormAmp = getPassive(s, 'blade_storm_amp');
-      const hitMult = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
+      const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
+      const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
+      const hitMult = multiAmp > 0 ? baseChain * (1 + multiAmp / 100) : baseChain;
       const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
       let firstLandedHit = true;
       let landedCount = 0;
@@ -1107,6 +1131,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, skill.flat_damage);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
+          s.missStack = Math.min(5, s.missStack + 1);
         } else {
           let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
             consumeOneShot: firstLandedHit,
@@ -1144,9 +1169,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULTI_MULT = 2.0;
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
+      const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
+      const poisonHitMult = multiAmpPoison > 0 ? skill.damage_mult * (1 + multiAmpPoison / 100) : skill.damage_mult;
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
-        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk);
+        const d = calcDamage(s.playerStats, s.monsterStats, poisonHitMult, useMatk);
         if (!d.miss) {
           const dmg = applyDamagePrefixes(s, d.damage, d.crit, {
             consumeOneShot: firstLandedHitMP,
@@ -1450,7 +1477,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const shieldMult = skill.name === '대심판의 철퇴' ? 8.0 : 4.0;
       const shieldBonus = myShieldTotal > 0 ? Math.round(myShieldTotal * shieldMult) : 0;
       // armor_pierce 적용 (일반 damage와 동일)
-      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce);
+      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
@@ -1459,6 +1486,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
+        s.missStack = Math.min(5, s.missStack + 1);
       } else {
         const parts: string[] = [];
         // 베이스 데미지 + 실드 보너스 + HP% 보너스 — 증폭 전에 모두 합산
@@ -1840,8 +1868,10 @@ async function autoAction(s: ActiveSession): Promise<void> {
   // 기본공격 턴에도 독의 공명 폭발 체크 (스킬 미사용 시 게이지가 멈추는 문제 방지)
   tryPoisonResonanceBurst(s);
   const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
-  if (d.miss) addLog(s, '기본 공격 빗나감!');
-  else {
+  if (d.miss) {
+    addLog(s, '기본 공격 빗나감!');
+    s.missStack = Math.min(5, s.missStack + 1);
+  } else {
     s.monsterHp -= d.damage;
     addLog(s, `${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
   }
@@ -1890,6 +1920,7 @@ function monsterAction(s: ActiveSession): void {
 
   if (d.miss) {
     addLog(s, '몬스터 공격 빗나감!');
+    s.dodgeBurstPending = true;
   } else {
     let dmg = d.damage;
 
@@ -2131,7 +2162,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   trackMonsterKill(s.characterId, s.monsterId!)
     .catch(err => console.error('[combat] trackMonsterKill err', err));
 
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct, ge.drop);
+  const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop);
   // 자동판매 + 드랍필터 설정
   const autoSellR = await query<{
     auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[];
@@ -2156,75 +2188,75 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const dfProtect = new Set(autoSellR.rows[0]?.drop_filter_protect_prefixes ?? []);
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
+  // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
+  const needPrefixModule = drops.length > 0 && (hasDropFilter || sellTiers > 0);
+  const generatePrefixes = needPrefixModule ? (await import('../game/prefix.js')).generatePrefixes : null;
+
   for (const drop of drops) {
-    // 드랍 필터: 조건에 맞는 장비는 줍지 않음 (유니크/전설 항상 보호)
-    if (hasDropFilter) {
-      const dfItemR = await query<{ grade: string; slot: string | null; required_level: number }>(
-        'SELECT grade, slot, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
-      );
-      const dfi = dfItemR.rows[0];
-      if (dfi && dfi.slot && dfi.grade !== 'unique' && dfi.grade !== 'legendary') {
-        // 일반(common) 등급 필터
-        if (dfCommon && dfi.grade === 'common') {
+    // 1) 아이템 정보 1회 조회 (필터/판매 공통)
+    const itemR = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
+      'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1',
+      [drop.itemId]
+    );
+    const item = itemR.rows[0];
+
+    let preroll: EquipPreroll | undefined;
+    // 장비 + 비유니크일 때만 prerolling (유니크는 addItemToInventory에서 처리)
+    if (item && item.slot && item.grade !== 'unique' && generatePrefixes) {
+      const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level);
+      const quality = Math.floor(Math.random() * 101);
+      preroll = { prefixIds, bonusStats, maxTier, quality };
+
+      const is3Options = prefixIds.length >= 3;
+      const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+
+      // 보호 접두사 검사 (필터/판매 모두 한 번만 조회)
+      let protectStats: Set<string> | null = null;
+      const needProtectLookup = prefixIds.length > 0 && (sellProtect.size > 0 || dfProtect.size > 0);
+      if (needProtectLookup) {
+        const pr = await query<{ stat_key: string }>(
+          'SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [prefixIds]
+        );
+        protectStats = new Set(pr.rows.map(r => r.stat_key));
+      }
+      const sellHasProtected = protectStats && sellProtect.size > 0
+        ? [...protectStats].some(st => sellProtect.has(st)) : false;
+      const dfHasProtected = protectStats && dfProtect.size > 0
+        ? [...protectStats].some(st => dfProtect.has(st)) : false;
+
+      // 2) 드랍필터: 유니크/전설 제외, common 토글 + 티어/품질 일치 시 줍지 않음
+      if (hasDropFilter && item.grade !== 'legendary') {
+        if (dfCommon && item.grade === 'common') {
           continue;
         }
-        // T1~T4 + 품질 필터 (접두사 생성해서 체크)
         if (dfTiers > 0) {
-          const { generatePrefixes } = await import('../game/prefix.js');
-          const { prefixIds: dfPIds, maxTier: dfMaxTier } = await generatePrefixes(dfi.required_level);
-          const dfQuality = Math.floor(Math.random() * 101);
-          const dfIs3Opt = dfPIds.length >= 3;
-          const dfTierBit = dfMaxTier >= 1 && dfMaxTier <= 4 ? (1 << (dfMaxTier - 1)) : 0;
-          const dfTierMatch = (dfTiers & dfTierBit) !== 0;
-          const dfQualMatch = dfQualityMax > 0 ? dfQuality <= dfQualityMax : true;
-          const dfHasProtected = dfProtect.size > 0 && dfPIds.length > 0 ? await (async () => {
-            const pr = await query<{ stat_key: string }>('SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [dfPIds]);
-            return pr.rows.some(r => dfProtect.has(r.stat_key));
-          })() : false;
-          if (!dfIs3Opt && !dfHasProtected && dfTierMatch && dfQualMatch) {
+          const dfTierMatch = (dfTiers & tierBit) !== 0;
+          const dfQualMatch = dfQualityMax > 0 ? quality <= dfQualityMax : true;
+          if (!is3Options && !dfHasProtected && dfTierMatch && dfQualMatch) {
             continue;
           }
         }
       }
-    }
-    // 자동판매: 설정된 tier + 품질 기준 이하 장비만 판매 (유니크/3옵은 항상 보호)
-    if (sellTiers > 0) {
-      const itemCheck = await query<{ grade: string; slot: string | null; sell_price: number; name: string; required_level: number }>(
-        'SELECT grade, slot, sell_price, name, COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [drop.itemId]
-      );
-      if (itemCheck.rows[0] && itemCheck.rows[0].slot && itemCheck.rows[0].grade !== 'unique') {
-        const { generatePrefixes } = await import('../game/prefix.js');
-        const { prefixIds, bonusStats, maxTier } = await generatePrefixes(itemCheck.rows[0].required_level);
-        const quality = Math.floor(Math.random() * 101);
-        const is3Options = prefixIds.length >= 3;
-        const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+
+      // 3) 자동판매: 티어·품질 일치 시 골드 변환 (3옵/보호 접두사 보호)
+      if (sellTiers > 0) {
         const tierMatch = (sellTiers & tierBit) !== 0;
         const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
-        const hasProtectedPrefix = sellProtect.size > 0 && prefixIds.length > 0 ? await (async () => {
-          const pr = await query<{ stat_key: string }>('SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])', [prefixIds]);
-          return pr.rows.some(r => sellProtect.has(r.stat_key));
-        })() : false;
-        const shouldSell = !is3Options && !hasProtectedPrefix && tierMatch && qualityMatch;
-
+        const shouldSell = !is3Options && !sellHasProtected && tierMatch && qualityMatch;
         if (shouldSell) {
-          const gold = Math.max(1, Math.floor(itemCheck.rows[0].sell_price * 0.5));
+          const gold = Math.max(1, Math.floor(item.sell_price * 0.5));
           batchAdd(s.characterId, { goldDelta: gold });
-          addLog(s, `${itemCheck.rows[0].name} 자동판매 (T${maxTier}, ${quality}%) → +${gold}G`);
+          addLog(s, `${item.name} 자동판매 (T${maxTier}, ${quality}%) → +${gold}G`);
           continue;
         }
-        if (tierMatch && !qualityMatch) {
-          // 티어는 매칭되지만 품질이 높아서 보호 — 정상 드랍으로 진행 (품질 재사용)
-          (drop as any)._prerolledQuality = quality;
-          (drop as any)._prerolledPrefixIds = prefixIds;
-          (drop as any)._prerolledBonusStats = bonusStats;
-        }
-        if (is3Options) {
-          addLog(s, `${itemCheck.rows[0].name} 자동판매 보호! (3옵)`);
+        if (is3Options && tierMatch) {
+          addLog(s, `${item.name} 자동판매 보호! (3옵)`);
         }
       }
     }
 
-    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty);
+    // 4) 인벤토리 저장 (preroll 그대로 전달 → 필터/판매에서 본 값과 동일하게 저장)
+    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, undefined, preroll);
     if (overflow > 0) {
       addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
     } else {
@@ -2819,6 +2851,8 @@ export async function startCombatSession(characterId: number, fieldId: number): 
     userId: char.user_id,
     ticksSinceLastHit: 0,
     hasFirstStrike: true,
+    missStack: 0,
+    dodgeBurstPending: false,
     rage: 0,
     manaFlowStacks: 0,
     manaFlowActive: 0,

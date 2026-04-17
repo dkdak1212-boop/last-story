@@ -16,11 +16,19 @@ export interface EquipDropMeta {
   isT4: boolean;
 }
 
+export interface EquipPreroll {
+  prefixIds: number[];
+  bonusStats: Record<string, number>;
+  maxTier: number;
+  quality: number;
+}
+
 export async function addItemToInventory(
   characterId: number,
   itemId: number,
   quantity: number,
-  mailOnOverflow?: { subject: string; body: string }
+  mailOnOverflow?: { subject: string; body: string },
+  preroll?: EquipPreroll
 ): Promise<{ added: number; overflow: number; equipMetas?: EquipDropMeta[] }> {
   // 아이템 조회 — 스택 가능 여부 + 장비 여부 + 유니크 여부
   const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
@@ -68,14 +76,20 @@ export async function addItemToInventory(
     if (!used.has(i)) freeSlots.push(i);
   }
 
+  let prerollUsed = false;
   while (remaining > 0 && freeSlots.length > 0) {
     const slot = freeSlots.shift()!;
     const qty = Math.min(remaining, stackSize);
 
     if (isEquipment) {
-      // 공통: 접두사 + 품질 생성
-      const { prefixIds, bonusStats, maxTier } = await generatePrefixes(itemRequiredLevel);
-      const quality = Math.floor(Math.random() * 101); // 0~100
+      // 공통: 접두사 + 품질 (preroll이 있으면 첫 슬롯에 한해 그대로 사용)
+      const usePreroll = !!preroll && !prerollUsed;
+      const rolled = usePreroll
+        ? { prefixIds: preroll!.prefixIds, bonusStats: preroll!.bonusStats, maxTier: preroll!.maxTier }
+        : await generatePrefixes(itemRequiredLevel);
+      const { prefixIds, bonusStats, maxTier } = rolled;
+      const quality = usePreroll ? preroll!.quality : Math.floor(Math.random() * 101); // 0~100
+      if (usePreroll) prerollUsed = true;
       let finalPrefixStats: Record<string, number> = bonusStats;
 
       if (isUnique) {
@@ -125,8 +139,12 @@ export async function addItemToInventory(
   // 인벤토리 가득 → 장비라면 접두사/품질 보존하여 우편으로 발송
   if (remaining > 0 && mailOnOverflow && isEquipment) {
     for (let i = 0; i < remaining; i++) {
-      const { prefixIds, bonusStats } = await generatePrefixes(itemRequiredLevel);
-      const quality = Math.floor(Math.random() * 101);
+      const usePreroll = !!preroll && !prerollUsed;
+      const { prefixIds, bonusStats } = usePreroll
+        ? { prefixIds: preroll!.prefixIds, bonusStats: preroll!.bonusStats }
+        : await generatePrefixes(itemRequiredLevel);
+      const quality = usePreroll ? preroll!.quality : Math.floor(Math.random() * 101);
+      if (usePreroll) prerollUsed = true;
       let finalPrefixStats: Record<string, number> = bonusStats;
       if (isUnique) {
         const fixedStats = uniquePrefixStats || {};
