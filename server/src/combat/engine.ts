@@ -466,12 +466,21 @@ function addLog(s: ActiveSession, msg: string) {
 // 길드 보스에 면역인 CC 계열 이펙트 (플레이어가 몬스터에게 거는 디버프)
 const CC_EFFECT_TYPES = new Set(['stun', 'gauge_freeze', 'gauge_reset', 'accuracy_debuff', 'damage_taken_up']);
 
+// 길드 보스 무적 상한 — 30행동(대략 1분) 이상 지속되지 않게 강제
+const GUILD_BOSS_INVINCIBLE_MAX_ACTIONS = 30;
+
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   // 길드 보스: 플레이어가 건 CC/디버프 면역 (speed_mod 음수 포함)
   if (s.guildBossRunId && effect.source === 'player') {
     const isSlow = effect.type === 'speed_mod' && effect.value < 0;
     if (CC_EFFECT_TYPES.has(effect.type) || isSlow) {
       return; // 적용 없이 조용히 무시
+    }
+  }
+  // 길드 보스: 플레이어 자가 무적 버프 지속시간 상한 (1분 환산 ~30행동)
+  if (s.guildBossRunId && effect.type === 'invincible' && effect.source === 'monster') {
+    if (effect.remainingActions > GUILD_BOSS_INVINCIBLE_MAX_ACTIONS) {
+      effect.remainingActions = GUILD_BOSS_INVINCIBLE_MAX_ACTIONS;
     }
   }
   // speed_mod 머지 정책
@@ -2499,12 +2508,40 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
-  // 길드 보스: 부활/불굴의 의지 모두 무시, run 종료 + 마을로 이동 (정상 사망 플로우 재사용)
+  // 길드 보스: 부활 계열 총 1회만 허용 (부활 스킬 + undying_fury 중 먼저 발동되는 1회)
   if (s.guildBossRunId) {
+    const gbRevived = s.statusEffects.some(e => e.id === 'gb_revive_used');
+    // 1순위: 부활의 기적 (resurrect 스킬)
+    const resurrect = s.statusEffects.find(e => e.type === 'resurrect' && e.source === 'monster');
+    const resurrectUsed = s.statusEffects.some(e => e.id === 'resurrect_used');
+    if (!gbRevived && resurrect && !resurrectUsed) {
+      let healPct = resurrect.value;
+      const resAmp = getPassive(s, 'resurrect_amp');
+      if (resAmp > 0) healPct = Math.min(100, healPct + resAmp);
+      s.playerHp = Math.round(s.playerMaxHp * healPct / 100);
+      s.statusEffects = s.statusEffects.filter(e => e.type !== 'resurrect');
+      s.statusEffects.push({ id: 'resurrect_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+      s.statusEffects.push({ id: 'gb_revive_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+      addLog(s, `부활의 기적! HP ${s.playerHp} 회복! (길드 보스 1회 한정)`);
+      return;
+    }
+    // 2순위: undying_fury 패시브
+    const undying = getPassive(s, 'undying_fury');
+    const undyingUsed = s.statusEffects.some(e => e.id === 'undying_used');
+    if (!gbRevived && undying > 0 && !undyingUsed) {
+      s.playerHp = Math.round(s.playerMaxHp * undying / 100);
+      addEffect(s, { type: 'invincible', value: 0, remainingActions: 1, source: 'monster' });
+      s.statusEffects.push({ id: 'undying_used', type: 'invincible', value: 0, remainingActions: 0, source: 'player' });
+      s.statusEffects.push({ id: 'gb_revive_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+      addLog(s, `불굴의 의지! HP ${s.playerHp} 부활 + 무적 1행동 (길드 보스 1회 한정)`);
+      return;
+    }
+
+    // 부활 불가 → run 종료 + 마을로 이동
     await flushGuildBossDamage(s);
     await markRunEndedByEngine(s.guildBossRunId, 'death').catch(e => console.error('[guild-boss] markRunEnded', e));
     addLog(s, '사망 — 길드 보스 입장 종료');
-    s.playerHp = 0; // 클라이언트에 사망 상태 전달
+    s.playerHp = 0;
     s.guildBossRunId = null;
     s.guildBossBoss = null;
     await flushCharBatch(s.characterId);
