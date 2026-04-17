@@ -78,10 +78,49 @@ const THRESHOLD_COPPER = 100_000_000n;
 const THRESHOLD_SILVER = 500_000_000n;
 const THRESHOLD_GOLD = 1_000_000_000n;
 
-const GUILD_TIER_MILESTONES_BN = [
-  { label: '구리 (1억)',    dmg: 100_000_000n,   bit: 1, color: '#c97e3a' },
-  { label: '은빛 (5억)',    dmg: 500_000_000n,   bit: 2, color: '#c0c0c0' },
-  { label: '황금 (10억)',   dmg: 1_000_000_000n, bit: 4, color: '#ffd700' },
+const GUILD_TIER_MILESTONES_BN: {
+  label: string; threshold: string; dmg: bigint; bit: number; color: string;
+  confirmed: string[]; jackpots: string[];
+}[] = [
+  {
+    label: '구리', threshold: '1억+', dmg: 100_000_000n, bit: 1, color: '#c97e3a',
+    confirmed: [
+      '골드 1,000,000',
+      '길드 보스 메달 5',
+      'EXP 두루마리 (현 레벨 1%)',
+      '부스터 택1 (EXP/골드/드랍 중 1종, 1시간)',
+    ],
+    jackpots: ['접두사 수치 재굴림권 (1%)'],
+  },
+  {
+    label: '은빛', threshold: '5억+', dmg: 500_000_000n, bit: 2, color: '#c0c0c0',
+    confirmed: [
+      '골드 2,500,000',
+      '길드 보스 메달 15',
+      'EXP 두루마리 (현 레벨 3%)',
+      '부스터 5종 패키지 (1시간)',
+    ],
+    jackpots: [
+      '품질 재굴림권 (1%)',
+      '접두사 수치 재굴림권 (5%)',
+    ],
+  },
+  {
+    label: '황금', threshold: '10억+', dmg: 1_000_000_000n, bit: 4, color: '#ffd700',
+    confirmed: [
+      '강화 성공 스크롤 1',
+      '골드 5,000,000',
+      '길드 보스 메달 50',
+      'EXP 두루마리 (현 레벨 5%)',
+      '부스터 5종 패키지 (1시간)',
+    ],
+    jackpots: [
+      '아이템 품질 재굴림권 (1%)',
+      '접두사 수치 재굴림권 (1%)',
+      '창고 슬롯 영구 +1 (1%)',
+      '유니크 무작위 추첨권 (1%)',
+    ],
+  },
 ];
 
 function fmt(v: string | number): string {
@@ -263,8 +302,8 @@ export function GuildBossScreen() {
         />
       </div>
 
-      {/* 길드 공용 상자 */}
-      <SectionTitle text="오늘 길드 공용 상자" subtext="한 명이 임계값 달성 시 길드 전원 수령" />
+      {/* 길드 공용 상자 — 보상 내역 */}
+      <SectionTitle text="길드 공용 상자 — 보상 내역" subtext="한 명이 임계값 달성 시 길드 전원이 동일 상자 수령" />
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
         marginBottom: 22,
@@ -273,34 +312,87 @@ export function GuildBossScreen() {
           const passed = (state.guildDaily.global_chest_milestones & m.bit) !== 0;
           return (
             <div key={m.bit} style={{
-              padding: '18px 16px',
-              border: `1px solid ${passed ? m.color : '#333'}`,
+              padding: '16px 14px',
+              border: `1px solid ${passed ? m.color : '#2a2824'}`,
               background: passed
-                ? `linear-gradient(180deg, ${m.color}33 0%, ${m.color}08 100%)`
+                ? `linear-gradient(180deg, ${m.color}22 0%, ${m.color}05 100%)`
                 : 'linear-gradient(180deg, #141211 0%, #0a0908 100%)',
-              textAlign: 'center', position: 'relative', overflow: 'hidden',
-              boxShadow: passed ? `0 0 24px ${m.color}33, inset 0 0 20px ${m.color}1a` : 'none',
+              position: 'relative', overflow: 'hidden',
+              boxShadow: passed ? `0 0 24px ${m.color}33, inset 0 0 20px ${m.color}14` : 'none',
+              display: 'flex', flexDirection: 'column',
             }}>
-              <div style={{
-                fontSize: 10, letterSpacing: 2, color: passed ? m.color : '#555',
-                textTransform: 'uppercase', fontWeight: 700, marginBottom: 6,
-              }}>
-                {m.label.split(' ')[0]}
+              {/* 헤더 */}
+              <div style={{ marginBottom: 12, textAlign: 'center' }}>
+                <div style={{
+                  fontSize: 10, letterSpacing: 2, color: passed ? m.color : '#5a5852',
+                  textTransform: 'uppercase', fontWeight: 700, marginBottom: 4,
+                }}>
+                  {m.label} 상자
+                </div>
+                <div style={{
+                  fontSize: 22, fontWeight: 900,
+                  color: passed ? m.color : '#4a4845',
+                  textShadow: passed ? `0 0 12px ${m.color}80` : 'none',
+                  letterSpacing: 1,
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {m.threshold}
+                </div>
+                <div style={{
+                  fontSize: 9, color: passed ? '#fff' : '#3a3835',
+                  letterSpacing: 1.5, fontWeight: 700, marginTop: 2,
+                }}>
+                  {passed ? '오늘 지급 완료' : '미달성'}
+                </div>
               </div>
+
+              {/* 확정 보상 */}
               <div style={{
-                fontSize: 20, fontWeight: 900,
-                color: passed ? m.color : '#3a3835',
-                textShadow: passed ? `0 0 12px ${m.color}` : 'none',
-                marginBottom: 4,
+                fontSize: 9, letterSpacing: 1.5, color: passed ? m.color : '#6a6258',
+                textTransform: 'uppercase', fontWeight: 700,
+                borderBottom: `1px solid ${passed ? m.color + '40' : '#2a2824'}`,
+                paddingBottom: 4, marginBottom: 6,
               }}>
-                {m.label.match(/\((.+)\)/)?.[1]}
+                확정 보상
               </div>
+              <ul style={{
+                listStyle: 'none', padding: 0, margin: 0, marginBottom: 10,
+                fontSize: 11, lineHeight: 1.7, color: '#c8bfa8',
+              }}>
+                {m.confirmed.map((r, i) => (
+                  <li key={i} style={{ paddingLeft: 10, position: 'relative' }}>
+                    <span style={{
+                      position: 'absolute', left: 0, top: 7, width: 4, height: 4,
+                      background: passed ? m.color : '#4a4845',
+                    }} />
+                    {r}
+                  </li>
+                ))}
+              </ul>
+
+              {/* 잭팟 보상 */}
               <div style={{
-                fontSize: 11, color: passed ? '#fff' : '#444',
-                letterSpacing: 1, fontWeight: 600,
+                fontSize: 9, letterSpacing: 1.5, color: passed ? '#ffe066' : '#6a6258',
+                textTransform: 'uppercase', fontWeight: 700,
+                borderBottom: `1px solid ${passed ? '#ffe06640' : '#2a2824'}`,
+                paddingBottom: 4, marginBottom: 6,
               }}>
-                {passed ? 'UNLOCKED' : 'LOCKED'}
+                잭팟 (확률)
               </div>
+              <ul style={{
+                listStyle: 'none', padding: 0, margin: 0,
+                fontSize: 11, lineHeight: 1.7, color: '#b5a780',
+              }}>
+                {m.jackpots.map((r, i) => (
+                  <li key={i} style={{ paddingLeft: 10, position: 'relative' }}>
+                    <span style={{
+                      position: 'absolute', left: 0, top: 6, color: passed ? '#ffe066' : '#6a6258',
+                      fontWeight: 700,
+                    }}>◆</span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
             </div>
           );
         })}
