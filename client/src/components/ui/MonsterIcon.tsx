@@ -1,6 +1,15 @@
 // Monster pixel art icons (DCSS CC0) – 이름 키워드 기반 매핑
 
 const KEYWORD_MAP: [string[], string][] = [
+  // 길드 보스 — 정확한 이름 매칭 우선
+  [['강철의 거인'], 'iron_golem'],
+  [['광속의 환영'], 'shadow'],
+  [['화염의 군주'], 'fire_giant_new'],
+  [['그림자 황제'], 'boss_dark'],
+  [['시계태엽 거인'], 'stone_giant'],
+  [['천공의 용'], 'golden_dragon'],
+  [['차원의 지배자'], 'ancient_lich'],
+  // 일반 몬스터
   [['들쥐'], 'rat'],
   [['고블린'], 'goblin'],
   [['늑대', '서리'], 'wolf'],

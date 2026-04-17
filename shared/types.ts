@@ -191,6 +191,7 @@ export interface CombatSnapshot {
     playerMaxHp: number;
     dead: boolean;
   };
+  guildBossRunId?: string; // 길드 보스 세션이면 runId 노출 (클라에서 ∞ HP 표시 / 퇴장 버튼 전환)
 }
 
 export interface CombatSkillInfo {

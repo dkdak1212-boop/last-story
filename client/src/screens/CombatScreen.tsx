@@ -233,6 +233,18 @@ export function CombatScreen() {
 
   async function leave() {
     if (!active) return;
+    // 길드 보스 세션이면 먼저 /guild-boss/exit 호출 → 세션 엔진 정리는 서버에서 endGuildBossCombatSession 담당
+    const gbRunId = (state as any)?.guildBossRunId as string | undefined;
+    if (gbRunId) {
+      try {
+        await api(`/guild-boss/exit/${gbRunId}`, { method: 'POST', body: JSON.stringify({ reason: 'exit' }) });
+      } catch (e) {
+        console.error('[guild-boss] exit fail', e);
+      }
+      await refreshActive();
+      nav('/guild-boss');
+      return;
+    }
     await api(`/characters/${active.id}/leave-field`, { method: 'POST' });
     await refreshActive();
     nav('/village');
@@ -296,7 +308,11 @@ export function CombatScreen() {
             background: 'transparent', color: 'var(--text-dim)',
             border: '1px solid var(--border)', fontWeight: 700,
           }}>방치 ON</button>
-          <button onClick={leave}>마을 귀환</button>
+          <button onClick={leave} style={(state as any).guildBossRunId ? {
+            background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700,
+          } : undefined}>
+            {(state as any).guildBossRunId ? '길드 보스 퇴장' : '마을 귀환'}
+          </button>
         </div>
       </div>
 
@@ -405,9 +421,23 @@ export function CombatScreen() {
             <>
               <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MonsterIcon name={state.monster.name} size={22} />
-                {state.monster.name} <span style={{ fontSize: 13 }}>Lv.{state.monster.level}</span>
+                {state.monster.name}
+                {(state as any).guildBossRunId
+                  ? <span style={{ fontSize: 11, color: '#daa520', marginLeft: 6 }}>[길드 보스]</span>
+                  : <span style={{ fontSize: 13 }}>Lv.{state.monster.level}</span>}
               </div>
-              <Bar cur={state.monster.hp} max={state.monster.maxHp} color="var(--danger)" label="HP" />
+              {(state as any).guildBossRunId ? (
+                <div style={{
+                  padding: '8px 12px', background: '#2a1a0a', border: '1px solid #daa520',
+                  fontSize: 14, fontWeight: 700, color: '#daa520', marginBottom: 6,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span>HP ∞</span>
+                  <span style={{ fontSize: 11, color: '#a09888' }}>데미지 누적 → 퇴장 시 상자</span>
+                </div>
+              ) : (
+                <Bar cur={state.monster.hp} max={state.monster.maxHp} color="var(--danger)" label="HP" />
+              )}
               <GaugeBar percent={monsterGaugePct} color="var(--danger)" label="게이지" />
               <EffectIcons effects={state.monster.effects} />
               {state.killStats && (

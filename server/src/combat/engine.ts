@@ -69,6 +69,7 @@ interface CombatSnapshot {
     playerMaxHp: number;
     dead: boolean;
   };
+  guildBossRunId?: string; // 길드 보스 세션이면 runId 노출 (클라에서 ∞ HP / 퇴장 버튼 전환)
 }
 import { getIo } from '../ws/io.js';
 
@@ -3234,6 +3235,7 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
     potions: s.cachedPotions,
     guildBuffs: s.cachedGuildBuffs,
     serverTime: Date.now(),
+    guildBossRunId: s.guildBossRunId ?? undefined,
   };
 }
 

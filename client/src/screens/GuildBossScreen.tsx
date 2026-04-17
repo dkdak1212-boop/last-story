@@ -96,10 +96,10 @@ export function GuildBossScreen() {
     setBusy(true);
     try {
       await api(`/guild-boss/enter/${active.id}`, { method: 'POST' });
-      await loadState();
+      // 입장 성공 → 전투 화면으로 이동 (실제 자동 전투 시작됨)
+      navigate('/combat');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
-    } finally {
       setBusy(false);
     }
   }
