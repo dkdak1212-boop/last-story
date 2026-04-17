@@ -2166,19 +2166,24 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
-  // 접두사 + 프리미엄 부스터
-  const charBoost = await query<{ gold_boost_until: string | null; drop_boost_until: string | null }>(
-    'SELECT gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [s.characterId]
+  // 접두사 + 프리미엄 부스터 + 레벨 (1 쿼리로 통합)
+  const charBoost = await query<{
+    gold_boost_until: string | null; drop_boost_until: string | null;
+    exp_boost_until: string | null; level: number;
+  }>(
+    'SELECT gold_boost_until, drop_boost_until, exp_boost_until, level FROM characters WHERE id = $1',
+    [s.characterId]
   );
+  const charBoostRow = charBoost.rows[0];
   const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
   const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
-  const goldBoostActive = charBoost.rows[0]?.gold_boost_until && new Date(charBoost.rows[0].gold_boost_until) > new Date();
-  const dropBoostActive = charBoost.rows[0]?.drop_boost_until && new Date(charBoost.rows[0].drop_boost_until) > new Date();
-  // 길드 스킬 버프
-  const guildSkills = await getGuildSkillsForCharacter(s.characterId);
-  const guildGoldBonus = guildSkills.gold * GUILD_SKILL_PCT.gold;
-  const guildExpBonus = guildSkills.exp * GUILD_SKILL_PCT.exp;
-  const guildDropBonus = guildSkills.drop * GUILD_SKILL_PCT.drop;
+  const goldBoostActive = charBoostRow?.gold_boost_until && new Date(charBoostRow.gold_boost_until) > new Date();
+  const dropBoostActive = charBoostRow?.drop_boost_until && new Date(charBoostRow.drop_boost_until) > new Date();
+  const isExpBoosted = charBoostRow?.exp_boost_until && new Date(charBoostRow.exp_boost_until) > new Date();
+  // 길드 스킬 버프: 세션 캐시 재사용 (refreshSessionMeta가 이미 GUILD_SKILL_PCT 곱한 값을 저장)
+  const guildGoldBonus = s.cachedGuildBuffs.gold;
+  const guildExpBonus = s.cachedGuildBuffs.exp;
+  const guildDropBonus = s.cachedGuildBuffs.drop;
   // 영토 점령 보너스 (점령 길드원 한정)
   // 영토 점령전 일시 비활성 — 보너스 0
   const territoryBonus = { expPct: 0, dropPct: 0 };
@@ -2187,19 +2192,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const ge = await getActiveGlobalEvent();
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
-  // 보스트 + 레벨차 페널티 — 로그·실제 동일 사용
-  const charMeta = (await query<{ exp_boost_until: string | null; level: number }>(
-    'SELECT exp_boost_until, level FROM characters WHERE id = $1', [s.characterId]
-  )).rows[0];
-  const isExpBoosted = charMeta?.exp_boost_until && new Date(charMeta.exp_boost_until) > new Date();
-  const levelDiffMult = computeLevelDiffExpMult(charMeta?.level ?? 1, m.level);
+  const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
   const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
   }
   if (levelDiffMult < 1.0) {
-    addLog(s, `⚠️ 레벨차 -${charMeta!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
+    addLog(s, `⚠️ 레벨차 -${charBoostRow!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
   }
   // 부스트/접두사 보너스 표시 — 기본값 대비 추가분
   const baseExpRaw = Math.floor(m.exp_reward * ge.exp * levelDiffMult);
@@ -2602,7 +2602,7 @@ const TICK_TARGET_MS = 100;
 async function combatTick(): Promise<void> {
   const now = Date.now();
   // 첫 실행이거나 지연이 너무 크면 1회분으로 고정 (스파이크 방지)
-  const dtMs = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(1000, now - lastTickAt);
+  const dtMs = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(5000, now - lastTickAt);
   lastTickAt = now;
   const tickScale = dtMs / TICK_TARGET_MS;
 
