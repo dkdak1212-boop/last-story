@@ -24,6 +24,15 @@ export function CombatScreen() {
   const prevMonsterHp = useRef<number>(0);
   const prevLogRef = useRef<string[] | null>(null);
 
+  // 데미지 팝업 이펙트 토글 (localStorage 저장 — 기본 ON)
+  const [fxEnabled, setFxEnabled] = useState(() => localStorage.getItem('combatFxEnabled') !== '0');
+  function toggleFx() {
+    const next = !fxEnabled;
+    setFxEnabled(next);
+    localStorage.setItem('combatFxEnabled', next ? '1' : '0');
+    if (!next) setDamagePopups([]);
+  }
+
   // BGM — 자동재생 X, 토글 ON 시 localStorage 영구 저장
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
@@ -132,7 +141,7 @@ export function CombatScreen() {
             }
           }
         }
-        if (pops.length > 0) {
+        if (pops.length > 0 && fxEnabled) {
           setDamagePopups(p => [...p, ...pops]);
           const ids = pops.map(p => p.id);
           setTimeout(() => setDamagePopups(p => p.filter(v => !ids.includes(v.id))), 1200);
@@ -694,6 +703,15 @@ export function CombatScreen() {
           onChange={e => setBgmVolume(Number(e.target.value) / 100)}
           style={{ width: 100, accentColor: 'var(--accent)' }} />
         <span style={{ fontSize: 10, color: 'var(--text-dim)', minWidth: 30 }}>{Math.round(bgmVolume * 100)}%</span>
+        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+        <button onClick={toggleFx} style={{
+          padding: '4px 10px', fontSize: 11, fontWeight: 700,
+          background: fxEnabled ? 'var(--accent)' : 'transparent',
+          color: fxEnabled ? '#000' : 'var(--accent)',
+          border: '1px solid var(--accent)', cursor: 'pointer',
+        }}>
+          데미지 팝업 {fxEnabled ? 'ON' : 'OFF'}
+        </button>
       </div>
     </div>
   );
