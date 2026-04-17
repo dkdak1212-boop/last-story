@@ -363,14 +363,15 @@ async function getCharSkills(characterId: number, className: string, level: numb
     console.error('[getCharSkills] auto-learn failed:', e);
   }
 
-  // 안전망: cd=0 기본기·자유행동(kind='buff')은 무조건 auto_use=TRUE로 강제
+  // 안전망: cd=0 기본기는 무조건 auto_use=TRUE로 강제 (기본 공격은 항상 발동)
+  // 자유행동(kind='buff')은 강제 ON 안 함 — 유저가 직접 on/off 토글 가능해야 함
   // 예외: 소환사 늑대 소환 — 유저가 on/off 토글할 수 있도록 강제하지 않음
   try {
     await query(`
       UPDATE character_skills cs SET auto_use = TRUE
       FROM skills s
       WHERE s.id = cs.skill_id AND cs.character_id = $1
-        AND (s.cooldown_actions = 0 OR s.kind = 'buff') AND cs.auto_use = FALSE
+        AND s.cooldown_actions = 0 AND cs.auto_use = FALSE
         AND NOT (s.class_name = 'summoner' AND s.name = '늑대 소환')
     `, [characterId]);
   } catch {}
