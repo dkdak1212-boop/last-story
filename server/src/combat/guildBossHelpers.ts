@@ -2,19 +2,10 @@
 import { query } from '../db/pool.js';
 
 export const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
-export const WEAKPOINT_PERIOD_SEC = 30 * 60;
-export const WEAKPOINT_WINDOW_SEC = 30;
-export const WEAKPOINT_MULT = 3;
-export const DEBUFF_HITS_PER_PERCENT = 10_000;
-export const DEBUFF_CAP_PCT = 50;
 
 export const THRESHOLD_COPPER = 100_000_000n;
 export const THRESHOLD_SILVER = 500_000_000n;
 export const THRESHOLD_GOLD = 1_000_000_000n;
-
-export const FIRST_PASS_MEDALS_COPPER = 5;
-export const FIRST_PASS_MEDALS_SILVER = 15;
-export const FIRST_PASS_MEDALS_GOLD = 30;
 
 // 단일 run이 임계값을 돌파 → 길드원 전원에게 해당 티어 상자 배포 (일일 1회 per tier)
 export const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
@@ -41,11 +32,6 @@ export interface GuildBossData {
   hp_recover_interval_sec: number;
   random_weakness: boolean;
   alternating_immune: boolean;
-}
-
-export function isWeakpointActive(): boolean {
-  const nowSec = Math.floor(Date.now() / 1000);
-  return (nowSec % WEAKPOINT_PERIOD_SEC) < WEAKPOINT_WINDOW_SEC;
 }
 
 export async function todayKst(): Promise<string> {
@@ -78,19 +64,19 @@ export interface DamageMeta {
 }
 
 /**
- * 한 덩어리 raw 데미지에 보스 메커닉을 적용해 effective 데미지를 계산하고
- * guild_boss_runs.total_damage / guild_boss_guild_daily.total_hits를 업데이트.
- * 반환: { effective, recovered, debuffPct, weakpointActive }
+ * 한 덩어리 raw 데미지에 보스 메커닉(원소 면역/약점, 도트 면역, 교대 면역, HP 회복)을 적용해
+ * effective 데미지를 계산하고 guild_boss_runs.total_damage / guild_boss_guild_daily.total_hits를 업데이트.
+ * 반환: { effective, recovered, applied }
  */
 export async function applyDamageToRun(
   runId: string,
   rawDamage: number,
   hits: number,
   meta: DamageMeta
-): Promise<{ effective: number; recovered: number; debuffPct: number; weakpointActive: boolean; applied: string[] }> {
+): Promise<{ effective: number; recovered: number; applied: string[] }> {
   const applied: string[] = [];
 
-  if (rawDamage <= 0 && hits <= 0) return { effective: 0, recovered: 0, debuffPct: 0, weakpointActive: false, applied };
+  if (rawDamage <= 0 && hits <= 0) return { effective: 0, recovered: 0, applied };
 
   const runR = await query<{
     character_id: number; guild_id: number | null; boss_id: number; ended_at: string | null;
@@ -102,19 +88,18 @@ export async function applyDamageToRun(
      FROM guild_boss_runs WHERE id = $1`, [runId]
   );
   if (!runR.rowCount || runR.rows[0].ended_at) {
-    return { effective: 0, recovered: 0, debuffPct: 0, weakpointActive: false, applied };
+    return { effective: 0, recovered: 0, applied };
   }
   const run = runR.rows[0];
 
   const boss = await getBossById(run.boss_id);
-  if (!boss) return { effective: 0, recovered: 0, debuffPct: 0, weakpointActive: false, applied };
+  if (!boss) return { effective: 0, recovered: 0, applied };
 
   const damageType = meta.damageType === 'magical' ? 'magical' : 'physical';
   const element = typeof meta.element === 'string' ? meta.element : null;
   const isDot = !!meta.isDot;
 
   let effective = rawDamage;
-  const weakpointActive = isWeakpointActive();
 
   // 1) 도트 면역
   if (boss.dot_immune && isDot) { effective = 0; applied.push('도트 면역 (0)'); }
@@ -132,39 +117,17 @@ export async function applyDamageToRun(
     }
   }
 
-  // 3) 차원 지배자 — ATK/MATK 교대 면역 (약점시간대 예외)
-  if (effective > 0 && boss.alternating_immune && !weakpointActive) {
+  // 3) 차원 지배자 — ATK/MATK 교대 면역 (상시)
+  if (effective > 0 && boss.alternating_immune) {
     const phase = Math.floor(Date.now() / 1000 / 30) % 2;
     if ((phase === 0 && damageType === 'physical') || (phase === 1 && damageType === 'magical')) {
       effective = 0; applied.push(`${damageType === 'physical' ? 'ATK' : 'MATK'} 면역 페이즈 (0)`);
     }
   }
 
-  // 4) 누적 디버프
-  let debuffPct = 0;
-  if (effective > 0 && run.guild_id) {
-    const today = await todayKst();
-    const hitR = await query<{ total_hits: string }>(
-      'SELECT total_hits::text FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
-      [run.guild_id, today]
-    );
-    const totalHits = hitR.rows[0] ? Number(hitR.rows[0].total_hits) : 0;
-    debuffPct = Math.min(DEBUFF_CAP_PCT, Math.floor(totalHits / DEBUFF_HITS_PER_PERCENT));
-    if (debuffPct > 0) {
-      effective = effective * (1 + debuffPct / 100);
-      applied.push(`누적 디버프 +${debuffPct}%`);
-    }
-  }
-
-  // 5) 약점 시간대 ×3
-  if (effective > 0 && weakpointActive) {
-    effective = effective * WEAKPOINT_MULT;
-    applied.push(`약점 시간대 ×${WEAKPOINT_MULT}`);
-  }
-
-  // 6) 시계태엽 거인 HP 회복 (lazy)
+  // 4) 시계태엽 거인 HP 회복 (lazy, 상시)
   let recovered = 0;
-  if (boss.hp_recover_pct > 0 && boss.hp_recover_interval_sec > 0 && !weakpointActive) {
+  if (boss.hp_recover_pct > 0 && boss.hp_recover_interval_sec > 0) {
     const lastRecAt = run.last_recover_at ? new Date(run.last_recover_at).getTime() : new Date(run.started_at).getTime();
     const intervals = Math.floor((Date.now() - lastRecAt) / 1000 / boss.hp_recover_interval_sec);
     if (intervals > 0) {
@@ -192,6 +155,7 @@ export async function applyDamageToRun(
     );
   }
 
+  // total_hits 컬럼은 유지 (통계/랭킹용) — 누적 디버프 증폭 로직만 제거됨.
   if (hits > 0 && run.guild_id) {
     const today = await todayKst();
     await query(
@@ -202,7 +166,7 @@ export async function applyDamageToRun(
     );
   }
 
-  return { effective: finalEffective, recovered, debuffPct, weakpointActive, applied };
+  return { effective: finalEffective, recovered, applied };
 }
 
 /**

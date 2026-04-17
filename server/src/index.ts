@@ -47,6 +47,7 @@ import { checkAndSpawnWorldEvent, checkExpiredWorldEvents } from './game/worldEv
 import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import guildBossRoutes from './routes/guildBoss.js';
+import guildBossShopRoutes from './routes/guildBossShop.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import { query } from './db/pool.js';
@@ -146,6 +147,7 @@ app.use('/api/craft', craftRoutes);
 app.use('/api/characters', nodeRoutes);
 app.use('/api/characters', dailyQuestRoutes);
 app.use('/api/guild-boss', guildBossRoutes);
+app.use('/api/guild-boss-shop', guildBossShopRoutes);
 app.use('/api/characters', achievementRoutes);
 
 // 프로덕션: 빌드된 클라이언트 정적 파일 서빙
@@ -1702,6 +1704,98 @@ async function runEquipOverhaul() {
       console.error('[migration] skill_coef_buff_v1 error:', e);
     }
   }
+
+  // 길드 보스 v2: 주간 결산 + 메달 상점 (034_guild_boss_v2.sql 대응)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'guild_boss_v2'`);
+      if (!applied.rowCount) {
+        console.log('[late] guild_boss_v2: 주간 결산 + 메달 상점 테이블/시드...');
+
+        // 임시 호칭 (왕좌 오버레이)
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS transient_title TEXT`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS transient_title_expires_at TIMESTAMPTZ`);
+
+        // 주간 결산 기록
+        await query(`
+          CREATE TABLE IF NOT EXISTS guild_boss_weekly_settlements (
+            id SERIAL PRIMARY KEY,
+            week_ending DATE NOT NULL UNIQUE,
+            rankings JSONB NOT NULL,
+            settled_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+
+        // 상점 상품
+        await query(`
+          CREATE TABLE IF NOT EXISTS guild_boss_shop_items (
+            id SERIAL PRIMARY KEY,
+            section VARCHAR(20) NOT NULL,
+            name VARCHAR(80) NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            price INT NOT NULL,
+            limit_scope VARCHAR(20),
+            limit_count INT NOT NULL DEFAULT 0,
+            reward_type VARCHAR(30) NOT NULL,
+            reward_payload JSONB NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            leader_only BOOLEAN NOT NULL DEFAULT FALSE,
+            active BOOLEAN NOT NULL DEFAULT TRUE
+          )
+        `);
+
+        // 구매 이력
+        await query(`
+          CREATE TABLE IF NOT EXISTS guild_boss_shop_purchases (
+            id BIGSERIAL PRIMARY KEY,
+            character_id INT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+            shop_item_id INT NOT NULL REFERENCES guild_boss_shop_items(id),
+            scope_key VARCHAR(40) NOT NULL,
+            purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`
+          CREATE INDEX IF NOT EXISTS idx_gbshop_purch_char_item_scope
+            ON guild_boss_shop_purchases(character_id, shop_item_id, scope_key)
+        `);
+        await query(`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_gbshop_items_section_name
+            ON guild_boss_shop_items(section, name)
+        `);
+
+        // 시드
+        const seed: { section: string; name: string; desc: string; price: number; scope: string | null; count: number; type: string; payload: any; order: number; leader: boolean }[] = [
+          // 대형
+          { section: 'large', name: '유니크 무작위 추첨권', desc: '캐릭 레벨 ±10 풀에서 무작위 유니크 1개 추첨', price: 8000, scope: 'weekly', count: 1, type: 'item', payload: { itemId: 477, qty: 1 }, order: 10, leader: false },
+          { section: 'large', name: '창고 슬롯 영구 +3', desc: '계정 창고 슬롯 영구 +3 (계정 전역)', price: 10000, scope: 'account_total', count: 5, type: 'storage_slot', payload: { amount: 3 }, order: 20, leader: false },
+          { section: 'large', name: '길드영웅 호칭 영구 부여', desc: '영구 호칭 "길드영웅" 획득', price: 7000, scope: 'account_total', count: 1, type: 'title_permanent', payload: { title: '길드영웅' }, order: 30, leader: false },
+          // 중형
+          { section: 'medium', name: '접두사 수치 재굴림권', desc: '장비 접두사 수치 재굴림 1회권', price: 1200, scope: 'weekly', count: 3, type: 'item', payload: { itemId: 322, qty: 1 }, order: 10, leader: false },
+          { section: 'medium', name: '강화 성공 스크롤', desc: '강화 100% 성공 스크롤 1회권', price: 800, scope: 'weekly', count: 5, type: 'item', payload: { itemId: 286, qty: 1 }, order: 20, leader: false },
+          { section: 'medium', name: '부스터 6시간 패키지', desc: 'EXP/골드/드랍/공격력/HP 5종 +50% 6시간 동시 부스트', price: 3000, scope: 'weekly', count: 5, type: 'boosters_package', payload: { durationMin: 360 }, order: 30, leader: false },
+          // 소형
+          { section: 'small', name: '골드 묶음 (100만)', desc: '즉시 골드 +1,000,000', price: 100, scope: 'daily', count: 3, type: 'gold', payload: { amount: 1000000 }, order: 10, leader: false },
+          { section: 'small', name: '고급 HP 포션 10개', desc: '고급 HP 포션 10개 즉시 지급', price: 50, scope: 'daily', count: 5, type: 'item', payload: { itemId: 104, qty: 10 }, order: 20, leader: false },
+          { section: 'small', name: 'EXP 두루마리 (현 레벨 1%)', desc: '현재 레벨 요구 경험치의 1% 즉시 지급', price: 200, scope: 'daily', count: 2, type: 'exp_pct_of_level', payload: { pct: 1 }, order: 30, leader: false },
+          // 길드 단위
+          { section: 'guild', name: '길드 명성 +1,000', desc: '소속 길드 경험치 +1,000 즉시 지급 (길드 레벨업 가속)', price: 2000, scope: 'weekly', count: 2, type: 'guild_exp', payload: { amount: 1000 }, order: 10, leader: true },
+        ];
+        for (const s of seed) {
+          await query(
+            `INSERT INTO guild_boss_shop_items (section, name, description, price, limit_scope, limit_count, reward_type, reward_payload, sort_order, leader_only)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+             ON CONFLICT (section, name) DO NOTHING`,
+            [s.section, s.name, s.desc, s.price, s.scope, s.count, s.type, JSON.stringify(s.payload), s.order, s.leader]
+          );
+        }
+
+        await query(`INSERT INTO _migrations (name) VALUES ('guild_boss_v2')`);
+        console.log('[late] guild_boss_v2: 완료');
+      }
+    } catch (e) {
+      console.error('[late] guild_boss_v2 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
@@ -1722,4 +1816,19 @@ setInterval(async () => {
     await settleTerritoriesIfNeeded();
   } catch (e) { console.error('[territory] settle error', e); }
 }, 60_000);
+
+// 길드 보스 주간 결산 (1분마다 체크 — 일요일 22시 KST 1회 실행)
+// + 만료된 왕좌 호칭 정리 (5분마다)
+setInterval(async () => {
+  try {
+    const { settleGuildBossWeeklyIfNeeded } = await import('./game/guildBossSettle.js');
+    await settleGuildBossWeeklyIfNeeded();
+  } catch (e) { console.error('[guild-boss-settle] error', e); }
+}, 60_000);
+setInterval(async () => {
+  try {
+    const { cleanExpiredTransientTitles } = await import('./game/guildBossSettle.js');
+    await cleanExpiredTransientTitles();
+  } catch (e) { console.error('[transient-title-clean] error', e); }
+}, 5 * 60_000);
 // cache-bust 1775586457

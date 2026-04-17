@@ -38,17 +38,6 @@ const THRESHOLD_COPPER = 100_000_000;      // 1억
 const THRESHOLD_SILVER = 500_000_000;      // 5억
 const THRESHOLD_GOLD = 1_000_000_000;      // 10억
 
-// 첫 통과 메달 보너스
-const FIRST_PASS_MEDALS_COPPER = 5;
-const FIRST_PASS_MEDALS_SILVER = 15;
-const FIRST_PASS_MEDALS_GOLD = 30;
-
-// 보스 메커닉 상수
-const WEAKPOINT_PERIOD_SEC = 30 * 60;       // 30분 주기
-const WEAKPOINT_WINDOW_SEC = 30;            // 30초간 활성
-const WEAKPOINT_MULT = 3;                   // 약점 시간대 ×3
-const DEBUFF_HITS_PER_PERCENT = 10_000;     // 1만 타격당 보스 방어 -1%
-const DEBUFF_CAP_PCT = 50;                  // 캡 -50%
 const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
 // 단일 run이 임계값을 넘으면 길드원 전원에게 해당 티어 상자 배포 (일일 1회/티어)
@@ -330,9 +319,8 @@ router.patch('/damage/:runId', async (req: AuthedRequest, res: Response) => {
     }
   }
 
-  // 3) 차원의 지배자 — ATK/MATK 교대 면역 (30초 주기, 약점 시간대는 예외)
-  const weakpointActive = isWeakpointActive();
-  if (effective > 0 && boss.alternating_immune && !weakpointActive) {
+  // 3) 차원의 지배자 — ATK/MATK 교대 면역 (30초 주기, 상시)
+  if (effective > 0 && boss.alternating_immune) {
     const phase = Math.floor(Date.now() / 1000 / 30) % 2; // 0: ATK 면역, 1: MATK 면역
     if ((phase === 0 && damageType === 'physical') || (phase === 1 && damageType === 'magical')) {
       effective = 0;
@@ -340,31 +328,9 @@ router.patch('/damage/:runId', async (req: AuthedRequest, res: Response) => {
     }
   }
 
-  // 4) 누적 디버프 (길드 일일 total_hits 기준)
-  let debuffPct = 0;
-  if (effective > 0 && run.guild_id) {
-    const today = await todayKst();
-    const hitR = await query<{ total_hits: string }>(
-      'SELECT total_hits::text FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
-      [run.guild_id, today]
-    );
-    const totalHits = hitR.rows[0] ? Number(hitR.rows[0].total_hits) : 0;
-    debuffPct = Math.min(DEBUFF_CAP_PCT, Math.floor(totalHits / DEBUFF_HITS_PER_PERCENT));
-    if (debuffPct > 0) {
-      effective = effective * (1 + debuffPct / 100);
-      applied.push(`누적 디버프 +${debuffPct}%`);
-    }
-  }
-
-  // 5) 약점 시간대 ×3
-  if (effective > 0 && weakpointActive) {
-    effective = effective * WEAKPOINT_MULT;
-    applied.push(`약점 시간대 ×${WEAKPOINT_MULT}`);
-  }
-
-  // 6) 시계태엽 거인 — HP 회복 lazy 적용 (지난 patch 이후 경과 시간)
+  // 4) 시계태엽 거인 — HP 회복 lazy 적용 (상시)
   let recovered = 0;
-  if (boss.hp_recover_pct > 0 && boss.hp_recover_interval_sec > 0 && !weakpointActive) {
+  if (boss.hp_recover_pct > 0 && boss.hp_recover_interval_sec > 0) {
     const lastRecAt = run.last_recover_at ? new Date(run.last_recover_at).getTime() : new Date(run.started_at).getTime();
     const now = Date.now();
     const intervals = Math.floor((now - lastRecAt) / 1000 / boss.hp_recover_interval_sec);
@@ -393,7 +359,7 @@ router.patch('/damage/:runId', async (req: AuthedRequest, res: Response) => {
     );
   }
 
-  // 길드 누적 타격 수 증가 (디버프 계산용)
+  // 길드 누적 타격 수 — total_hits 컬럼은 유지 (통계/랭킹용)
   if (hits > 0 && run.guild_id) {
     const today = await todayKst();
     await query(
@@ -408,20 +374,9 @@ router.patch('/damage/:runId', async (req: AuthedRequest, res: Response) => {
     ok: true,
     effective: finalEffective,
     recovered,
-    debuffPct,
-    weakpointActive,
     applied,
   });
 });
-
-// ============================================================
-// 약점 시간대 판정 (절대 시각 기준 — 매 30분마다 30초간 활성)
-// ============================================================
-function isWeakpointActive(): boolean {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const intoCycle = nowSec % WEAKPOINT_PERIOD_SEC;
-  return intoCycle < WEAKPOINT_WINDOW_SEC;
-}
 
 // ============================================================
 // POST /guild-boss/exit/:runId — 퇴장 (상자 지급)
@@ -529,24 +484,11 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     chestReward = await grantChest(run.character_id, rewardTier);
   }
 
-  // 첫 통과 메달 보너스 (본인 기준 — 이 run에서 통과한 티어 모두)
-  let firstPassBonus = 0;
-  if (thresholdsPassed & 1) firstPassBonus += FIRST_PASS_MEDALS_COPPER;
-  if (thresholdsPassed & 2) firstPassBonus += FIRST_PASS_MEDALS_SILVER;
-  if (thresholdsPassed & 4) firstPassBonus += FIRST_PASS_MEDALS_GOLD;
-  if (firstPassBonus > 0) {
-    await query(
-      'UPDATE characters SET guild_boss_medals = guild_boss_medals + $1 WHERE id = $2',
-      [firstPassBonus, run.character_id]
-    );
-  }
-
   res.json({
     ok: true,
     totalDamage: run.total_damage,
     rewardTier,
     thresholdsPassed,
-    firstPassBonus,
     chestReward,
     guildTiersGranted,
     reason,

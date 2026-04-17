@@ -47,7 +47,6 @@ interface ExitResult {
   totalDamage: string;
   rewardTier: 'gold' | 'silver' | 'copper' | null;
   thresholdsPassed: number;
-  firstPassBonus: number;
   chestReward: {
     gold: number;
     medals: number;
@@ -227,7 +226,10 @@ export function GuildBossScreen() {
           }}>GUILD BOSS</span>
           <span style={{ fontSize: 10, color: '#6a6258' }}>길드 전용 레이드</span>
         </div>
-        <button onClick={() => navigate('/guild')} style={navButtonStyle()}>← 길드로</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => navigate('/guild-boss-shop')} style={{ ...navButtonStyle(), borderColor: '#daa520', color: '#daa520' }}>메달 상점</button>
+          <button onClick={() => navigate('/guild')} style={navButtonStyle()}>← 길드로</button>
+        </div>
       </div>
 
       {/* 히어로 배너 — 오늘의 보스 */}
@@ -557,7 +559,6 @@ export function GuildBossScreen() {
               입장 종료 — {exitResult.rewardTier ? tierLabel(exitResult.rewardTier) : '보상 없음'}
             </div>
             <div style={{ marginBottom: 8 }}>입힌 총 데미지: {fmt(exitResult.totalDamage)}</div>
-            <div style={{ marginBottom: 8 }}>첫 통과 보너스 메달: +{exitResult.firstPassBonus}</div>
             {exitResult.chestReward && (
               <div style={{ marginBottom: 8, padding: 12, background: '#0e0c0a', border: '1px solid #333' }}>
                 <div>골드 +{exitResult.chestReward.gold.toLocaleString()}</div>
