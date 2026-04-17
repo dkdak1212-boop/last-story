@@ -188,6 +188,7 @@ interface ActiveSession {
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
   guildBossDmgBuffer: number; // flush 전 누적 raw 데미지
   guildBossHitsBuffer: number; // flush 전 누적 타격 수
+  guildBossStartedAt: number; // 광분 타이머 기준 (unix ms, 0이면 미사용)
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
@@ -1957,15 +1958,24 @@ function monsterAction(s: ActiveSession): void {
   let bossPattern: 'fury' | 'heavy' | 'normal' = 'normal';
   let skillMultForAttack = 1.0;
   let bossAttackName: string | null = null;
+  let enrageMult = 1;
   if (s.guildBossRunId) {
+    // 광분 타이머: 1분 경과마다 데미지 ×2 (누적)
+    if (s.guildBossStartedAt > 0) {
+      const elapsedMin = Math.floor((Date.now() - s.guildBossStartedAt) / 60000);
+      if (elapsedMin > 0) {
+        enrageMult = Math.pow(2, elapsedMin);
+        skillMultForAttack *= enrageMult;
+      }
+    }
     const roll = Math.random();
     if (roll < 0.08) {
       bossPattern = 'fury';   // 8% 확률 — 광폭 (×4)
-      skillMultForAttack = 4.0;
+      skillMultForAttack *= 4.0;
       bossAttackName = '광폭 일격';
     } else if (roll < 0.28) {
       bossPattern = 'heavy';  // 20% 확률 — 강타 (×2)
-      skillMultForAttack = 2.0;
+      skillMultForAttack *= 2.0;
       bossAttackName = '강타';
     }
   }
@@ -1985,7 +1995,9 @@ function monsterAction(s: ActiveSession): void {
   } else {
     let dmg = d.damage;
     if (bossPattern !== 'normal' && bossAttackName) {
-      addLog(s, `[${s.monsterName}] ${bossAttackName}! (×${skillMultForAttack.toFixed(1)})`);
+      addLog(s, `[${s.monsterName}] ${bossAttackName}!${enrageMult > 1 ? ` 광분×${enrageMult}` : ''} (×${skillMultForAttack.toFixed(1)})`);
+    } else if (enrageMult > 1) {
+      addLog(s, `[${s.monsterName}] 광분×${enrageMult}`);
     }
 
     // 무적 체크
@@ -3077,6 +3089,7 @@ export async function startCombatSession(
     guildBossBoss: guildBossOpts?.guildBossBoss ?? null,
     guildBossDmgBuffer: 0,
     guildBossHitsBuffer: 0,
+    guildBossStartedAt: guildBossOpts ? Date.now() : 0,
   };
 
   // 패시브: counter_incarnation (상시 반사)
