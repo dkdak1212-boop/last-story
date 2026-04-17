@@ -3049,7 +3049,7 @@ export async function startCombatSession(
   };
 
   // 패시브: counter_incarnation (상시 반사)
-  const counterInc = pMap.get('counter_incarnation') || 0;
+  const counterInc = passives.get('counter_incarnation') || 0;
   if (counterInc > 0) {
     session.statusEffects.push({ id: 'counter_inc', type: 'damage_reflect', value: counterInc, remainingActions: 99999, source: 'monster' });
   }
