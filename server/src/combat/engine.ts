@@ -2971,9 +2971,9 @@ export async function startCombatSession(
   const passives = buildPassiveMap(passivesRaw);
   const equipPrefixes = await loadEquipPrefixes(characterId);
 
-  // 키스톤 패시브 + atk_pct/matk_pct/max_hp_pct 접두사 적용은 getEffectiveStats에서 이미 처리됨.
-  // 과거 여기에서 중복 적용하여 전투 시작 직후 스탯이 이중 버프되었고, 장비 조작 시
-  // refreshSessionStats가 단일 적용으로 되돌리면서 데미지가 드랍되던 이슈를 수정.
+  // 전투 시작 시 키스톤/접두사 보너스 추가 적용 (getEffectiveStats와 합쳐 이중 적용)
+  // 기존 라이브 밸런스를 유지하기 위해 보존 — refreshSessionStats에서도 동일하게 적용.
+  applyCombatStatBoost(eff, passives, equipPrefixes, char.max_hp);
 
   const session: ActiveSession = {
     characterId,
@@ -3297,6 +3297,41 @@ export function getKillStats(characterId: number): {
   };
 }
 
+// 키스톤 패시브 + atk_pct/matk_pct 접두사 2차 적용
+// getEffectiveStats가 이미 한 번 적용한 위에 한 번 더 곱하여 기존 라이브 밸런스를 유지
+// (startCombatSession과 refreshSessionStats 양쪽이 동일한 값을 내도록 강제)
+function applyCombatStatBoost(
+  eff: import('../game/formulas.js').EffectiveStats,
+  passives: Map<string, number>,
+  equipPrefixes: Record<string, number>,
+  charMaxHp: number,
+): void {
+  const pMap = passives;
+  if (pMap.has('war_god')) eff.atk = Math.round(eff.atk * (1 + pMap.get('war_god')! / 100));
+  if (pMap.has('shadow_dance')) eff.dodge += pMap.get('shadow_dance')!;
+  if (pMap.has('trickster')) eff.cri += pMap.get('trickster')!;
+  if (pMap.has('iron_will')) eff.def = Math.round(eff.def * (1 + pMap.get('iron_will')! / 100));
+  const matkBonus = pMap.get('mana_overload') || 0;
+  if (matkBonus > 0) eff.matk = Math.round(eff.matk * (1 + matkBonus / 100));
+  if (pMap.has('focus_mastery')) eff.accuracy += pMap.get('focus_mastery')!;
+  if (pMap.has('berserker_heart')) {
+    const v = pMap.get('berserker_heart')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 - v / 200));
+  }
+  if (pMap.has('sanctuary_guard')) {
+    eff.maxHp += Math.round(charMaxHp * pMap.get('sanctuary_guard')! / 100);
+  }
+  if (pMap.has('balance_apostle')) {
+    const v = pMap.get('balance_apostle')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.matk = Math.round(eff.matk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 + v / 100));
+  }
+  if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
+  if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
+}
+
 // 장비/노드 변경 시 인메모리 세션 스탯 갱신
 export async function refreshSessionStats(characterId: number): Promise<void> {
   const s = activeSessions.get(characterId);
@@ -3304,11 +3339,13 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   const char = await loadCharacter(characterId);
   if (!char) return;
   const eff = await getEffectiveStats(char);
+  s.equipPrefixes = await loadEquipPrefixes(characterId);
+  s.passives = buildPassiveMap(await getNodePassives(characterId)); // 노드 패시브 재로드
+  // 전투 시작 시와 동일한 2차 버프를 적용하여 인벤 조작 후 데미지 드랍 방지
+  applyCombatStatBoost(eff, s.passives, s.equipPrefixes, char.max_hp);
   s.playerStats = eff;
   s.playerMaxHp = eff.maxHp;
   s.playerSpeed = eff.spd;
-  s.equipPrefixes = await loadEquipPrefixes(characterId);
-  s.passives = buildPassiveMap(await getNodePassives(characterId)); // 노드 패시브 재로드
   // 활성 도트 데미지 재계산 (장비/스탯 변경 즉시 반영)
   for (const eff of s.statusEffects) {
     if ((eff.type === 'dot' || eff.type === 'poison') && eff.source === 'player' && eff.dotMult !== undefined) {
