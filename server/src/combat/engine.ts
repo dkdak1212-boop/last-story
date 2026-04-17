@@ -2751,8 +2751,9 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
     const r = await query<{
       level: number; exp: string;
       exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null;
+      atk_boost_until: string | null; hp_boost_until: string | null;
     }>(
-      `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until
+      `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until, atk_boost_until, hp_boost_until
        FROM characters WHERE id = $1`,
       [s.characterId]
     );
@@ -2768,6 +2769,10 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         boosts.push({ name: '골드 +50%', until: row.gold_boost_until });
       if (row.drop_boost_until && new Date(row.drop_boost_until) > now)
         boosts.push({ name: '드롭률 +50%', until: row.drop_boost_until });
+      if (row.atk_boost_until && new Date(row.atk_boost_until) > now)
+        boosts.push({ name: '공격력 +50%', until: row.atk_boost_until });
+      if (row.hp_boost_until && new Date(row.hp_boost_until) > now)
+        boosts.push({ name: '최대 HP +50%', until: row.hp_boost_until });
       s.cachedBoosts = boosts;
     }
   } catch {}

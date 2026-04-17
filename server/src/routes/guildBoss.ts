@@ -632,7 +632,6 @@ async function grantChest(characterId: number, tier: 'gold' | 'silver' | 'copper
 }
 
 async function grantBoosters(characterId: number, minutes: number, singleOnly = false) {
-  // Phase 1 — 기존 exp/gold/drop boost 연장 (공격력/HP 부스터는 시스템 추가 전까지 skip)
   const interval = `INTERVAL '${minutes} minutes'`;
   if (singleOnly) {
     // 구리 상자 — 택1 (exp로 통일, 향후 선택 UI 추가)
@@ -643,11 +642,14 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
       [characterId]
     );
   } else {
+    // 5종 패키지 — EXP / 골드 / 드랍 / 공격력 / HP 각 1시간 연장
     await query(
       `UPDATE characters SET
          exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval},
          gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + ${interval},
-         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval}
+         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval},
+         atk_boost_until  = GREATEST(COALESCE(atk_boost_until, NOW()), NOW()) + ${interval},
+         hp_boost_until   = GREATEST(COALESCE(hp_boost_until, NOW()), NOW()) + ${interval}
        WHERE id = $1`,
       [characterId]
     );

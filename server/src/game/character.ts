@@ -196,6 +196,19 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     eff.atk = Math.round(eff.atk * (1 + eff.str * 0.0025));
   }
 
+  // 길드 보스 부스터 — 공격력 / HP (각 +50%, 1시간 단위로 연장됨)
+  const boostR = await query<{ atk_boost_until: string | null; hp_boost_until: string | null }>(
+    'SELECT atk_boost_until, hp_boost_until FROM characters WHERE id = $1', [char.id]
+  );
+  const bNow = new Date();
+  if (boostR.rows[0]?.atk_boost_until && new Date(boostR.rows[0].atk_boost_until) > bNow) {
+    eff.atk = Math.round(eff.atk * 1.5);
+    eff.matk = Math.round(eff.matk * 1.5);
+  }
+  if (boostR.rows[0]?.hp_boost_until && new Date(boostR.rows[0].hp_boost_until) > bNow) {
+    eff.maxHp = Math.round(eff.maxHp * 1.5);
+  }
+
   // 길드 stat_buff_pct: 모든 전투 능력치 % 증가 (atk/matk/def/mdef)
   const gbr = await query<{ stat_buff_pct: number }>(
     `SELECT g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
