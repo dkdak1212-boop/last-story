@@ -55,7 +55,7 @@ interface ExitResult {
     items: { itemId: number; qty: number; name: string }[];
     jackpots: string[];
   } | null;
-  globalChestsGranted: string[];
+  guildTiersGranted: ('copper' | 'silver' | 'gold')[];
   reason: string;
 }
 
@@ -68,11 +68,10 @@ const THRESHOLD_COPPER = 100_000_000n;
 const THRESHOLD_SILVER = 500_000_000n;
 const THRESHOLD_GOLD = 1_000_000_000n;
 
-const GLOBAL_MILESTONES_BN = [
-  { label: '100억', dmg: 10_000_000_000n, bit: 1 },
-  { label: '500억', dmg: 50_000_000_000n, bit: 2 },
-  { label: '1,000억', dmg: 100_000_000_000n, bit: 4 },
-  { label: '5,000억', dmg: 500_000_000_000n, bit: 8 },
+const GUILD_TIER_MILESTONES_BN = [
+  { label: '구리 (1억)',    dmg: 100_000_000n,   bit: 1, color: '#c97e3a' },
+  { label: '은빛 (5억)',    dmg: 500_000_000n,   bit: 2, color: '#c0c0c0' },
+  { label: '황금 (10억)',   dmg: 1_000_000_000n, bit: 4, color: '#ffd700' },
 ];
 
 function fmt(v: string | number): string {
@@ -196,25 +195,34 @@ export function GuildBossScreen() {
         <StatCard label="활성 입장" value={activeRun ? '진행 중' : '없음'} />
       </div>
 
-      {/* 길드 누적 진행률 */}
+      {/* 오늘 길드에 지급된 티어 상자 (1인이 임계값 넘으면 전원 지급) */}
       <div style={{ border: '1px solid #444', padding: 12, marginBottom: 20, background: '#0e0c0a' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>길드 일일 누적 데미지: {fmt(guildDmg.toString())}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {GLOBAL_MILESTONES_BN.map((m) => {
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+          오늘 길드 공용 상자 <span style={{ fontSize: 11, color: '#9a9180', fontWeight: 400 }}>(한 명이 임계값 달성 시 길드 전원 수령)</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {GUILD_TIER_MILESTONES_BN.map((m) => {
             const passed = (state.guildDaily.global_chest_milestones & m.bit) !== 0;
-            const progress = Number(guildDmg * 100n / m.dmg);
-            const clamped = Math.min(100, Math.max(0, progress));
             return (
-              <div key={m.bit} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, width: 80, color: passed ? '#66dd66' : '#9a9180' }}>
-                  {m.label} {passed && '✓'}
-                </span>
-                <div style={{ flex: 1, height: 6, background: '#222', border: '1px solid #333' }}>
-                  <div style={{ width: `${clamped}%`, height: '100%', background: passed ? '#66dd66' : '#daa520' }} />
+              <div key={m.bit} style={{
+                flex: 1, minWidth: 120,
+                padding: 10,
+                border: `1px solid ${passed ? m.color : '#333'}`,
+                background: passed ? `${m.color}22` : 'transparent',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 12, color: passed ? m.color : '#777', fontWeight: 700 }}>
+                  {m.label}
+                </div>
+                <div style={{ fontSize: 11, color: passed ? '#fff' : '#555', marginTop: 2 }}>
+                  {passed ? '지급 완료' : '미달성'}
                 </div>
               </div>
             );
           })}
+        </div>
+        <div style={{ fontSize: 11, color: '#9a9180', marginTop: 8 }}>
+          길드 일일 누적 데미지 (랭킹용): {fmt(guildDmg.toString())}
         </div>
       </div>
 
@@ -320,9 +328,9 @@ export function GuildBossScreen() {
                 )}
               </div>
             )}
-            {exitResult.globalChestsGranted.length > 0 && (
+            {exitResult.guildTiersGranted.length > 0 && (
               <div style={{ color: '#66dd66', marginBottom: 8 }}>
-                길드 글로벌 상자 달성: {exitResult.globalChestsGranted.join(', ')}
+                길드 전원 지급 티어: {exitResult.guildTiersGranted.map(tierLabel).join(', ')}
               </div>
             )}
             <button onClick={() => setExitResult(null)} style={{ ...navButtonStyle(true), marginTop: 12, width: '100%' }}>

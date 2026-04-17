@@ -36,12 +36,11 @@ const DEBUFF_HITS_PER_PERCENT = 10_000;     // 1만 타격당 보스 방어 -1%
 const DEBUFF_CAP_PCT = 50;                  // 캡 -50%
 const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
-// 글로벌 누적 임계값 (단위: 실제 데미지)
-const GLOBAL_MILESTONES = [
-  { bit: 1, damage: 10_000_000_000n,   kind: 'mini',   subject: '길드 보스 글로벌 — 미니 상자' },       // 100억
-  { bit: 2, damage: 50_000_000_000n,   kind: 'medium', subject: '길드 보스 글로벌 — 미디엄 상자' },     // 500억
-  { bit: 4, damage: 100_000_000_000n,  kind: 'mega',   subject: '길드 보스 글로벌 — 메가 상자' },       // 1,000억
-  { bit: 8, damage: 500_000_000_000n,  kind: 'buff',   subject: '길드 보스 글로벌 — 24시간 버프' },    // 5,000억
+// 단일 run이 임계값을 넘으면 길드원 전원에게 해당 티어 상자 배포 (일일 1회/티어)
+const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
+  { bit: 1, damage: 100_000_000n,   tier: 'copper', subject: '길드 보스 — 구리 상자 (길드원 보상)' },
+  { bit: 2, damage: 500_000_000n,   tier: 'silver', subject: '길드 보스 — 은빛 상자 (길드원 보상)' },
+  { bit: 4, damage: 1_000_000_000n, tier: 'gold',   subject: '길드 보스 — 황금빛 상자 (길드원 보상)' },
 ];
 
 // 오늘 날짜 (KST)
@@ -460,24 +459,24 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     [totalDamageNum, run.character_id, today]
   );
 
-  let globalChestsGranted: string[] = [];
+  let guildTiersGranted: ('copper' | 'silver' | 'gold')[] = [];
   if (run.guild_id) {
-    // 길드 누적 업데이트 + 글로벌 상자 마일스톤 체크
+    // 길드 일일 누적은 랭킹 표시용으로만 유지
     await query(
       `INSERT INTO guild_boss_guild_daily (guild_id, date, total_damage)
        VALUES ($1, $2, $3)
        ON CONFLICT (guild_id, date) DO UPDATE SET total_damage = guild_boss_guild_daily.total_damage + EXCLUDED.total_damage`,
       [run.guild_id, today, totalDamageNum]
     );
-    const gd = await query<{ total_damage: string; global_chest_milestones: number }>(
-      'SELECT total_damage::text, global_chest_milestones FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
+    // 이 run의 데미지가 임계값을 넘으면 길드원 전원에게 해당 티어 상자 배포 (일일 1회/티어)
+    const gd = await query<{ global_chest_milestones: number }>(
+      'SELECT global_chest_milestones FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
       [run.guild_id, today]
     );
-    const cur = BigInt(gd.rows[0].total_damage);
-    let milestones = gd.rows[0].global_chest_milestones;
-    const newlyPassed: typeof GLOBAL_MILESTONES = [];
-    for (const m of GLOBAL_MILESTONES) {
-      if ((milestones & m.bit) === 0 && cur >= m.damage) {
+    let milestones = gd.rows[0]?.global_chest_milestones ?? 0;
+    const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
+    for (const m of GUILD_TIER_MILESTONES) {
+      if ((milestones & m.bit) === 0 && totalDamage >= m.damage) {
         milestones |= m.bit;
         newlyPassed.push(m);
       }
@@ -487,15 +486,20 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
         'UPDATE guild_boss_guild_daily SET global_chest_milestones = $1 WHERE guild_id = $2 AND date = $3',
         [milestones, run.guild_id, today]
       );
-      // 전 길드원에게 우편 지급
       const members = await query<{ character_id: number }>(
         'SELECT character_id FROM guild_members WHERE guild_id = $1',
         [run.guild_id]
       );
       for (const m of newlyPassed) {
-        globalChestsGranted.push(m.kind);
+        guildTiersGranted.push(m.tier);
         for (const mb of members.rows) {
-          await grantGlobalChest(mb.character_id, m.kind, m.subject).catch((e: Error) => console.error('[guild-boss] global chest fail', e));
+          // 동일 티어의 상자를 각 길드원에게 우편 지급 (각자 잭팟 독립 굴림)
+          try {
+            await grantChest(mb.character_id, m.tier);
+            await deliverToMailbox(mb.character_id, m.subject,
+              `${run.character_id === mb.character_id ? '내가' : '길드원이'} ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 달성 — 길드 전원에게 ${tierLabelKr(m.tier)} 지급`,
+              0, 0, 0);
+          } catch (e) { console.error('[guild-boss] guild chest fail', e); }
         }
       }
     }
@@ -526,7 +530,7 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     thresholdsPassed,
     firstPassBonus,
     chestReward,
-    globalChestsGranted,
+    guildTiersGranted,
     reason,
   });
 });
@@ -621,33 +625,15 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
   }
 }
 
-async function grantGlobalChest(characterId: number, kind: string, subject: string) {
-  // Phase 1 — 우편으로 메달 / 골드 지급 (아이템 보상은 향후 확장)
-  let gold = 0;
-  let medals = 0;
-  let body = '';
-  if (kind === 'mini') { gold = 1_000_000; medals = 5; body = '길드 일일 누적 100억 달성 보상'; }
-  else if (kind === 'medium') { gold = 0; medals = 15; body = '길드 일일 누적 500억 달성 보상'; }
-  else if (kind === 'mega') { gold = 0; medals = 30; body = '길드 일일 누적 1,000억 달성 보상 (접두사 수치 재굴림권 포함 — 향후 확장)'; }
-  else if (kind === 'buff') {
-    // 24시간 EXP/골드/드랍 +25% — Phase 1은 기본 +50% 연장 (효과 차등 시스템 차후)
-    await query(
-      `UPDATE characters SET
-         exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '24 hours',
-         gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '24 hours',
-         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '24 hours'
-       WHERE id = $1`,
-      [characterId]
-    );
-    body = '길드 일일 누적 5,000억 달성 — 24시간 EXP/골드/드랍 부스터';
-  }
-  if (gold > 0 || medals > 0) {
-    await query(
-      'UPDATE characters SET gold = gold + $1, guild_boss_medals = guild_boss_medals + $2 WHERE id = $3',
-      [gold, medals, characterId]
-    );
-  }
-  await deliverToMailbox(characterId, subject, body, 0, 0, 0);
+function tierLabelKr(tier: 'copper' | 'silver' | 'gold'): string {
+  return tier === 'gold' ? '황금빛 상자' : tier === 'silver' ? '은빛 상자' : '구리 상자';
+}
+
+function formatNum(n: bigint): string {
+  const num = Number(n);
+  if (num >= 100_000_000) return `${(num / 100_000_000).toFixed(num % 100_000_000 === 0 ? 0 : 1)}억`;
+  if (num >= 10_000) return `${(num / 10_000).toFixed(0)}만`;
+  return num.toLocaleString();
 }
 
 function expForLevel(level: number): number {

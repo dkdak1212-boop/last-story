@@ -16,11 +16,11 @@ export const FIRST_PASS_MEDALS_COPPER = 5;
 export const FIRST_PASS_MEDALS_SILVER = 15;
 export const FIRST_PASS_MEDALS_GOLD = 30;
 
-export const GLOBAL_MILESTONES = [
-  { bit: 1, damage: 10_000_000_000n,   kind: 'mini',   subject: '길드 보스 글로벌 — 미니 상자' },
-  { bit: 2, damage: 50_000_000_000n,   kind: 'medium', subject: '길드 보스 글로벌 — 미디엄 상자' },
-  { bit: 4, damage: 100_000_000_000n,  kind: 'mega',   subject: '길드 보스 글로벌 — 메가 상자' },
-  { bit: 8, damage: 500_000_000_000n,  kind: 'buff',   subject: '길드 보스 글로벌 — 24시간 버프' },
+// 단일 run이 임계값을 돌파 → 길드원 전원에게 해당 티어 상자 배포 (일일 1회 per tier)
+export const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
+  { bit: 1, damage: 100_000_000n,   tier: 'copper', subject: '길드 보스 — 구리 상자 (길드원 보상)' },
+  { bit: 2, damage: 500_000_000n,   tier: 'silver', subject: '길드 보스 — 은빛 상자 (길드원 보상)' },
+  { bit: 4, damage: 1_000_000_000n, tier: 'gold',   subject: '길드 보스 — 황금빛 상자 (길드원 보상)' },
 ];
 
 export interface GuildBossData {
