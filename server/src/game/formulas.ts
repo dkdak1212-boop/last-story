@@ -67,9 +67,9 @@ export function computeEffective(
   const matk = intl * 1.5 + (equipBonus.bonusMatk ?? 0); // 1.2 → 1.5 마법사 강화
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
   const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);
-  // 회피: DEX 계수 하향 + 상한 30%
+  // 회피: DEX 계수 하향 + 상한 70%
   const dodgeRaw = dex * 0.2 + (equipBonus.bonusDodge ?? 0);
-  const dodge = Math.min(30, dodgeRaw);
+  const dodge = Math.min(70, dodgeRaw);
   // 명중: 상한 100%
   const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
   const accuracy = Math.min(100, accuracyRaw);
