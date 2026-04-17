@@ -1170,6 +1170,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
       }
+      // 전사 분노 축적 — 1회 적중 이상 시 +15 (case 'damage'와 동일)
+      if (s.className === 'warrior' && landedCount > 0) {
+        s.rage = Math.min(100, s.rage + 15);
+      }
       break;
     }
 
