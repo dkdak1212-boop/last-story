@@ -184,7 +184,7 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
-  rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 30)
+  rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 20)
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
   guildBossDmgBuffer: number; // flush 전 누적 raw 데미지
@@ -2127,11 +2127,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
-  // 도적 전용: 사망 직전 부여돼 있던 player-source 독 스택을 다음 몬스터로 전이 (cap 30)
+  // 도적 전용: 사망 직전 부여돼 있던 player-source 독 스택을 다음 몬스터로 전이 (cap 20)
   if (s.className === 'rogue') {
     const carry = s.statusEffects
       .filter(e => e.type === 'poison' && e.source === 'player' && e.remainingActions > 0)
-      .slice(0, 30)
+      .slice(0, 20)
       .map(e => ({
         value: e.value,
         remainingActions: e.remainingActions,
@@ -2487,9 +2487,9 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     addLog(s, `[독 사냥꾼] 몬스터 등장! 초기 독 2스택 부여`);
   }
 
-  // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 30)
+  // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 20)
   if (s.className === 'rogue' && !isDummyMonster(s) && s.rogueDotCarry && s.rogueDotCarry.length > 0) {
-    const transferCount = Math.min(30, s.rogueDotCarry.length);
+    const transferCount = Math.min(20, s.rogueDotCarry.length);
     for (let i = 0; i < transferCount; i++) {
       const c = s.rogueDotCarry[i];
       addEffect(s, { type: 'poison', value: c.value, remainingActions: c.remainingActions, source: 'player', dotMult: c.dotMult, dotUseMatk: c.dotUseMatk });
