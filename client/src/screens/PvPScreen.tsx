@@ -153,6 +153,16 @@ export function PvPScreen() {
 
       {tab === 'opponents' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              ELO ±{400} 범위 · 최대 30명
+            </span>
+            <button onClick={loadOpponents} style={{
+              fontSize: 12, padding: '4px 12px',
+              background: 'var(--bg-panel)', color: 'var(--accent)',
+              border: '1px solid var(--accent)', borderRadius: 3, cursor: 'pointer',
+            }}>🔄 새로고침</button>
+          </div>
           {opponents.length === 0 && <div style={{ color: 'var(--text-dim)' }}>ELO 비슷한 상대가 없다.</div>}
           {opponents.map(o => (
             <div key={o.id} style={{
