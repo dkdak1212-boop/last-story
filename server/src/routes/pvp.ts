@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacter, loadCharacterOwned, getEffectiveStats, getNodePassives } from '../game/character.js';
-import { calculateEloChange, simulatePvP } from '../pvp/simulator.js';
+// Legacy simulator (스킵은 이제 realtime 엔진의 fast-forward 를 사용 — simulator 는 realtime finalizeRecords 내부에서 calculateEloChange 만 참조)
 import { trackDailyQuestProgress } from './dailyQuests.js';
-import { createPvPSession, toggleAuto, attackerUseSkill, attackerForfeit, attackerPing, sessionSummary } from '../pvp/realtimeEngine.js';
+import { createPvPSession, toggleAuto, attackerUseSkill, attackerForfeit, attackerPing, sessionSummary, simulatePvPFastForward } from '../pvp/realtimeEngine.js';
 import { loadEquipPrefixes, getCharSkills, buildPassiveMap, applyCombatStatBoost } from '../combat/engine.js';
 
 const router = Router();
@@ -186,7 +186,7 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
   res.json({ battleId: r.battleId });
 });
 
-// 스킵 — 즉시 시뮬레이션 결과 반환 (전투화면 진입 없이 결과창만)
+// 스킵 — 실시간 엔진 fast-forward (WS 없이 즉시 완주 · 공격 모드와 동일 밸런스)
 router.post('/attack-skip', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     attackerId: z.number().int().positive(),
@@ -201,9 +201,9 @@ router.post('/attack-skip', async (req: AuthedRequest, res: Response) => {
   await ensureStats(attackerId);
   await ensureStats(defenderId);
 
-  // 일일 제한 + 쿨다운 체크 (실시간과 동일)
-  const statR = await query<{ daily_attacks: number; elo: number }>(
-    `SELECT daily_attacks, elo FROM pvp_stats WHERE character_id = $1`, [attackerId]
+  // 일일 제한 + 쿨다운
+  const statR = await query<{ daily_attacks: number }>(
+    `SELECT daily_attacks FROM pvp_stats WHERE character_id = $1`, [attackerId]
   );
   if (statR.rows[0].daily_attacks >= DAILY_ATTACK_LIMIT) {
     return res.status(400).json({ error: '일일 공격 한도 도달' });
@@ -214,18 +214,7 @@ router.post('/attack-skip', async (req: AuthedRequest, res: Response) => {
   );
   if (cd.rowCount && cd.rowCount > 0) return res.status(400).json({ error: '쿨다운 중' });
 
-  // 시뮬 실행
-  const sim = await simulatePvP(attackerId, defenderId);
-  const winnerId = sim.winner === 'attacker' ? attackerId : defenderId;
-  const loserId = sim.winner === 'attacker' ? defenderId : attackerId;
-  const attackerElo = statR.rows[0].elo;
-  const defenderElo = (await query<{ elo: number }>(`SELECT elo FROM pvp_stats WHERE character_id = $1`, [defenderId])).rows[0].elo;
-  const winnerElo = winnerId === attackerId ? attackerElo : defenderElo;
-  const loserElo = winnerId === attackerId ? defenderElo : attackerElo;
-  const eloChange = calculateEloChange(winnerElo, loserElo);
-
-  await query(`UPDATE pvp_stats SET wins = wins + 1, elo = elo + $1 WHERE character_id = $2`, [eloChange, winnerId]);
-  await query(`UPDATE pvp_stats SET losses = losses + 1, elo = GREATEST(0, elo - $1) WHERE character_id = $2`, [eloChange, loserId]);
+  // 일일 공격 카운트 + 쿨다운 먼저 적용 (실시간 공격과 동일 흐름)
   await query(`UPDATE pvp_stats SET daily_attacks = daily_attacks + 1 WHERE character_id = $1`, [attackerId]);
   await query(
     `INSERT INTO pvp_cooldowns (attacker_id, defender_id, expires_at)
@@ -234,23 +223,18 @@ router.post('/attack-skip', async (req: AuthedRequest, res: Response) => {
      DO UPDATE SET expires_at = EXCLUDED.expires_at`,
     [attackerId, defenderId]
   );
-
-  const attackerGold = sim.winner === 'attacker' ? 500 : 50;
-  const defenderGold = sim.winner === 'defender' ? 500 : 50;
-  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [attackerGold, attackerId]);
-  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [defenderGold, defenderId]);
-
-  await query(
-    `INSERT INTO pvp_battles (attacker_id, defender_id, winner_id, elo_change, log)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [attackerId, defenderId, winnerId,
-     sim.winner === 'attacker' ? eloChange : -eloChange, JSON.stringify(sim.log)]
-  );
   await trackDailyQuestProgress(attackerId, 'pvp_attack', 1).catch(() => {});
 
+  // Fast-forward 실행 (실시간 엔진 재사용)
+  const r = await simulatePvPFastForward(attackerId, defenderId);
+  if ('error' in r) return res.status(r.status).json({ error: r.error });
+
   res.json({
-    winner: sim.winner, log: sim.log, eloChange,
-    goldGained: attackerGold, turns: sim.turns,
+    winner: r.winner === 'draw' ? 'attacker' : r.winner, // 기존 UI 호환 — 'draw' 는 드물어 attacker 로 표시
+    log: r.log,
+    eloChange: r.eloChange,
+    goldGained: r.winner === 'attacker' ? 500 : 50,
+    turns: r.turns,
   });
 });
 

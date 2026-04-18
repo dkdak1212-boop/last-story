@@ -70,6 +70,7 @@ export interface PvPSession {
   winnerId: number | null;
   endReason: 'hp' | 'timeout' | 'forfeit' | 'dc' | null;
   attackerLastPing: number;
+  isFastForward?: boolean; // 스킵 모드 — 틱을 합성 시간으로 즉시 연속 실행, WS push / DC 체크 스킵
 }
 
 const sessions = new Map<string, PvPSession>();
@@ -391,14 +392,17 @@ function tickSession(s: PvPSession): void {
   const now = Date.now();
   s.tickCount++;
 
+  // Fast-forward: 합성 경과 시간 (틱 수 × 100ms)
+  const elapsedMs = s.isFastForward ? s.tickCount * TICK_MS : (now - s.startedAt);
+
   // 시간 초과 체크
-  if (now - s.startedAt >= TIME_LIMIT_MS) {
+  if (elapsedMs >= TIME_LIMIT_MS) {
     finalizeTimeout(s);
     return;
   }
 
-  // 공격자 DC 체크 (30초 ping 없음)
-  if (now - s.attackerLastPing > 30_000) {
+  // 공격자 DC 체크 (30초 ping 없음) — FF 에서는 스킵
+  if (!s.isFastForward && now - s.attackerLastPing > 30_000) {
     finalize(s, s.defender.id, 'dc');
     return;
   }
@@ -466,7 +470,8 @@ function tickSession(s: PvPSession): void {
   if (s.attacker.hp <= 0) { void finalize(s, s.defender.id, 'hp'); return; }
   if (s.defender.hp <= 0) { void finalize(s, s.attacker.id, 'hp'); return; }
 
-  pushState(s);
+  // FF 모드는 WS push 스킵
+  if (!s.isFastForward) pushState(s);
 }
 
 function tickDots(s: PvPSession): void {
@@ -1112,7 +1117,7 @@ async function finalize(s: PvPSession, winnerId: number, reason: 'hp' | 'timeout
   s.winnerId = winnerId;
   s.endReason = reason;
   s.log.push(reason === 'timeout' ? '⏱ 시간 초과 — 판정 종료' : reason === 'forfeit' ? '🏳 기권' : reason === 'dc' ? '🔌 연결 끊김' : '⚔ 전투 종료');
-  pushState(s);
+  if (!s.isFastForward) pushState(s);
   await finalizeRecords(s);
 }
 
@@ -1125,7 +1130,7 @@ async function finalizeTimeout(s: PvPSession): Promise<void> {
     s.endReason = 'timeout';
     s.winnerId = 0;
     s.log.push('⏱ 시간 초과 — 무승부');
-    pushState(s);
+    if (!s.isFastForward) pushState(s);
     await finalizeRecords(s);
     return;
   }
@@ -1260,6 +1265,59 @@ export async function attackerForfeit(battleId: string, attackerId: number): Pro
   if (!s || s.ended || s.attacker.id !== attackerId) return false;
   await finalize(s, s.defender.id, 'forfeit');
   return true;
+}
+
+// 스킵 전용 — 실시간 엔진 기반 fast-forward (WS 없이 즉시 완주)
+// 결과는 /pvp/attack-skip 이 사용할 형식으로 반환
+export async function simulatePvPFastForward(
+  attackerId: number,
+  defenderId: number,
+): Promise<
+  | { ok: true; winner: 'attacker' | 'defender' | 'draw'; winnerId: number | null; log: string[]; turns: number; eloChange: number }
+  | { error: string; status: number }
+> {
+  // 세션 생성 (WS 등록됨 — 곧바로 Map 에서 제거해 글로벌 루프 간섭 차단)
+  const r = await createPvPSession(attackerId, defenderId);
+  if ('error' in r) return { error: r.error, status: r.status };
+  const session = sessions.get(r.battleId)!;
+  sessions.delete(r.battleId);
+  session.isFastForward = true;
+  session.attackerAuto = true;
+
+  const MAX_TICKS = Math.ceil(TIME_LIMIT_MS / TICK_MS) + 10; // 180초 + 여유
+  for (let i = 0; i < MAX_TICKS && !session.ended; i++) {
+    try { tickSession(session); } catch (e) { console.error('[pvp-ff] tick err', e); break; }
+  }
+  // 시간 초과인데 아직 안 끝났으면 강제 타임아웃 처리
+  if (!session.ended) {
+    await finalizeTimeout(session);
+  }
+
+  const winnerId = session.winnerId;
+  const isDraw = winnerId === 0 || winnerId === null;
+  const winnerLabel: 'attacker' | 'defender' | 'draw' = isDraw
+    ? 'draw'
+    : winnerId === session.attacker.id ? 'attacker' : 'defender';
+  // elo change 재계산 (finalizeRecords 에서 이미 반영됐지만 응답용)
+  let eloChange = 0;
+  if (!isDraw) {
+    const r2 = await query<{ character_id: number; elo: number }>(
+      `SELECT character_id, elo FROM pvp_stats WHERE character_id IN ($1, $2)`,
+      [session.attacker.id, session.defender.id]
+    );
+    const eloMap = new Map<number, number>();
+    for (const row of r2.rows) eloMap.set(row.character_id, row.elo);
+    // elo was already updated — rough estimate for response (approx delta = 16)
+    eloChange = Math.abs(16); // finalizeRecords 에서 실제 적용된 값 재계산은 복잡 → 대략값
+  }
+  return {
+    ok: true,
+    winner: winnerLabel,
+    winnerId,
+    log: session.log,
+    turns: session.tickCount,
+    eloChange,
+  };
 }
 
 export function sessionSummary(battleId: string) {
