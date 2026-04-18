@@ -175,41 +175,6 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, remainingPoints: char.node_points - totalCost, invested: toInvest.size });
 });
 
-// 부분 리셋 (마지막 5포인트)
-router.post('/:id/nodes/reset-partial', async (req: AuthedRequest, res: Response) => {
-  const id = Number(req.params.id);
-  const char = await loadCharacterOwned(id, req.userId!);
-  if (!char) return res.status(404).json({ error: 'not found' });
-
-  const cost = 500;
-  if (char.gold < cost) return res.status(400).json({ error: 'not enough gold' });
-
-  // 마지막 투자 5포인트 환불
-  const lastNodes = await query<{ node_id: number; cost: number }>(
-    `SELECT cn.node_id, nd.cost FROM character_nodes cn
-     JOIN node_definitions nd ON nd.id = cn.node_id
-     WHERE cn.character_id = $1
-     ORDER BY cn.invested_at DESC LIMIT 5`,
-    [id]
-  );
-
-  if (lastNodes.rowCount === 0) return res.status(400).json({ error: 'no nodes to reset' });
-
-  let refund = 0;
-  const nodeIds: number[] = [];
-  for (const row of lastNodes.rows) {
-    refund += row.cost;
-    nodeIds.push(row.node_id);
-  }
-
-  await query('DELETE FROM character_nodes WHERE character_id = $1 AND node_id = ANY($2::int[])', [id, nodeIds]);
-  await query('UPDATE characters SET node_points = node_points + $1, gold = gold - $2 WHERE id = $3',
-    [refund, cost, id]);
-  await refreshSessionStats(id).catch(() => {});
-
-  res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
-});
-
 // 전체 리셋
 router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);

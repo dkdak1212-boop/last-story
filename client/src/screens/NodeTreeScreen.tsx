@@ -416,7 +416,6 @@ export function NodeTreeScreen() {
     setLoading(false);
   }
 
-  async function resetPartial() { if (!active || loading || !confirm('부분 리셋 (500G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-partial`, { method: 'POST' }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
   async function resetAll() { if (!active || loading || !confirm('전체 리셋 (5,000G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-all`, { method: 'POST' }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
 
   if (!treeState) return <div style={{ color: 'var(--text-dim)' }}>로딩 중...</div>;
@@ -755,13 +754,6 @@ export function NodeTreeScreen() {
         borderRadius: isMobile ? 6 : 0,
         flexWrap: 'wrap',
       }}>
-        <button onClick={resetPartial} disabled={loading} style={{
-          fontSize: isMobile ? 12 : 11,
-          padding: isMobile ? '10px 14px' : '5px 10px',
-          flex: isMobile ? '1 1 30%' : '0 0 auto',
-          minHeight: isMobile ? 40 : 'auto',
-          fontWeight: 600,
-        }}>부분 리셋 500G</button>
         <button onClick={resetAll} disabled={loading} style={{
           fontSize: isMobile ? 12 : 11,
           padding: isMobile ? '10px 14px' : '5px 10px',
