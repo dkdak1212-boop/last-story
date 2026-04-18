@@ -449,15 +449,30 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       break;
     }
     case 'shield': {
-      const amt = Math.round((useMatk ? self.stats.matk : self.stats.atk) * skill.damage_mult);
+      // PvE 와 동일 공식: maxHp × effect_value%  (잘못된 damage_mult × matk 방식 교체)
+      // skill.kind === 'damage' 인 쉴드 스킬(차원 붕괴 등)은 damage_mult > 0 이라 데미지도 처리
+      const shieldPct = Math.max(skill.effect_value, skill.damage_mult * 10); // effect_value 0이면 damage_mult × 10 로 폴백
+      const amt = Math.round(self.maxHp * shieldPct / 100);
       self.shieldAmount = Math.max(self.shieldAmount, amt);
-      s.log.push(`${self.name} [${skName}] 쉴드 ${amt}`);
+      // 데미지 동반 쉴드 스킬
+      if (skill.kind === 'damage' && skill.damage_mult > 0) {
+        const d = dealDamage(skill.damage_mult);
+        s.log.push(`${self.name} [${skName}] 쉴드 ${amt} + ${d.miss ? '빗나감' : d.damage}`);
+      } else {
+        s.log.push(`${self.name} [${skName}] 쉴드 ${amt}`);
+      }
       break;
     }
     case 'shield_break': {
-      opp.shieldAmount = 0;
-      const d = dealDamage(skill.damage_mult);
-      s.log.push(`${self.name} [${skName}] 쉴드 파괴 + ${d.miss ? '빗나감' : `${d.damage} 데미지`}`);
+      // PvE 와 동일: 자기 쉴드량 × N 배를 추가 데미지로 변환 (자기 쉴드는 유지)
+      const shieldMult = skName === '대심판의 철퇴' ? 8.0 : 4.0;
+      const shieldBonus = self.shieldAmount > 0 ? Math.round(self.shieldAmount * shieldMult) : 0;
+      const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
+      if (!d.miss) {
+        const totalDmg = d.damage + shieldBonus;
+        applyDamage(s, side, totalDmg, false, d.crit);
+      }
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}+쉴드보너스 ${shieldBonus} = ${d.damage + shieldBonus}`}`);
       break;
     }
     case 'stat_buff':
