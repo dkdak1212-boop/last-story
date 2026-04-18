@@ -35,7 +35,7 @@ interface FighterState {
   skillLastUsed: Map<number, number>;    // skill_id → session tick index (for AI rotation)
   statusEffects: StatusEffect[];         // dot/shield/stat_buff
   shieldAmount: number;
-  activeSummons: { name: string; damage: number; remainingActions: number; isDot?: boolean }[];
+  activeSummons: { name: string; damageMult: number; useMatk: boolean; remainingActions: number; isDot?: boolean }[];
 }
 
 interface StatusEffect {
@@ -312,19 +312,27 @@ function decrementCooldowns(f: FighterState): void {
 }
 
 const MAX_SUMMONS = 3;
-function pushSummon(f: FighterState, name: string, damage: number, remainingActions: number, isDot = false): void {
+function pushSummon(f: FighterState, name: string, damageMult: number, useMatk: boolean, remainingActions: number, isDot = false): void {
   if (f.activeSummons.length >= MAX_SUMMONS) f.activeSummons.shift(); // FIFO 최대 3마리
-  f.activeSummons.push({ name, damage: Math.max(1, damage), remainingActions: Math.max(1, remainingActions), isDot });
+  f.activeSummons.push({ name, damageMult: Math.max(0.1, damageMult), useMatk, remainingActions: Math.max(1, remainingActions), isDot });
 }
 
-// 행동 후 소환수 공격 처리 — 각 소환수가 상대에게 damage 1회
+// 행동 후 소환수 공격 처리 — 각 소환수가 상대에게 calcDamage 로 1회 공격
 function processSummons(s: PvPSession, side: 'attacker' | 'defender'): void {
   const self = side === 'attacker' ? s.attacker : s.defender;
+  const opp = side === 'attacker' ? s.defender : s.attacker;
   if (self.activeSummons.length === 0) return;
   for (let i = self.activeSummons.length - 1; i >= 0; i--) {
     const sm = self.activeSummons[i];
-    applyDamage(s, side, sm.damage, false, false);
-    s.log.push(`🪄 ${self.name}의 ${sm.name} → ${Math.max(1, Math.round(sm.damage * PVP_DAMAGE_MULT))}`);
+    const d = calcDamage(self.stats, opp.stats, sm.damageMult, sm.useMatk, 0);
+    if (d.miss) {
+      s.log.push(`🪄 ${self.name}의 ${sm.name} → 빗나감`);
+    } else {
+      const prevHp = opp.hp;
+      applyDamage(s, side, d.damage, false, d.crit);
+      const actual = Math.max(0, prevHp - opp.hp);
+      s.log.push(`🪄 ${self.name}의 ${sm.name} → ${actual}${d.crit ? ' 치명!' : ''}`);
+    }
     sm.remainingActions -= 1;
     if (sm.remainingActions <= 0) self.activeSummons.splice(i, 1);
   }
@@ -638,29 +646,32 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명!' : ''}`}`);
       break;
     }
-    // 소환 계열 — 소환수를 self.activeSummons 에 등록. 행동마다 공격.
+    // 소환 계열 — PvE 공식: matk/atk × effect_value% per attack
+    //   (effect_value 가 실제 데미지 배율, damage_mult 는 초기 소환 이펙트 참고용)
     case 'summon': {
-      const base = useMatk ? self.stats.matk : self.stats.atk;
-      pushSummon(self, skName, Math.round(base * Math.max(skill.damage_mult, 0.8)), dur);
-      s.log.push(`${self.name} [${skName}] 소환! (지속 ${dur}행동)`);
+      const mult = (skill.effect_value > 0 ? skill.effect_value : skill.damage_mult * 100) / 100;
+      pushSummon(self, skName, mult, useMatk, dur);
+      s.log.push(`${self.name} [${skName}] 소환! (${useMatk ? 'MATK' : 'ATK'} ×${(mult * 100).toFixed(0)}% · 지속 ${dur}행동)`);
       break;
     }
-    case 'summon_multi':
+    case 'summon_multi': {
+      // 하이드라 등 — 1회 등록 + multiHits 배수 (3회 공격)
+      const mult = ((skill.effect_value > 0 ? skill.effect_value : skill.damage_mult * 100) / 100) * 3;
+      pushSummon(self, skName, mult, useMatk, dur);
+      s.log.push(`${self.name} [${skName}] 다중 소환! (${useMatk ? 'MATK' : 'ATK'} ×${(mult * 100).toFixed(0)}% · 지속 ${dur}행동)`);
+      break;
+    }
     case 'summon_all': {
-      // 여러 마리 소환 — effect_value 개수만큼 (없으면 2마리)
-      const count = Math.max(2, Math.round(skill.effect_value) || 2);
-      const base = useMatk ? self.stats.matk : self.stats.atk;
-      const perDmg = Math.round(base * Math.max(skill.damage_mult, 0.5));
-      for (let i = 0; i < count; i++) pushSummon(self, `${skName}#${i + 1}`, perDmg, dur);
-      s.log.push(`${self.name} [${skName}] ${count}마리 소환! (지속 ${dur}행동)`);
+      // 총공격 — damage_mult 기반 단일 강타 (지속 X)
+      const d = dealDamage(skill.damage_mult);
+      s.log.push(`${self.name} [${skName}] 총공격! ${d.miss ? '빗나감' : d.damage}`);
       break;
     }
     case 'summon_dot':
     case 'summon_storm': {
-      const base = useMatk ? self.stats.matk : self.stats.atk;
-      const dotDmg = Math.round(base * Math.max(skill.damage_mult, 0.5));
-      pushSummon(self, skName, dotDmg, dur, true);
-      s.log.push(`${self.name} [${skName}] 도트 소환! (지속 ${dur}행동)`);
+      const mult = (skill.effect_value > 0 ? skill.effect_value : skill.damage_mult * 100) / 100;
+      pushSummon(self, skName, mult, useMatk, dur, true);
+      s.log.push(`${self.name} [${skName}] 도트 소환! (${useMatk ? 'MATK' : 'ATK'} ×${(mult * 100).toFixed(0)}% · 지속 ${dur}행동)`);
       break;
     }
     case 'summon_sacrifice': {
@@ -857,6 +868,7 @@ function fighterSnapshot(f: FighterState) {
     })),
     summons: f.activeSummons.map(s => ({
       name: s.name, remainingActions: s.remainingActions, isDot: !!s.isDot,
+      damagePct: Math.round(s.damageMult * 100),
     })),
   };
 }
