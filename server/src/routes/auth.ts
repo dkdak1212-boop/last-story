@@ -164,6 +164,17 @@ function googleRedirectUri(req: any): string {
   return `${proto}://${req.get('host')}/api/auth/google/callback`;
 }
 
+// 임시 진단 — 환경변수 로드 상태 확인 (운영 후 제거)
+router.get('/_env-check', (_req, res) => {
+  res.json({
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? `SET(len=${process.env.GOOGLE_CLIENT_ID.length})` : 'MISSING',
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'SET' : 'MISSING',
+    CLIENT_URL: process.env.CLIENT_URL || 'MISSING',
+    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'MISSING',
+    NODE_ENV: process.env.NODE_ENV || 'unset',
+  });
+});
+
 router.get('/google/start', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.status(500).send('Google OAuth 미설정 (GOOGLE_CLIENT_ID)');
