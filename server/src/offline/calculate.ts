@@ -237,25 +237,66 @@ export async function generateAndApplyOfflineReport(
     }
   }
 
+  // 유저의 자동판매 / 드랍필터 설정 로드 (온라인과 동일 적용)
+  const filterR = await query<{
+    auto_dismantle_tiers: number;
+    drop_filter_tiers: number;
+    drop_filter_common: boolean;
+  }>(
+    `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+     FROM characters WHERE id = $1`, [characterId]
+  );
+  const fConf = filterR.rows[0] || { auto_dismantle_tiers: 0, drop_filter_tiers: 0, drop_filter_common: false };
+  const autoSellEnabled = fConf.auto_dismantle_tiers > 0;
+  const dropFilterEnabled = fConf.drop_filter_tiers > 0 || fConf.drop_filter_common;
+
+  // 아이템 grade / sell_price 일괄 조회
+  const itemIds = Object.keys(drops).map(Number);
+  const itemInfo = new Map<number, { name: string; grade: string; sell_price: number; slot: string | null }>();
+  if (itemIds.length > 0) {
+    const ir = await query<{ id: number; name: string; grade: string; sell_price: number; slot: string | null }>(
+      `SELECT id, name, grade, sell_price, slot FROM items WHERE id = ANY($1::int[])`, [itemIds]
+    );
+    for (const r of ir.rows) itemInfo.set(r.id, { name: r.name, grade: r.grade, sell_price: r.sell_price, slot: r.slot });
+  }
+
   // 적용
   const levelUp = applyExpGain(char.level, char.exp, expGained, char.class_name);
   let overflow = 0;
+  let autoSoldGold = 0;
+  let filteredSkipped = 0;
   const itemDropList: { itemId: number; name: string; quantity: number; grade: string }[] = [];
 
   for (const [itemIdStr, qty] of Object.entries(drops)) {
     const itemId = parseInt(itemIdStr, 10);
+    const info = itemInfo.get(itemId);
+    if (!info) continue;
+
+    // 드랍필터: common 등급 + 비장비 아이템은 드랍필터 common 설정 시 스킵
+    //   (온라인과 완전 일치는 아니지만 가장 영향 큰 junk 를 차단)
+    if (dropFilterEnabled && fConf.drop_filter_common && info.grade === 'common') {
+      filteredSkipped += qty;
+      continue;
+    }
+
+    // 자동판매: common/uncommon 등급을 골드로 변환
+    //   (온라인은 tier 기반이지만 offline 은 접두사 rolling 안 해서 grade 로 근사)
+    if (autoSellEnabled && (info.grade === 'common' || info.grade === 'uncommon') && info.slot) {
+      autoSoldGold += Math.max(1, Math.floor(info.sell_price * 0.5)) * qty;
+      continue;
+    }
+
     const { overflow: ov } = await addItemToInventory(characterId, itemId, qty);
-    if (ov > 0) {
-      overflow += ov;
-      // 가방 꽉 차면 버림 (우편 미전송 — 서버 부하 방지)
-    }
-    const itemR = await query<{ name: string; grade: string }>('SELECT name, grade FROM items WHERE id = $1', [itemId]);
-    if (itemR.rowCount && itemR.rowCount > 0) {
-      itemDropList.push({ itemId, name: itemR.rows[0].name, quantity: qty, grade: itemR.rows[0].grade });
-    }
+    if (ov > 0) overflow += ov;
+    itemDropList.push({ itemId, name: info.name, quantity: qty, grade: info.grade });
   }
 
-  // 캐릭터 업데이트
+  // 자동판매 골드 goldGained 에 합산
+  const totalGoldGained = goldGained + autoSoldGold;
+
+  // 캐릭터 업데이트 (자동판매 골드 포함)
   if (levelUp.levelsGained > 0) {
     await query(
       `UPDATE characters
@@ -265,14 +306,14 @@ export async function generateAndApplyOfflineReport(
            stat_points=COALESCE(stat_points,0)+$7,
            last_online_at=NOW()
        WHERE id=$6`,
-      [levelUp.newLevel, levelUp.newExp, goldGained,
+      [levelUp.newLevel, levelUp.newExp, totalGoldGained,
        levelUp.hpGained, levelUp.nodePointsGained, characterId,
        levelUp.statPointsGained]
     );
   } else {
     await query(
       'UPDATE characters SET exp=$1, gold=gold+$2, last_online_at=NOW() WHERE id=$3',
-      [levelUp.newExp, goldGained, characterId]
+      [levelUp.newExp, totalGoldGained, characterId]
     );
   }
 
@@ -286,11 +327,13 @@ export async function generateAndApplyOfflineReport(
     efficiency,
     killCount,
     expGained,
-    goldGained,
+    goldGained: totalGoldGained,
     itemsDropped: itemDropList,
     levelsGained: levelUp.levelsGained,
     overflow,
   };
+  if (filteredSkipped > 0) console.log(`[offline] char ${characterId} filtered ${filteredSkipped} common drops`);
+  if (autoSoldGold > 0) console.log(`[offline] char ${characterId} auto-sold common/uncommon → +${autoSoldGold}G`);
 
   await query(
     `INSERT INTO offline_reports
