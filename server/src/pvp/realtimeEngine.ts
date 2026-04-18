@@ -14,8 +14,10 @@ const TICK_MS = 100;
 const TIME_LIMIT_MS = 180_000;   // 3분
 const MANUAL_TIMEOUT_MS = 3000;  // 수동 대기 시간 — 초과 시 자동 발동
 // PvP 보정값 — 한방컷 방지
-const PVP_DAMAGE_MULT = 0.1;     // 입히는 데미지 × 0.1 (10%)
-const PVP_HP_MULT = 2;           // 양측 최대 HP × 2
+const PVP_DAMAGE_MULT = 0.1;           // 입히는 데미지 × 0.1 (10%)
+const PVP_HP_MULT = 10;                // 양측 최대 HP × 10
+const PVP_PER_HIT_CAP_PCT = 5;         // 한 타격당 최대 maxHp 의 5% (절대 캡) → 최소 20타 보장
+const PVP_CRIT_MULT = 0.7;             // 치명타 데미지 ×0.7 (폭딜 완화)
 
 interface FighterState {
   id: number;                    // character_id
@@ -275,8 +277,11 @@ function tickDots(s: PvPSession): void {
     for (let i = fighter.statusEffects.length - 1; i >= 0; i--) {
       const eff = fighter.statusEffects[i];
       if (eff.type === 'dot') {
-        // 도트도 동일 PvP 보정 적용
-        target.hp -= Math.max(1, Math.round(eff.value * PVP_DAMAGE_MULT));
+        // 도트도 동일 PvP 보정 + HP% 캡 적용
+        let d = Math.max(1, Math.round(eff.value * PVP_DAMAGE_MULT));
+        const cap = Math.max(1, Math.floor(target.maxHp * PVP_PER_HIT_CAP_PCT / 100));
+        if (d > cap) d = cap;
+        target.hp -= d;
         eff.remainingActions -= 1;
         if (eff.remainingActions <= 0) fighter.statusEffects.splice(i, 1);
       }
@@ -435,11 +440,16 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
   }
 }
 
-function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damage: number, miss: boolean, _crit: boolean): void {
+function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damage: number, miss: boolean, crit: boolean): void {
   if (miss || damage <= 0) return;
-  // PvP 보정값 — 한방컷 방지 (양측 동일 적용)
-  damage = Math.max(1, Math.round(damage * PVP_DAMAGE_MULT));
   const target = attackerSide === 'attacker' ? s.defender : s.attacker;
+  // 1) 치명타 폭딜 완화
+  if (crit) damage = Math.round(damage * PVP_CRIT_MULT);
+  // 2) 기본 PvP 데미지 배율
+  damage = Math.max(1, Math.round(damage * PVP_DAMAGE_MULT));
+  // 3) 타격당 maxHp 퍼센트 캡 (스탯 격차 무관 · 최소 20타 확보)
+  const cap = Math.max(1, Math.floor(target.maxHp * PVP_PER_HIT_CAP_PCT / 100));
+  if (damage > cap) damage = cap;
   // 쉴드 먼저 감소
   if (target.shieldAmount > 0) {
     const absorbed = Math.min(target.shieldAmount, damage);
