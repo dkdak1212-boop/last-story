@@ -108,8 +108,9 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+      soulbound: boolean;
     }>(
-      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
+      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
       [characterId, inventorySlotIndex]
     );
     if (inv.rowCount === 0) return { error: '아이템 없음', status: 404 };
@@ -128,10 +129,10 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     if (freeSlot < 0) return { error: '창고가 가득 찼습니다', status: 400 };
 
     await tx.query(
-      `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
       [userId, freeSlot, it.item_id, it.quantity, it.enhance_level,
-       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality]
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound]
     );
     await tx.query('DELETE FROM character_inventory WHERE id = $1', [it.id]);
     return { ok: true };
@@ -157,8 +158,9 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
     const sr = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+      soulbound: boolean;
     }>(
-      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality FROM account_storage_items WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM account_storage_items WHERE id = $1 AND user_id = $2 FOR UPDATE',
       [storageItemId, userId]
     );
     if (sr.rowCount === 0) return { error: '창고 아이템 없음', status: 404 };
@@ -173,10 +175,10 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
     if (freeSlot < 0) return { error: '인벤토리가 가득 찼습니다', status: 400 };
 
     await tx.query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
       [characterId, it.item_id, freeSlot, it.quantity, it.enhance_level,
-       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality]
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound]
     );
     await tx.query('DELETE FROM account_storage_items WHERE id = $1', [it.id]);
     return { ok: true };

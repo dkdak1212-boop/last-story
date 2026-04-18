@@ -2064,6 +2064,22 @@ async function runEquipOverhaul() {
       console.error('[late] enhance_scroll_price_5m_v1 error:', e);
     }
   }
+
+  // 장착 시 계정귀속 (Bind on Equip) — 거래/우편/길드창고 차단용
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'soulbound_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE character_inventory ADD COLUMN IF NOT EXISTS soulbound BOOLEAN NOT NULL DEFAULT FALSE`);
+        await query(`ALTER TABLE character_equipped ADD COLUMN IF NOT EXISTS soulbound BOOLEAN NOT NULL DEFAULT FALSE`);
+        await query(`ALTER TABLE account_storage_items ADD COLUMN IF NOT EXISTS soulbound BOOLEAN NOT NULL DEFAULT FALSE`);
+        await query(`INSERT INTO _migrations (name) VALUES ('soulbound_v1')`);
+        console.log('[late] soulbound_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] soulbound_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

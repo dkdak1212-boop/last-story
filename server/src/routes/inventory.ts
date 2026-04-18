@@ -74,12 +74,13 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
-    class_restriction: string | null; quality: number;
+    class_restriction: string | null; quality: number; soulbound: boolean;
   }>(
     `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
-            i.class_restriction, COALESCE(ci.quality, 0) AS quality
+            i.class_restriction, COALESCE(ci.quality, 0) AS quality,
+            COALESCE(ci.soulbound, FALSE) AS soulbound
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ${orderClause}`,
     [id]
@@ -128,6 +129,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixName: pName,
       prefixTiers: pTiers,
       locked: r.locked,
+      soulbound: r.soulbound === true,
       quality: r.quality || 0,
       item: {
         id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
@@ -218,9 +220,11 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
     const ex = existing.rows[0];
     const exPrefixIds = ex.prefix_ids && ex.prefix_ids.length > 0 ? ex.prefix_ids : [];
     const exPrefixStats = ex.prefix_stats || {};
-    // locked 플래그는 장착 상태에서 인벤토리로 이동 시 반드시 보존해야 함 (전체판매 보호)
-    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb, quality = $5, locked = $6 WHERE character_id = $7 AND slot_index = $8',
-      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), ex.quality || 0, ex.locked === true, id, parsed.data.slotIndex]);
+    // locked/soulbound 는 장착→인벤토리로 돌아갈 때 반드시 보존
+    const exEquipR = await query<{ soulbound: boolean }>('SELECT COALESCE(soulbound, FALSE) AS soulbound FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]);
+    const exSoulbound = exEquipR.rows[0]?.soulbound === true;
+    await query('UPDATE character_inventory SET item_id = $1, enhance_level = $2, prefix_ids = $3, prefix_stats = $4::jsonb, quality = $5, locked = $6, soulbound = $7 WHERE character_id = $8 AND slot_index = $9',
+      [ex.item_id, ex.enhance_level, exPrefixIds, JSON.stringify(exPrefixStats), ex.quality || 0, ex.locked === true, exSoulbound, id, parsed.data.slotIndex]);
     await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, slot]);
   } else {
     await query('DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
@@ -229,7 +233,8 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
   const equipPrefixIds = prefix_ids && prefix_ids.length > 0 ? prefix_ids : [];
   const equipPrefixStats = prefix_stats || {};
   const equipLocked = invR.rows[0].locked === true;
-  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)',
+  // 장착 시 계정귀속 (BoE) — 이 아이템은 이후 다른 계정으로 이전 불가
+  await query('INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, TRUE)',
     [id, slot, item_id, enhance_level, equipPrefixIds, JSON.stringify(equipPrefixStats), quality || 0, equipLocked]);
 
   await refreshCombatSessionStats(id);
@@ -245,8 +250,8 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ slot: z.string() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; quality: number }>(
-    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked, COALESCE(quality, 0) AS quality FROM character_equipped WHERE character_id = $1 AND slot = $2',
+  const eq = await query<{ item_id: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; quality: number; soulbound: boolean }>(
+    'SELECT item_id, enhance_level, prefix_ids, prefix_stats, locked, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM character_equipped WHERE character_id = $1 AND slot = $2',
     [id, parsed.data.slot]
   );
   if (eq.rowCount === 0) return res.status(404).json({ error: 'nothing equipped' });
@@ -265,9 +270,9 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const eqRow = eq.rows[0];
   const unequipPrefixIds = eqRow.prefix_ids && eqRow.prefix_ids.length > 0 ? eqRow.prefix_ids : [];
   const unequipPrefixStats = eqRow.prefix_stats || {};
-  // locked 보존 — 장착 상태에서 잠갔다면 인벤토리로 옮긴 뒤에도 잠금 유지
-  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7, $8)',
-    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats), eqRow.quality || 0, eqRow.locked === true]);
+  // locked/soulbound 보존 — 장착에서 묶인 계정귀속은 해제해도 유지
+  await query('INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound) VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7, $8, $9)',
+    [id, eqRow.item_id, freeSlot, eqRow.enhance_level, unequipPrefixIds, JSON.stringify(unequipPrefixStats), eqRow.quality || 0, eqRow.locked === true, eqRow.soulbound === true]);
   await query('DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2', [id, parsed.data.slot]);
   await refreshCombatSessionStats(id);
   res.json({ ok: true });

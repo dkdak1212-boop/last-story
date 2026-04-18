@@ -216,14 +216,16 @@ router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
         id: number; item_id: number; quantity: number; locked: boolean;
         enhance_level: number; prefix_ids: number[] | null;
         prefix_stats: Record<string, number> | null; quality: number;
+        soulbound: boolean;
       }>(
-        `SELECT id, item_id, quantity, locked, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+        `SELECT id, item_id, quantity, locked, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound
          FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE`,
         [id, slotIndex]
       );
       if (inv.rowCount === 0) return { error: '아이템이 없습니다.', status: 404 };
       const slot = inv.rows[0];
       if (slot.locked) return { error: '잠긴 아이템은 보낼 수 없습니다.', status: 400 };
+      if (slot.soulbound) return { error: '착용한 적이 있는 장비는 우편으로 보낼 수 없습니다. (계정 귀속)', status: 400 };
       if (slot.item_id === 320) return { error: '찢어진 스크롤은 우편으로 보낼 수 없습니다.', status: 400 };
       if (slot.item_id === 321) return { error: '노드 스크롤 +8은 우편으로 보낼 수 없습니다.', status: 400 };
 
