@@ -68,7 +68,7 @@ export async function getEquippedItems(characterId: number) {
     if (row.stats) {
       // 강화 배율 + 품질 보너스 (덧셈 합산: 강화로 품질이 두 배가 되지 않음)
       const el = row.enhance_level || 0;
-      const enhMult = 1 + el * 0.075;
+      const enhMult = 1 + el * 0.05;
       const qualBonus = (row.quality || 0) / 100;
       const mult = enhMult + qualBonus;
       for (const [k, v] of Object.entries(row.stats)) {
@@ -77,7 +77,7 @@ export async function getEquippedItems(characterId: number) {
     }
     if (row.prefix_stats) {
       const el = row.enhance_level || 0;
-      const prefixMult = 1 + el * 0.05; // 강화당 접두사 +5% 스케일 (모든 스탯 적용)
+      const prefixMult = 1 + el * 0.025; // 강화당 접두사 +2.5% 스케일 (모든 스탯 적용)
       for (const [k, v] of Object.entries(row.prefix_stats)) {
         if (['str', 'dex', 'int', 'vit', 'spd', 'cri', 'hp', 'atk', 'matk', 'def', 'mdef'].includes(k)) {
           result[k as keyof Stats] = (result[k as keyof Stats] ?? 0) + Math.round((v as number) * prefixMult);

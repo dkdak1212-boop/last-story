@@ -306,9 +306,9 @@ export function EnhanceScreen() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
                   {Object.entries(selected.baseStats).map(([k, v]) => {
-                    // 강화 배율: +7.5%/단계 + 품질 보너스
+                    // 강화 배율: +5%/단계 + 품질 보너스
                     const qBonus = (selected.quality || 0) / 100;
-                    const getMult = (el: number) => 1 + el * 0.075 + qBonus;
+                    const getMult = (el: number) => 1 + el * 0.05 + qBonus;
                     const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
                     const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
                     return (
@@ -439,7 +439,7 @@ export function EnhanceScreen() {
                           const isActive = rerollIndex === i;
                           const c = TIER_COLOR[d.tier] || '#888';
                           // 버튼 범위/현재값 모두 "강화 후" 스케일 (PrefixDisplay 와 1:1 비교)
-                          const enhMult = 1 + (selected.enhanceLevel || 0) * 0.05;
+                          const enhMult = 1 + (selected.enhanceLevel || 0) * 0.025;
                           const rangeMin = Math.max(1, Math.round(d.scaledMin * enhMult));
                           const rangeMax = Math.max(1, Math.round(d.scaledMax * enhMult));
                           const currentVal = selected.prefixStats?.[d.statKey] ?? 0;

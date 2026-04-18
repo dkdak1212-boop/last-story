@@ -91,9 +91,9 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     if (!raw) return stats;
     if (typeof raw === 'string') { try { stats = JSON.parse(raw); } catch { return {}; } }
     else if (typeof raw === 'object') stats = { ...(raw as Record<string, number>) };
-    // 강화 배율 적용 (강화당 +8%)
+    // 강화 배율 적용 (강화당 +2.5%)
     if (enhanceLevel > 0) {
-      const mult = 1 + enhanceLevel * 0.05;
+      const mult = 1 + enhanceLevel * 0.025;
       for (const k of Object.keys(stats)) {
         stats[k] = Math.round(stats[k] * mult);
       }

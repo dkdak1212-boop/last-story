@@ -12,7 +12,7 @@ export interface PrefixDef {
 // 강화 시 접두사도 스케일링되는 스탯 키 (기본 스탯만)
 export const SCALABLE_PREFIX_STATS = new Set(['str', 'dex', 'int', 'vit', 'spd', 'cri', 'accuracy', 'dodge', 'hp_regen']);
 
-// 표시용: 강화 레벨 적용된 접두사 스탯 계산 (강화당 +5%, 모든 키)
+// 표시용: 강화 레벨 적용된 접두사 스탯 계산 (강화당 +2.5%, 모든 키)
 // inventory/enhance/marketplace UI 일관성을 위해 사용
 export function displayPrefixStats(raw: unknown, enhanceLevel = 0): Record<string, number> {
   let stats: Record<string, number> = {};
@@ -20,7 +20,7 @@ export function displayPrefixStats(raw: unknown, enhanceLevel = 0): Record<strin
   if (typeof raw === 'string') { try { stats = JSON.parse(raw); } catch { return {}; } }
   else if (typeof raw === 'object') stats = { ...(raw as Record<string, number>) };
   if (enhanceLevel > 0) {
-    const mult = 1 + enhanceLevel * 0.05;
+    const mult = 1 + enhanceLevel * 0.025;
     for (const k of Object.keys(stats)) {
       stats[k] = Math.round(stats[k] * mult);
     }

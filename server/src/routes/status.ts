@@ -117,7 +117,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   const prefixTotals: Record<string, number> = {};
   for (const row of prefixR.rows) {
     if (!row.prefix_stats) continue;
-    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    const mult = 1 + (row.enhance_level || 0) * 0.025;
     for (const [k, v] of Object.entries(row.prefix_stats)) {
       prefixTotals[k] = (prefixTotals[k] || 0) + Math.round((v as number) * mult);
     }

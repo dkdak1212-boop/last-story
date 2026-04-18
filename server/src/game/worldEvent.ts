@@ -74,7 +74,7 @@ export async function attackBoss(characterId: number) {
   const equipPrefixes: Record<string, number> = {};
   for (const row of prefixR.rows) {
     if (!row.prefix_stats) continue;
-    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    const mult = 1 + (row.enhance_level || 0) * 0.025;
     for (const [k, v] of Object.entries(row.prefix_stats)) {
       equipPrefixes[k] = (equipPrefixes[k] || 0) + Math.round((v as number) * mult);
     }

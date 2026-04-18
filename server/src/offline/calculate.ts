@@ -225,7 +225,7 @@ export async function generateAndApplyOfflineReport(
   let goldBonusPct = 0;
   for (const row of prefR.rows) {
     if (!row.prefix_stats) continue;
-    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    const mult = 1 + (row.enhance_level || 0) * 0.025;
     if (row.prefix_stats.exp_bonus_pct) expBonusPct += Math.round(row.prefix_stats.exp_bonus_pct * mult);
     if (row.prefix_stats.gold_bonus_pct) goldBonusPct += Math.round(row.prefix_stats.gold_bonus_pct * mult);
   }
@@ -258,7 +258,7 @@ export async function generateAndApplyOfflineReport(
   let prefixDropBonus = 0;
   for (const row of prefR.rows) {
     if (!row.prefix_stats) continue;
-    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    const mult = 1 + (row.enhance_level || 0) * 0.025;
     if (row.prefix_stats.drop_rate_pct) prefixDropBonus += Math.round(row.prefix_stats.drop_rate_pct * mult);
   }
   const dropBoostMult = dropBoostActive ? 1.5 : 1.0;
