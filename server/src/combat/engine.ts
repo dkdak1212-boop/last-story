@@ -1201,6 +1201,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
             addLog(s, `[재충전] ${i + 1}타 치명타 → 게이지 +${Math.min(50, gaugeOnCritMulti)}%`);
           }
+          // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
+          if (s.className === 'warrior') {
+            s.rage = Math.min(100, s.rage + 5);
+          }
         }
       }
       // 무쌍난무: 25% / 전장의 광란: 50% 확률로 모든 스킬 쿨다운 초기화 (자신 제외)
@@ -1210,10 +1214,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (skId !== skill.id) s.skillCooldowns.delete(skId);
         }
         addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
-      }
-      // 전사 분노 축적 — 1회 적중 이상 시 +15 (case 'damage'와 동일)
-      if (s.className === 'warrior' && landedCount > 0) {
-        s.rage = Math.min(100, s.rage + 15);
       }
       break;
     }
