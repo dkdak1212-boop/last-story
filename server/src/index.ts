@@ -1939,6 +1939,20 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 오프라인 보상 정확도용 — 실제 평균 킬타임 저장
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'avg_kill_time_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS recent_avg_kill_time_sec NUMERIC(10,3)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('avg_kill_time_v1')`);
+        console.log('[late] avg_kill_time_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] avg_kill_time_v1 error:', e);
+    }
+  }
+
   // 전사 분노 영구 저장 컬럼
   {
     try {

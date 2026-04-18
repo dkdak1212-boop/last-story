@@ -173,13 +173,22 @@ export async function generateAndApplyOfflineReport(
     }
   }
 
-  const killTimeSec = simTime;
+  const simKillTimeSec = simTime;
   const dangerous = simPlayerHp <= 0;
+
+  // 실제 최근 평균 킬타임 (DB 저장, 온라인 전투 중 10킬마다 갱신)
+  //   → 시뮬 결과보다 실제 전투 속도를 우선 사용 (더 정확한 보상)
+  const realAvgR = await query<{ recent_avg_kill_time_sec: string | null }>(
+    'SELECT recent_avg_kill_time_sec FROM characters WHERE id = $1', [characterId]
+  );
+  const realAvg = realAvgR.rows[0]?.recent_avg_kill_time_sec ? Number(realAvgR.rows[0].recent_avg_kill_time_sec) : null;
+  // 실제값이 있으면 그걸 사용, 없으면 시뮬 결과 (최소 0.5초 보장)
+  const killTimeSec = (realAvg && realAvg > 0.5 && realAvg < 300) ? realAvg : simKillTimeSec;
 
   // 킬 수 계산
   let killCount: number;
-  if (dangerous) {
-    // 플레이어가 죽으면 50마리 상한
+  if (dangerous && !realAvg) {
+    // 시뮬에서 플레이어 사망 + 실제값 없음 → 50마리 상한
     killCount = Math.min(50, Math.floor(effectiveSec / Math.max(1, killTimeSec)));
   } else {
     killCount = Math.floor(effectiveSec / Math.max(0.5, killTimeSec));

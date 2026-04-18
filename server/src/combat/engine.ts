@@ -2141,12 +2141,18 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.rogueDotCarry = carry;
   }
 
-  // 처치 시간 기록 (최근 10킬 유지)
+  // 처치 시간 기록 (최근 10킬 유지) — 오프라인 보상 계산용 DB 저장도 함께
   if (s.monsterSpawnAt > 0) {
     const elapsedSec = (Date.now() - s.monsterSpawnAt) / 1000;
     if (elapsedSec > 0 && elapsedSec < 600) {
       s.recentKillTimes.push(Math.round(elapsedSec * 100) / 100);
       if (s.recentKillTimes.length > 10) s.recentKillTimes.shift();
+      // 10킬 쌓일 때마다 평균을 DB에 저장 (오프라인 보상 시 사용)
+      if (s.recentKillTimes.length >= 5 && s.recentKillTimes.length % 5 === 0) {
+        const avg = s.recentKillTimes.reduce((a, b) => a + b, 0) / s.recentKillTimes.length;
+        query('UPDATE characters SET recent_avg_kill_time_sec = $1 WHERE id = $2', [avg.toFixed(3), s.characterId])
+          .catch(e => console.error('[kill-time-save]', e));
+      }
     }
   }
 
