@@ -49,6 +49,7 @@ interface GuildStorageData {
   guildName: string;
   maxSlots: number;
   treasury: number;
+  isLeader: boolean;
   items: GuildStorageItem[];
   logs: GuildStorageLog[];
 }
@@ -175,8 +176,18 @@ export function GuildStorageModal({ inventory, onClose, onChange }: Props) {
           <input type="number" placeholder="금액" value={goldAmt} onChange={e => setGoldAmt(e.target.value)}
             style={{ width: 110, padding: '6px 8px' }} min={1} />
           <button onClick={goldDeposit} disabled={busy}>입금 →</button>
-          <button onClick={goldWithdraw} disabled={busy}>← 출금</button>
+          <button
+            onClick={goldWithdraw}
+            disabled={busy || !data?.isLeader}
+            title={data?.isLeader ? '' : '길드장만 출금 가능'}
+            style={{ opacity: data?.isLeader ? 1 : 0.4, cursor: data?.isLeader ? 'pointer' : 'not-allowed' }}
+          >← 출금 {data && !data.isLeader && '🔒'}</button>
         </div>
+        {data && !data.isLeader && (
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: -6, marginBottom: 10, paddingLeft: 4 }}>
+            💡 길드 금고 출금은 길드장만 가능합니다 (입금 · 아이템 입출고는 모든 길드원 가능)
+          </div>
+        )}
 
         {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{err}</div>}
 

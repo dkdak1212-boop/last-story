@@ -102,6 +102,12 @@ router.get('/:characterId', async (req: AuthedRequest, res: Response) => {
   const treasury = Number(treasuryR.rows[0]?.treasury || 0);
   const guildName = treasuryR.rows[0]?.name || '';
 
+  // 요청 캐릭의 길드 내 역할 (length 출금 권한 판정용)
+  const roleR = await query<{ role: string }>(
+    `SELECT role FROM guild_members WHERE character_id = $1 LIMIT 1`, [cid]
+  );
+  const isLeader = roleR.rows[0]?.role === 'leader';
+
   // 최근 50건 로그
   const logsR = await query<{
     id: number; character_name: string; action: string;
@@ -119,6 +125,7 @@ router.get('/:characterId', async (req: AuthedRequest, res: Response) => {
     guildName,
     maxSlots,
     treasury,
+    isLeader,
     items: itemsR.rows.map(r => {
       const pIds = r.prefix_ids || [];
       return {
@@ -308,6 +315,14 @@ router.post('/:characterId/withdraw-gold', async (req: AuthedRequest, res: Respo
   if (!char) return res.status(404).json({ error: 'not found' });
   const guildId = await getGuildIdForChar(cid);
   if (!guildId) return res.status(400).json({ error: '길드 미가입' });
+
+  // 길드장만 출금 가능
+  const roleR = await query<{ role: string }>(
+    `SELECT role FROM guild_members WHERE character_id = $1 LIMIT 1`, [cid]
+  );
+  if (roleR.rows[0]?.role !== 'leader') {
+    return res.status(403).json({ error: '길드 금고 출금은 길드장만 가능합니다.' });
+  }
 
   const parsed = z.object({ amount: z.number().int().positive() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
