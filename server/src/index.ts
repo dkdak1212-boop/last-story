@@ -2050,6 +2050,20 @@ async function runEquipOverhaul() {
       console.error('[late] mailbox_sender_v1 error:', e);
     }
   }
+
+  // 강화 성공률 스크롤 상점 가격 500만G 조정
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'enhance_scroll_price_5m_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE shop_entries SET buy_price = 5000000 WHERE item_id = 286`);
+        await query(`INSERT INTO _migrations (name) VALUES ('enhance_scroll_price_5m_v1')`);
+        console.log('[late] enhance_scroll_price_5m_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] enhance_scroll_price_5m_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
