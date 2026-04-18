@@ -289,20 +289,58 @@ export async function generateAndApplyOfflineReport(
     }
   }
 
-  // 유저의 자동판매 / 드랍필터 설정 로드 (온라인과 동일 적용)
+  // 유저의 자동판매 / 드랍필터 설정 로드 (온라인과 동일 bitmask 적용)
   const filterR = await query<{
     auto_dismantle_tiers: number;
+    auto_sell_quality_max: number;
+    auto_sell_protect_prefixes: string[];
     drop_filter_tiers: number;
     drop_filter_common: boolean;
+    drop_filter_quality_max: number;
+    drop_filter_protect_prefixes: string[];
   }>(
     `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+            COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
             COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
-            COALESCE(drop_filter_common, FALSE) AS drop_filter_common
+            COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
+            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
+            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
      FROM characters WHERE id = $1`, [characterId]
   );
-  const fConf = filterR.rows[0] || { auto_dismantle_tiers: 0, drop_filter_tiers: 0, drop_filter_common: false };
-  const autoSellEnabled = fConf.auto_dismantle_tiers > 0;
-  const dropFilterEnabled = fConf.drop_filter_tiers > 0 || fConf.drop_filter_common;
+  const fConf = filterR.rows[0] || {
+    auto_dismantle_tiers: 0, auto_sell_quality_max: 0, auto_sell_protect_prefixes: [],
+    drop_filter_tiers: 0, drop_filter_common: false, drop_filter_quality_max: 0, drop_filter_protect_prefixes: [],
+  };
+  const sellTiers = fConf.auto_dismantle_tiers;
+  const sellQualityMax = fConf.auto_sell_quality_max;
+  const sellProtect = new Set(fConf.auto_sell_protect_prefixes || []);
+  const dfTiers = fConf.drop_filter_tiers;
+  const dfQualityMax = fConf.drop_filter_quality_max;
+  const dfCommon = fConf.drop_filter_common;
+  const dfProtect = new Set(fConf.drop_filter_protect_prefixes || []);
+  const hasDropFilter = dfTiers > 0 || dfCommon;
+
+  const { generatePrefixes } = await import('../game/prefix.js');
+
+  // 장비 아이템 요구 레벨 조회 (prefix 롤링용)
+  const itemReqLevel = new Map<number, number>();
+  if (allDropItemIds.length > 0) {
+    const ilr = await query<{ id: number; required_level: number }>(
+      `SELECT id, COALESCE(required_level, 1) AS required_level FROM items WHERE id = ANY($1::int[])`,
+      [allDropItemIds]
+    );
+    for (const r of ilr.rows) itemReqLevel.set(r.id, r.required_level);
+  }
+
+  // 접두사 stat_key lookup (보호 접두사 체크용)
+  async function getPrefixStatKeys(ids: number[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const r = await query<{ stat_key: string }>(
+      `SELECT stat_key FROM item_prefixes WHERE id = ANY($1::int[])`, [ids]
+    );
+    return r.rows.map(x => x.stat_key);
+  }
 
   // 적용
   const levelUp = applyExpGain(char.level, char.exp, expGained, char.class_name);
@@ -316,23 +354,80 @@ export async function generateAndApplyOfflineReport(
     const info = itemInfo.get(itemId);
     if (!info) continue;
 
-    // 드랍필터: common 등급 + 비장비 아이템은 드랍필터 common 설정 시 스킵
-    //   (온라인과 완전 일치는 아니지만 가장 영향 큰 junk 를 차단)
-    if (dropFilterEnabled && fConf.drop_filter_common && info.grade === 'common') {
-      filteredSkipped += qty;
+    // 비장비: 드랍필터 common 스킵 외에는 그대로 지급
+    if (!info.slot) {
+      if (hasDropFilter && dfCommon && info.grade === 'common') {
+        filteredSkipped += qty;
+        continue;
+      }
+      const { overflow: ov } = await addItemToInventory(characterId, itemId, qty);
+      if (ov > 0) overflow += ov;
+      itemDropList.push({ itemId, name: info.name, quantity: qty, grade: info.grade });
       continue;
     }
 
-    // 자동판매: common/uncommon 등급을 골드로 변환
-    //   (온라인은 tier 기반이지만 offline 은 접두사 rolling 안 해서 grade 로 근사)
-    if (autoSellEnabled && (info.grade === 'common' || info.grade === 'uncommon') && info.slot) {
-      autoSoldGold += Math.max(1, Math.floor(info.sell_price * 0.5)) * qty;
-      continue;
-    }
+    // 장비: qty 개씩 개별로 prefix 롤링 → 필터/자동판매 판정
+    const reqLv = itemReqLevel.get(itemId) || 1;
+    let keptCount = 0;
+    for (let i = 0; i < qty; i++) {
+      let prefixIds: number[] = [];
+      let bonusStats: Record<string, number> = {};
+      let maxTier = 0;
+      let quality = 0;
+      let tierBit = 0;
+      let is3Options = false;
+      let sellHasProtected = false;
+      let dfHasProtected = false;
 
-    const { overflow: ov } = await addItemToInventory(characterId, itemId, qty);
-    if (ov > 0) overflow += ov;
-    itemDropList.push({ itemId, name: info.name, quantity: qty, grade: info.grade });
+      if (info.grade !== 'unique') {
+        const rolled = await generatePrefixes(reqLv);
+        prefixIds = rolled.prefixIds;
+        bonusStats = rolled.bonusStats;
+        maxTier = rolled.maxTier;
+        quality = Math.floor(Math.random() * 101);
+        tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+        is3Options = prefixIds.length >= 3;
+
+        if (prefixIds.length > 0 && (sellProtect.size > 0 || dfProtect.size > 0)) {
+          const keys = await getPrefixStatKeys(prefixIds);
+          if (sellProtect.size > 0) sellHasProtected = keys.some(k => sellProtect.has(k));
+          if (dfProtect.size > 0) dfHasProtected = keys.some(k => dfProtect.has(k));
+        }
+
+        // 드랍필터 (유니크/전설 제외)
+        if (hasDropFilter && info.grade !== 'legendary') {
+          if (dfCommon && info.grade === 'common') { filteredSkipped += 1; continue; }
+          if (dfTiers > 0) {
+            const dfTierMatch = (dfTiers & tierBit) !== 0;
+            const dfQualMatch = dfQualityMax > 0 ? quality <= dfQualityMax : true;
+            if (!is3Options && !dfHasProtected && dfTierMatch && dfQualMatch) {
+              filteredSkipped += 1;
+              continue;
+            }
+          }
+        }
+
+        // 자동판매 (티어 bitmask 매치 시 골드로 변환, 3옵/보호 접두사 제외)
+        if (sellTiers > 0) {
+          const tierMatch = (sellTiers & tierBit) !== 0;
+          const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
+          const shouldSell = !is3Options && !sellHasProtected && tierMatch && qualityMatch;
+          if (shouldSell) {
+            autoSoldGold += Math.max(1, Math.floor(info.sell_price * 0.5));
+            continue;
+          }
+        }
+      }
+
+      // 지급 (preroll 로 롤 값 유지)
+      const preroll = info.grade !== 'unique'
+        ? { prefixIds, bonusStats, maxTier, quality }
+        : undefined;
+      const { overflow: ov } = await addItemToInventory(characterId, itemId, 1, undefined, preroll);
+      if (ov > 0) overflow += ov;
+      keptCount += 1;
+    }
+    if (keptCount > 0) itemDropList.push({ itemId, name: info.name, quantity: keptCount, grade: info.grade });
   }
 
   // 자동판매 골드 goldGained 에 합산
