@@ -363,6 +363,17 @@ router.get('/users', async (req, res) => {
   res.json({ users: r.rows, total, page, totalPages: Math.ceil(total / limit) });
 });
 
+// 어드민 권한 부여/회수
+router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) => {
+  const userId = Number(req.params.id);
+  const parsed = z.object({ isAdmin: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const r = await query<{ username: string }>('SELECT username FROM users WHERE id = $1', [userId]);
+  if (r.rowCount === 0) return res.status(404).json({ error: 'user not found' });
+  await query('UPDATE users SET is_admin = $1 WHERE id = $2', [parsed.data.isAdmin, userId]);
+  res.json({ ok: true, username: r.rows[0].username, isAdmin: parsed.data.isAdmin });
+});
+
 router.post('/users/:id/ban', async (req, res) => {
   const userId = Number(req.params.id);
   const parsed = z.object({
