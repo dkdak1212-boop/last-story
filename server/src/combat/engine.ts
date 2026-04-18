@@ -2205,7 +2205,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 글로벌 이벤트 배율 (서버 전체 공용)
   const ge = await getActiveGlobalEvent();
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
+  // 몬스터 골드 드롭 전역 -50% (인플레·자금세탁 억제)
+  const MONSTER_GOLD_MULT = 0.5;
+  const finalGold = Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
   const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
@@ -2217,7 +2219,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   }
   // 부스트/접두사 보너스 표시 — 기본값 대비 추가분
   const baseExpRaw = Math.floor(m.exp_reward * ge.exp * levelDiffMult);
-  const baseGoldRaw = Math.floor(m.gold_reward * ge.gold);
+  const baseGoldRaw = Math.floor(m.gold_reward * MONSTER_GOLD_MULT * ge.gold);
   const expExtra = previewExp - baseExpRaw;
   const goldExtra = finalGold - baseGoldRaw;
   const expSuffix = expExtra > 0 ? ` (기본 ${baseExpRaw} +${expExtra})` : '';

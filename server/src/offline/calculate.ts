@@ -243,7 +243,9 @@ export async function generateAndApplyOfflineReport(
   const avgMonsterLevel = Math.round(avg(monsters.map(m => m.level)));
   const levelDiffMult = computeLevelDiffExpMult(char.level, avgMonsterLevel);
   const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
-  const goldGained = Math.floor(killCount * avgGold * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
+  // 몬스터 골드 전역 -50% (engine.ts MONSTER_GOLD_MULT 와 동일)
+  const MONSTER_GOLD_MULT = 0.5;
+  const goldGained = Math.floor(killCount * avgGold * MONSTER_GOLD_MULT * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
 
   // 드랍 보너스 — 온라인 전투와 동일하게 적용
   // 드랍부스터 / 길드 / 영토 / 접두사 drop_rate_pct
