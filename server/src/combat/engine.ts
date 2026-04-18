@@ -2493,14 +2493,16 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     addLog(s, `[독 사냥꾼] 몬스터 등장! 초기 독 2스택 부여`);
   }
 
-  // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 20)
+  // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 20, 잔여 액션 50% 감소)
   if (s.className === 'rogue' && !isDummyMonster(s) && s.rogueDotCarry && s.rogueDotCarry.length > 0) {
     const transferCount = Math.min(20, s.rogueDotCarry.length);
     for (let i = 0; i < transferCount; i++) {
       const c = s.rogueDotCarry[i];
-      addEffect(s, { type: 'poison', value: c.value, remainingActions: c.remainingActions, source: 'player', dotMult: c.dotMult, dotUseMatk: c.dotUseMatk });
+      // 전이 시 잔여 액션 50% 감소 (최소 1턴 보장) — 연쇄 처치 속도 완화
+      const reducedActions = Math.max(1, Math.floor(c.remainingActions * 0.5));
+      addEffect(s, { type: 'poison', value: c.value, remainingActions: reducedActions, source: 'player', dotMult: c.dotMult, dotUseMatk: c.dotUseMatk });
     }
-    addLog(s, `[독 전이] 이전 몬스터의 독 ${transferCount}스택이 옮겨졌습니다`);
+    addLog(s, `[독 전이] 이전 몬스터의 독 ${transferCount}스택 이월 (잔여 50%)`);
     s.rogueDotCarry = [];
   }
   addLog(s, `${m.name}이(가) 나타났다!`);
