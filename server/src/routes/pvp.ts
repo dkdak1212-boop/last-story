@@ -6,7 +6,7 @@ import { loadCharacter, loadCharacterOwned, getEffectiveStats, getNodePassives }
 import { calculateEloChange, simulatePvP } from '../pvp/simulator.js';
 import { trackDailyQuestProgress } from './dailyQuests.js';
 import { createPvPSession, toggleAuto, attackerUseSkill, attackerForfeit, attackerPing, sessionSummary } from '../pvp/realtimeEngine.js';
-import { loadEquipPrefixes, getCharSkills, buildPassiveMap } from '../combat/engine.js';
+import { loadEquipPrefixes, getCharSkills, buildPassiveMap, applyCombatStatBoost } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -337,6 +337,8 @@ router.post('/defense/:characterId/save', async (req: AuthedRequest, res: Respon
   const prefixes = await loadEquipPrefixes(cid);
   const passivesRaw = await getNodePassives(cid);
   const passivesMap = buildPassiveMap(passivesRaw);
+  // 키스톤 패시브 (war_god, iron_will 등) + atk_pct / matk_pct 2차 적용
+  applyCombatStatBoost(eff, passivesMap, prefixes, full.max_hp);
   const passives: Record<string, number> = {};
   for (const [k, v] of passivesMap) passives[k] = v;
   const skills = await getCharSkills(cid, full.class_name, full.level);

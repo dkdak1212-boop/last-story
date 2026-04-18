@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
-import { loadEquipPrefixes, getCharSkills, buildPassiveMap, type SkillDef } from '../combat/engine.js';
+import { loadEquipPrefixes, getCharSkills, buildPassiveMap, applyCombatStatBoost, type SkillDef } from '../combat/engine.js';
 import { getIo } from '../ws/io.js';
 
 const GAUGE_MAX = 1000;
@@ -36,6 +36,10 @@ interface FighterState {
   statusEffects: StatusEffect[];         // dot/shield/stat_buff
   shieldAmount: number;
   activeSummons: { name: string; damageMult: number; useMatk: boolean; remainingActions: number; isDot?: boolean }[];
+  // 1회성 차지 (PvE 와 동일)
+  hasFirstStrike: boolean;   // 약점간파 prefix (first_strike_pct) — 첫 공격 1회
+  hasFirstSkill: boolean;    // 도적 shadow_strike — 첫 스킬 1회
+  rage: number;              // 전사 분노 (0~100)
 }
 
 interface StatusEffect {
@@ -116,6 +120,8 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
     const defPrefixes = await loadEquipPrefixes(defenderId);
     const defPassivesRaw = await getNodePassives(defenderId);
     const defPassivesMap = buildPassiveMap(defPassivesRaw);
+    // 키스톤 + 접두사 2차 적용 (PvE 와 동일)
+    applyCombatStatBoost(defEff, defPassivesMap, defPrefixes, fullDef.max_hp);
     const defPassivesObj: Record<string, number> = {};
     for (const [k, v] of defPassivesMap) defPassivesObj[k] = v;
     const defSkillsAll = await getCharSkills(defenderId, fullDef.class_name, fullDef.level);
@@ -146,6 +152,8 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
   const attPassivesRaw = await getNodePassives(attackerId);
   const attPassives = buildPassiveMap(attPassivesRaw);
   const attPrefixes = await loadEquipPrefixes(attackerId);
+  // 키스톤 패시브 + atk_pct / matk_pct 2차 적용 (PvE startCombatSession 과 동일)
+  applyCombatStatBoost(attEff, attPassives, attPrefixes, attChar.max_hp);
 
   // 방어자 skills — 스냅샷 JSON → SkillDef[] 변환
   const defSkills: SkillDef[] = Array.isArray(L.skills) ? L.skills.map((s: any) => ({
@@ -171,6 +179,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       equipPrefixes: attPrefixes,
       skillCooldowns: new Map(), skillLastUsed: new Map(),
       statusEffects: [], shieldAmount: 0, activeSummons: [],
+      hasFirstStrike: true, hasFirstSkill: true, rage: 0,
     },
     defender: {
       id: defenderId, name: defMeta.name, className: defMeta.class_name, level: defMeta.level,
@@ -179,6 +188,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       equipPrefixes: L.equip_prefixes || {},
       skillCooldowns: new Map(), skillLastUsed: new Map(),
       statusEffects: [], shieldAmount: 0, activeSummons: [],
+      hasFirstStrike: true, hasFirstSkill: true, rage: 0,
     },
     startedAt: now,
     tickCount: 0,
@@ -191,10 +201,97 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
     endReason: null,
     attackerLastPing: now,
   };
+  // 패시브: counter_incarnation (상시 반사) — 세션 시작 시 effect 등록
+  const attCounter = attPassives.get('counter_incarnation') || 0;
+  if (attCounter > 0) {
+    session.attacker.statusEffects.push({ type: 'damage_reflect', value: attCounter, remainingActions: 999999, source: 'attacker' });
+  }
+  const defCounter = typeof L.passives === 'object' ? Number((L.passives as any).counter_incarnation || 0) : 0;
+  if (defCounter > 0) {
+    session.defender.statusEffects.push({ type: 'damage_reflect', value: defCounter, remainingActions: 999999, source: 'defender' });
+  }
+
   sessions.set(battleId, session);
   ensureLoop();
   pushState(session);
   return { battleId };
+}
+
+// 패시브 값 헬퍼
+function getFPassive(f: FighterState, key: string): number {
+  return f.passives.get(key) || 0;
+}
+
+// 데미지 증폭 — atk_buff / 광전사 / spell_amp / judge_amp / 약점간파 / 각성 / 크리 추가 배율
+// PvE applyDamagePrefixes 의 PvP 판 (FighterState 기반)
+function amplifyDamage(
+  self: FighterState,
+  baseDmg: number,
+  isCrit: boolean,
+  opts: { consumeFirstStrike?: boolean; consumeFirstSkill?: boolean; isDot?: boolean } = {}
+): number {
+  let dmg = baseDmg;
+  // atk_buff (전쟁의 함성 등)
+  const atkBuff = self.statusEffects
+    .filter(e => e.type === 'stat_buff' && e.remainingActions > 0)
+    .reduce((a, e) => a + e.value, 0);
+  if (atkBuff > 0) dmg = Math.round(dmg * (1 + atkBuff / 100));
+  // 광전사 prefix (HP 30% 이하)
+  const berserk = self.equipPrefixes.berserk_pct || 0;
+  if (berserk > 0 && self.hp / self.maxHp <= 0.3) {
+    dmg = Math.round(dmg * (1 + berserk / 100));
+  }
+  // spell_amp 패시브 (마법사)
+  const spellAmp = getFPassive(self, 'spell_amp');
+  if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+  // judge_amp / holy_judge 패시브 (성직자)
+  if (self.className === 'cleric') {
+    const judgeAmp = getFPassive(self, 'judge_amp') + getFPassive(self, 'holy_judge');
+    if (judgeAmp > 0) dmg = Math.round(dmg * (1 + judgeAmp / 100));
+  }
+  // dot_amp 패시브 (도트 전용)
+  if (opts.isDot) {
+    const dotAmp = getFPassive(self, 'dot_amp');
+    const dotAmpPct = self.equipPrefixes.dot_amp_pct || 0;
+    const totalDotAmp = dotAmp + dotAmpPct;
+    if (totalDotAmp > 0) dmg = Math.round(dmg * (1 + totalDotAmp / 100));
+  }
+  // 약점간파 prefix (1회성)
+  if (opts.consumeFirstStrike !== false && self.hasFirstStrike) {
+    const firstStrike = self.equipPrefixes.first_strike_pct || 0;
+    if (firstStrike > 0) {
+      dmg = Math.round(dmg * (1 + firstStrike / 100));
+      self.hasFirstStrike = false;
+    }
+  }
+  // shadow_strike (첫 스킬)
+  if (opts.consumeFirstSkill !== false && self.hasFirstSkill) {
+    const shadowStrike = getFPassive(self, 'shadow_strike');
+    if (shadowStrike > 0) {
+      dmg = Math.round(dmg * (1 + shadowStrike / 100));
+      self.hasFirstSkill = false;
+    }
+  }
+  // 크리 추가 배율 (crit_damage 패시브 + crit_dmg_pct prefix)
+  if (isCrit) {
+    const critDmgBonus = getFPassive(self, 'crit_damage') + (self.equipPrefixes.crit_dmg_pct || 0);
+    if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+  }
+  return dmg;
+}
+
+// armor_pierce: target 의 def/mdef 를 % 낮춘 사본 반환 (calcDamage 에 전달)
+function applyArmorPierce(self: FighterState, opp: FighterState): typeof opp.stats {
+  const armorPierce = getFPassive(self, 'armor_pierce');
+  const defReduce = self.equipPrefixes.def_reduce_pct || 0;
+  const defPierce = self.equipPrefixes.def_pierce_pct || 0;
+  const total = Math.min(80, armorPierce + defReduce + defPierce);
+  if (total <= 0) return opp.stats;
+  return {
+    ...opp.stats,
+    def: Math.round(opp.stats.def * (1 - total / 100)),
+    mdef: Math.round(opp.stats.mdef * (1 - total / 100)),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -244,6 +341,16 @@ function tickSession(s: PvPSession): void {
   if (!s.attackerWaitingInput) fillGauge(s.attacker);
   fillGauge(s.defender);
 
+  // HP 재생 (hp_regen prefix — 초당 hp_regen, tick 100ms 기준 = /10)
+  const applyRegen = (f: FighterState) => {
+    const regen = f.equipPrefixes.hp_regen || 0;
+    if (regen > 0 && f.hp > 0 && f.hp < f.maxHp) {
+      f.hp = Math.min(f.maxHp, f.hp + regen / 10);
+    }
+  };
+  applyRegen(s.attacker);
+  applyRegen(s.defender);
+
   // 공격자 행동 판정
   if (s.attacker.gauge >= GAUGE_MAX) {
     if (s.attackerAuto) {
@@ -285,11 +392,14 @@ function tickSession(s: PvPSession): void {
 
 function tickDots(s: PvPSession): void {
   const processEffect = (fighter: FighterState, target: FighterState) => {
+    // dot_amp 증폭 (패시브 + prefix)
+    const dotAmp = getFPassive(fighter, 'dot_amp') + (fighter.equipPrefixes.dot_amp_pct || 0);
+    const ampMult = dotAmp > 0 ? 1 + dotAmp / 100 : 1;
     for (let i = fighter.statusEffects.length - 1; i >= 0; i--) {
       const eff = fighter.statusEffects[i];
       if (eff.type === 'dot') {
-        // 도트도 동일 PvP 보정 + HP% 캡 적용
-        let d = Math.max(1, Math.round(eff.value * PVP_DAMAGE_MULT));
+        let base = Math.round(eff.value * ampMult);
+        let d = Math.max(1, Math.round(base * PVP_DAMAGE_MULT));
         const cap = Math.max(1, Math.floor(target.maxHp * PVP_PER_HIT_CAP_PCT / 100));
         if (d > cap) d = cap;
         target.hp -= d;
@@ -298,7 +408,6 @@ function tickDots(s: PvPSession): void {
       }
     }
   };
-  // attacker 가 걸어놓은 dot → defender 에게 적용
   processEffect(s.attacker, s.defender);
   processEffect(s.defender, s.attacker);
 }
@@ -317,19 +426,26 @@ function pushSummon(f: FighterState, name: string, damageMult: number, useMatk: 
   f.activeSummons.push({ name, damageMult: Math.max(0.1, damageMult), useMatk, remainingActions: Math.max(1, remainingActions), isDot });
 }
 
-// 행동 후 소환수 공격 처리 — 각 소환수가 상대에게 calcDamage 로 1회 공격
+// 행동 후 소환수 공격 처리 — armor_pierce + amplify + calcDamage 경유
 function processSummons(s: PvPSession, side: 'attacker' | 'defender'): void {
   const self = side === 'attacker' ? s.attacker : s.defender;
   const opp = side === 'attacker' ? s.defender : s.attacker;
   if (self.activeSummons.length === 0) return;
+  const oppStats = applyArmorPierce(self, opp);
+  // summon_buff_active (지휘/군주의 위엄) 데미지 증폭
+  const summonBuff = self.statusEffects
+    .filter(e => e.type === 'stat_buff' && e.remainingActions > 0)
+    .reduce((a, e) => a + e.value, 0);
   for (let i = self.activeSummons.length - 1; i >= 0; i--) {
     const sm = self.activeSummons[i];
-    const d = calcDamage(self.stats, opp.stats, sm.damageMult, sm.useMatk, 0);
+    const d = calcDamage(self.stats, oppStats, sm.damageMult, sm.useMatk, 0);
     if (d.miss) {
       s.log.push(`🪄 ${self.name}의 ${sm.name} → 빗나감`);
     } else {
+      let dmg = d.damage;
+      if (summonBuff > 0) dmg = Math.round(dmg * (1 + summonBuff / 100));
       const prevHp = opp.hp;
-      applyDamage(s, side, d.damage, false, d.crit);
+      applyDamage(s, side, dmg, false, d.crit);
       const actual = Math.max(0, prevHp - opp.hp);
       s.log.push(`🪄 ${self.name}의 ${sm.name} → ${actual}${d.crit ? ' 치명!' : ''}`);
     }
@@ -434,10 +550,33 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
   const useMatk = skill.kind === 'magic' || skill.kind === 'heal'
     || self.className === 'mage' || self.className === 'cleric';
 
-  // 편의 함수
+  // 편의 함수 — armor_pierce + amplifyDamage + 분노 폭발 + applyDamage 통합
   const dealDamage = (mult: number, flat = skill.flat_damage) => {
-    const d = calcDamage(self.stats, opp.stats, mult, useMatk, flat);
-    if (!d.miss) applyDamage(s, side, d.damage, false, d.crit);
+    const oppStats = applyArmorPierce(self, opp);
+    const d = calcDamage(self.stats, oppStats, mult, useMatk, flat);
+    if (!d.miss) {
+      let amplified = amplifyDamage(self, d.damage, d.crit);
+      // 전사 분노 폭발 (rage 100 이상 → ×3)
+      let rageProc = false;
+      if (self.className === 'warrior' && self.rage >= 100) {
+        amplified = Math.round(amplified * 3);
+        const rageReduce = getFPassive(self, 'rage_reduce');
+        self.rage = rageReduce > 0 ? Math.round(self.rage * (rageReduce / 100)) : 0;
+        rageProc = true;
+      }
+      applyDamage(s, side, amplified, false, d.crit);
+      // 전사 분노 누적 (폭발 시 스킵)
+      if (self.className === 'warrior' && !rageProc) {
+        self.rage = Math.min(100, self.rage + (skill.cooldown_actions === 0 ? 10 : 15));
+      }
+      if (rageProc) s.log.push(`🔥 ${self.name} 분노 폭발! ×3`);
+      // 흡혈 prefix
+      const lifesteal = self.equipPrefixes.lifesteal_pct || 0;
+      if (lifesteal > 0) {
+        const heal = Math.round(amplified * lifesteal / 100);
+        if (heal > 0) self.hp = Math.min(self.maxHp, self.hp + heal);
+      }
+    }
     return d;
   };
   const dur = skill.effect_duration || 3;
@@ -593,25 +732,37 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     }
     case 'multi_hit': {
       const hits = Math.max(1, Math.round(skill.effect_value));
-      let total = 0, crits = 0, miss = 0;
+      const oppStats = applyArmorPierce(self, opp);
+      const multiAmp = self.equipPrefixes.multi_hit_amp_pct || 0;
+      const hitMult = multiAmp > 0 ? skill.damage_mult * (1 + multiAmp / 100) : skill.damage_mult;
+      let total = 0, crits = 0, miss = 0, firstLanded = true;
       for (let i = 0; i < hits; i++) {
-        const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
+        const d = calcDamage(self.stats, oppStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) { miss++; continue; }
-        applyDamage(s, side, d.damage, false, d.crit);
-        total += d.damage;
+        const amplified = amplifyDamage(self, d.damage, d.crit, { consumeFirstStrike: firstLanded, consumeFirstSkill: firstLanded });
+        firstLanded = false;
+        applyDamage(s, side, amplified, false, d.crit);
+        total += amplified;
         if (d.crit) crits++;
+        // 타당 분노 +5
+        if (self.className === 'warrior') self.rage = Math.min(100, self.rage + 5);
       }
       s.log.push(`${self.name} [${skName}] ${hits}연타 합계 ${total}${crits > 0 ? ` (치명 ${crits})` : ''}${miss > 0 ? ` · ${miss}회 빗나감` : ''}`);
       break;
     }
     case 'multi_hit_poison': {
       const hits = Math.max(1, Math.round(skill.effect_value));
-      let total = 0, crits = 0, miss = 0;
+      const oppStats = applyArmorPierce(self, opp);
+      const multiAmp = self.equipPrefixes.multi_hit_amp_pct || 0;
+      const hitMult = multiAmp > 0 ? skill.damage_mult * (1 + multiAmp / 100) : skill.damage_mult;
+      let total = 0, crits = 0, miss = 0, firstLanded = true;
       for (let i = 0; i < hits; i++) {
-        const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
+        const d = calcDamage(self.stats, oppStats, hitMult, useMatk, skill.flat_damage);
         if (d.miss) { miss++; continue; }
-        applyDamage(s, side, d.damage, false, d.crit);
-        total += d.damage;
+        const amplified = amplifyDamage(self, d.damage, d.crit, { consumeFirstStrike: firstLanded, consumeFirstSkill: firstLanded });
+        firstLanded = false;
+        applyDamage(s, side, amplified, false, d.crit);
+        total += amplified;
         if (d.crit) crits++;
       }
       const dotBase = useMatk ? self.stats.matk : self.stats.atk;
@@ -870,6 +1021,8 @@ function fighterSnapshot(f: FighterState) {
       name: s.name, remainingActions: s.remainingActions, isDot: !!s.isDot,
       damagePct: Math.round(s.damageMult * 100),
     })),
+    rage: f.className === 'warrior' ? f.rage : undefined,
+    statusEffectCount: f.statusEffects.length,
   };
 }
 

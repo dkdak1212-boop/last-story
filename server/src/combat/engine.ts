@@ -3387,7 +3387,7 @@ export function getKillStats(characterId: number): {
 // 키스톤 패시브 + atk_pct/matk_pct 접두사 2차 적용
 // getEffectiveStats가 이미 한 번 적용한 위에 한 번 더 곱하여 기존 라이브 밸런스를 유지
 // (startCombatSession과 refreshSessionStats 양쪽이 동일한 값을 내도록 강제)
-function applyCombatStatBoost(
+export function applyCombatStatBoost(
   eff: import('../game/formulas.js').EffectiveStats,
   passives: Map<string, number>,
   equipPrefixes: Record<string, number>,
