@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { io as socketIo, type Socket } from 'socket.io-client';
+import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import { Bar, GaugeBar, CombatLog } from './CombatScreen';
+import { Bar, GaugeBar, CombatLog, getSkillIcon } from './CombatScreen';
 import { ClassIcon } from '../components/ui/ClassIcon';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
@@ -35,6 +36,8 @@ function fmtTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+interface DamagePop { id: number; side: 'me' | 'foe'; value: number; crit?: boolean; x: number }
+
 export function PvPCombatScreen() {
   const { battleId } = useParams();
   const navigate = useNavigate();
@@ -43,6 +46,11 @@ export function PvPCombatScreen() {
   const [err, setErr] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const [logVisible, setLogVisible] = useState(() => localStorage.getItem('combatLogVisible') !== '0');
+  const [popups, setPopups] = useState<DamagePop[]>([]);
+  const popupIdRef = useRef(0);
+  const prevHpRef = useRef<{ meHp: number; foeHp: number } | null>(null);
+  const prevLogLenRef = useRef<number>(0);
+
   function toggleLog() {
     const next = !logVisible;
     setLogVisible(next);
@@ -50,6 +58,42 @@ export function PvPCombatScreen() {
   }
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+  // 스냅샷 변화 감지 → 데미지 팝업 생성
+  useEffect(() => {
+    if (!state) return;
+    const prev = prevHpRef.current;
+    const meHp = state.attacker.hp;
+    const foeHp = state.defender.hp;
+
+    if (prev) {
+      // 새 로그 라인에서 crit 여부 추출
+      const newLogs = state.log.slice(prevLogLenRef.current);
+      const hasCrit = newLogs.some(l => l.includes('치명타'));
+
+      if (foeHp < prev.foeHp) {
+        const delta = prev.foeHp - foeHp;
+        popupIdRef.current += 1;
+        setPopups(ps => [...ps, { id: popupIdRef.current, side: 'foe', value: Math.round(delta), crit: hasCrit, x: 40 + Math.random() * 20 }]);
+      }
+      if (meHp < prev.meHp) {
+        const delta = prev.meHp - meHp;
+        popupIdRef.current += 1;
+        setPopups(ps => [...ps, { id: popupIdRef.current, side: 'me', value: Math.round(delta), crit: hasCrit, x: 40 + Math.random() * 20 }]);
+      }
+    }
+    prevHpRef.current = { meHp, foeHp };
+    prevLogLenRef.current = state.log.length;
+  }, [state]);
+
+  // 팝업 자동 제거 (0.9초 후)
+  useEffect(() => {
+    if (popups.length === 0) return;
+    const t = setTimeout(() => {
+      setPopups(ps => ps.slice(1));
+    }, 900);
+    return () => clearTimeout(t);
+  }, [popups]);
 
   useEffect(() => {
     if (!battleId || !active || !token) return;
@@ -160,7 +204,7 @@ export function PvPCombatScreen() {
       {/* Combat grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
         {/* Player */}
-        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', position: 'relative' }}>
           <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClassIcon className={me.className as any} size={22} />
             {me.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{me.level}</span>
@@ -169,10 +213,31 @@ export function PvPCombatScreen() {
           <Bar cur={Math.round(me.hp)} max={me.maxHp} color="var(--success)" label="HP" shield={me.shieldAmount} />
           <GaugeBar percent={playerGaugePct} color="var(--accent)" label="게이지" highlight={state.attackerWaitingInput} />
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>스피드 {me.speed}</div>
+          <AnimatePresence>
+            {popups.filter(p => p.side === 'me').map(p => (
+              <motion.div key={p.id}
+                initial={{ opacity: 0.9, y: 0 }}
+                animate={{ opacity: 1, y: -36 }}
+                exit={{ opacity: 0, y: -56 }}
+                transition={{ duration: 0.8 }}
+                style={{
+                  position: 'absolute', top: 10, left: `${p.x}%`,
+                  transform: 'translateX(-50%)', pointerEvents: 'none',
+                  fontSize: 22, fontWeight: 800, whiteSpace: 'nowrap',
+                  color: p.crit ? '#ff2222' : '#ff8844',
+                  textShadow: p.crit
+                    ? '0 0 6px rgba(255,34,34,0.7), 0 2px 3px rgba(0,0,0,0.8)'
+                    : '0 0 6px rgba(255,136,68,0.5), 0 2px 3px rgba(0,0,0,0.7)',
+                }}
+              >
+                -{p.value.toLocaleString()}{p.crit ? '!' : ''}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
 
         {/* Opponent */}
-        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', position: 'relative' }}>
           <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClassIcon className={foe.className as any} size={22} />
             {foe.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{foe.level}</span>
@@ -181,6 +246,27 @@ export function PvPCombatScreen() {
           <Bar cur={Math.round(foe.hp)} max={foe.maxHp} color="var(--danger)" label="HP" shield={foe.shieldAmount} />
           <GaugeBar percent={foeGaugePct} color="var(--danger)" label="게이지" />
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>스피드 {foe.speed}</div>
+          <AnimatePresence>
+            {popups.filter(p => p.side === 'foe').map(p => (
+              <motion.div key={p.id}
+                initial={{ opacity: 0.9, y: 0 }}
+                animate={{ opacity: 1, y: -36 }}
+                exit={{ opacity: 0, y: -56 }}
+                transition={{ duration: 0.8 }}
+                style={{
+                  position: 'absolute', top: 10, left: `${p.x}%`,
+                  transform: 'translateX(-50%)', pointerEvents: 'none',
+                  fontSize: 22, fontWeight: 800, whiteSpace: 'nowrap',
+                  color: p.crit ? '#ff2222' : '#ffd700',
+                  textShadow: p.crit
+                    ? '0 0 6px rgba(255,34,34,0.7), 0 2px 3px rgba(0,0,0,0.8)'
+                    : '0 0 8px rgba(255,215,0,0.5), 0 2px 3px rgba(0,0,0,0.7)',
+                }}
+              >
+                -{p.value.toLocaleString()}{p.crit ? '!' : ''}
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -223,6 +309,7 @@ function PvPSkillBar({ skills, waitingInput, gaugeFull, onUse }: {
         {skills.map(sk => {
           const onCooldown = sk.cooldownLeft > 0;
           const usable = canUse && !onCooldown;
+          const iconSrc = getSkillIcon(sk.name);
           return (
             <button
               key={sk.id}
@@ -244,6 +331,13 @@ function PvPSkillBar({ skills, waitingInput, gaugeFull, onUse }: {
                 boxShadow: usable ? '0 0 12px var(--accent)' : 'none',
               }}
             >
+              {iconSrc && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+                  <img src={iconSrc} alt="" width={32} height={32}
+                    style={{ imageRendering: 'pixelated' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                </div>
+              )}
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{sk.name}</div>
               <div style={{ fontSize: 9, color: usable ? '#000' : 'var(--text-dim)' }}>
                 CD {sk.cooldown}{onCooldown ? ` (${sk.cooldownLeft})` : ''}

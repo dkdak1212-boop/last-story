@@ -974,7 +974,7 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
   '대지 거신 소환': { cls: 'summoner', lv: 90 }, '천상의 수호자': { cls: 'summoner', lv: 95 },
   '시공의 지배자': { cls: 'summoner', lv: 100 },
 };
-function getSkillIcon(name: string): string {
+export function getSkillIcon(name: string): string {
   const m = SKILL_CLASS_MAP[name];
   return m ? `/images/skills/${m.cls}_${m.lv}.png` : '';
 }
