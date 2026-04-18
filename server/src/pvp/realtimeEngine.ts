@@ -38,7 +38,8 @@ interface FighterState {
 }
 
 interface StatusEffect {
-  type: 'dot' | 'shield' | 'stat_buff' | 'stun' | 'speed_mod';
+  type: 'dot' | 'shield' | 'stat_buff' | 'stun' | 'speed_mod'
+      | 'damage_reduce' | 'damage_reflect' | 'gauge_freeze' | 'accuracy_debuff';
   value: number;
   remainingActions: number; // 대상의 action 수 단위 — 매 행동 시 -1
   source: 'attacker' | 'defender';
@@ -229,11 +230,18 @@ function tickSession(s: PvPSession): void {
     return;
   }
 
-  // 양측 게이지 충전
-  if (!s.attackerWaitingInput) {
-    s.attacker.gauge = Math.min(GAUGE_MAX, s.attacker.gauge + s.attacker.stats.spd * GAUGE_FILL_RATE);
-  }
-  s.defender.gauge = Math.min(GAUGE_MAX, s.defender.gauge + s.defender.stats.spd * GAUGE_FILL_RATE);
+  // 양측 게이지 충전 (gauge_freeze 활성 시 충전 스킵, speed_mod 반영)
+  const fillGauge = (f: FighterState) => {
+    const frozen = f.statusEffects.some(e => e.type === 'gauge_freeze' && e.remainingActions > 0);
+    if (frozen) return;
+    const speedMod = f.statusEffects
+      .filter(e => e.type === 'speed_mod' && e.remainingActions > 0)
+      .reduce((acc, e) => acc + e.value, 0);
+    const spdEff = Math.max(10, f.stats.spd * (1 + speedMod / 100));
+    f.gauge = Math.min(GAUGE_MAX, f.gauge + spdEff * GAUGE_FILL_RATE);
+  };
+  if (!s.attackerWaitingInput) fillGauge(s.attacker);
+  fillGauge(s.defender);
 
   // 공격자 행동 판정
   if (s.attacker.gauge >= GAUGE_MAX) {
@@ -359,9 +367,26 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
   const self = side === 'attacker' ? s.attacker : s.defender;
   const opp = side === 'attacker' ? s.defender : s.attacker;
 
-  // 매 행동마다 쿨다운 데크리먼트 (자기 + 상대 dot 쪽)
+  // stun 체크 — 기절 상태면 행동 스킵
+  const stunned = self.statusEffects.find(e => e.type === 'stun' && e.remainingActions > 0);
+  if (stunned) {
+    stunned.remainingActions -= 1;
+    if (stunned.remainingActions <= 0) {
+      self.statusEffects = self.statusEffects.filter(e => e !== stunned);
+    }
+    s.log.push(`${self.name} 기절로 행동 불가`);
+    return;
+  }
+
+  // 매 행동마다 쿨다운 데크리먼트 + 자기 지속 효과 감소
   decrementCooldowns(self);
-  // 상대 쪽 dot remainingActions 감소는 tickDots 에서 처리
+  for (let i = self.statusEffects.length - 1; i >= 0; i--) {
+    const e = self.statusEffects[i];
+    if (e.type !== 'dot' && e.type !== 'stun') { // dot는 tickDots, stun은 위에서 처리
+      e.remainingActions -= 1;
+      if (e.remainingActions <= 0) self.statusEffects.splice(i, 1);
+    }
+  }
 
   if (!skill) {
     // 기본 공격
@@ -379,30 +404,146 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
   const useMatk = skill.kind === 'magic' || skill.kind === 'heal'
     || self.className === 'mage' || self.className === 'cleric';
 
+  // 편의 함수
+  const dealDamage = (mult: number, flat = skill.flat_damage) => {
+    const d = calcDamage(self.stats, opp.stats, mult, useMatk, flat);
+    if (!d.miss) applyDamage(s, side, d.damage, false, d.crit);
+    return d;
+  };
+  const dur = skill.effect_duration || 3;
+  const skName = skill.name;
+
   switch (skill.effect_type) {
     case 'heal': {
       const amt = Math.round((useMatk ? self.stats.matk : self.stats.atk) * skill.damage_mult);
       self.hp = Math.min(self.maxHp, self.hp + amt);
-      s.log.push(`${self.name} [${skill.name}] HP +${amt}`);
+      s.log.push(`${self.name} [${skName}] HP +${amt}`);
+      break;
+    }
+    case 'heal_pct': {
+      const amt = Math.round(self.maxHp * skill.effect_value / 100);
+      self.hp = Math.min(self.maxHp, self.hp + amt);
+      s.log.push(`${self.name} [${skName}] HP +${amt} (${skill.effect_value}%)`);
       break;
     }
     case 'shield': {
       const amt = Math.round((useMatk ? self.stats.matk : self.stats.atk) * skill.damage_mult);
       self.shieldAmount = Math.max(self.shieldAmount, amt);
-      s.log.push(`${self.name} [${skill.name}] 쉴드 ${amt}`);
+      s.log.push(`${self.name} [${skName}] 쉴드 ${amt}`);
       break;
     }
     case 'shield_break': {
       opp.shieldAmount = 0;
-      const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
-      applyDamage(s, side, d.damage, d.miss, d.crit);
-      s.log.push(`${self.name} [${skill.name}] 쉴드 파괴 + ${d.miss ? '빗나감' : `${d.damage} 데미지`}`);
+      const d = dealDamage(skill.damage_mult);
+      s.log.push(`${self.name} [${skName}] 쉴드 파괴 + ${d.miss ? '빗나감' : `${d.damage} 데미지`}`);
       break;
     }
     case 'stat_buff':
-    case 'atk_buff': {
-      self.statusEffects.push({ type: 'stat_buff', value: skill.effect_value, remainingActions: skill.effect_duration || 3, source: side });
-      s.log.push(`${self.name} [${skill.name}] 버프`);
+    case 'atk_buff':
+    case 'crit_bonus': {
+      self.statusEffects.push({ type: 'stat_buff', value: skill.effect_value, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 버프 +${skill.effect_value}% (${dur}행동)`);
+      break;
+    }
+    case 'damage_reduce': {
+      self.statusEffects.push({ type: 'damage_reduce', value: skill.effect_value, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 받는 피해 -${skill.effect_value}% (${dur}행동)`);
+      break;
+    }
+    case 'damage_reflect': {
+      self.statusEffects.push({ type: 'damage_reflect', value: skill.effect_value, remainingActions: dur, source: side });
+      // 천상의 낙인은 damage + reflect 로 보이므로 데미지도 같이
+      if (skill.damage_mult > 0 && skill.kind === 'damage') {
+        const d = dealDamage(skill.damage_mult);
+        s.log.push(`${self.name} [${skName}] 반사 ${skill.effect_value}% ${dur}행동 + ${d.miss ? '빗나감' : `${d.damage}`}`);
+      } else {
+        s.log.push(`${self.name} [${skName}] 반사 ${skill.effect_value}% (${dur}행동)`);
+      }
+      break;
+    }
+    case 'self_speed_mod': {
+      self.statusEffects.push({ type: 'speed_mod', value: skill.effect_value, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 자기 스피드 ${skill.effect_value >= 0 ? '+' : ''}${skill.effect_value}% (${dur}행동)`);
+      break;
+    }
+    case 'speed_mod': {
+      // kind='debuff' 이면 상대에게, 아니면 데미지 + 감속
+      if (skill.kind === 'debuff') {
+        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 스피드 -${Math.abs(skill.effect_value)}% (${dur}행동)`);
+      } else {
+        const d = dealDamage(skill.damage_mult);
+        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 상대 감속 ${skill.effect_value}%`);
+      }
+      break;
+    }
+    case 'gauge_fill': {
+      const gain = GAUGE_MAX * skill.effect_value / 100;
+      self.gauge = Math.min(GAUGE_MAX, self.gauge + gain);
+      s.log.push(`${self.name} [${skName}] 게이지 +${skill.effect_value}%`);
+      break;
+    }
+    case 'gauge_freeze': {
+      // kind='damage' 이면 데미지 동반
+      if (skill.kind === 'damage') {
+        const d = dealDamage(skill.damage_mult);
+        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 상대 게이지 동결 (${dur}행동)`);
+      } else {
+        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 게이지 동결 (${dur}행동)`);
+      }
+      break;
+    }
+    case 'gauge_reset': {
+      opp.gauge = 0;
+      s.log.push(`${self.name} [${skName}] 상대 게이지 리셋`);
+      break;
+    }
+    case 'stun': {
+      if (skill.kind === 'damage') {
+        const d = dealDamage(skill.damage_mult);
+        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 기절 ${dur}행동`);
+      } else {
+        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: dur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 기절 ${dur}행동`);
+      }
+      break;
+    }
+    case 'accuracy_debuff': {
+      opp.statusEffects.push({ type: 'accuracy_debuff', value: skill.effect_value, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 상대 명중 -${skill.effect_value}% (${dur}행동)`);
+      break;
+    }
+    case 'lifesteal': {
+      const d = dealDamage(skill.damage_mult);
+      if (!d.miss && d.damage > 0) {
+        const heal = Math.round(d.damage * skill.effect_value / 100);
+        self.hp = Math.min(self.maxHp, self.hp + heal);
+        s.log.push(`${self.name} [${skName}] ${d.damage} + 흡혈 +${heal}`);
+      } else {
+        s.log.push(`${self.name} [${skName}] 빗나감`);
+      }
+      break;
+    }
+    case 'hp_pct_damage': {
+      const d = dealDamage(skill.damage_mult);
+      const extra = Math.round(Math.max(0, opp.hp) * skill.effect_value / 100);
+      if (extra > 0) {
+        opp.hp -= Math.max(1, Math.round(extra * PVP_DAMAGE_MULT * 0.5)); // 고정 % 데미지도 캡 적용 (× 0.5 로 더 완화)
+      }
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 고정 ${skill.effect_value}% HP`);
+      break;
+    }
+    case 'double_chance': {
+      const d = dealDamage(skill.damage_mult);
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명!' : ''}`}`);
+      if (Math.random() * 100 < skill.effect_value) {
+        const d2 = dealDamage(skill.damage_mult);
+        s.log.push(`${self.name} [${skName}] 2회 발동! ${d2.miss ? '빗나감' : `${d2.damage}${d2.crit ? ' 치명!' : ''}`}`);
+      }
       break;
     }
     case 'multi_hit': {
@@ -415,27 +556,72 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
         total += d.damage;
         if (d.crit) crits++;
       }
-      s.log.push(`${self.name} [${skill.name}] ${hits}연타 합계 ${total}${crits > 0 ? ` (치명 ${crits})` : ''}${miss > 0 ? ` · ${miss}회 빗나감` : ''}`);
+      s.log.push(`${self.name} [${skName}] ${hits}연타 합계 ${total}${crits > 0 ? ` (치명 ${crits})` : ''}${miss > 0 ? ` · ${miss}회 빗나감` : ''}`);
+      break;
+    }
+    case 'multi_hit_poison': {
+      const hits = Math.max(1, Math.round(skill.effect_value));
+      let total = 0, crits = 0, miss = 0;
+      for (let i = 0; i < hits; i++) {
+        const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
+        if (d.miss) { miss++; continue; }
+        applyDamage(s, side, d.damage, false, d.crit);
+        total += d.damage;
+        if (d.crit) crits++;
+      }
+      const dotBase = useMatk ? self.stats.matk : self.stats.atk;
+      const dotDmg = Math.round(dotBase * 2.0);
+      self.statusEffects.push({ type: 'dot', value: dotDmg, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] ${hits}연타+독 ${total} (치명 ${crits}/빗 ${miss}) · 독 ${dotDmg}×${dur}`);
+      break;
+    }
+    case 'poison_burst': {
+      // 즉발 데미지 + 강한 독 dot
+      const d = dealDamage(skill.damage_mult);
+      const dotBase = useMatk ? self.stats.matk : self.stats.atk;
+      const dotDmg = Math.round(dotBase * 1.5);
+      self.statusEffects.push({ type: 'dot', value: dotDmg, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 독 폭발 ${dotDmg}×${dur}`);
       break;
     }
     case 'dot':
     case 'poison':
     case 'burn': {
-      // DoT: value 배율 × 공격자 atk/matk, 지속 = effect_duration
       const dmgPerTick = Math.round((useMatk ? self.stats.matk : self.stats.atk) * skill.effect_value);
-      // 즉발 데미지 먼저
-      const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
-      applyDamage(s, side, d.damage, d.miss, d.crit);
-      // dot 스택 부여 (자기 statusEffects 에 저장 → tickDots 에서 상대에게 적용)
-      self.statusEffects.push({ type: 'dot', value: dmgPerTick, remainingActions: skill.effect_duration || 3, source: side });
-      s.log.push(`${self.name} [${skill.name}] ${d.miss ? '빗나감' : `${d.damage}`} + 도트 ${dmgPerTick}×${skill.effect_duration}`);
+      const d = dealDamage(skill.damage_mult);
+      self.statusEffects.push({ type: 'dot', value: dmgPerTick, remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}`} + 도트 ${dmgPerTick}×${dur}`);
       break;
     }
+    case 'judgment_day':
+    case 'self_damage_pct':
+    case 'self_hp_dmg': {
+      // 자해 스킬 등 — 단순 데미지로 처리
+      const d = dealDamage(skill.damage_mult);
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명!' : ''}`}`);
+      break;
+    }
+    // 소환 계열 — MVP: 기본 데미지로 대체, 소환수 미복원
+    case 'summon':
+    case 'summon_all':
+    case 'summon_buff':
+    case 'summon_dot':
+    case 'summon_extend':
+    case 'summon_frenzy':
+    case 'summon_heal':
+    case 'summon_multi':
+    case 'summon_sacrifice':
+    case 'summon_storm':
+    case 'summon_tank':
+    case 'resurrect': {
+      const d = dealDamage(Math.max(skill.damage_mult, 1.0));
+      s.log.push(`${self.name} [${skName}] (PvP 단순화) ${d.miss ? '빗나감' : d.damage}`);
+      break;
+    }
+    case 'damage':
     default: {
-      // 기본 데미지 스킬
-      const d = calcDamage(self.stats, opp.stats, skill.damage_mult, useMatk, skill.flat_damage);
-      applyDamage(s, side, d.damage, d.miss, d.crit);
-      s.log.push(`${self.name} [${skill.name}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명타!' : ''}`}`);
+      const d = dealDamage(skill.damage_mult);
+      s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명타!' : ''}`}`);
     }
   }
 }
@@ -443,11 +629,17 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
 function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damage: number, miss: boolean, crit: boolean): void {
   if (miss || damage <= 0) return;
   const target = attackerSide === 'attacker' ? s.defender : s.attacker;
+  const attacker = attackerSide === 'attacker' ? s.attacker : s.defender;
   // 1) 치명타 폭딜 완화
   if (crit) damage = Math.round(damage * PVP_CRIT_MULT);
   // 2) 기본 PvP 데미지 배율
   damage = Math.max(1, Math.round(damage * PVP_DAMAGE_MULT));
-  // 3) 타격당 maxHp 퍼센트 캡 (스탯 격차 무관 · 최소 20타 확보)
+  // 3) damage_reduce 버프 적용 (target 쪽)
+  const reducePct = target.statusEffects
+    .filter(e => e.type === 'damage_reduce' && e.remainingActions > 0)
+    .reduce((a, e) => a + e.value, 0);
+  if (reducePct > 0) damage = Math.max(1, Math.round(damage * (1 - Math.min(90, reducePct) / 100)));
+  // 4) 타격당 maxHp 퍼센트 캡 (스탯 격차 무관 · 최소 20타 확보)
   const cap = Math.max(1, Math.floor(target.maxHp * PVP_PER_HIT_CAP_PCT / 100));
   if (damage > cap) damage = cap;
   // 쉴드 먼저 감소
@@ -457,6 +649,15 @@ function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damag
     damage -= absorbed;
   }
   target.hp -= damage;
+  // 5) damage_reflect 버프 (target 이 반사) — attacker 에게 일정 % 되돌려줌 (캡 적용 X 로 반사는 이미 작은 양)
+  const reflectPct = target.statusEffects
+    .filter(e => e.type === 'damage_reflect' && e.remainingActions > 0)
+    .reduce((a, e) => a + e.value, 0);
+  if (reflectPct > 0 && damage > 0) {
+    const reflected = Math.max(1, Math.round(damage * reflectPct / 100));
+    attacker.hp -= reflected;
+    s.log.push(`↩️ ${target.name} 반사 → ${attacker.name} ${reflected}`);
+  }
 }
 
 // ─────────────────────────────────────────────
