@@ -39,16 +39,10 @@ function buildPrefixTiers(prefixIds: number[], cache: Map<number, PrefixInfo>): 
   return result;
 }
 
-// 전투 세션의 player_stats 갱신 (장비 변경 시)
+// 전투 세션 스탯 갱신 (장비 변경 시) — 인메모리 세션만 새로 계산
+// (기존 UPDATE combat_sessions SET player_stats 는 컬럼 없어서 실패하던 쿼리 — 제거)
 async function refreshCombatSessionStats(characterId: number) {
   try {
-    const sess = await query('SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]);
-    if (sess.rowCount === 0) return;
-    const char = await loadCharacter(characterId);
-    if (!char) return;
-    const eff = await getEffectiveStats(char);
-    await query('UPDATE combat_sessions SET player_stats = $1 WHERE character_id = $2', [JSON.stringify(eff), characterId]);
-    // 인메모리 세션도 갱신
     await refreshSessionStats(characterId);
   } catch (e) {
     console.error('[refreshCombatSessionStats]', e);

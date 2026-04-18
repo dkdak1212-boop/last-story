@@ -3463,6 +3463,33 @@ export function getCombatHp(characterId: number): number | null {
   return s ? Math.max(0, s.playerHp) : null;
 }
 
+// 유휴 세션 정리 — WS 구독자 없는 세션 120초 후 자동 종료
+// (브라우저 종료 / 접속 끊김 등으로 쌓인 세션 해소)
+const idleSinceMap = new Map<number, number>();
+setInterval(() => {
+  const io = getIo();
+  if (!io) return;
+  const now = Date.now();
+  let cleaned = 0;
+  for (const charId of activeSessions.keys()) {
+    const room = io.sockets.adapter.rooms.get(`combat:${charId}`);
+    const listeners = room?.size || 0;
+    if (listeners > 0) {
+      idleSinceMap.delete(charId);
+      continue;
+    }
+    const since = idleSinceMap.get(charId);
+    if (!since) {
+      idleSinceMap.set(charId, now);
+    } else if (now - since > 120_000) {
+      idleSinceMap.delete(charId);
+      cleaned++;
+      stopCombatSession(charId).catch(e => console.error('[cleanup] stop err', charId, e));
+    }
+  }
+  if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} idle sessions (remaining=${activeSessions.size})`);
+}, 30_000);
+
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
 setInterval(() => {
