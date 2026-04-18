@@ -48,6 +48,7 @@ import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import guildBossRoutes from './routes/guildBoss.js';
 import guildBossShopRoutes from './routes/guildBossShop.js';
+import guildStorageRoutes from './routes/guildStorage.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import { query } from './db/pool.js';
@@ -148,6 +149,7 @@ app.use('/api/characters', nodeRoutes);
 app.use('/api/characters', dailyQuestRoutes);
 app.use('/api/guild-boss', guildBossRoutes);
 app.use('/api/guild-boss-shop', guildBossShopRoutes);
+app.use('/api/guild-storage', guildStorageRoutes);
 app.use('/api/characters', achievementRoutes);
 
 // 프로덕션: 빌드된 클라이언트 정적 파일 서빙
@@ -1858,6 +1860,58 @@ async function runEquipOverhaul() {
       }
     } catch (e) {
       console.error('[late] guild_boss_shop_full_v1 error:', e);
+    }
+  }
+
+  // 길드 창고 시스템
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'guild_storage_v1'`);
+      if (!applied.rowCount) {
+        console.log('[late] guild_storage_v1: 길드 창고 테이블 생성...');
+
+        // 창고 아이템 (계정 창고와 동일 구조 + guild_id + 예치자 정보)
+        await query(`
+          CREATE TABLE IF NOT EXISTS guild_storage_items (
+            id BIGSERIAL PRIMARY KEY,
+            guild_id INT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+            slot_index INT NOT NULL,
+            item_id INT NOT NULL REFERENCES items(id),
+            quantity INT NOT NULL DEFAULT 1,
+            enhance_level INT NOT NULL DEFAULT 0,
+            prefix_ids INT[] NOT NULL DEFAULT '{}',
+            prefix_stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+            quality INT NOT NULL DEFAULT 0,
+            deposited_by_character_id INT REFERENCES characters(id) ON DELETE SET NULL,
+            deposited_by_name TEXT,
+            deposited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (guild_id, slot_index)
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_guild_storage_items_guild ON guild_storage_items(guild_id)`);
+
+        // 거래 로그 (최근 50건만 유지)
+        await query(`
+          CREATE TABLE IF NOT EXISTS guild_storage_logs (
+            id BIGSERIAL PRIMARY KEY,
+            guild_id INT NOT NULL REFERENCES guilds(id) ON DELETE CASCADE,
+            character_id INT REFERENCES characters(id) ON DELETE SET NULL,
+            character_name TEXT NOT NULL,
+            action VARCHAR(20) NOT NULL,
+            item_id INT,
+            item_name TEXT,
+            quantity INT NOT NULL DEFAULT 0,
+            gold BIGINT NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_guild_storage_logs_guild ON guild_storage_logs(guild_id, id DESC)`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('guild_storage_v1')`);
+        console.log('[late] guild_storage_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] guild_storage_v1 error:', e);
     }
   }
 }

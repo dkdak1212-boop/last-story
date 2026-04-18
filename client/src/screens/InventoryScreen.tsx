@@ -7,6 +7,7 @@ import { ItemComparison } from '../components/ui/ItemComparison';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 import { ItemIcon } from '../components/ui/ItemIcon';
 import { StorageModal } from '../components/storage/StorageModal';
+import { GuildStorageModal } from '../components/storage/GuildStorageModal';
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
@@ -73,6 +74,7 @@ export function InventoryScreen() {
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
   const [storageOpen, setStorageOpen] = useState(false);
+  const [guildStorageOpen, setGuildStorageOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'recent' | 'grade' | 'type' | 'level'>('recent');
   const [filterPanel, setFilterPanel] = useState<'sell' | 'drop' | null>(null);
 
@@ -248,12 +250,20 @@ export function InventoryScreen() {
             background: 'var(--bg-panel)', border: '1px solid var(--accent)', color: 'var(--accent)',
             fontWeight: 700, borderRadius: 3, cursor: 'pointer',
           }}>📦 창고</button>
+          <button onClick={() => setGuildStorageOpen(true)} title="길드 창고" style={{
+            fontSize: 11, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: 'var(--bg-panel)', border: '1px solid #6a8fff', color: '#6a8fff',
+            fontWeight: 700, borderRadius: 3, cursor: 'pointer',
+          }}>🏰 길드창고</button>
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{inv.length}/300</span>
         </div>
       </div>
 
       {storageOpen && (
         <StorageModal inventory={inv} onClose={() => setStorageOpen(false)} onChange={refresh} />
+      )}
+      {guildStorageOpen && (
+        <GuildStorageModal inventory={inv} onClose={() => setGuildStorageOpen(false)} onChange={refresh} />
       )}
 
       {/* 메시지 */}
