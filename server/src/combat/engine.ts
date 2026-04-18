@@ -2858,9 +2858,9 @@ export function invalidateAutoSellCache(characterId: number): void {
 }
 
 // ── WebSocket Push ──
-const PUSH_THROTTLE_FULL_MS = 100; // 진입 후 5분간 — 풀 10fps
-const PUSH_THROTTLE_LITE_MS = 500; // 5분 후 — 저대역 모드 2fps (체감 렉 최소화)
-const FULL_FPS_DURATION_MS = 300_000;
+const PUSH_THROTTLE_FULL_MS = 150; // 진입 후 1분간 — ~6.7fps (egress 절감)
+const PUSH_THROTTLE_LITE_MS = 1000; // 이후 — 1fps 저대역 (egress 대폭 절감)
+const FULL_FPS_DURATION_MS = 60_000; // 5분 → 1분 (대부분 유저는 1분 내 적응)
 async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
   const io = getIo();
   if (!io) return false;

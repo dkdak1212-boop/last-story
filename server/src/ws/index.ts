@@ -9,6 +9,10 @@ const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 export function initWebSocket(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     cors: { origin: process.env.CORS_ORIGIN || '*' },
+    // Egress 절감: WS 메시지 압축 (60~80% 감소 예상)
+    perMessageDeflate: {
+      threshold: 1024, // 1KB 이상 메시지만 압축 (작은 건 오버헤드)
+    },
   });
 
   io.use(async (socket, next) => {
