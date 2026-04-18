@@ -149,8 +149,9 @@ export function GuildStorageModal({ inventory, onClose, onChange }: Props) {
         maxHeight: '92vh', overflow: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, color: '#6a8fff', fontSize: 18 }}>
-            🏰 길드 창고 {data && <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>— {data.guildName}</span>}
+          <h2 style={{ margin: 0, color: '#6a8fff', fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src="/images/items/misc/guild_storage.png" alt="" width={24} height={24} style={{ imageRendering: 'pixelated' }} />
+            길드 창고 {data && <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>— {data.guildName}</span>}
           </h2>
           <button onClick={onClose} style={{ fontSize: 12 }}>닫기</button>
         </div>

@@ -254,7 +254,10 @@ export function InventoryScreen() {
             fontSize: 11, padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 4,
             background: 'var(--bg-panel)', border: '1px solid #6a8fff', color: '#6a8fff',
             fontWeight: 700, borderRadius: 3, cursor: 'pointer',
-          }}>🏰 길드창고</button>
+          }}>
+            <img src="/images/items/misc/guild_storage.png" alt="" width={14} height={14} style={{ imageRendering: 'pixelated' }} />
+            길드창고
+          </button>
           <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{inv.length}/300</span>
         </div>
       </div>
