@@ -416,14 +416,14 @@ router.post('/:id/sell', async (req: AuthedRequest, res: Response) => {
   if (sell_price <= 0) return res.status(400).json({ error: '판매할 수 없는 아이템입니다.' });
 
   const qty = Math.min(sellQty || slot.quantity, slot.quantity);
-  const gold = sell_price * qty;
+  // 아이템 판매 시 골드 지급 중단 (다계정 자금세탁 차단) — 아이템만 소멸
+  const gold = 0;
 
   if (qty >= slot.quantity) {
     await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
   } else {
     await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [qty, slot.id]);
   }
-  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, id]);
 
   res.json({ ok: true, sold: name, quantity: qty, gold });
 });
@@ -455,10 +455,10 @@ router.post('/:id/dismantle', async (req: AuthedRequest, res: Response) => {
   if (!item.slot) return res.status(400).json({ error: '장비만 분해할 수 있습니다.' });
   if (item.type === 'consumable') return res.status(400).json({ error: '분해 불가 아이템입니다.' });
 
-  const gold = Math.max(1, Math.floor(item.sell_price * 0.5));
+  // 분해 시 골드 지급 중단 — 아이템만 소멸
+  const gold = 0;
 
   await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
-  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [gold, id]);
 
   res.json({ ok: true, name: item.name, gold });
 });
@@ -634,18 +634,14 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
 
   if (items.rowCount === 0) return res.status(400).json({ error: '판매할 아이템이 없습니다.' });
 
-  let totalGold = 0;
+  // 전체판매 시 골드 지급 중단 — 아이템만 일괄 소멸
   let totalCount = 0;
-
   for (const item of items.rows) {
-    totalGold += item.sell_price * item.quantity;
     totalCount += item.quantity;
     await query('DELETE FROM character_inventory WHERE id = $1', [item.id]);
   }
 
-  await query('UPDATE characters SET gold = gold + $1 WHERE id = $2', [totalGold, id]);
-
-  res.json({ ok: true, count: totalCount, gold: totalGold });
+  res.json({ ok: true, count: totalCount, gold: 0 });
 });
 
 // ═══ 장비 프리셋 ═══

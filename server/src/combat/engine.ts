@@ -2348,9 +2348,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
         const shouldSell = !is3Options && !sellHasProtected && tierMatch && qualityMatch;
         if (shouldSell) {
-          const gold = Math.max(1, Math.floor(item.sell_price * 0.5));
-          batchAdd(s.characterId, { goldDelta: gold });
-          addLog(s, `${item.name} 자동판매 (T${maxTier}, ${quality}%) → +${gold}G`);
+          // 자동판매 골드 지급 중단 — 아이템만 자동 소멸
+          addLog(s, `${item.name} 자동폐기 (T${maxTier}, ${quality}%)`);
           continue;
         }
         if (is3Options && tierMatch) {

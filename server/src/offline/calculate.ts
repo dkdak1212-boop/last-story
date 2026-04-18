@@ -407,13 +407,13 @@ export async function generateAndApplyOfflineReport(
           }
         }
 
-        // 자동판매 (티어 bitmask 매치 시 골드로 변환, 3옵/보호 접두사 제외)
+        // 자동판매 (티어 bitmask 매치 시 아이템만 소멸, 골드 지급 없음)
         if (sellTiers > 0) {
           const tierMatch = (sellTiers & tierBit) !== 0;
           const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
           const shouldSell = !is3Options && !sellHasProtected && tierMatch && qualityMatch;
           if (shouldSell) {
-            autoSoldGold += Math.max(1, Math.floor(info.sell_price * 0.5));
+            // 골드 지급 중단 — 아이템만 자동 폐기
             continue;
           }
         }
