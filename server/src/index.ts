@@ -1915,6 +1915,20 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 전사 분노 영구 저장 컬럼
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'warrior_rage_persist_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS warrior_rage INT NOT NULL DEFAULT 0`);
+        await query(`INSERT INTO _migrations (name) VALUES ('warrior_rage_persist_v1')`);
+        console.log('[late] warrior_rage_persist_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] warrior_rage_persist_v1 error:', e);
+    }
+  }
+
   // PvP 방어 세팅 스냅샷
   {
     try {

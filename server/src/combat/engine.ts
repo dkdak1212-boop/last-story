@@ -3098,7 +3098,7 @@ export async function startCombatSession(
     hasFirstStrike: true,
     missStack: 0,
     dodgeBurstPending: false,
-    rage: 0,
+    rage: 0, // 전사 분노 — 하단에서 DB 복원
     manaFlowStacks: 0,
     manaFlowActive: 0,
     dummyDamageTotal: 0,
@@ -3186,6 +3186,15 @@ export async function startCombatSession(
   }
 
   await spawnMonsterForSession(session);
+
+  // 전사 분노 DB 복원 — 전투 세션 사이 이전
+  if (char.class_name === 'warrior') {
+    try {
+      const rr = await query<{ warrior_rage: number }>('SELECT COALESCE(warrior_rage, 0) AS warrior_rage FROM characters WHERE id = $1', [characterId]);
+      session.rage = Math.min(100, Math.max(0, rr.rows[0]?.warrior_rage || 0));
+    } catch {}
+  }
+
   activeSessions.set(characterId, session);
 
   // 전투 루프 시작 (아직 안 돌고 있으면)
@@ -3213,6 +3222,12 @@ export async function stopCombatSession(characterId: number): Promise<void> {
       'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
       [s.playerHp, 'village', characterId]
     );
+    // 전사 분노 DB 저장 (다음 전투 세션에 이어짐)
+    if (s.className === 'warrior') {
+      try {
+        await query('UPDATE characters SET warrior_rage = $1 WHERE id = $2', [Math.max(0, Math.min(100, s.rage)), characterId]);
+      } catch {}
+    }
   }
   await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
   activeSessions.delete(characterId);
