@@ -13,6 +13,9 @@ const GAUGE_FILL_RATE = 0.1;     // speed × rate = 틱당 충전량
 const TICK_MS = 100;
 const TIME_LIMIT_MS = 180_000;   // 3분
 const MANUAL_TIMEOUT_MS = 3000;  // 수동 대기 시간 — 초과 시 자동 발동
+// PvP 보정값 — 한방컷 방지
+const PVP_DAMAGE_MULT = 0.1;     // 입히는 데미지 × 0.1 (10%)
+const PVP_HP_MULT = 2;           // 양측 최대 HP × 2
 
 interface FighterState {
   id: number;                    // character_id
@@ -159,7 +162,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
     battleId,
     attacker: {
       id: attackerId, name: attChar.name, className: attChar.class_name, level: attChar.level,
-      hp: attEff.maxHp, maxHp: attEff.maxHp, gauge: 0,
+      hp: attEff.maxHp * PVP_HP_MULT, maxHp: attEff.maxHp * PVP_HP_MULT, gauge: 0,
       stats: attEff, skills: attSkills, passives: attPassives,
       equipPrefixes: attPrefixes,
       skillCooldowns: new Map(), skillLastUsed: new Map(),
@@ -167,7 +170,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
     },
     defender: {
       id: defenderId, name: defMeta.name, className: defMeta.class_name, level: defMeta.level,
-      hp: L.effective_stats.maxHp, maxHp: L.effective_stats.maxHp, gauge: 0,
+      hp: L.effective_stats.maxHp * PVP_HP_MULT, maxHp: L.effective_stats.maxHp * PVP_HP_MULT, gauge: 0,
       stats: L.effective_stats, skills: defSkills, passives: defPassives,
       equipPrefixes: L.equip_prefixes || {},
       skillCooldowns: new Map(), skillLastUsed: new Map(),
@@ -272,7 +275,8 @@ function tickDots(s: PvPSession): void {
     for (let i = fighter.statusEffects.length - 1; i >= 0; i--) {
       const eff = fighter.statusEffects[i];
       if (eff.type === 'dot') {
-        target.hp -= eff.value;
+        // 도트도 동일 PvP 보정 적용
+        target.hp -= Math.max(1, Math.round(eff.value * PVP_DAMAGE_MULT));
         eff.remainingActions -= 1;
         if (eff.remainingActions <= 0) fighter.statusEffects.splice(i, 1);
       }
@@ -433,6 +437,8 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
 
 function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damage: number, miss: boolean, _crit: boolean): void {
   if (miss || damage <= 0) return;
+  // PvP 보정값 — 한방컷 방지 (양측 동일 적용)
+  damage = Math.max(1, Math.round(damage * PVP_DAMAGE_MULT));
   const target = attackerSide === 'attacker' ? s.defender : s.attacker;
   // 쉴드 먼저 감소
   if (target.shieldAmount > 0) {
