@@ -1915,6 +1915,23 @@ async function runEquipOverhaul() {
     }
   }
 
+  // OAuth (구글 로그인) — users 테이블 확장
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'oauth_provider_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(20)`);
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(100)`);
+        await query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`);
+        await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_users_provider ON users(provider, provider_id) WHERE provider IS NOT NULL`);
+        await query(`INSERT INTO _migrations (name) VALUES ('oauth_provider_v1')`);
+        console.log('[late] oauth_provider_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] oauth_provider_v1 error:', e);
+    }
+  }
+
   // 전사 분노 영구 저장 컬럼
   {
     try {

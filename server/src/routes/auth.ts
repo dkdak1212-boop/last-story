@@ -153,4 +153,114 @@ router.post('/forgot-password', async (req, res) => {
   res.json({ ok: true, message: '등록된 이메일로 임시 비밀번호를 보냈습니다.' });
 });
 
+// ============================================================
+// Google OAuth 로그인
+// env: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI
+//      CLIENT_URL (리다이렉트 대상, 없으면 req 호스트 기준)
+// ============================================================
+function googleRedirectUri(req: any): string {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const proto = req.protocol === 'http' && req.get('host')?.includes('railway.app') ? 'https' : req.protocol;
+  return `${proto}://${req.get('host')}/api/auth/google/callback`;
+}
+
+router.get('/google/start', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return res.status(500).send('Google OAuth 미설정 (GOOGLE_CLIENT_ID)');
+  const redirectUri = googleRedirectUri(req);
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'online',
+    prompt: 'select_account',
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+router.get('/google/callback', async (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code : null;
+  if (!code) return res.status(400).send('code 누락');
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return res.status(500).send('Google OAuth 미설정');
+
+  const redirectUri = googleRedirectUri(req);
+  const clientUrl = process.env.CLIENT_URL || `${req.protocol}://${req.get('host')}`;
+
+  try {
+    // 1) code → token
+    const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code, client_id: clientId, client_secret: clientSecret,
+        redirect_uri: redirectUri, grant_type: 'authorization_code',
+      }).toString(),
+    });
+    if (!tokenResp.ok) {
+      console.error('[google-oauth] token fail', await tokenResp.text());
+      return res.redirect(`${clientUrl}/?oauth_error=token_exchange`);
+    }
+    const tokens = await tokenResp.json() as { access_token: string; id_token?: string };
+
+    // 2) userinfo
+    const uResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!uResp.ok) {
+      console.error('[google-oauth] userinfo fail');
+      return res.redirect(`${clientUrl}/?oauth_error=userinfo`);
+    }
+    const gu = await uResp.json() as { id: string; email?: string; name?: string };
+
+    // 3) 차단 IP 체크
+    const ip = getClientIp(req);
+    const blk = await isIpBlocked(ip);
+    if (blk.blocked) return res.redirect(`${clientUrl}/?oauth_error=blocked`);
+
+    // 4) 기존 유저 조회 / 신규 생성
+    const provider = 'google';
+    const providerId = gu.id;
+    const existR = await query<{ id: number; username: string; banned: boolean; ban_reason: string | null }>(
+      'SELECT id, username, banned, ban_reason FROM users WHERE provider = $1 AND provider_id = $2',
+      [provider, providerId]
+    );
+    let userId: number, username: string;
+    if (existR.rowCount && existR.rowCount > 0) {
+      const u = existR.rows[0];
+      if (u.banned) return res.redirect(`${clientUrl}/?oauth_error=banned`);
+      userId = u.id;
+      username = u.username;
+    } else {
+      // 고유 username 생성: google_{마지막 8자리}
+      const base = `google_${providerId.slice(-8)}`;
+      let uname = base, i = 0;
+      while (i < 20) {
+        const chk = await query('SELECT 1 FROM users WHERE username = $1', [uname]);
+        if (!chk.rowCount) break;
+        i++;
+        uname = `${base}_${i}`;
+      }
+      const ins = await query<{ id: number }>(
+        `INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots, provider, provider_id)
+         VALUES ($1, NULL, $2, $3, 3, $4, $5) RETURNING id`,
+        [uname, gu.email || null, ip, provider, providerId]
+      );
+      userId = ins.rows[0].id;
+      username = uname;
+    }
+
+    await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [userId]);
+    const token = signToken(userId, username);
+    // 클라에 토큰 전달: # 해시로 (서버 로그에 안 남고 history 만 남음)
+    res.redirect(`${clientUrl}/#oauth_token=${encodeURIComponent(token)}`);
+  } catch (e) {
+    console.error('[google-oauth] err', e);
+    res.redirect(`${clientUrl}/?oauth_error=unknown`);
+  }
+});
+
 export default router;

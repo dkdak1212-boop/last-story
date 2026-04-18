@@ -103,10 +103,38 @@ function MaintenanceGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function OAuthTokenCapture() {
+  const loginWithToken = useAuthStore((s) => s.loginWithToken);
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#oauth_token=')) {
+      const token = decodeURIComponent(hash.replace('#oauth_token=', ''));
+      if (token) {
+        loginWithToken(token);
+        // 해시 제거
+        history.replaceState(null, '', window.location.pathname);
+      }
+    }
+    const qs = new URLSearchParams(window.location.search);
+    const err = qs.get('oauth_error');
+    if (err) {
+      const msg = err === 'blocked' ? 'IP가 차단된 상태입니다'
+        : err === 'banned' ? '계정이 정지되었습니다'
+        : err === 'token_exchange' ? 'Google 인증 토큰 교환 실패'
+        : err === 'userinfo' ? 'Google 사용자 정보 조회 실패'
+        : `OAuth 오류: ${err}`;
+      alert(msg);
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }, [loginWithToken]);
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
+        <OAuthTokenCapture />
         <Suspense fallback={<LoadingSpinner message="불러오는 중..." />}>
           <MaintenanceGate>
           <Routes>
