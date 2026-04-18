@@ -3564,22 +3564,12 @@ function ensureCombatLoop() {
   console.log('[combat] engine started (100ms tick)');
 }
 
-// 서버 시작 시 기존 DB 세션 복구
+// 서버 시작 시 DB 세션 전부 클리어
+// 이전에는 복구(restore)했으나 고스트 세션이 방치보상을 막는 문제가 있어 삭제로 전환.
+// 유저 재접속 시 /offline/:id/resume 이 offline reward 처리 + 전투 자동 재시작을 수행.
 export async function restoreCombatSessions(): Promise<void> {
-  const r = await query<{
-    character_id: number; field_id: number; player_hp: number; player_speed: number; auto_mode: boolean;
-    status_effects: any; skill_cooldowns: any;
-  }>(
-    'SELECT character_id, field_id, player_hp, player_speed, auto_mode, status_effects, skill_cooldowns FROM combat_sessions'
-  );
-  for (const row of r.rows) {
-    try {
-      await startCombatSession(row.character_id, row.field_id);
-    } catch (e) {
-      console.error(`[combat] restore failed for char ${row.character_id}:`, e);
-    }
-  }
+  const r = await query(`DELETE FROM combat_sessions`);
   if (r.rowCount && r.rowCount > 0) {
-    console.log(`[combat] restored ${r.rowCount} sessions`);
+    console.log(`[combat] cleared ${r.rowCount} stale sessions on startup`);
   }
 }
