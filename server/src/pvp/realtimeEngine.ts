@@ -178,7 +178,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
     },
     startedAt: now,
     tickCount: 0,
-    attackerAuto: true,
+    attackerAuto: false, // PvP 항상 수동 모드 (기본 공격자 직접 발동)
     attackerWaitingInput: false,
     attackerWaitingSince: 0,
     log: [`${attChar.name}(Lv.${attChar.level}) vs ${defMeta.name}(Lv.${defMeta.level})`],

@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { io as socketIo, type Socket } from 'socket.io-client';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
+import { Bar, GaugeBar, CombatLog } from './CombatScreen';
+import { ClassIcon } from '../components/ui/ClassIcon';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
 
@@ -40,7 +42,6 @@ export function PvPCombatScreen() {
   const [state, setState] = useState<PvPSnapshot | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const logEndRef = useRef<HTMLDivElement | null>(null);
   const [logVisible, setLogVisible] = useState(() => localStorage.getItem('combatLogVisible') !== '0');
   function toggleLog() {
     const next = !logVisible;
@@ -73,20 +74,11 @@ export function PvPCombatScreen() {
     };
   }, [battleId, active?.id, token]);
 
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [state?.log.length]);
-
   async function useSkill(skillId: number) {
     if (!active || !battleId) return;
     try {
       await api(`/pvp/battle/${battleId}/use-skill`, { method: 'POST', body: JSON.stringify({ attackerId: active.id, skillId }) });
     } catch (e) { setErr(e instanceof Error ? e.message : 'use failed'); setTimeout(() => setErr(null), 2000); }
-  }
-  async function toggleAuto() {
-    if (!active || !battleId) return;
-    try { await api(`/pvp/battle/${battleId}/toggle-auto`, { method: 'POST', body: JSON.stringify({ attackerId: active.id }) }); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'toggle failed'); }
   }
   async function forfeit() {
     if (!active || !battleId) return;
@@ -95,7 +87,7 @@ export function PvPCombatScreen() {
     catch (e) { setErr(e instanceof Error ? e.message : 'forfeit failed'); }
   }
 
-  if (!state) return <div style={{ padding: 20, color: '#aaa' }}>{err ? `에러: ${err}` : '전투 세션 연결 중...'}</div>;
+  if (!state) return <div style={{ padding: 20, color: 'var(--text-dim)' }}>{err ? `에러: ${err}` : '전투 세션 연결 중...'}</div>;
 
   const me = state.attacker;
   const foe = state.defender;
@@ -104,147 +96,169 @@ export function PvPCombatScreen() {
   const won = isDone && state.winnerId === me.id;
   const lost = isDone && state.winnerId === foe.id;
 
+  const playerGaugePct = Math.min(100, (me.gauge / GAUGE_MAX) * 100);
+  const foeGaugePct = Math.min(100, (foe.gauge / GAUGE_MAX) * 100);
+
   return (
-    <div style={{ padding: 16, maxWidth: 920, margin: '0 auto', color: '#ddd' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 18, color: '#ff6b88' }}>⚔ PvP 전투</h2>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <div style={{ fontSize: 13, color: remainingMs < 30_000 ? '#ff4444' : '#ccc' }}>남은 시간 {fmtTime(remainingMs)}</div>
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ color: 'var(--danger)' }}>⚔ PvP 아레나 <span style={{ fontSize: 13, color: 'var(--text-dim)', fontWeight: 400 }}>vs {foe.name}</span></h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ fontSize: 13, color: remainingMs < 30_000 ? 'var(--danger)' : 'var(--text-dim)' }}>
+            남은 시간 {fmtTime(remainingMs)}
+          </div>
           {!isDone && (
-            <>
-              <button onClick={toggleAuto} style={{ padding: '6px 12px', background: state.attackerAuto ? '#4ca74c' : '#2a2520', color: '#fff', border: '1px solid #4ca74c', cursor: 'pointer' }}>
-                {state.attackerAuto ? '자동' : '수동'}
-              </button>
-              <button onClick={forfeit} style={{ padding: '6px 12px', background: '#2a1e1e', color: '#ff6666', border: '1px solid #884444', cursor: 'pointer' }}>기권</button>
-            </>
+            <button onClick={forfeit} style={{
+              background: 'transparent', color: 'var(--danger)',
+              border: '1px solid var(--danger)', fontWeight: 700,
+            }}>기권</button>
+          )}
+          {isDone && (
+            <button onClick={() => navigate('/pvp')} style={{
+              background: 'var(--accent)', color: '#000', border: 'none', fontWeight: 700,
+            }}>PvP 메뉴로</button>
           )}
         </div>
       </div>
 
-      {err && <div style={{ padding: 8, marginBottom: 10, background: '#2a1e1e', border: '1px solid #884444', color: '#ff6666', fontSize: 12 }}>{err}</div>}
+      {err && <div style={{ padding: 8, marginBottom: 10, background: 'rgba(200,60,60,0.1)', border: '1px solid rgba(200,60,60,0.3)', color: 'var(--danger)', fontSize: 12 }}>{err}</div>}
 
       {/* 종료 배너 */}
       {isDone && (
         <div style={{
-          padding: 14, marginBottom: 12, textAlign: 'center',
-          background: won ? '#1a3a1a' : lost ? '#3a1a1a' : '#2a2a1a',
-          border: `2px solid ${won ? '#4ca74c' : lost ? '#aa4444' : '#aaaa44'}`,
-          fontSize: 18, fontWeight: 700,
+          padding: 14, marginBottom: 16, textAlign: 'center',
+          background: won ? 'rgba(76,175,80,0.15)' : lost ? 'rgba(200,60,60,0.15)' : 'rgba(200,200,60,0.15)',
+          border: `2px solid ${won ? 'var(--success)' : lost ? 'var(--danger)' : '#daa520'}`,
+          fontSize: 20, fontWeight: 800,
+          color: won ? 'var(--success)' : lost ? 'var(--danger)' : '#daa520',
         }}>
           {won ? '🏆 승리!' : lost ? '💀 패배' : '🤝 무승부'}
-          <span style={{ fontSize: 12, color: '#aaa', marginLeft: 10 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-dim)', marginLeft: 10, fontWeight: 400 }}>
             ({state.endReason === 'hp' ? 'HP 승부' : state.endReason === 'timeout' ? '시간 만료' : state.endReason === 'forfeit' ? '기권' : '연결 끊김'})
           </span>
-          <div style={{ marginTop: 10 }}>
-            <button onClick={() => navigate('/pvp')} style={{ padding: '8px 20px', background: '#daa520', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700 }}>PvP 메뉴로</button>
-          </div>
         </div>
       )}
 
-      {/* 양측 HP + 게이지 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <FighterPanel fighter={me} side="me" waiting={state.attackerWaitingInput && !state.attackerAuto} />
-        <FighterPanel fighter={foe} side="foe" />
-      </div>
-
-      {/* 스킬 슬롯 (공격자) */}
-      {!isDone && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 6 }}>
-            내 스킬 {state.attackerWaitingInput && !state.attackerAuto && <span style={{ color: '#daa520' }}>— 3초 내 선택하지 않으면 자동 발동</span>}
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {me.skills.map(sk => {
-              const cooldownPct = sk.cooldown > 0 ? (sk.cooldownLeft / sk.cooldown) : 0;
-              const canUse = state.attackerWaitingInput && !state.attackerAuto && sk.cooldownLeft === 0 && me.gauge >= GAUGE_MAX;
-              return (
-                <button
-                  key={sk.id}
-                  onClick={() => canUse && useSkill(sk.id)}
-                  disabled={!canUse}
-                  style={{
-                    padding: '8px 12px', fontSize: 12, minWidth: 90,
-                    background: canUse ? '#4a3a1a' : '#1a1612',
-                    border: `1px solid ${sk.cooldownLeft > 0 ? '#444' : '#daa520'}`,
-                    color: canUse ? '#ffd66b' : sk.cooldownLeft > 0 ? '#666' : '#888',
-                    cursor: canUse ? 'pointer' : 'not-allowed',
-                    position: 'relative', overflow: 'hidden',
-                  }}
-                >
-                  <div>{sk.name}</div>
-                  <div style={{ fontSize: 9, color: '#888' }}>CD {sk.cooldown}</div>
-                  {sk.cooldownLeft > 0 && (
-                    <div style={{
-                      position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: '#ff8800', fontSize: 14, fontWeight: 700,
-                    }}>{sk.cooldownLeft}</div>
-                  )}
-                  {cooldownPct > 0 && (
-                    <div style={{
-                      position: 'absolute', left: 0, bottom: 0, height: 2,
-                      width: `${cooldownPct * 100}%`, background: '#ff8800',
-                    }} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 로그 */}
+      {/* Combat log 토글 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <button
           onClick={toggleLog}
+          title="전투 로그 표시 토글"
           style={{
             fontSize: 11, padding: '3px 10px',
-            background: logVisible ? '#daa520' : 'transparent',
-            color: logVisible ? '#000' : '#888',
-            border: '1px solid #daa520', borderRadius: 3, cursor: 'pointer',
+            background: logVisible ? 'var(--accent)' : 'transparent',
+            color: logVisible ? '#000' : 'var(--text-dim)',
+            border: '1px solid var(--accent)', borderRadius: 3, cursor: 'pointer',
           }}
         >
           📜 전투 로그 {logVisible ? 'ON' : 'OFF'}
         </button>
       </div>
-      {logVisible && (
-        <div style={{ background: '#1a1612', border: '1px solid #333', padding: 10, height: 220, overflowY: 'auto', fontSize: 12 }}>
-          {state.log.map((line, i) => (
-            <div key={i} style={{ marginBottom: 3, color: line.includes('치명타') ? '#ff8844' : line.includes('빗나감') ? '#888' : '#ccc' }}>
-              {line}
-            </div>
-          ))}
-          <div ref={logEndRef} />
+      {logVisible && <CombatLog log={state.log} />}
+
+      {/* Combat grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Player */}
+        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClassIcon className={me.className as any} size={22} />
+            {me.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{me.level}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)' }}>나</span>
+          </div>
+          <Bar cur={Math.round(me.hp)} max={me.maxHp} color="var(--success)" label="HP" shield={me.shieldAmount} />
+          <GaugeBar percent={playerGaugePct} color="var(--accent)" label="게이지" highlight={state.attackerWaitingInput} />
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>스피드 {me.speed}</div>
         </div>
+
+        {/* Opponent */}
+        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClassIcon className={foe.className as any} size={22} />
+            {foe.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Lv.{foe.level}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--danger)' }}>상대 (AI)</span>
+          </div>
+          <Bar cur={Math.round(foe.hp)} max={foe.maxHp} color="var(--danger)" label="HP" shield={foe.shieldAmount} />
+          <GaugeBar percent={foeGaugePct} color="var(--danger)" label="게이지" />
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>스피드 {foe.speed}</div>
+        </div>
+      </div>
+
+      {/* 스킬 슬롯 (공격자 수동) — 게이지 차면 눌러야 발동 */}
+      {!isDone && (
+        <PvPSkillBar
+          skills={me.skills}
+          waitingInput={state.attackerWaitingInput}
+          gaugeFull={me.gauge >= GAUGE_MAX}
+          onUse={useSkill}
+        />
       )}
     </div>
   );
 }
 
-function FighterPanel({ fighter, side, waiting }: { fighter: FighterSnapshot; side: 'me' | 'foe'; waiting?: boolean }) {
-  const hpPct = Math.max(0, (fighter.hp / fighter.maxHp) * 100);
-  const gaugePct = (fighter.gauge / GAUGE_MAX) * 100;
-  const color = side === 'me' ? '#4caf50' : '#e94560';
+function PvPSkillBar({ skills, waitingInput, gaugeFull, onUse }: {
+  skills: FighterSnapshot['skills'];
+  waitingInput: boolean;
+  gaugeFull: boolean;
+  onUse: (id: number) => void;
+}) {
+  const canUse = waitingInput && gaugeFull;
   return (
-    <div style={{ padding: 12, background: '#1a1612', border: `2px solid ${color}`, borderRadius: 4 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-        <div style={{ fontWeight: 700, color }}>{fighter.name}</div>
-        <div style={{ fontSize: 10, color: '#888' }}>Lv.{fighter.level} · {fighter.className}</div>
+    <div style={{
+      padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>스킬 (수동)</span>
+        {!gaugeFull && (
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>게이지 충전 중...</span>
+        )}
+        {canUse && (
+          <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, animation: 'pulse 0.6s ease-in-out infinite alternate' }}>
+            ⚡ 스킬을 선택하세요! (3초 내 미선택 시 자동 발동)
+          </span>
+        )}
       </div>
-      {/* HP 바 */}
-      <div style={{ position: 'relative', height: 18, background: '#0e0c0a', border: '1px solid #333', marginBottom: 4 }}>
-        <div style={{ height: '100%', width: `${hpPct}%`, background: color, transition: 'width 0.15s' }} />
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: 10, color: '#fff', fontWeight: 700, textShadow: '0 0 2px #000' }}>
-          {Math.round(fighter.hp)} / {fighter.maxHp}
-          {fighter.shieldAmount > 0 && <span style={{ marginLeft: 6, color: '#6aa4ff' }}>🛡 {fighter.shieldAmount}</span>}
-        </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {skills.map(sk => {
+          const onCooldown = sk.cooldownLeft > 0;
+          const usable = canUse && !onCooldown;
+          return (
+            <button
+              key={sk.id}
+              onClick={() => usable && onUse(sk.id)}
+              disabled={!usable}
+              style={{
+                position: 'relative', minWidth: 100, padding: '10px 14px',
+                background: usable
+                  ? 'linear-gradient(135deg, var(--accent), var(--accent))'
+                  : onCooldown ? 'var(--bg)' : 'var(--bg-panel)',
+                color: usable ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${usable ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 6,
+                cursor: usable ? 'pointer' : 'not-allowed',
+                opacity: onCooldown ? 0.4 : canUse ? 1 : 0.7,
+                transition: 'all 0.15s ease',
+                animation: usable ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',
+                textAlign: 'center',
+                boxShadow: usable ? '0 0 12px var(--accent)' : 'none',
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{sk.name}</div>
+              <div style={{ fontSize: 9, color: usable ? '#000' : 'var(--text-dim)' }}>
+                CD {sk.cooldown}{onCooldown ? ` (${sk.cooldownLeft})` : ''}
+              </div>
+              {onCooldown && (
+                <div style={{
+                  position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--danger)', fontSize: 18, fontWeight: 700, borderRadius: 6,
+                }}>{sk.cooldownLeft}</div>
+              )}
+            </button>
+          );
+        })}
       </div>
-      {/* 게이지 바 */}
-      <div style={{ position: 'relative', height: 10, background: '#0e0c0a', border: '1px solid #333' }}>
-        <div style={{ height: '100%', width: `${gaugePct}%`, background: waiting ? '#daa520' : '#66aaff', transition: 'width 0.1s linear' }} />
-        {waiting && <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: 9, color: '#000', fontWeight: 700 }}>수동 입력 대기</div>}
-      </div>
-      <div style={{ fontSize: 9, color: '#666', marginTop: 4 }}>스피드 {fighter.speed}</div>
     </div>
   );
 }

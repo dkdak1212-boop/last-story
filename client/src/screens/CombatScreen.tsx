@@ -739,7 +739,7 @@ export function CombatScreen() {
   );
 }
 
-function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: number; color: string; label: string; shield?: number }) {
+export function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: number; color: string; label: string; shield?: number }) {
   const pct = Math.max(0, Math.min(100, (cur / max) * 100));
   // 쉴드는 HP 위에 추가 게이지로 표시 (HP를 초과해도 비례 폭으로 표시)
   const shieldPct = shield > 0 ? Math.max(0, Math.min(100, (shield / max) * 100)) : 0;
@@ -850,7 +850,7 @@ function Row({ label, value, sub, color }: { label: string; value: string; sub?:
   );
 }
 
-function GaugeBar({ percent, color, label, highlight }: {
+export function GaugeBar({ percent, color, label, highlight }: {
   percent: number; color: string; label: string; highlight?: boolean;
 }) {
   return (
@@ -1233,7 +1233,7 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
 }
 
 // ── 딜미터기 ──
-function CombatLog({ log }: { log: string[] }) {
+export function CombatLog({ log }: { log: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
