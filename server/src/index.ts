@@ -1,5 +1,12 @@
 import dotenv from 'dotenv';
 dotenv.config({ override: false }); // 기존 환경변수를 덮어쓰지 않음
+// 진단: OAuth 환경변수 로드 상태
+console.log('[env-check]', JSON.stringify({
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? `SET(${process.env.GOOGLE_CLIENT_ID.slice(0, 8)}...)` : 'MISSING',
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'SET' : 'MISSING',
+  CLIENT_URL: process.env.CLIENT_URL || 'MISSING',
+  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'MISSING',
+}));
 import 'express-async-errors';
 import express from 'express';
 import compression from 'compression';
