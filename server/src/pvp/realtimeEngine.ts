@@ -44,6 +44,7 @@ interface FighterState {
   missStack: number;         // 신중한 (miss_combo_pct) — 누적 빗나감 (cap 5)
   dodgeBurstPending: boolean;// 회피의 (evasion_burst_pct) — 직전 회피 성공 플래그
   manaFlowStacks: number;    // 마법사 마나 흐름 (0~5)
+  manaFlowActive: number;    // 마법사 버스트 남은 행동 수 (0=비활성) — 쿨다운 무시
   poisonResonance: number;   // 도적 독의 공명 (0~10)
 }
 
@@ -186,7 +187,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       statusEffects: [], shieldAmount: 0, activeSummons: [],
       hasFirstStrike: true, hasFirstSkill: true, rage: 0,
       ticksSinceLastHit: 0, missStack: 0, dodgeBurstPending: false,
-      manaFlowStacks: 0, poisonResonance: 0,
+      manaFlowStacks: 0, manaFlowActive: 0, poisonResonance: 0,
     },
     defender: {
       id: defenderId, name: defMeta.name, className: defMeta.class_name, level: defMeta.level,
@@ -197,7 +198,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       statusEffects: [], shieldAmount: 0, activeSummons: [],
       hasFirstStrike: true, hasFirstSkill: true, rage: 0,
       ticksSinceLastHit: 0, missStack: 0, dodgeBurstPending: false,
-      manaFlowStacks: 0, poisonResonance: 0,
+      manaFlowStacks: 0, manaFlowActive: 0, poisonResonance: 0,
     },
     startedAt: now,
     tickCount: 0,
@@ -602,8 +603,9 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     return;
   }
 
-  // 쿨다운 등록
-  if (skill.cooldown_actions > 0) self.skillCooldowns.set(skill.id, skill.cooldown_actions);
+  // 쿨다운 등록 (마법사 마나 흐름 버스트 중엔 스킵)
+  const manaBurstActive = self.className === 'mage' && self.manaFlowActive > 0;
+  if (skill.cooldown_actions > 0 && !manaBurstActive) self.skillCooldowns.set(skill.id, skill.cooldown_actions);
   self.skillLastUsed.set(skill.id, s.tickCount);
 
   const useMatk = skill.kind === 'magic' || skill.kind === 'heal'
@@ -999,6 +1001,34 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명타!' : ''}`}`);
     }
   }
+
+  // 마법사 마나 흐름 — 버스트 중이면 -1, 아니면 스택 +1 → 5 도달 시 버스트 시작
+  if (self.className === 'mage' && skill.kind === 'damage') {
+    if (self.manaFlowActive > 0) {
+      self.manaFlowActive -= 1;
+      if (self.manaFlowActive === 0) s.log.push(`✨ ${self.name} 마나 버스트 종료`);
+    } else {
+      self.manaFlowStacks = Math.min(5, self.manaFlowStacks + 1);
+      if (self.manaFlowStacks >= 5) {
+        self.manaFlowStacks = 0;
+        self.manaFlowActive = 5;
+        s.log.push(`✨ ${self.name} 마나의 흐름 버스트! 5행동 쿨다운 무시`);
+      }
+    }
+  }
+
+  // 도적 독의 공명 — 스택 10 도달 시 폭발 (상대에게 활성 dot 합 × 3 데미지)
+  if (self.className === 'rogue' && self.poisonResonance >= 10) {
+    const poisonDots = self.statusEffects
+      .filter(e => e.type === 'dot' && e.remainingActions > 0)
+      .reduce((sum, e) => sum + e.value * e.remainingActions, 0);
+    if (poisonDots > 0) {
+      const burstDmg = Math.round(poisonDots * 3);
+      applyDamage(s, side, burstDmg, false, false);
+      s.log.push(`💀 ${self.name} 독의 공명 폭발! ${Math.round(burstDmg * PVP_DAMAGE_MULT)} 데미지`);
+    }
+    self.poisonResonance = 0;
+  }
 }
 
 function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damage: number, miss: boolean, crit: boolean): void {
@@ -1152,7 +1182,7 @@ function fighterSnapshot(f: FighterState) {
       damagePct: Math.round(s.damageMult * 100),
     })),
     rage: f.className === 'warrior' ? f.rage : undefined,
-    manaFlow: f.className === 'mage' ? { stacks: f.manaFlowStacks } : undefined,
+    manaFlow: f.className === 'mage' ? { stacks: f.manaFlowStacks, active: f.manaFlowActive } : undefined,
     poisonResonance: f.className === 'rogue' ? f.poisonResonance : undefined,
     statusEffectCount: f.statusEffects.length,
   };
