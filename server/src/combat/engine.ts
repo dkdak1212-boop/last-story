@@ -122,7 +122,7 @@ interface MonsterDef {
   drop_table: { itemId: number; chance: number; minQty: number; maxQty: number }[];
 }
 
-interface SkillDef {
+export interface SkillDef {
   id: number;
   name: string;
   damage_mult: number;
@@ -322,7 +322,7 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
 }
 
 // 장비 접두사 특수 효과 합산 로드
-async function loadEquipPrefixes(characterId: number): Promise<Record<string, number>> {
+export async function loadEquipPrefixes(characterId: number): Promise<Record<string, number>> {
   const r = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
     `SELECT ce.enhance_level, ce.prefix_stats FROM character_equipped ce WHERE ce.character_id = $1`,
     [characterId]
@@ -341,7 +341,7 @@ async function loadEquipPrefixes(characterId: number): Promise<Record<string, nu
 
 const MAX_COMBAT_SKILLS = 7;
 
-async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
+export async function getCharSkills(characterId: number, className: string, level: number): Promise<SkillDef[]> {
   // 컬럼 보장 (방어적 — 마이그레이션이 아직 안 돈 상황 대비)
   try {
     await query(`ALTER TABLE character_skills ADD COLUMN IF NOT EXISTS slot_order INT NOT NULL DEFAULT 0`);
@@ -665,7 +665,7 @@ function getPassive(s: ActiveSession, key: string): number {
   return s.passives.get(key) ?? 0;
 }
 
-function buildPassiveMap(rows: { key: string; value: number }[]): Map<string, number> {
+export function buildPassiveMap(rows: { key: string; value: number }[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const p of rows) {
     m.set(p.key, (m.get(p.key) ?? 0) + p.value);

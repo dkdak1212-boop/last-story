@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 
 interface RankRow { rank: number; id: number; name: string; className: string; level: number; wins: number; losses: number; elo: number }
-interface Opponent { id: number; name: string; className: string; level: number; elo: number; onCooldown: boolean }
+interface Opponent { id: number; name: string; className: string; level: number; elo: number; onCooldown: boolean; hasDefense: boolean }
 interface MyStats { wins: number; losses: number; elo: number; dailyAttacks: number; dailyLimit: number }
+interface DefenseLoadout {
+  exists: boolean;
+  stats?: { atk: number; matk: number; def: number; mdef: number; maxHp: number; spd: number; cri: number; dodge: number; accuracy: number };
+  skillCount?: number;
+  equipment?: { slot: string; name: string; grade: string; enhanceLevel: number }[];
+  updatedAt?: string;
+}
 interface BattleResult { winner: 'attacker' | 'defender'; log: string[]; eloChange: number; goldGained: number; turns: number }
 interface HistoryRow { id: number; amAttacker: boolean; attackerName: string; defenderName: string; won: boolean; eloChange: number; log: string[]; createdAt: string }
 interface InspectData {
@@ -32,8 +40,10 @@ function getEloGrade(elo: number): { name: string; color: string } {
 
 export function PvPScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
-  const refreshActive = useCharacterStore((s) => s.refreshActive);
-  const [tab, setTab] = useState<'opponents' | 'ranking' | 'history'>('opponents');
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<'opponents' | 'ranking' | 'history' | 'defense'>('opponents');
+  const [defense, setDefense] = useState<DefenseLoadout | null>(null);
+  const [defenseBusy, setDefenseBusy] = useState(false);
   const [stats, setStats] = useState<MyStats | null>(null);
   const [opponents, setOpponents] = useState<Opponent[]>([]);
   const [ranking, setRanking] = useState<RankRow[]>([]);
@@ -66,25 +76,50 @@ export function PvPScreen() {
     if (!active) return;
     setHistory(await api<HistoryRow[]>(`/pvp/history/${active.id}`));
   }
+  async function loadDefense() {
+    if (!active) return;
+    setDefense(await api<DefenseLoadout>(`/pvp/defense/${active.id}`));
+  }
 
-  useEffect(() => { loadStats(); }, [active?.id]);
+  useEffect(() => { loadStats(); loadDefense(); }, [active?.id]);
   useEffect(() => {
     if (tab === 'opponents') loadOpponents();
     if (tab === 'ranking') loadRanking();
     if (tab === 'history') loadHistory();
+    if (tab === 'defense') loadDefense();
   }, [tab, active?.id]);
 
-  async function attack(defenderId: number, defenderName: string) {
+  async function attack(defenderId: number, _defenderName: string) {
     if (!active) return;
     try {
-      const r = await api<BattleResult>('/pvp/attack', {
+      const r = await api<{ battleId: string }>('/pvp/attack', {
         method: 'POST',
         body: JSON.stringify({ attackerId: active.id, defenderId }),
       });
-      setResult({ ...r, opponent: defenderName });
-      await refreshActive();
-      loadStats(); loadOpponents();
+      navigate(`/pvp-combat/${r.battleId}`);
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+
+  async function saveDefense() {
+    if (!active || defenseBusy) return;
+    if (!confirm('현재 장비·스킬 상태로 방어 세팅을 저장합니다. 이후 PvE 에서 장비 바꿔도 저장된 세팅은 그대로 유지됩니다.')) return;
+    setDefenseBusy(true);
+    try {
+      await api(`/pvp/defense/${active.id}/save`, { method: 'POST' });
+      await loadDefense();
+      alert('방어 세팅 저장 완료');
+    } catch (e) { alert(e instanceof Error ? e.message : '저장 실패'); }
+    finally { setDefenseBusy(false); }
+  }
+  async function clearDefense() {
+    if (!active || defenseBusy) return;
+    if (!confirm('방어 세팅을 삭제하면 공격 받지 않게 됩니다 (PvP 목록에서 제외). 진행하시겠습니까?')) return;
+    setDefenseBusy(true);
+    try {
+      await api(`/pvp/defense/${active.id}/clear`, { method: 'POST' });
+      await loadDefense();
+    } catch (e) { alert(e instanceof Error ? e.message : '삭제 실패'); }
+    finally { setDefenseBusy(false); }
   }
 
   return (
@@ -104,10 +139,13 @@ export function PvPScreen() {
         })()}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         <button className={tab === 'opponents' ? 'primary' : ''} onClick={() => setTab('opponents')}>상대 찾기</button>
         <button className={tab === 'ranking' ? 'primary' : ''} onClick={() => setTab('ranking')}>랭킹</button>
         <button className={tab === 'history' ? 'primary' : ''} onClick={() => setTab('history')}>전투 기록</button>
+        <button className={tab === 'defense' ? 'primary' : ''} onClick={() => setTab('defense')}>
+          방어 설정 {!defense?.exists && <span style={{ color: '#ff8844' }}>⚠️</span>}
+        </button>
       </div>
 
       {result && <BattleResultModal result={result} onClose={() => setResult(null)} />}
@@ -127,10 +165,12 @@ export function PvPScreen() {
                   Lv.{o.level} {CLASS_LABEL[o.className]} · ELO {o.elo}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {!o.hasDefense && <span style={{ fontSize: 10, color: '#ff8844' }}>⚠️ 방어 미설정</span>}
                 <button onClick={() => loadInspect(o.id)} disabled={inspectLoading} style={{ fontSize: 12 }}>정보</button>
-                <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown}>
-                  {o.onCooldown ? '쿨다운' : '공격'}
+                <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown || !o.hasDefense}
+                  title={!o.hasDefense ? '방어 세팅 미설정 — 공격 불가' : ''}>
+                  {o.onCooldown ? '쿨다운' : !o.hasDefense ? '공격 불가' : '공격'}
                 </button>
               </div>
             </div>
@@ -198,6 +238,61 @@ export function PvPScreen() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {tab === 'defense' && (
+        <div>
+          <div style={{ marginBottom: 10, padding: 10, background: 'var(--bg-panel)', border: '1px solid #daa520', fontSize: 12, color: '#ccc' }}>
+            💡 <b style={{ color: '#daa520' }}>방어 세팅</b>은 현재 장비/스킬/스탯 상태의 <b>스냅샷</b>이에요.
+            저장 후에는 PvE에서 자유롭게 장비 바꿔도 PvP 방어는 스냅샷 그대로 사용됩니다.
+            <br />
+            방어 세팅이 없으면 <b>공격받지 않습니다</b> (PvP 목록에서 제외).
+          </div>
+
+          {defense?.exists ? (
+            <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid #4ca74c' }}>
+              <div style={{ fontWeight: 700, color: '#4ca74c', marginBottom: 8 }}>✅ 방어 세팅 저장됨</div>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
+                저장 시각: {defense.updatedAt && new Date(defense.updatedAt).toLocaleString('ko-KR')}
+              </div>
+              {defense.stats && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12, marginBottom: 10 }}>
+                  <div>HP: <b>{defense.stats.maxHp}</b></div>
+                  <div>ATK: <b>{defense.stats.atk}</b></div>
+                  <div>MATK: <b>{defense.stats.matk}</b></div>
+                  <div>DEF: <b>{defense.stats.def}</b></div>
+                  <div>MDEF: <b>{defense.stats.mdef}</b></div>
+                  <div>SPD: <b>{defense.stats.spd}</b></div>
+                  <div>CRI: <b>{defense.stats.cri}</b></div>
+                  <div>회피: <b>{defense.stats.dodge}</b></div>
+                  <div>명중: <b>{defense.stats.accuracy}</b></div>
+                </div>
+              )}
+              {defense.equipment && (
+                <div style={{ marginBottom: 10, fontSize: 11 }}>
+                  <div style={{ color: 'var(--text-dim)', marginBottom: 4 }}>장비 {defense.equipment.length}개 · 스킬 {defense.skillCount}개</div>
+                  {defense.equipment.map((e, i) => (
+                    <span key={i} style={{ marginRight: 8, color: e.grade === 'unique' ? '#ff8800' : e.grade === 'legendary' ? '#ff4488' : '#aaa' }}>
+                      {e.name}{e.enhanceLevel > 0 && `+${e.enhanceLevel}`}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={saveDefense} disabled={defenseBusy} className="primary">다시 저장 (현재 상태로)</button>
+                <button onClick={clearDefense} disabled={defenseBusy}>삭제</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid #ff8844' }}>
+              <div style={{ fontWeight: 700, color: '#ff8844', marginBottom: 8 }}>⚠️ 방어 세팅 미설정</div>
+              <div style={{ fontSize: 12, color: '#ccc', marginBottom: 10 }}>
+                방어 세팅이 없으면 랭킹에 올라가지 않고 공격받지 않습니다. 랭킹 참여를 원하시면 아래 버튼으로 저장하세요.
+              </div>
+              <button onClick={saveDefense} disabled={defenseBusy} className="primary">현재 상태로 방어 세팅 저장</button>
+            </div>
+          )}
         </div>
       )}
     </div>

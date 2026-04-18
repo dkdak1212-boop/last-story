@@ -1914,6 +1914,32 @@ async function runEquipOverhaul() {
       console.error('[late] guild_storage_v1 error:', e);
     }
   }
+
+  // PvP 방어 세팅 스냅샷
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'pvp_defense_loadouts_v1'`);
+      if (!applied.rowCount) {
+        console.log('[late] pvp_defense_loadouts_v1: 방어 세팅 테이블...');
+        await query(`
+          CREATE TABLE IF NOT EXISTS pvp_defense_loadouts (
+            character_id INT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+            effective_stats JSONB NOT NULL,
+            equip_prefixes JSONB NOT NULL DEFAULT '{}'::jsonb,
+            passives JSONB NOT NULL DEFAULT '{}'::jsonb,
+            skill_slots INT[] NOT NULL DEFAULT '{}',
+            skills JSONB NOT NULL DEFAULT '[]'::jsonb,
+            equipment_summary JSONB NOT NULL DEFAULT '[]'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`INSERT INTO _migrations (name) VALUES ('pvp_defense_loadouts_v1')`);
+        console.log('[late] pvp_defense_loadouts_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] pvp_defense_loadouts_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

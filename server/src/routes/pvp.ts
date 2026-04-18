@@ -2,10 +2,11 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned } from '../game/character.js';
-import { simulatePvP, calculateEloChange } from '../pvp/simulator.js';
-import { deliverToMailbox } from '../game/inventory.js';
+import { loadCharacter, loadCharacterOwned, getEffectiveStats, getNodePassives } from '../game/character.js';
+import { calculateEloChange } from '../pvp/simulator.js';
 import { trackDailyQuestProgress } from './dailyQuests.js';
+import { createPvPSession, toggleAuto, attackerUseSkill, attackerForfeit, attackerPing, sessionSummary } from '../pvp/realtimeEngine.js';
+import { loadEquipPrefixes, getCharSkills, buildPassiveMap } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -70,17 +71,19 @@ router.get('/opponents/:characterId', async (req: AuthedRequest, res: Response) 
   await ensureStats(cid);
   const myElo = (await query<{ elo: number }>(`SELECT elo FROM pvp_stats WHERE character_id = $1`, [cid])).rows[0].elo;
 
-  const r = await query<{ character_id: number; name: string; class_name: string; level: number; elo: number; on_cooldown: boolean }>(
+  const r = await query<{ character_id: number; name: string; class_name: string; level: number; elo: number; on_cooldown: boolean; has_defense: boolean }>(
     `SELECT ps.character_id, c.name, c.class_name, c.level, ps.elo,
-            EXISTS(SELECT 1 FROM pvp_cooldowns WHERE attacker_id = $1 AND defender_id = ps.character_id AND expires_at > NOW()) AS on_cooldown
+            EXISTS(SELECT 1 FROM pvp_cooldowns WHERE attacker_id = $1 AND defender_id = ps.character_id AND expires_at > NOW()) AS on_cooldown,
+            EXISTS(SELECT 1 FROM pvp_defense_loadouts WHERE character_id = ps.character_id) AS has_defense
      FROM pvp_stats ps JOIN characters c ON c.id = ps.character_id
      WHERE ps.character_id <> $1 AND ABS(ps.elo - $2) <= ${ELO_MATCH_RANGE}
-     ORDER BY ABS(ps.elo - $2) ASC LIMIT 20`,
+     ORDER BY ABS(ps.elo - $2) ASC LIMIT 30`,
     [cid, myElo]
   );
   res.json(r.rows.map(row => ({
     id: row.character_id, name: row.name, className: row.class_name,
     level: row.level, elo: row.elo, onCooldown: row.on_cooldown,
+    hasDefense: row.has_defense,
   })));
 });
 
@@ -135,7 +138,7 @@ router.get('/inspect/:characterId', async (req: AuthedRequest, res: Response) =>
   });
 });
 
-// 공격
+// 공격 — 실시간 전투 세션 생성
 router.post('/attack', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     attackerId: z.number().int().positive(),
@@ -151,8 +154,8 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
   await ensureStats(defenderId);
 
   // 일일 제한
-  const statR = await query<{ daily_attacks: number; elo: number }>(
-    `SELECT daily_attacks, elo FROM pvp_stats WHERE character_id = $1`, [attackerId]
+  const statR = await query<{ daily_attacks: number }>(
+    `SELECT daily_attacks FROM pvp_stats WHERE character_id = $1`, [attackerId]
   );
   if (statR.rows[0].daily_attacks >= DAILY_ATTACK_LIMIT) {
     return res.status(400).json({ error: '일일 공격 한도 도달' });
@@ -165,21 +168,11 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
   );
   if (cd.rowCount && cd.rowCount > 0) return res.status(400).json({ error: '쿨다운 중' });
 
-  // 시뮬레이션
-  const sim = await simulatePvP(attackerId, defenderId);
-  const winnerId = sim.winner === 'attacker' ? attackerId : defenderId;
-  const loserId = sim.winner === 'attacker' ? defenderId : attackerId;
-  const attackerElo = statR.rows[0].elo;
-  const defenderElo = (await query<{ elo: number }>(`SELECT elo FROM pvp_stats WHERE character_id = $1`, [defenderId])).rows[0].elo;
-  const winnerElo = winnerId === attackerId ? attackerElo : defenderElo;
-  const loserElo = winnerId === attackerId ? defenderElo : attackerElo;
-  const eloChange = calculateEloChange(winnerElo, loserElo);
+  // 실시간 세션 생성
+  const r = await createPvPSession(attackerId, defenderId);
+  if ('error' in r) return res.status(r.status).json({ error: r.error });
 
-  // ELO & 전적 업데이트
-  await query(`UPDATE pvp_stats SET wins = wins + 1, elo = elo + $1 WHERE character_id = $2`, [eloChange, winnerId]);
-  await query(`UPDATE pvp_stats SET losses = losses + 1, elo = GREATEST(0, elo - $1) WHERE character_id = $2`, [eloChange, loserId]);
-
-  // 공격자 횟수 + 쿨다운
+  // 일일 공격 카운트 + 쿨다운 세팅 (전투 시작 직후 고정 — 기권/DC 여도 소모)
   await query(`UPDATE pvp_stats SET daily_attacks = daily_attacks + 1 WHERE character_id = $1`, [attackerId]);
   await query(
     `INSERT INTO pvp_cooldowns (attacker_id, defender_id, expires_at)
@@ -188,32 +181,150 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
      DO UPDATE SET expires_at = EXCLUDED.expires_at`,
     [attackerId, defenderId]
   );
+  await trackDailyQuestProgress(attackerId, 'pvp_attack', 1).catch(() => {});
 
-  // 골드 보상
-  const attackerGold = sim.winner === 'attacker' ? WIN_GOLD : LOSS_GOLD;
-  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [attackerGold, attackerId]);
-  const defenderGold = sim.winner === 'defender' ? WIN_GOLD : LOSS_GOLD;
-  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [defenderGold, defenderId]);
+  res.json({ battleId: r.battleId });
+});
 
-  // 기록
+// 세션 상태 조회 (재접속용)
+router.get('/battle/:battleId', async (req: AuthedRequest, res: Response) => {
+  const s = sessionSummary(req.params.battleId);
+  if (!s) return res.status(404).json({ error: 'session not found' });
+  res.json(s);
+});
+
+// 수동 스킬 사용
+router.post('/battle/:battleId/use-skill', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ attackerId: z.number().int().positive(), skillId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(parsed.data.attackerId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const r = attackerUseSkill(req.params.battleId, parsed.data.attackerId, parsed.data.skillId);
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ ok: true });
+});
+
+// 자동/수동 토글
+router.post('/battle/:battleId/toggle-auto', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ attackerId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(parsed.data.attackerId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const ok = toggleAuto(req.params.battleId, parsed.data.attackerId);
+  if (!ok) return res.status(400).json({ error: 'invalid session' });
+  res.json({ ok: true });
+});
+
+// 기권
+router.post('/battle/:battleId/forfeit', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ attackerId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const char = await loadCharacterOwned(parsed.data.attackerId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const ok = await attackerForfeit(req.params.battleId, parsed.data.attackerId);
+  if (!ok) return res.status(400).json({ error: 'invalid session' });
+  res.json({ ok: true });
+});
+
+// DC 방지 ping (클라가 5초마다 호출)
+router.post('/battle/:battleId/ping', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ attackerId: z.number().int().positive() }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  attackerPing(req.params.battleId, parsed.data.attackerId);
+  res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────
+// 방어 세팅 (스냅샷)
+// ─────────────────────────────────────────────
+router.get('/defense/:characterId', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  const r = await query<{
+    effective_stats: any; skill_slots: number[];
+    equipment_summary: any; updated_at: string;
+  }>(
+    `SELECT effective_stats, skill_slots, equipment_summary, updated_at
+     FROM pvp_defense_loadouts WHERE character_id = $1`, [cid]
+  );
+  if (!r.rowCount) return res.json({ exists: false });
+  res.json({
+    exists: true,
+    stats: r.rows[0].effective_stats,
+    skillCount: Array.isArray(r.rows[0].skill_slots) ? r.rows[0].skill_slots.length : 0,
+    equipment: r.rows[0].equipment_summary,
+    updatedAt: r.rows[0].updated_at,
+  });
+});
+
+router.post('/defense/:characterId/save', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const full = await loadCharacter(cid);
+  if (!full) return res.status(404).json({ error: 'not found' });
+  const eff = await getEffectiveStats(full);
+  const prefixes = await loadEquipPrefixes(cid);
+  const passivesRaw = await getNodePassives(cid);
+  const passivesMap = buildPassiveMap(passivesRaw);
+  const passives: Record<string, number> = {};
+  for (const [k, v] of passivesMap) passives[k] = v;
+  const skills = await getCharSkills(cid, full.class_name, full.level);
+
+  // 자동 사용 + cd > 0 스킬만 저장 + slot_order 순 (기본 공격은 AI 가 폴백)
+  const defSkills = skills
+    .filter(sk => sk.cooldown_actions > 0)
+    .sort((a, b) => (a.slot_order || 99) - (b.slot_order || 99))
+    .slice(0, 7);
+  if (defSkills.length === 0) return res.status(400).json({ error: '사용 가능한 스킬이 없습니다' });
+
+  const skillSlots = defSkills.map(s => s.id);
+  const skillsJson = defSkills.map(s => ({
+    id: s.id, name: s.name, damage_mult: s.damage_mult, kind: s.kind,
+    cooldown_actions: s.cooldown_actions, flat_damage: s.flat_damage,
+    effect_type: s.effect_type, effect_value: s.effect_value,
+    effect_duration: s.effect_duration, required_level: s.required_level,
+    slot_order: s.slot_order, element: s.element, description: s.description,
+  }));
+
+  // 장비 요약
+  const eqR = await query<{ slot: string; item_id: number; item_name: string; grade: string; enhance_level: number; prefix_ids: number[] | null }>(
+    `SELECT ce.slot, ce.item_id, i.name AS item_name, i.grade, ce.enhance_level, ce.prefix_ids
+     FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+     WHERE ce.character_id = $1`, [cid]
+  );
+  const equipSummary = eqR.rows.map(r => ({
+    slot: r.slot, itemId: r.item_id, name: r.item_name, grade: r.grade,
+    enhanceLevel: r.enhance_level, prefixIds: r.prefix_ids || [],
+  }));
+  if (equipSummary.length === 0) return res.status(400).json({ error: '장비가 없습니다' });
+
   await query(
-    `INSERT INTO pvp_battles (attacker_id, defender_id, winner_id, elo_change, log)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
-    [attackerId, defenderId, winnerId, sim.winner === 'attacker' ? eloChange : -eloChange, JSON.stringify(sim.log)]
+    `INSERT INTO pvp_defense_loadouts (character_id, effective_stats, equip_prefixes, passives, skill_slots, skills, equipment_summary, updated_at)
+     VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5, $6::jsonb, $7::jsonb, NOW())
+     ON CONFLICT (character_id) DO UPDATE SET
+       effective_stats = EXCLUDED.effective_stats,
+       equip_prefixes = EXCLUDED.equip_prefixes,
+       passives = EXCLUDED.passives,
+       skill_slots = EXCLUDED.skill_slots,
+       skills = EXCLUDED.skills,
+       equipment_summary = EXCLUDED.equipment_summary,
+       updated_at = NOW()`,
+    [cid, JSON.stringify(eff), JSON.stringify(prefixes), JSON.stringify(passives),
+     skillSlots, JSON.stringify(skillsJson), JSON.stringify(equipSummary)]
   );
 
-  // 일일임무 진행
-  await trackDailyQuestProgress(attackerId, 'pvp_attack', 1);
+  res.json({ ok: true, skillCount: skillSlots.length, equipCount: equipSummary.length });
+});
 
-  // 방어자 골드는 이미 직접 지급됨 (우편 미사용 — 서버 부하 방지)
-
-  res.json({
-    winner: sim.winner,
-    log: sim.log,
-    eloChange,
-    goldGained: attackerGold,
-    turns: sim.turns,
-  });
+router.post('/defense/:characterId/clear', async (req: AuthedRequest, res: Response) => {
+  const cid = Number(req.params.characterId);
+  const char = await loadCharacterOwned(cid, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  await query('DELETE FROM pvp_defense_loadouts WHERE character_id = $1', [cid]);
+  res.json({ ok: true });
 });
 
 // 전투 기록
