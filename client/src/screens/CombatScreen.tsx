@@ -33,6 +33,14 @@ export function CombatScreen() {
     if (!next) setDamagePopups([]);
   }
 
+  // 전투 로그 텍스트 창 표시 토글 (기본 ON)
+  const [logVisible, setLogVisible] = useState(() => localStorage.getItem('combatLogVisible') !== '0');
+  function toggleLog() {
+    const next = !logVisible;
+    setLogVisible(next);
+    localStorage.setItem('combatLogVisible', next ? '1' : '0');
+  }
+
   // BGM — 자동재생 X, 토글 ON 시 localStorage 영구 저장
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
@@ -325,8 +333,22 @@ export function CombatScreen() {
         </div>
       </div>
 
-      {/* Combat log (상단 배치) — 터치/휠/클릭 시 자동스크롤 정지 */}
-      <CombatLog log={state.log} />
+      {/* Combat log (상단 배치) — 터치/휠/클릭 시 자동스크롤 정지 · 토글 가능 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <button
+          onClick={toggleLog}
+          title="전투 로그 표시 토글"
+          style={{
+            fontSize: 11, padding: '3px 10px',
+            background: logVisible ? 'var(--accent)' : 'transparent',
+            color: logVisible ? '#000' : 'var(--text-dim)',
+            border: '1px solid var(--accent)', borderRadius: 3, cursor: 'pointer',
+          }}
+        >
+          📜 전투 로그 {logVisible ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      {logVisible && <CombatLog log={state.log} />}
 
       {/* Combat grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>

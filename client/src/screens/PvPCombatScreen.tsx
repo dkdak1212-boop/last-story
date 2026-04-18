@@ -41,6 +41,12 @@ export function PvPCombatScreen() {
   const [err, setErr] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const [logVisible, setLogVisible] = useState(() => localStorage.getItem('combatLogVisible') !== '0');
+  function toggleLog() {
+    const next = !logVisible;
+    setLogVisible(next);
+    localStorage.setItem('combatLogVisible', next ? '1' : '0');
+  }
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -188,14 +194,29 @@ export function PvPCombatScreen() {
       )}
 
       {/* 로그 */}
-      <div style={{ background: '#1a1612', border: '1px solid #333', padding: 10, height: 220, overflowY: 'auto', fontSize: 12 }}>
-        {state.log.map((line, i) => (
-          <div key={i} style={{ marginBottom: 3, color: line.includes('치명타') ? '#ff8844' : line.includes('빗나감') ? '#888' : '#ccc' }}>
-            {line}
-          </div>
-        ))}
-        <div ref={logEndRef} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <button
+          onClick={toggleLog}
+          style={{
+            fontSize: 11, padding: '3px 10px',
+            background: logVisible ? '#daa520' : 'transparent',
+            color: logVisible ? '#000' : '#888',
+            border: '1px solid #daa520', borderRadius: 3, cursor: 'pointer',
+          }}
+        >
+          📜 전투 로그 {logVisible ? 'ON' : 'OFF'}
+        </button>
       </div>
+      {logVisible && (
+        <div style={{ background: '#1a1612', border: '1px solid #333', padding: 10, height: 220, overflowY: 'auto', fontSize: 12 }}>
+          {state.log.map((line, i) => (
+            <div key={i} style={{ marginBottom: 3, color: line.includes('치명타') ? '#ff8844' : line.includes('빗나감') ? '#888' : '#ccc' }}>
+              {line}
+            </div>
+          ))}
+          <div ref={logEndRef} />
+        </div>
+      )}
     </div>
   );
 }
