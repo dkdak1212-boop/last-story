@@ -418,6 +418,60 @@ router.get('/blocked-ips', async (_req, res) => {
   res.json(r.rows);
 });
 
+// 다계정 IP 자동 차단 — N계정 이상 공유 IP 일괄 차단
+// ?threshold=5&execute=1 : 실제 차단 실행, 그외 dry-run (목록만 반환)
+router.post('/block-multi-account-ips', async (req: AuthedRequest, res: Response) => {
+  const threshold = Math.max(2, Number(req.query.threshold || 5));
+  const execute = req.query.execute === '1' || req.query.execute === 'true';
+
+  // registered_ip + user_login_log 전체 IP 합쳐서 계정 수 집계
+  // 관리자 계정은 완전 제외
+  const r = await query<{ ip: string; user_count: string; user_ids: string[] }>(
+    `WITH all_ips AS (
+       SELECT u.registered_ip AS ip, u.id AS user_id
+         FROM users u
+         WHERE u.is_admin = FALSE AND u.registered_ip IS NOT NULL AND u.registered_ip <> ''
+       UNION
+       SELECT l.ip, l.user_id
+         FROM user_login_log l JOIN users u ON u.id = l.user_id
+         WHERE u.is_admin = FALSE AND l.ip IS NOT NULL AND l.ip <> ''
+     )
+     SELECT ip, COUNT(DISTINCT user_id)::text AS user_count,
+            ARRAY_AGG(DISTINCT user_id::text) AS user_ids
+     FROM all_ips
+     WHERE ip <> 'unknown'
+     GROUP BY ip
+     HAVING COUNT(DISTINCT user_id) >= $1
+     ORDER BY COUNT(DISTINCT user_id) DESC`,
+    [threshold]
+  );
+
+  const candidates = r.rows.map(row => ({
+    ip: row.ip,
+    userCount: Number(row.user_count),
+    userIds: row.user_ids.map(Number),
+  }));
+
+  if (!execute) {
+    return res.json({ threshold, dryRun: true, candidates: candidates.slice(0, 200), totalCandidates: candidates.length });
+  }
+
+  // 실제 차단
+  let blocked = 0;
+  for (const c of candidates) {
+    try {
+      const result = await query(
+        `INSERT INTO blocked_ips (ip, reason, blocked_by) VALUES ($1, $2, $3)
+         ON CONFLICT (ip) DO NOTHING`,
+        [c.ip, `다계정 자동차단: ${c.userCount}개 계정 공유 (임계치 ${threshold})`, req.userId]
+      );
+      if (result.rowCount && result.rowCount > 0) blocked += 1;
+    } catch (e) { console.error('[block-multi] err', c.ip, e); }
+  }
+
+  res.json({ ok: true, threshold, executed: true, totalCandidates: candidates.length, newlyBlocked: blocked });
+});
+
 // IP 차단 해제
 router.post('/blocked-ips/unblock', async (req, res) => {
   const parsed = z.object({ ip: z.string().min(1).max(64) }).safeParse(req.body);
