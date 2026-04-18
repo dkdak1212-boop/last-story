@@ -2602,7 +2602,17 @@ async function combatTick(): Promise<void> {
 
   // 세션을 병렬로 처리 (각 세션의 await DB 쿼리가 서로를 블로킹하지 않도록)
   const tasks: Promise<void>[] = [];
+  const nowTick = Date.now();
   for (const [charId, s] of activeSessions) {
+    // WS 구독자 여부 기반 idle 추적
+    if (sessionHasSubscriber(charId) || s.afkMode) {
+      idleSinceMap.delete(charId);
+    } else {
+      const since = idleSinceMap.get(charId) ?? nowTick;
+      if (!idleSinceMap.has(charId)) idleSinceMap.set(charId, nowTick);
+      // 5분 이상 구독자 없음 → tick 스킵 (CPU 절약, 세션은 유지)
+      if (nowTick - since > 5 * 60_000) continue;
+    }
     tasks.push((async () => {
     try {
       if (!s.monsterId) return;
@@ -3463,32 +3473,37 @@ export function getCombatHp(characterId: number): number | null {
   return s ? Math.max(0, s.playerHp) : null;
 }
 
-// 유휴 세션 정리 — WS 구독자 없는 세션 120초 후 자동 종료
-// (브라우저 종료 / 접속 끊김 등으로 쌓인 세션 해소)
+// 유휴 세션 정리 — WS 구독자 없는 세션은 tick 자체를 스킵 (세션 유지 + CPU 절약)
+// 실제 종료는 60분 이상 구독자 없을 때만 (서버 재시작 없이 누적 방지)
 const idleSinceMap = new Map<number, number>();
+export function sessionHasSubscriber(characterId: number): boolean {
+  const io = getIo();
+  if (!io) return true; // IO 없으면 보수적으로 true (유지)
+  const room = io.sockets.adapter.rooms.get(`combat:${characterId}`);
+  return (room?.size || 0) > 0;
+}
 setInterval(() => {
   const io = getIo();
   if (!io) return;
   const now = Date.now();
   let cleaned = 0;
   for (const charId of activeSessions.keys()) {
-    const room = io.sockets.adapter.rooms.get(`combat:${charId}`);
-    const listeners = room?.size || 0;
-    if (listeners > 0) {
+    if (sessionHasSubscriber(charId)) {
       idleSinceMap.delete(charId);
       continue;
     }
     const since = idleSinceMap.get(charId);
     if (!since) {
       idleSinceMap.set(charId, now);
-    } else if (now - since > 120_000) {
+    } else if (now - since > 60 * 60_000) {
+      // 60분 이상 구독자 없음 → 종료
       idleSinceMap.delete(charId);
       cleaned++;
       stopCombatSession(charId).catch(e => console.error('[cleanup] stop err', charId, e));
     }
   }
-  if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} idle sessions (remaining=${activeSessions.size})`);
-}, 30_000);
+  if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} idle (>60min) sessions (remaining=${activeSessions.size})`);
+}, 60_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
