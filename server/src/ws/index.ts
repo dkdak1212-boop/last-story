@@ -16,6 +16,13 @@ export function initWebSocket(httpServer: HttpServer) {
   });
 
   io.use(async (socket, next) => {
+    // WS 연결 rate limit (IP 분당 5회) — SYN flood 등 차단
+    const { checkWsConnectionRate } = await import('../middleware/security.js');
+    const xff = (socket.handshake.headers['x-forwarded-for'] || '').toString().split(',')[0].trim();
+    const ip = xff || socket.handshake.address || 'unknown';
+    if (!checkWsConnectionRate(ip)) {
+      return next(new Error('too many connections'));
+    }
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('no token'));
     try {
@@ -73,9 +80,17 @@ export function initWebSocket(httpServer: HttpServer) {
       await manualSkillUse(data.characterId, data.skillId);
     });
 
-    // 채팅
+    // 채팅 — flood 방지 (초당 1개, 분당 20개)
     socket.on('chat', async (payload: { channel: string; text: string; characterId?: number }) => {
       if (!payload?.text || payload.text.length > 200) return;
+      if (socket.data.userId) {
+        const { checkChatRate } = await import('../middleware/security.js');
+        const rate = checkChatRate(socket.data.userId);
+        if (!rate.ok) {
+          socket.emit('chat:error', { message: rate.reason });
+          return;
+        }
+      }
       const channel = ['global', 'trade', 'guild'].includes(payload.channel) ? payload.channel : 'global';
       const text = payload.text.trim();
       if (!text) return;

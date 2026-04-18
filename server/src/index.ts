@@ -66,10 +66,28 @@ console.log('[env] PORT =', process.env.PORT);
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 
-app.use(compression()); // gzip 응답 압축 — egress 트래픽 절감
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
-app.use(express.json());
+// 보안 헤더 (Helmet) + CORS + body 제한 + rate limit
+import helmet from 'helmet';
+import { globalApiLimiter, loginLimiter, registerLimiter, forgotPasswordLimiter } from './middleware/security.js';
+
 app.set('trust proxy', true); // Railway 등 프록시 뒤에서 req.ip 정확히 추출
+app.use(helmet({
+  contentSecurityPolicy: false, // 클라이언트(React) 가 동적 로드하므로 CSP 는 비활성 (필요시 세부 조정)
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(compression()); // gzip 응답 압축 — egress 트래픽 절감
+app.use(cors({
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+    : ['https://www.마지막이야기.com', 'https://마지막이야기.com',
+       'https://www.xn--ok0bw3tda490j8lc0ye.com', 'https://xn--ok0bw3tda490j8lc0ye.com',
+       'https://last-story-production.up.railway.app', 'http://localhost:5173'],
+  credentials: false,
+}));
+app.use(express.json({ limit: '1mb' })); // body 1MB 제한 (페이로드 공격 방지)
+
+// 전역 API rate limit (분당 300/IP) — /api 경로에만 적용
+app.use('/api', globalApiLimiter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });

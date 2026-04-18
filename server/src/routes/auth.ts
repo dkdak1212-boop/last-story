@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { signToken } from '../middleware/auth.js';
 import { sendMail } from '../lib/mailer.js';
+import { loginLimiter, registerLimiter, forgotPasswordLimiter, recordLoginFailure, clearLoginFailures } from '../middleware/security.js';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ async function isIpBlocked(ip: string): Promise<{ blocked: boolean; reason?: str
   return { blocked: false };
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     console.warn('[register] zod 실패:', parsed.error.flatten(), 'body:', { ...req.body, password: '***' });
@@ -93,7 +94,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const parsed = credSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
@@ -110,14 +111,21 @@ router.post('/login', async (req, res) => {
     'SELECT id, password_hash, banned, ban_reason FROM users WHERE username = $1',
     [username]
   );
-  if (result.rowCount === 0) return res.status(401).json({ error: 'invalid credentials' });
+  if (result.rowCount === 0) {
+    recordLoginFailure(ip, 'unknown username').catch(() => {});
+    return res.status(401).json({ error: 'invalid credentials' });
+  }
 
   const user = result.rows[0];
   if (user.banned) return res.status(403).json({ error: user.ban_reason ? `계정 정지: ${user.ban_reason}` : '계정이 정지되었습니다.' });
 
   const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'invalid credentials' });
+  if (!ok) {
+    recordLoginFailure(ip, 'wrong password').catch(() => {});
+    return res.status(401).json({ error: 'invalid credentials' });
+  }
 
+  clearLoginFailures(ip);
   const token = signToken(user.id, username);
   recordLogin(user.id, req, 'password').catch(() => {});
   res.json({ token });
@@ -129,7 +137,7 @@ const forgotSchema = z.object({
   email: z.string().email().max(100),
 });
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   const parsed = forgotSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: '입력값 확인' });
   const { username, email } = parsed.data;
