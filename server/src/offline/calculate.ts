@@ -39,6 +39,22 @@ export async function generateAndApplyOfflineReport(
   const fieldId = parseInt(char.location.slice(6), 10);
   if (Number.isNaN(fieldId)) return null;
 
+  // 1계정당 하루 최대 2캐릭터까지만 방치보상 적용
+  // (24시간 내 방치보상 수령한 캐릭터가 이미 2명 이상이고 본인이 거기 포함 안 되면 스킵)
+  {
+    const recent = await query<{ character_id: number }>(
+      `SELECT DISTINCT r.character_id
+       FROM offline_reports r JOIN characters c ON c.id = r.character_id
+       WHERE c.user_id = $1 AND r.generated_at > NOW() - INTERVAL '24 hours'`,
+      [char.user_id]
+    );
+    const alreadyRewarded = new Set(recent.rows.map(r => r.character_id));
+    if (alreadyRewarded.size >= 2 && !alreadyRewarded.has(characterId)) {
+      await query('UPDATE characters SET last_online_at = NOW() WHERE id = $1', [characterId]);
+      return null;
+    }
+  }
+
   // 전투 세션이 활성이면 온라인 전투 중 → 방치보상 없음
   const activeSession = await query(
     'SELECT 1 FROM combat_sessions WHERE character_id = $1', [characterId]
