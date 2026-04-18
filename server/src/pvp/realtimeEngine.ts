@@ -35,6 +35,7 @@ interface FighterState {
   skillLastUsed: Map<number, number>;    // skill_id → session tick index (for AI rotation)
   statusEffects: StatusEffect[];         // dot/shield/stat_buff
   shieldAmount: number;
+  activeSummons: { name: string; damage: number; remainingActions: number; isDot?: boolean }[];
 }
 
 interface StatusEffect {
@@ -169,7 +170,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       stats: attEff, skills: attSkills, passives: attPassives,
       equipPrefixes: attPrefixes,
       skillCooldowns: new Map(), skillLastUsed: new Map(),
-      statusEffects: [], shieldAmount: 0,
+      statusEffects: [], shieldAmount: 0, activeSummons: [],
     },
     defender: {
       id: defenderId, name: defMeta.name, className: defMeta.class_name, level: defMeta.level,
@@ -177,7 +178,7 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
       stats: L.effective_stats, skills: defSkills, passives: defPassives,
       equipPrefixes: L.equip_prefixes || {},
       skillCooldowns: new Map(), skillLastUsed: new Map(),
-      statusEffects: [], shieldAmount: 0,
+      statusEffects: [], shieldAmount: 0, activeSummons: [],
     },
     startedAt: now,
     tickCount: 0,
@@ -248,15 +249,16 @@ function tickSession(s: PvPSession): void {
     if (s.attackerAuto) {
       const pick = pickAttackerAuto(s);
       executeAction(s, 'attacker', pick);
+      processSummons(s, 'attacker');
       s.attacker.gauge = 0;
     } else {
       if (!s.attackerWaitingInput) {
         s.attackerWaitingInput = true;
         s.attackerWaitingSince = now;
       } else if (now - s.attackerWaitingSince >= MANUAL_TIMEOUT_MS) {
-        // 타임아웃 → 자동 발동
         const pick = pickAttackerAuto(s);
         executeAction(s, 'attacker', pick);
+        processSummons(s, 'attacker');
         s.attacker.gauge = 0;
         s.attackerWaitingInput = false;
       }
@@ -267,6 +269,7 @@ function tickSession(s: PvPSession): void {
   if (s.defender.gauge >= GAUGE_MAX) {
     const pick = pickDefenderAI(s);
     executeAction(s, 'defender', pick);
+    processSummons(s, 'defender');
     s.defender.gauge = 0;
   }
 
@@ -305,6 +308,25 @@ function decrementCooldowns(f: FighterState): void {
   for (const [id, cd] of Array.from(f.skillCooldowns)) {
     if (cd > 0) f.skillCooldowns.set(id, cd - 1);
     if (f.skillCooldowns.get(id)! <= 0) f.skillCooldowns.delete(id);
+  }
+}
+
+const MAX_SUMMONS = 3;
+function pushSummon(f: FighterState, name: string, damage: number, remainingActions: number, isDot = false): void {
+  if (f.activeSummons.length >= MAX_SUMMONS) f.activeSummons.shift(); // FIFO 최대 3마리
+  f.activeSummons.push({ name, damage: Math.max(1, damage), remainingActions: Math.max(1, remainingActions), isDot });
+}
+
+// 행동 후 소환수 공격 처리 — 각 소환수가 상대에게 damage 1회
+function processSummons(s: PvPSession, side: 'attacker' | 'defender'): void {
+  const self = side === 'attacker' ? s.attacker : s.defender;
+  if (self.activeSummons.length === 0) return;
+  for (let i = self.activeSummons.length - 1; i >= 0; i--) {
+    const sm = self.activeSummons[i];
+    applyDamage(s, side, sm.damage, false, false);
+    s.log.push(`🪄 ${self.name}의 ${sm.name} → ${Math.max(1, Math.round(sm.damage * PVP_DAMAGE_MULT))}`);
+    sm.remainingActions -= 1;
+    if (sm.remainingActions <= 0) self.activeSummons.splice(i, 1);
   }
 }
 
@@ -601,21 +623,75 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}${d.crit ? ' 치명!' : ''}`}`);
       break;
     }
-    // 소환 계열 — MVP: 기본 데미지로 대체, 소환수 미복원
-    case 'summon':
-    case 'summon_all':
-    case 'summon_buff':
-    case 'summon_dot':
-    case 'summon_extend':
-    case 'summon_frenzy':
-    case 'summon_heal':
+    // 소환 계열 — 소환수를 self.activeSummons 에 등록. 행동마다 공격.
+    case 'summon': {
+      const base = useMatk ? self.stats.matk : self.stats.atk;
+      pushSummon(self, skName, Math.round(base * Math.max(skill.damage_mult, 0.8)), dur);
+      s.log.push(`${self.name} [${skName}] 소환! (지속 ${dur}행동)`);
+      break;
+    }
     case 'summon_multi':
-    case 'summon_sacrifice':
-    case 'summon_storm':
-    case 'summon_tank':
+    case 'summon_all': {
+      // 여러 마리 소환 — effect_value 개수만큼 (없으면 2마리)
+      const count = Math.max(2, Math.round(skill.effect_value) || 2);
+      const base = useMatk ? self.stats.matk : self.stats.atk;
+      const perDmg = Math.round(base * Math.max(skill.damage_mult, 0.5));
+      for (let i = 0; i < count; i++) pushSummon(self, `${skName}#${i + 1}`, perDmg, dur);
+      s.log.push(`${self.name} [${skName}] ${count}마리 소환! (지속 ${dur}행동)`);
+      break;
+    }
+    case 'summon_dot':
+    case 'summon_storm': {
+      const base = useMatk ? self.stats.matk : self.stats.atk;
+      const dotDmg = Math.round(base * Math.max(skill.damage_mult, 0.5));
+      pushSummon(self, skName, dotDmg, dur, true);
+      s.log.push(`${self.name} [${skName}] 도트 소환! (지속 ${dur}행동)`);
+      break;
+    }
+    case 'summon_sacrifice': {
+      // 소환수 희생 — 기존 소환수 1마리 제거 후 큰 데미지
+      const base = useMatk ? self.stats.matk : self.stats.atk;
+      const sacrificed = self.activeSummons.length > 0 ? self.activeSummons.shift() : null;
+      const mult = sacrificed ? 2.5 : 1.2;
+      const sacDmg = Math.round(base * Math.max(skill.damage_mult, 1.0) * mult);
+      applyDamage(s, side, sacDmg, false, false);
+      s.log.push(`${self.name} [${skName}] ${sacrificed ? `${sacrificed.name} 희생 → ` : ''}${sacDmg}`);
+      break;
+    }
+    case 'summon_buff': {
+      self.statusEffects.push({ type: 'stat_buff', value: Math.max(10, skill.effect_value), remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 소환수 버프 (자기 능력 +${Math.max(10, skill.effect_value)}% · ${dur}행동)`);
+      break;
+    }
+    case 'summon_frenzy': {
+      self.statusEffects.push({ type: 'speed_mod', value: Math.max(20, skill.effect_value), remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 광폭화 스피드 +${Math.max(20, skill.effect_value)}% (${dur}행동)`);
+      break;
+    }
+    case 'summon_heal': {
+      const base = useMatk ? self.stats.matk : self.stats.atk;
+      const healAmt = Math.round(base * Math.max(skill.damage_mult, 1.0));
+      self.hp = Math.min(self.maxHp, self.hp + healAmt);
+      s.log.push(`${self.name} [${skName}] 수호수 회복 +${healAmt}`);
+      break;
+    }
+    case 'summon_tank': {
+      self.statusEffects.push({ type: 'damage_reduce', value: Math.max(20, skill.effect_value), remainingActions: dur, source: side });
+      s.log.push(`${self.name} [${skName}] 탱커 소환 (받는 피해 -${Math.max(20, skill.effect_value)}% · ${dur}행동)`);
+      break;
+    }
+    case 'summon_extend': {
+      // 모든 활성 소환수의 지속시간 + effect_value
+      const ext = Math.max(2, Math.round(skill.effect_value));
+      for (const s0 of self.activeSummons) s0.remainingActions += ext;
+      s.log.push(`${self.name} [${skName}] 소환수 지속 +${ext}행동 (${self.activeSummons.length}마리)`);
+      break;
+    }
     case 'resurrect': {
-      const d = dealDamage(Math.max(skill.damage_mult, 1.0));
-      s.log.push(`${self.name} [${skName}] (PvP 단순화) ${d.miss ? '빗나감' : d.damage}`);
+      // 부활 버프 — 단순 heal 처리
+      const amt = Math.round(self.maxHp * 0.5);
+      self.hp = Math.min(self.maxHp, self.hp + amt);
+      s.log.push(`${self.name} [${skName}] HP +${amt}`);
       break;
     }
     case 'damage':
@@ -764,6 +840,9 @@ function fighterSnapshot(f: FighterState) {
       cooldownLeft: f.skillCooldowns.get(sk.id) ?? 0,
       slotOrder: sk.slot_order,
     })),
+    summons: f.activeSummons.map(s => ({
+      name: s.name, remainingActions: s.remainingActions, isDot: !!s.isDot,
+    })),
   };
 }
 
@@ -788,6 +867,7 @@ export function attackerUseSkill(battleId: string, attackerId: number, skillId: 
   if (!skill) return { ok: false, error: 'unknown skill' };
   if ((s.attacker.skillCooldowns.get(skillId) ?? 0) > 0) return { ok: false, error: '쿨다운 중' };
   executeAction(s, 'attacker', skill);
+  processSummons(s, 'attacker');
   s.attacker.gauge = 0;
   s.attackerWaitingInput = false;
   s.attackerLastPing = Date.now();
