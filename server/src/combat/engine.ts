@@ -2601,18 +2601,11 @@ async function combatTick(): Promise<void> {
   const tickScale = dtMs / TICK_TARGET_MS;
 
   // 세션을 병렬로 처리 (각 세션의 await DB 쿼리가 서로를 블로킹하지 않도록)
+  // 5분 이상 구독자 없는 세션은 별도 interval 에서 stopCombatSession(keepLocation=true)
+  // 으로 제거되므로 여기선 모든 활성 세션을 정상 tick.
   const tasks: Promise<void>[] = [];
-  const nowTick = Date.now();
   for (const [charId, s] of activeSessions) {
-    // WS 구독자 여부 기반 idle 추적
-    if (sessionHasSubscriber(charId) || s.afkMode) {
-      idleSinceMap.delete(charId);
-    } else {
-      const since = idleSinceMap.get(charId) ?? nowTick;
-      if (!idleSinceMap.has(charId)) idleSinceMap.set(charId, nowTick);
-      // 5분 이상 구독자 없음 → tick 스킵 (CPU 절약, 세션은 유지)
-      if (nowTick - since > 5 * 60_000) continue;
-    }
+    void charId;
     tasks.push((async () => {
     try {
       if (!s.monsterId) return;
@@ -3211,7 +3204,7 @@ export async function startCombatSession(
   ensureCombatLoop();
 }
 
-export async function stopCombatSession(characterId: number): Promise<void> {
+export async function stopCombatSession(characterId: number, opts: { keepLocation?: boolean } = {}): Promise<void> {
   // 누적된 exp/gold/kills 먼저 DB에 반영
   await flushCharBatch(characterId);
   const s = activeSessions.get(characterId);
@@ -3228,10 +3221,18 @@ export async function stopCombatSession(characterId: number): Promise<void> {
         );
       } catch {}
     }
-    await query(
-      'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
-      [s.playerHp, 'village', characterId]
-    );
+    if (opts.keepLocation) {
+      // 유휴 종료: location 유지 → 유저 재접속 시 오프라인 보상 계산 트리거됨
+      await query(
+        'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), last_online_at=NOW() WHERE id=$2',
+        [s.playerHp, characterId]
+      );
+    } else {
+      await query(
+        'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
+        [s.playerHp, 'village', characterId]
+      );
+    }
     // 전사 분노 DB 저장 (다음 전투 세션에 이어짐)
     if (s.className === 'warrior') {
       try {
@@ -3473,12 +3474,13 @@ export function getCombatHp(characterId: number): number | null {
   return s ? Math.max(0, s.playerHp) : null;
 }
 
-// 유휴 세션 정리 — WS 구독자 없는 세션은 tick 자체를 스킵 (세션 유지 + CPU 절약)
-// 실제 종료는 60분 이상 구독자 없을 때만 (서버 재시작 없이 누적 방지)
+// 유휴 세션 정리 — WS 구독자 없는 세션은 5분 후 stopCombatSession(keepLocation=true)
+// 이렇게 해야 오프라인 보상 계산이 유저 재접속 시 정상 트리거됨 (field location 유지).
+// AFK 모드는 제외 (백그라운드 진행 계속 필요).
 const idleSinceMap = new Map<number, number>();
 export function sessionHasSubscriber(characterId: number): boolean {
   const io = getIo();
-  if (!io) return true; // IO 없으면 보수적으로 true (유지)
+  if (!io) return true;
   const room = io.sockets.adapter.rooms.get(`combat:${characterId}`);
   return (room?.size || 0) > 0;
 }
@@ -3488,21 +3490,23 @@ setInterval(() => {
   const now = Date.now();
   let cleaned = 0;
   for (const charId of activeSessions.keys()) {
-    if (sessionHasSubscriber(charId)) {
+    const s = activeSessions.get(charId);
+    if (!s) continue;
+    if (s.afkMode || sessionHasSubscriber(charId)) {
       idleSinceMap.delete(charId);
       continue;
     }
     const since = idleSinceMap.get(charId);
     if (!since) {
       idleSinceMap.set(charId, now);
-    } else if (now - since > 60 * 60_000) {
-      // 60분 이상 구독자 없음 → 종료
+    } else if (now - since > 5 * 60_000) {
+      // 5분 이상 구독자 없음 → 종료 (location 유지, 오프라인 보상 적용 대상)
       idleSinceMap.delete(charId);
       cleaned++;
-      stopCombatSession(charId).catch(e => console.error('[cleanup] stop err', charId, e));
+      stopCombatSession(charId, { keepLocation: true }).catch(e => console.error('[cleanup] stop err', charId, e));
     }
   }
-  if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} idle (>60min) sessions (remaining=${activeSessions.size})`);
+  if (cleaned > 0) console.log(`[combat-cleanup] paused ${cleaned} idle (>5min) sessions for offline reward (remaining=${activeSessions.size})`);
 }, 60_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
