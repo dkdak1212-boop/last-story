@@ -23,6 +23,20 @@ function getClientIp(req: any): string {
   return xff || req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
+// 로그인 로그 기록 (실패해도 로그인은 성공 — 논블로킹)
+async function recordLogin(userId: number, req: any, provider: string | null = null): Promise<void> {
+  try {
+    const ip = getClientIp(req);
+    const ua = (req.headers['user-agent'] || '').toString().slice(0, 500);
+    await query(
+      `INSERT INTO user_login_log (user_id, ip, user_agent, provider) VALUES ($1, $2, $3, $4)`,
+      [userId, ip, ua, provider]
+    );
+  } catch (e) {
+    console.error('[login-log] err', e);
+  }
+}
+
 async function isIpBlocked(ip: string): Promise<{ blocked: boolean; reason?: string }> {
   if (!ip || ip === 'unknown') return { blocked: false };
   try {
@@ -105,6 +119,7 @@ router.post('/login', async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'invalid credentials' });
 
   const token = signToken(user.id, username);
+  recordLogin(user.id, req, 'password').catch(() => {});
   res.json({ token });
 });
 
@@ -266,6 +281,7 @@ router.get('/google/callback', async (req, res) => {
 
     await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [userId]);
     const token = signToken(userId, username);
+    recordLogin(userId, req, 'google').catch(() => {});
     // 클라에 토큰 전달: # 해시로 (서버 로그에 안 남고 history 만 남음)
     res.redirect(`${clientUrl}/#oauth_token=${encodeURIComponent(token)}`);
   } catch (e) {

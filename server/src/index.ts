@@ -1939,6 +1939,31 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 로그인 이력 수집 — 다계정 탐지용
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'user_login_log_v1'`);
+      if (!applied.rowCount) {
+        await query(`
+          CREATE TABLE IF NOT EXISTS user_login_log (
+            id BIGSERIAL PRIMARY KEY,
+            user_id INT REFERENCES users(id) ON DELETE CASCADE,
+            ip TEXT,
+            user_agent TEXT,
+            provider VARCHAR(20),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_login_log_user_time ON user_login_log(user_id, created_at DESC)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_login_log_ip_time ON user_login_log(ip, created_at DESC)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('user_login_log_v1')`);
+        console.log('[late] user_login_log_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] user_login_log_v1 error:', e);
+    }
+  }
+
   // 오프라인 보상 정확도용 — 실제 평균 킬타임 저장
   {
     try {
@@ -2012,6 +2037,14 @@ setInterval(async () => {
     await settleTerritoriesIfNeeded();
   } catch (e) { console.error('[territory] settle error', e); }
 }, 60_000);
+
+// 로그인 이력 90일 이상 자동 정리 (하루 1회)
+setInterval(async () => {
+  try {
+    const r = await query(`DELETE FROM user_login_log WHERE created_at < NOW() - INTERVAL '90 days'`);
+    if (r.rowCount && r.rowCount > 0) console.log(`[login-log] pruned ${r.rowCount} entries (>90 days)`);
+  } catch (e) { console.error('[login-log] prune err', e); }
+}, 24 * 60 * 60_000);
 
 // 60초마다 리소스 메트릭 로그 (진단용 — Railway 로그에서 확인)
 setInterval(async () => {
