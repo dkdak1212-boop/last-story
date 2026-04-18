@@ -321,10 +321,6 @@ export function CombatScreen() {
           >
             {state.autoMode ? '자동' : '수동'}
           </button>
-          <button onClick={toggleAfk} style={{
-            background: 'transparent', color: 'var(--text-dim)',
-            border: '1px solid var(--border)', fontWeight: 700,
-          }}>방치 ON</button>
           <button onClick={leave} style={(state as any).guildBossRunId ? {
             background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700,
           } : undefined}>
