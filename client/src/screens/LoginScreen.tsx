@@ -1,54 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../stores/authStore';
 import { TermsModal } from '../components/ui/TermsModal';
-import { api } from '../api/client';
 
 export function LoginScreen() {
-  const nav = useNavigate();
-  const { login, register } = useAuthStore();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(''); setInfo('');
-    if (mode === 'register' && !agreed) {
-      setError('서비스 이용약관에 동의해 주세요');
-      return;
-    }
-    setBusy(true);
-    try {
-      if (mode === 'login') {
-        await login(username, password);
-        nav('/characters');
-      } else if (mode === 'register') {
-        await register(username, password, email);
-        nav('/characters');
-      } else if (mode === 'forgot') {
-        const r = await api<{ ok: boolean; message: string }>('/auth/forgot-password', {
-          method: 'POST',
-          body: JSON.stringify({ username, email }),
-        });
-        setInfo(r.message || '임시 비밀번호가 이메일로 발송되었습니다.');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '실패');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function changeMode(newMode: 'login' | 'register' | 'forgot') {
-    setMode(newMode); setError(''); setInfo('');
-  }
 
   return (
     <div
@@ -129,7 +83,7 @@ export function LoginScreen() {
             마지막이야기
           </h1>
           <p style={{
-            textAlign: 'center', color: 'var(--text-dim)', marginBottom: 24,
+            textAlign: 'center', color: 'var(--text-dim)', marginBottom: 28,
             fontSize: 11, letterSpacing: 4, textTransform: 'uppercase',
             fontFamily: '"Georgia", serif', fontStyle: 'italic',
           }}>
@@ -137,130 +91,32 @@ export function LoginScreen() {
           </p>
         </div>
 
-        <form onSubmit={submit}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <input
-              placeholder="아이디"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              minLength={3}
-              maxLength={20}
-            />
-            {mode !== 'forgot' && (
-              <input
-                type="password"
-                placeholder="비밀번호"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={4}
-              />
-            )}
-            {(mode === 'register' || mode === 'forgot') && (
-              <input
-                type="email"
-                placeholder={mode === 'register' ? '이메일 (비밀번호 찾기에 사용)' : '가입 시 등록한 이메일'}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                maxLength={100}
-              />
-            )}
-            {mode === 'register' && (
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
-                color: 'var(--text-dim)', cursor: 'pointer',
-              }}>
-                <input
-                  type="checkbox"
-                  checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
-                  style={{ flexShrink: 0 }}
-                />
-                <span>
-                  [필수]{' '}
-                  <span
-                    onClick={(e) => { e.preventDefault(); setShowTerms(true); }}
-                    style={{ color: 'var(--accent)', textDecoration: 'underline', cursor: 'pointer' }}
-                  >
-                    서비스 이용약관
-                  </span>
-                  에 동의합니다
-                </span>
-              </label>
-            )}
-            {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
-            {info && <div style={{ color: 'var(--success)', fontSize: 13 }}>{info}</div>}
-            <button type="submit" className="primary" disabled={busy}>
-              {busy ? '...' : mode === 'login' ? '로그인' : mode === 'register' ? '회원가입' : '임시 비밀번호 받기'}
-            </button>
-          </div>
-        </form>
-
-        {/* 소셜 로그인 */}
-        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-dim)', fontSize: 11 }}>
-            <div style={{ flex: 1, borderTop: '1px solid rgba(201,162,77,0.2)' }} />
-            <span>또는</span>
-            <div style={{ flex: 1, borderTop: '1px solid rgba(201,162,77,0.2)' }} />
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <button
             type="button"
             onClick={() => { window.location.href = '/api/auth/google/start'; }}
             style={{
-              padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               background: '#fff', color: '#1f1f1f', border: '1px solid #ddd', borderRadius: 4,
-              cursor: 'pointer', fontWeight: 600, fontSize: 14,
+              cursor: 'pointer', fontWeight: 600, fontSize: 15,
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <svg width="20" height="20" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
               <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/>
               <path fill="#FF3D00" d="m6.306 14.691 6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/>
               <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/>
               <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/>
             </svg>
-            Google 로 로그인
+            Google 계정으로 시작하기
           </button>
-        </div>
-
-        <div style={{ marginTop: 16, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {mode === 'login' && (
-            <>
-              <button
-                onClick={() => changeMode('register')}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
-              >
-                계정이 없으신가요? 가입하기
-              </button>
-              <button
-                onClick={() => changeMode('forgot')}
-                style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer' }}
-              >
-                비밀번호를 잊으셨나요?
-              </button>
-            </>
-          )}
-          {mode === 'register' && (
-            <button
-              onClick={() => changeMode('login')}
-              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
-            >
-              이미 계정이 있으신가요? 로그인
-            </button>
-          )}
-          {mode === 'forgot' && (
-            <button
-              onClick={() => changeMode('login')}
-              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 13, cursor: 'pointer' }}
-            >
-              ← 로그인으로 돌아가기
-            </button>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center', lineHeight: 1.5, marginTop: 4 }}>
+            최초 로그인 시 자동으로 계정이 생성됩니다.<br />
+            기존 계정이 있다면 동일한 이메일의 구글 계정으로 로그인해 주세요.
+          </div>
         </div>
 
         <div style={{
-          marginTop: 14, paddingTop: 12,
+          marginTop: 20, paddingTop: 14,
           borderTop: '1px solid rgba(201,162,77,0.15)',
           textAlign: 'center', fontSize: 11,
         }}>
