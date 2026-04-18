@@ -2785,15 +2785,28 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
     s.cachedPotions = { small: map[100], mid: map[102], high: map[104], max: map[106] };
   } catch {}
 
-  // 3) 길드 버프 (길드 변경은 드물다 — 세션당 1회로 충분)
+  // 3) 길드 버프 (길드 스킬 + 24시간 길드 버프 합산)
   try {
     const gskills = await getGuildSkillsForCharacter(s.characterId);
-    s.cachedGuildBuffs = {
-      hp: gskills.hp * GUILD_SKILL_PCT.hp,
-      gold: gskills.gold * GUILD_SKILL_PCT.gold,
-      exp: gskills.exp * GUILD_SKILL_PCT.exp,
-      drop: gskills.drop * GUILD_SKILL_PCT.drop,
-    };
+    let goldPct = gskills.gold * GUILD_SKILL_PCT.gold;
+    let expPct = gskills.exp * GUILD_SKILL_PCT.exp;
+    let dropPct = gskills.drop * GUILD_SKILL_PCT.drop;
+
+    // 길드 전체 24시간 버프 (+25%) — guild_boss_shop 의 guild_buff_24h_all 로 적립
+    const gbR = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
+      `SELECT g.exp_boost_until, g.gold_boost_until, g.drop_boost_until
+       FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id
+       WHERE gm.character_id = $1 LIMIT 1`,
+      [s.characterId]
+    );
+    if (gbR.rowCount) {
+      const now = new Date();
+      if (gbR.rows[0].exp_boost_until && new Date(gbR.rows[0].exp_boost_until) > now) expPct += 25;
+      if (gbR.rows[0].gold_boost_until && new Date(gbR.rows[0].gold_boost_until) > now) goldPct += 25;
+      if (gbR.rows[0].drop_boost_until && new Date(gbR.rows[0].drop_boost_until) > now) dropPct += 25;
+    }
+
+    s.cachedGuildBuffs = { hp: gskills.hp * GUILD_SKILL_PCT.hp, gold: goldPct, exp: expPct, drop: dropPct };
   } catch {}
 
   s.metaDirty = false;

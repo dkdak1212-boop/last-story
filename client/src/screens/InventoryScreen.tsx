@@ -129,6 +129,19 @@ export function InventoryScreen() {
       setMsg(e instanceof Error ? e.message : '사용 실패');
     }
   }
+  async function craftUniquePiece(e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return; setMsg('');
+    if (!confirm('유니크 조각 3개를 소모해 유니크 1개로 합성합니다. 진행하시겠습니까?')) return;
+    try {
+      const r = await api<{ ok: boolean; uniqueItemName: string }>(
+        `/characters/${active.id}/craft-unique-piece`, { method: 'POST' }
+      );
+      setMsg(`유니크 조각 합성 성공: ${r.uniqueItemName}`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '합성 실패');
+    }
+  }
   async function toggleLockEquipped(slot: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
     await api(`/characters/${active.id}/lock-equipped`, { method: 'POST', body: JSON.stringify({ slot }) }); refresh();
@@ -660,6 +673,14 @@ export function InventoryScreen() {
                             color: '#1a0f00', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
                             boxShadow: '0 0 8px rgba(218,165,32,0.4)',
                           }}>유니크 뽑기</button>
+                        )}
+                        {s.item.id === 842 && s.quantity >= 3 && (
+                          <button onClick={craftUniquePiece} style={{
+                            padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                            background: 'linear-gradient(180deg, #c8a2ff, #a24bff)',
+                            color: '#1a0f2a', border: '1px solid #c8a2ff', cursor: 'pointer', borderRadius: 4,
+                            boxShadow: '0 0 8px rgba(162,75,255,0.4)',
+                          }}>유니크 합성 (3개 소모)</button>
                         )}
                         {s.item.sellPrice > 0 && !locked && (
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, e)}

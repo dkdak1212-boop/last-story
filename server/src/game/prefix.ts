@@ -102,6 +102,49 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
 // 나머지는 prevStats(기존 prefix_stats)에서 그대로 유지한다.
 // targetIndex가 가리키는 접두사와 동일 stat_key를 공유하는 다른 접두사가 있으면
 // 어차피 합산되어 분리할 수 없으므로 그 stat_key 전체가 함께 재굴림된다.
+// 지정된 tier의 랜덤 접두사 1개를 생성 (excludeStatKeys 에 있는 stat_key는 제외)
+export async function generateSinglePrefixOfTier(
+  itemLevel: number,
+  tier: number,
+  excludeStatKeys: Set<string> = new Set(),
+): Promise<{ prefixId: number; statKey: string; value: number } | null> {
+  const prefixes = await loadPrefixes();
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  let candidates = prefixes.filter(p => p.tier === tier && !excludeStatKeys.has(p.stat_key));
+  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+  if (candidates.length === 0) return null;
+  const picked = candidates[Math.floor(Math.random() * candidates.length)];
+  const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+  const value = Math.max(1, Math.round(baseValue * levelScale));
+  return { prefixId: picked.id, statKey: picked.stat_key, value };
+}
+
+// 3옵 보장 — 지정된 stat_key 중복 없이 새 prefix 3개 생성 (tier는 정상 확률 분포)
+export async function generateGuaranteed3Prefixes(
+  itemLevel: number,
+): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
+  const prefixes = await loadPrefixes();
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  const prefixIds: number[] = [];
+  const bonusStats: Record<string, number> = {};
+  const usedStatKeys = new Set<string>();
+  let maxTier = 0;
+  for (let i = 0; i < 3; i++) {
+    const tier = rollTier();
+    let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
+    if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+    if (candidates.length === 0) continue;
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const value = Math.max(1, Math.round(baseValue * levelScale));
+    prefixIds.push(picked.id);
+    bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;
+    usedStatKeys.add(picked.stat_key);
+    if (picked.tier > maxTier) maxTier = picked.tier;
+  }
+  return { prefixIds, bonusStats, maxTier };
+}
+
 export async function rerollPrefixValues(
   prefixIds: number[],
   itemLevel: number = 35,

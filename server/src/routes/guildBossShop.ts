@@ -146,9 +146,13 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const parsed = z.object({ itemId: z.number().int().positive() }).safeParse(req.body);
+  const parsed = z.object({
+    itemId: z.number().int().positive(),
+    option: z.string().max(20).optional(), // 택1 아이템용 (부스터 1시간 택1 등)
+  }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const itemId = parsed.data.itemId;
+  const option = parsed.data.option;
 
   // 상품 조회
   const itemR = await query<ShopItemRow>(
@@ -292,6 +296,128 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
       if (gid) {
         await query('UPDATE guilds SET exp = exp + $1 WHERE id = $2', [amount, gid]);
         rewardNote.push(`길드 EXP +${amount}`);
+      } else {
+        rewardNote.push('길드 미가입 — 지급되지 않음');
+      }
+      break;
+    }
+    case 'stat_permanent': {
+      // 영구 스탯 묘약 세트: HP/ATK/MATK 각 +n (캡 초과 시 캡까지만)
+      const hp = Number(payload.hp) || 0;
+      const atk = Number(payload.atk) || 0;
+      const matk = Number(payload.matk) || 0;
+      const cap = Number(payload.cap) || 50;
+      const cur = await query<{ permanent_stat_bonus_hp: number; permanent_stat_bonus_atk: number; permanent_stat_bonus_matk: number }>(
+        `SELECT permanent_stat_bonus_hp, permanent_stat_bonus_atk, permanent_stat_bonus_matk FROM characters WHERE id = $1`, [id]
+      );
+      const curRow = cur.rows[0]!;
+      const newHp = Math.min(cap, curRow.permanent_stat_bonus_hp + hp);
+      const newAtk = Math.min(cap, curRow.permanent_stat_bonus_atk + atk);
+      const newMatk = Math.min(cap, curRow.permanent_stat_bonus_matk + matk);
+      await query(
+        `UPDATE characters SET permanent_stat_bonus_hp = $1, permanent_stat_bonus_atk = $2, permanent_stat_bonus_matk = $3 WHERE id = $4`,
+        [newHp, newAtk, newMatk, id]
+      );
+      const deltaHp = newHp - curRow.permanent_stat_bonus_hp;
+      const deltaAtk = newAtk - curRow.permanent_stat_bonus_atk;
+      const deltaMatk = newMatk - curRow.permanent_stat_bonus_matk;
+      rewardNote.push(`영구 스탯 HP +${deltaHp} / ATK +${deltaAtk} / MATK +${deltaMatk}`);
+      if (deltaHp === 0 && deltaAtk === 0 && deltaMatk === 0) {
+        rewardNote.push(`(캡 ${cap} 도달)`);
+      }
+      break;
+    }
+    case 'booster_single': {
+      // 부스터 1시간 택1 — option='exp'|'gold'|'drop'
+      const minutes = Number(payload.durationMin) || 60;
+      const interval = `INTERVAL '${minutes} minutes'`;
+      const col = option === 'gold' ? 'gold_boost_until'
+                : option === 'drop' ? 'drop_boost_until'
+                : option === 'exp' ? 'exp_boost_until'
+                : null;
+      if (!col) {
+        // option 누락 시 EXP 로 폴백 (UI 검증 실패 시 안전망)
+        await query(
+          `UPDATE characters SET exp_boost_until = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval} WHERE id = $1`,
+          [id]
+        );
+        rewardNote.push(`EXP +50% ${minutes}분 (option 누락 — 기본값)`);
+      } else {
+        await query(
+          `UPDATE characters SET ${col} = GREATEST(COALESCE(${col}, NOW()), NOW()) + ${interval} WHERE id = $1`,
+          [id]
+        );
+        const label = option === 'gold' ? '골드' : option === 'drop' ? '드랍' : 'EXP';
+        rewardNote.push(`${label} +50% ${minutes}분`);
+      }
+      break;
+    }
+    case 'pvp_attack_bonus': {
+      // 오늘 pvp_stats.daily_attacks -= amount (clamp 0)
+      const amount = Number(payload.amount) || 1;
+      const r = await query<{ daily_attacks: number }>('SELECT daily_attacks FROM pvp_stats WHERE character_id = $1', [id]);
+      const cur = r.rows[0]?.daily_attacks ?? 0;
+      const newVal = Math.max(0, cur - amount);
+      await query('UPDATE pvp_stats SET daily_attacks = $1 WHERE character_id = $2', [newVal, id]);
+      rewardNote.push(`PvP 공격 가능 횟수 +${cur - newVal}`);
+      break;
+    }
+    case 'daily_quest_instant': {
+      // 오늘 미완료 일일퀘 중 가장 오래된 1개 즉시 완료
+      const todayR = await query<{ d: string }>(`SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d`);
+      const today = todayR.rows[0].d;
+      const qr = await query<{ id: number; target_count: number }>(
+        `SELECT id, target_count FROM character_daily_quests
+         WHERE character_id = $1 AND assigned_date = $2 AND completed = FALSE
+         ORDER BY id ASC LIMIT 1`,
+        [id, today]
+      );
+      if (!qr.rowCount) {
+        rewardNote.push('오늘 미완료 일일임무 없음 — 메달은 소모됨');
+      } else {
+        await query(
+          `UPDATE character_daily_quests SET progress = target_count, completed = TRUE WHERE id = $1`,
+          [qr.rows[0].id]
+        );
+        rewardNote.push('일일임무 1개 즉시 완료');
+      }
+      break;
+    }
+    case 'guild_buff_24h_all': {
+      // 소속 길드의 exp/gold/drop_boost_until 을 +24시간 연장 (+25% 효과는 적용 측에서 읽음)
+      const hours = Number(payload.durationHours) || 24;
+      const interval = `INTERVAL '${hours} hours'`;
+      const gr = await query<{ guild_id: number | null }>(
+        `SELECT guild_id FROM guild_members WHERE character_id = $1 LIMIT 1`, [id]
+      );
+      const gid = gr.rows[0]?.guild_id;
+      if (gid) {
+        await query(
+          `UPDATE guilds SET
+             exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval},
+             gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + ${interval},
+             drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval}
+           WHERE id = $1`, [gid]
+        );
+        rewardNote.push(`길드 EXP/골드/드랍 +25% ${hours}시간`);
+      } else {
+        rewardNote.push('길드 미가입 — 지급되지 않음');
+      }
+      break;
+    }
+    case 'guild_storage_slot': {
+      // 길드 창고 슬롯 (시스템 미구현 — 컬럼만 증가)
+      const amount = Number(payload.amount) || 1;
+      const gr = await query<{ guild_id: number | null }>(
+        `SELECT guild_id FROM guild_members WHERE character_id = $1 LIMIT 1`, [id]
+      );
+      const gid = gr.rows[0]?.guild_id;
+      if (gid) {
+        await query(
+          `UPDATE guilds SET storage_slots_bonus = COALESCE(storage_slots_bonus, 0) + $1 WHERE id = $2`,
+          [amount, gid]
+        );
+        rewardNote.push(`길드 창고 슬롯 +${amount} (시스템 준비 중)`);
       } else {
         rewardNote.push('길드 미가입 — 지급되지 않음');
       }

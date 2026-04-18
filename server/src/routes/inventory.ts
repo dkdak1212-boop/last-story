@@ -314,6 +314,52 @@ router.post('/:id/use-unique-ticket', async (req: AuthedRequest, res: Response) 
   res.json({ ok: true, uniqueItemId, uniqueItemName: nameR.rows[0]?.name || '알 수 없는 유니크' });
 });
 
+// 유니크 조각 합성 — 3개 소모 → 캐릭 레벨 ±10 범위 유니크 1개 지급
+router.post('/:id/craft-unique-piece', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 조각 3개 보유 체크 (합계 수량)
+  const pieceR = await query<{ total: string }>(
+    `SELECT COALESCE(SUM(ci.quantity), 0)::text AS total FROM character_inventory ci
+     JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '유니크 조각'`, [id]
+  );
+  const totalPieces = Number(pieceR.rows[0].total);
+  if (totalPieces < 3) return res.status(400).json({ error: `유니크 조각 부족 (${totalPieces}/3)` });
+
+  // 유니크 아이템 먼저 지급 시도
+  const uniqueItemId = await pickRandomUnique(char.level);
+  if (!uniqueItemId) return res.status(500).json({ error: '해당 레벨 범위의 유니크 아이템이 없습니다.' });
+
+  const { added, overflow } = await addItemToInventory(id, uniqueItemId, 1);
+  if (added <= 0 || overflow > 0) {
+    return res.status(400).json({ error: '인벤토리가 가득 찼습니다. 공간을 확보한 후 사용해주세요.' });
+  }
+
+  // 조각 3개 소모 (가장 오래된 슬롯부터)
+  let need = 3;
+  const stackR = await query<{ id: number; quantity: number }>(
+    `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+     WHERE ci.character_id = $1 AND i.name = '유니크 조각' AND ci.quantity > 0
+     ORDER BY ci.slot_index`, [id]
+  );
+  for (const stack of stackR.rows) {
+    if (need <= 0) break;
+    const take = Math.min(need, stack.quantity);
+    if (stack.quantity - take <= 0) {
+      await query('DELETE FROM character_inventory WHERE id = $1', [stack.id]);
+    } else {
+      await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, stack.id]);
+    }
+    need -= take;
+  }
+
+  const nameR = await query<{ name: string }>('SELECT name FROM items WHERE id = $1', [uniqueItemId]);
+  res.json({ ok: true, uniqueItemId, uniqueItemName: nameR.rows[0]?.name || '알 수 없는 유니크' });
+});
+
 // 잠금 토글 (인벤토리)
 router.post('/:id/lock', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);

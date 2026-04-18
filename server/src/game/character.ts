@@ -221,6 +221,19 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     eff.def = Math.round(eff.def * mult);
     eff.mdef = Math.round(eff.mdef * mult);
   }
+
+  // 영구 스탯 묘약 보너스 (HP/ATK/MATK)
+  const permR = await query<{ hp: number; atk: number; matk: number }>(
+    `SELECT COALESCE(permanent_stat_bonus_hp, 0) AS hp,
+            COALESCE(permanent_stat_bonus_atk, 0) AS atk,
+            COALESCE(permanent_stat_bonus_matk, 0) AS matk
+     FROM characters WHERE id = $1`, [char.id]
+  );
+  if (permR.rowCount) {
+    eff.atk += permR.rows[0].atk;
+    eff.matk += permR.rows[0].matk;
+    eff.maxHp += permR.rows[0].hp;
+  }
   return eff;
 }
 

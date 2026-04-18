@@ -77,13 +77,25 @@ export function GuildBossShopScreen() {
 
   const buy = async (item: ShopItem) => {
     if (!active || buyingId) return;
-    if (!confirm(`${item.name} 구매하시겠습니까? (메달 ${item.price} 소모)`)) return;
+    let option: string | undefined;
+    // 부스터 1시간 택1 — EXP/골드/드랍 중 선택
+    if (item.name === '부스터 1시간 택1') {
+      const pick = prompt('부스터 종류를 선택하세요: exp / gold / drop');
+      if (!pick) return;
+      const norm = pick.trim().toLowerCase();
+      if (!['exp', 'gold', 'drop'].includes(norm)) {
+        setMsg('잘못된 선택 — exp / gold / drop 중 하나를 입력하세요.');
+        return;
+      }
+      option = norm;
+    }
+    if (!confirm(`${item.name}${option ? ` (${option.toUpperCase()})` : ''} 구매하시겠습니까? (메달 ${item.price} 소모)`)) return;
     setBuyingId(item.id);
     setMsg(null);
     try {
       const r = await api<{ itemName: string; rewards: string[]; medalsLeft: number }>(
         `/guild-boss-shop/${active.id}/buy`,
-        { method: 'POST', body: JSON.stringify({ itemId: item.id }) }
+        { method: 'POST', body: JSON.stringify({ itemId: item.id, option }) }
       );
       setMsg(`${r.itemName} 구매 완료 — ${r.rewards.join(', ')}`);
       await loadShop();

@@ -1796,6 +1796,70 @@ async function runEquipOverhaul() {
       console.error('[late] guild_boss_v2 error:', e);
     }
   }
+
+  // 길드 보스 상점 — 미구현 10종 확장 (035_guild_boss_shop_full)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'guild_boss_shop_full_v1'`);
+      if (!applied.rowCount) {
+        console.log('[late] guild_boss_shop_full_v1: 스키마 + 아이템 + 상점 확장...');
+
+        // 영구 스탯 묘약 세트용 캐릭터 보너스 컬럼
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_hp INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_atk INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_matk INT NOT NULL DEFAULT 0`);
+
+        // 길드 24시간 +25% 버프용 타임스탬프 컬럼 + 길드 창고 슬롯
+        await query(`ALTER TABLE guilds ADD COLUMN IF NOT EXISTS exp_boost_until TIMESTAMPTZ`);
+        await query(`ALTER TABLE guilds ADD COLUMN IF NOT EXISTS gold_boost_until TIMESTAMPTZ`);
+        await query(`ALTER TABLE guilds ADD COLUMN IF NOT EXISTS drop_boost_until TIMESTAMPTZ`);
+        await query(`ALTER TABLE guilds ADD COLUMN IF NOT EXISTS storage_slots_bonus INT NOT NULL DEFAULT 0`);
+
+        // 신규 아이템 3종 (T3 보장 / 3옵 보장 / 유니크 조각)
+        // items 의 id 시퀀스는 유지 — 명시 id 로 INSERT 하고 ON CONFLICT SKIP
+        await query(
+          `INSERT INTO items (id, name, type, grade, description, stack_size, sell_price, required_level)
+           VALUES
+             (840, 'T3 접두사 보장 추첨권', 'consumable', 'legendary', '장비 1개에서 접두사 1개를 T3 티어로 재굴림합니다. 강화 메뉴에서 사용할 수 있습니다.', 300, 0, 1),
+             (841, '3옵 보장 굴림권', 'consumable', 'legendary', '장비 1개에 접두사 옵션 3개를 보장 재굴림합니다. 강화 메뉴에서 사용할 수 있습니다.', 300, 0, 1),
+             (842, '유니크 조각', 'consumable', 'epic', '유니크 조각. 3개를 모아 인벤토리에서 합성하면 캐릭 레벨 ±10 유니크 1개를 받습니다.', 300, 0, 1)
+           ON CONFLICT (id) DO NOTHING`
+        );
+        // 시퀀스 보정 (명시 ID 삽입 후 nextval 어긋남 방지)
+        await query(`SELECT setval('items_id_seq', GREATEST((SELECT MAX(id) FROM items), 842))`);
+
+        // 신규 상점 상품 (대형 3 + 중형 1 + 소형 3 + 길드 2 = 9)
+        const newSeed: { section: string; name: string; desc: string; price: number; scope: string | null; count: number; type: string; payload: any; order: number; leader: boolean }[] = [
+          // 대형
+          { section: 'large', name: 'T3 접두사 보장 추첨권', desc: '장비 1개의 접두사 하나를 T3 티어로 재굴림하는 추첨권', price: 15000, scope: 'monthly', count: 1, type: 'item', payload: { itemId: 840, qty: 1 }, order: 40, leader: false },
+          { section: 'large', name: '영구 스탯 묘약 세트', desc: 'HP / ATK / MATK 영구 +3 (각 캐릭터 캡 50)', price: 12000, scope: 'monthly', count: 1, type: 'stat_permanent', payload: { hp: 3, atk: 3, matk: 3, cap: 50 }, order: 50, leader: false },
+          { section: 'large', name: '3옵 보장 굴림권', desc: '장비 1개에 접두사 옵션 3개를 보장 재굴림하는 굴림권', price: 15000, scope: 'monthly', count: 1, type: 'item', payload: { itemId: 841, qty: 1 }, order: 60, leader: false },
+          // 중형
+          { section: 'medium', name: '유니크 조각', desc: '3개 모으면 레벨 ±10 유니크 1개로 합성 가능', price: 2000, scope: 'weekly', count: 3, type: 'item', payload: { itemId: 842, qty: 1 }, order: 40, leader: false },
+          // 소형
+          { section: 'small', name: '부스터 1시간 택1', desc: 'EXP / 골드 / 드랍 중 1종을 1시간 +50% 부스트 (구매 시 선택)', price: 150, scope: 'daily', count: 3, type: 'booster_single', payload: { durationMin: 60 }, order: 40, leader: false },
+          { section: 'small', name: 'PvP 공격권 +1', desc: '오늘 남은 PvP 공격 가능 횟수 +1 (daily_attacks -1)', price: 100, scope: 'daily', count: 2, type: 'pvp_attack_bonus', payload: { amount: 1 }, order: 50, leader: false },
+          { section: 'small', name: '일일임무 즉시 완료권', desc: '오늘 미완료 일일임무 중 가장 오래된 1개를 즉시 완료 처리', price: 250, scope: 'daily', count: 1, type: 'daily_quest_instant', payload: {}, order: 60, leader: false },
+          // 길드 단위
+          { section: 'guild', name: '길드 전체 +25% 24시간 버프', desc: '소속 길드 전원에게 24시간 EXP / 골드 / 드랍 +25% (중첩 시 연장)', price: 5000, scope: 'weekly', count: 1, type: 'guild_buff_24h_all', payload: { pct: 25, durationHours: 24 }, order: 20, leader: true },
+          { section: 'guild', name: '길드 창고 슬롯 +1', desc: '길드 창고 슬롯 영구 +1 (길드 창고 시스템용 — 계정 창고와 별개)', price: 8000, scope: 'monthly', count: 2, type: 'guild_storage_slot', payload: { amount: 1 }, order: 30, leader: true },
+        ];
+        for (const s of newSeed) {
+          await query(
+            `INSERT INTO guild_boss_shop_items (section, name, description, price, limit_scope, limit_count, reward_type, reward_payload, sort_order, leader_only)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+             ON CONFLICT (section, name) DO NOTHING`,
+            [s.section, s.name, s.desc, s.price, s.scope, s.count, s.type, JSON.stringify(s.payload), s.order, s.leader]
+          );
+        }
+
+        await query(`INSERT INTO _migrations (name) VALUES ('guild_boss_shop_full_v1')`);
+        console.log('[late] guild_boss_shop_full_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] guild_boss_shop_full_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

@@ -53,14 +53,68 @@ export function EnhanceScreen() {
   const [rerollIndex, setRerollIndex] = useState<number | null>(null); // null=전체
   const [qualityRerollCount, setQualityRerollCount] = useState(0);
   const [qualityRerolling, setQualityRerolling] = useState(false);
+  const [t3TicketCount, setT3TicketCount] = useState(0);
+  const [p3TicketCount, setP3TicketCount] = useState(0);
+  const [usingT3, setUsingT3] = useState(false);
+  const [usingP3, setUsingP3] = useState(false);
 
   async function load() {
     if (!active) return;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number; t3TicketCount?: number; p3TicketCount?: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     setScrollCount(d.scrollCount || 0);
     setRerollCount(d.rerollCount || 0);
     setQualityRerollCount(d.qualityRerollCount || 0);
+    setT3TicketCount(d.t3TicketCount || 0);
+    setP3TicketCount(d.p3TicketCount || 0);
+  }
+
+  async function useT3Ticket() {
+    if (!active || !selected || usingT3) return;
+    if (rerollIndex === null) { alert('T3 추첨권은 특정 접두사 1개를 선택해야 합니다. 아래 "접두사 선택" 에서 하나 골라주세요.'); return; }
+    if (selected.grade === 'unique') { alert('유니크 장비는 사용 불가'); return; }
+    if (t3TicketCount <= 0) { alert('T3 접두사 보장 추첨권이 없습니다.'); return; }
+    if (!confirm('선택한 접두사 1개를 T3 티어로 재굴림합니다. 진행하시겠습니까?')) return;
+    setUsingT3(true);
+    try {
+      await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number>; prefixStatsRaw?: Record<string, number> }>(
+        `/enhance/${active.id}/use-t3-ticket`,
+        { method: 'POST', body: JSON.stringify({
+          kind: selected.kind,
+          slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+          prefixIndex: rerollIndex,
+        }) }
+      );
+      await load();
+      const refreshed = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] }>(`/enhance/${active.id}/list`);
+      const all = [...refreshed.equipped, ...refreshed.inventory];
+      const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
+      if (match) setSelected(match);
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+    finally { setUsingT3(false); }
+  }
+
+  async function use3PrefixTicket() {
+    if (!active || !selected || usingP3) return;
+    if (selected.grade === 'unique') { alert('유니크 장비는 사용 불가'); return; }
+    if (p3TicketCount <= 0) { alert('3옵 보장 굴림권이 없습니다.'); return; }
+    if (!confirm('기존 접두사를 모두 폐기하고 3옵을 새로 굴립니다. 진행하시겠습니까?')) return;
+    setUsingP3(true);
+    try {
+      await api<{ success: boolean }>(
+        `/enhance/${active.id}/use-3prefix-ticket`,
+        { method: 'POST', body: JSON.stringify({
+          kind: selected.kind,
+          slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
+        }) }
+      );
+      await load();
+      const refreshed = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] }>(`/enhance/${active.id}/list`);
+      const all = [...refreshed.equipped, ...refreshed.inventory];
+      const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
+      if (match) setSelected(match);
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+    finally { setUsingP3(false); }
   }
 
   async function rerollPrefix() {
@@ -455,6 +509,37 @@ export function EnhanceScreen() {
                   </button>
                   <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
                     품질을 0~100% 범위에서 새로 굴립니다
+                  </div>
+                </div>
+              ) : null}
+
+              {/* T3 보장 추첨권 / 3옵 보장 굴림권 */}
+              {selected.itemSlot && selected.grade !== 'unique' ? (
+                <div style={{ marginTop: 12, padding: 10, border: '1px solid #a24bff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 11, color: '#a24bff', marginBottom: 8, fontWeight: 700 }}>길드 보스 상점 전용 추첨권</div>
+                  <button onClick={useT3Ticket} disabled={usingT3 || t3TicketCount <= 0 || rerollIndex === null} style={{
+                    width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700, marginBottom: 6,
+                    background: t3TicketCount > 0 && rerollIndex !== null ? '#a24bff' : 'transparent',
+                    color: t3TicketCount > 0 && rerollIndex !== null ? '#000' : 'var(--text-dim)',
+                    border: '1px solid #a24bff', borderRadius: 4,
+                    cursor: t3TicketCount > 0 && !usingT3 && rerollIndex !== null ? 'pointer' : 'default',
+                  }}>
+                    {usingT3 ? '굴리는 중...' : `T3 보장 추첨권 (보유: ${t3TicketCount}개)`}
+                  </button>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>
+                    선택한 접두사 1개를 T3 티어로 교체 — 아래 "접두사 선택" 필수
+                  </div>
+                  <button onClick={use3PrefixTicket} disabled={usingP3 || p3TicketCount <= 0} style={{
+                    width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,
+                    background: p3TicketCount > 0 ? '#a24bff' : 'transparent',
+                    color: p3TicketCount > 0 ? '#000' : 'var(--text-dim)',
+                    border: '1px solid #a24bff', borderRadius: 4,
+                    cursor: p3TicketCount > 0 && !usingP3 ? 'pointer' : 'default',
+                  }}>
+                    {usingP3 ? '굴리는 중...' : `3옵 보장 굴림권 (보유: ${p3TicketCount}개)`}
+                  </button>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
+                    기존 접두사 폐기 후 3옵 새로 굴림
                   </div>
                 </div>
               ) : null}
