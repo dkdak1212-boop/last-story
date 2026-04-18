@@ -76,24 +76,60 @@ export async function createPvPSession(attackerId: number, defenderId: number): 
   if (attackerId === defenderId) return { error: 'cannot attack self', status: 400 };
   if (hasActiveSession(attackerId)) return { error: '진행 중인 PvP 전투가 있습니다', status: 400 };
 
-  // 방어자 방어 세팅 로드
-  const loadR = await query<{
-    effective_stats: EffectiveStats; equip_prefixes: Record<string, number>;
-    passives: Record<string, number>; skill_slots: number[];
-    skills: any[]; equipment_summary: any[];
-  }>(
-    `SELECT effective_stats, equip_prefixes, passives, skill_slots, skills, equipment_summary
-     FROM pvp_defense_loadouts WHERE character_id = $1`, [defenderId]
-  );
-  if (!loadR.rowCount) return { error: '방어 세팅 미설정 유저입니다', status: 400 };
-  const L = loadR.rows[0];
-
   // 방어자 캐릭터 메타 로드 (이름/직업/레벨)
   const defR = await query<{ name: string; class_name: string; level: number }>(
     `SELECT name, class_name, level FROM characters WHERE id = $1`, [defenderId]
   );
   if (!defR.rowCount) return { error: 'defender not found', status: 404 };
   const defMeta = defR.rows[0];
+
+  // 방어 세팅 로드 — 없으면 방어자의 현재 상태 라이브 컴파일 (폴백)
+  let L: {
+    effective_stats: EffectiveStats;
+    equip_prefixes: Record<string, number>;
+    passives: Record<string, number>;
+    skill_slots: number[];
+    skills: any[];
+  };
+  const loadR = await query<{
+    effective_stats: EffectiveStats; equip_prefixes: Record<string, number>;
+    passives: Record<string, number>; skill_slots: number[];
+    skills: any[];
+  }>(
+    `SELECT effective_stats, equip_prefixes, passives, skill_slots, skills
+     FROM pvp_defense_loadouts WHERE character_id = $1`, [defenderId]
+  );
+  if (loadR.rowCount) {
+    L = loadR.rows[0];
+  } else {
+    // 라이브 폴백 — 방어자가 현재 PvE 에 쓰는 장비/스킬/스탯 스냅샷
+    const fullDef = await loadCharacter(defenderId);
+    if (!fullDef) return { error: 'defender not found', status: 404 };
+    const defEff = await getEffectiveStats(fullDef);
+    const defPrefixes = await loadEquipPrefixes(defenderId);
+    const defPassivesRaw = await getNodePassives(defenderId);
+    const defPassivesMap = buildPassiveMap(defPassivesRaw);
+    const defPassivesObj: Record<string, number> = {};
+    for (const [k, v] of defPassivesMap) defPassivesObj[k] = v;
+    const defSkillsAll = await getCharSkills(defenderId, fullDef.class_name, fullDef.level);
+    const defSkillsList = defSkillsAll
+      .filter(sk => sk.cooldown_actions > 0)
+      .sort((a, b) => (a.slot_order || 99) - (b.slot_order || 99))
+      .slice(0, 7);
+    L = {
+      effective_stats: defEff,
+      equip_prefixes: defPrefixes,
+      passives: defPassivesObj,
+      skill_slots: defSkillsList.map(s => s.id),
+      skills: defSkillsList.map(s => ({
+        id: s.id, name: s.name, damage_mult: s.damage_mult, kind: s.kind,
+        cooldown_actions: s.cooldown_actions, flat_damage: s.flat_damage,
+        effect_type: s.effect_type, effect_value: s.effect_value,
+        effect_duration: s.effect_duration, required_level: s.required_level,
+        slot_order: s.slot_order, element: s.element, description: s.description,
+      })),
+    };
+  }
 
   // 공격자 — 현재 실시간 상태 로드
   const attChar = await loadCharacter(attackerId);

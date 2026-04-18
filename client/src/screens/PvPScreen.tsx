@@ -166,11 +166,10 @@ export function PvPScreen() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {!o.hasDefense && <span style={{ fontSize: 10, color: '#ff8844' }}>⚠️ 방어 미설정</span>}
+                {!o.hasDefense && <span style={{ fontSize: 10, color: '#ff8844' }} title="방어자가 세팅 저장 안함 — 현재 PvE 상태로 방어">⚠️ 방어 미설정 (라이브)</span>}
                 <button onClick={() => loadInspect(o.id)} disabled={inspectLoading} style={{ fontSize: 12 }}>정보</button>
-                <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown || !o.hasDefense}
-                  title={!o.hasDefense ? '방어 세팅 미설정 — 공격 불가' : ''}>
-                  {o.onCooldown ? '쿨다운' : !o.hasDefense ? '공격 불가' : '공격'}
+                <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown}>
+                  {o.onCooldown ? '쿨다운' : '공격'}
                 </button>
               </div>
             </div>
@@ -247,7 +246,8 @@ export function PvPScreen() {
             💡 <b style={{ color: '#daa520' }}>방어 세팅</b>은 현재 장비/스킬/스탯 상태의 <b>스냅샷</b>이에요.
             저장 후에는 PvE에서 자유롭게 장비 바꿔도 PvP 방어는 스냅샷 그대로 사용됩니다.
             <br />
-            방어 세팅이 없으면 <b>공격받지 않습니다</b> (PvP 목록에서 제외).
+            세팅을 저장하지 않으면 공격받을 때 마다 <b>현재 PvE 상태(라이브)</b>로 방어합니다 —
+            장비/스킬 바꾸면 즉시 반영되므로 의도치 않은 약점이 노출될 수 있어요.
           </div>
 
           {defense?.exists ? (
@@ -286,9 +286,12 @@ export function PvPScreen() {
             </div>
           ) : (
             <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid #ff8844' }}>
-              <div style={{ fontWeight: 700, color: '#ff8844', marginBottom: 8 }}>⚠️ 방어 세팅 미설정</div>
+              <div style={{ fontWeight: 700, color: '#ff8844', marginBottom: 8 }}>⚠️ 방어 세팅 미설정 — 라이브 방어 중</div>
               <div style={{ fontSize: 12, color: '#ccc', marginBottom: 10 }}>
-                방어 세팅이 없으면 랭킹에 올라가지 않고 공격받지 않습니다. 랭킹 참여를 원하시면 아래 버튼으로 저장하세요.
+                현재는 공격받을 때마다 <b>현재 PvE 상태 그대로</b> 방어합니다.
+                장비/스킬을 바꾸면 즉시 반영되기 때문에 원치 않는 약점이 노출될 수 있어요.
+                <br />
+                고정 세팅으로 방어하려면 아래 버튼으로 스냅샷 저장하세요.
               </div>
               <button onClick={saveDefense} disabled={defenseBusy} className="primary">현재 상태로 방어 세팅 저장</button>
             </div>
