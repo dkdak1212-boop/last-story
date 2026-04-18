@@ -3487,8 +3487,16 @@ const idleSinceMap = new Map<number, number>();
 export function sessionHasSubscriber(characterId: number): boolean {
   const io = getIo();
   if (!io) return true;
-  const room = io.sockets.adapter.rooms.get(`combat:${characterId}`);
-  return (room?.size || 0) > 0;
+  // 1) combat:{charId} 구독자 (사냥 화면 보고 있는 중) → 즉시 true
+  const combatRoom = io.sockets.adapter.rooms.get(`combat:${characterId}`);
+  if ((combatRoom?.size || 0) > 0) return true;
+  // 2) 폴백 — 같은 userId 의 소켓이 어딘가(인벤토리 등)라도 연결돼있으면 유지
+  const s = activeSessions.get(characterId);
+  if (!s) return false;
+  for (const [, sock] of io.sockets.sockets) {
+    if (sock.data?.userId === s.userId) return true;
+  }
+  return false;
 }
 const AFK_MAX_MS = 24 * 60 * 60_000; // AFK 최대 24시간
 setInterval(() => {
