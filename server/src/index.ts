@@ -1975,6 +1975,21 @@ setInterval(async () => {
   } catch (e) { console.error('[territory] settle error', e); }
 }, 60_000);
 
+// 60초마다 리소스 메트릭 로그 (진단용 — Railway 로그에서 확인)
+setInterval(async () => {
+  try {
+    const { pool } = await import('./db/pool.js');
+    // pg.Pool 내부 상태
+    const p: any = pool;
+    const total = p.totalCount ?? '?';
+    const idle = p.idleCount ?? '?';
+    const waiting = p.waitingCount ?? '?';
+    const mem = process.memoryUsage();
+    const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+    console.log(`[metrics] pool total=${total} idle=${idle} waiting=${waiting} · heapMB=${heapMB}`);
+  } catch (e) { console.error('[metrics] err', e); }
+}, 60_000);
+
 // 길드 보스 주간 결산 (1분마다 체크 — 일요일 22시 KST 1회 실행)
 // + 만료된 왕좌 호칭 정리 (5분마다)
 setInterval(async () => {

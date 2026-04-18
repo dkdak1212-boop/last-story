@@ -3463,15 +3463,35 @@ export function getCombatHp(characterId: number): number | null {
   return s ? Math.max(0, s.playerHp) : null;
 }
 
+// 틱 성능 통계 (30초마다 요약 출력)
+let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
+setInterval(() => {
+  if (tickStats.count === 0 && tickStats.skipped === 0) return;
+  const avg = tickStats.count > 0 ? (tickStats.totalMs / tickStats.count).toFixed(1) : '0';
+  console.log(`[combat-perf] ticks=${tickStats.count} avg=${avg}ms max=${tickStats.maxMs}ms over100ms=${tickStats.overLimit} skipped=${tickStats.skipped} sessions=${activeSessions.size}`);
+  tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
+}, 30_000);
+
 function ensureCombatLoop() {
   if (combatInterval) return;
   lastTickAt = 0; // 재시작 시 초기화
   combatInterval = setInterval(() => {
-    if (tickRunning) return; // 이전 틱이 아직 실행 중이면 스킵 (DB 폭주 방지)
+    if (tickRunning) { tickStats.skipped++; return; }
     tickRunning = true;
+    const start = Date.now();
     combatTick()
       .catch(err => console.error('[combat] loop error:', err))
-      .finally(() => { tickRunning = false; });
+      .finally(() => {
+        const ms = Date.now() - start;
+        tickStats.count++;
+        tickStats.totalMs += ms;
+        if (ms > tickStats.maxMs) tickStats.maxMs = ms;
+        if (ms > 100) {
+          tickStats.overLimit++;
+          if (ms > 500) console.warn(`[combat-perf] SLOW TICK ${ms}ms (sessions=${activeSessions.size})`);
+        }
+        tickRunning = false;
+      });
   }, 100); // 100ms 틱
   console.log('[combat] engine started (100ms tick)');
 }
