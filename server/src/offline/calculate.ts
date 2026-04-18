@@ -213,8 +213,11 @@ export async function generateAndApplyOfflineReport(
     if (row.prefix_stats.exp_bonus_pct) expBonusPct += Math.round(row.prefix_stats.exp_bonus_pct * mult);
     if (row.prefix_stats.gold_bonus_pct) goldBonusPct += Math.round(row.prefix_stats.gold_bonus_pct * mult);
   }
-  const goldBoostR = await query<{ gold_boost_until: string | null }>('SELECT gold_boost_until FROM characters WHERE id = $1', [characterId]);
-  const goldBoostActive = goldBoostR.rows[0]?.gold_boost_until && new Date(goldBoostR.rows[0].gold_boost_until) > now;
+  const boostR = await query<{ gold_boost_until: string | null; drop_boost_until: string | null }>(
+    'SELECT gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [characterId]
+  );
+  const goldBoostActive = boostR.rows[0]?.gold_boost_until && new Date(boostR.rows[0].gold_boost_until) > now;
+  const dropBoostActive = !!(boostR.rows[0]?.drop_boost_until && new Date(boostR.rows[0].drop_boost_until) > now);
   const avgExp = avg(monsters.map(m => m.exp_reward));
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
@@ -226,12 +229,45 @@ export async function generateAndApplyOfflineReport(
   const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
   const goldGained = Math.floor(killCount * avgGold * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
 
-  // 드랍 계산
+  // 드랍 보너스 — 온라인 전투와 동일하게 적용
+  // 드랍부스터 / 길드 / 영토 / 접두사 drop_rate_pct
+  const DROP_RATE_MULT = 0.1; // engine.ts 와 동일 (유니크 제외)
+  const { getTerritoryBonusForChar } = await import('../game/territory.js');
+  const guildDropBonus = guildSkills.drop * GUILD_SKILL_PCT.drop;
+  let territoryDropPct = 0;
+  try {
+    const tb = await getTerritoryBonusForChar(characterId, fieldId);
+    territoryDropPct = tb?.dropPct || 0;
+  } catch { /* ignore */ }
+  let prefixDropBonus = 0;
+  for (const row of prefR.rows) {
+    if (!row.prefix_stats) continue;
+    const mult = 1 + (row.enhance_level || 0) * 0.05;
+    if (row.prefix_stats.drop_rate_pct) prefixDropBonus += Math.round(row.prefix_stats.drop_rate_pct * mult);
+  }
+  const dropBoostMult = dropBoostActive ? 1.5 : 1.0;
+  const dropBonusMult = 1 + (guildDropBonus + territoryDropPct + prefixDropBonus) / 100;
+
+  // 몬스터 드랍 아이템의 grade 미리 조회 (유니크는 DROP_RATE_MULT 제외)
+  const allDropItemIds = [...new Set(monsters.flatMap(m => (m.drop_table || []).map(d => d.itemId)))];
+  const itemInfo = new Map<number, { name: string; grade: string; sell_price: number; slot: string | null }>();
+  if (allDropItemIds.length > 0) {
+    const ir = await query<{ id: number; name: string; grade: string; sell_price: number; slot: string | null }>(
+      `SELECT id, name, grade, sell_price, slot FROM items WHERE id = ANY($1::int[])`, [allDropItemIds]
+    );
+    for (const r of ir.rows) itemInfo.set(r.id, { name: r.name, grade: r.grade, sell_price: r.sell_price, slot: r.slot });
+  }
+
+  // 드랍 계산 (온라인 rollDrops 와 동일 공식)
   const drops: Record<number, number> = {};
   for (const m of monsters) {
     for (const d of m.drop_table || []) {
+      const info = itemInfo.get(d.itemId);
+      const isUnique = info?.grade === 'unique';
+      const rateMult = isUnique ? 1.0 : DROP_RATE_MULT;
       const expectedKills = killCount / monsters.length;
-      const expectedQty = expectedKills * d.chance * ((d.minQty + d.maxQty) / 2) * ge.drop;
+      const effectiveChance = d.chance * rateMult * dropBoostMult * dropBonusMult * ge.drop;
+      const expectedQty = expectedKills * effectiveChance * ((d.minQty + d.maxQty) / 2);
       const qty = Math.floor(expectedQty);
       if (qty > 0) drops[d.itemId] = (drops[d.itemId] || 0) + qty;
     }
@@ -251,16 +287,6 @@ export async function generateAndApplyOfflineReport(
   const fConf = filterR.rows[0] || { auto_dismantle_tiers: 0, drop_filter_tiers: 0, drop_filter_common: false };
   const autoSellEnabled = fConf.auto_dismantle_tiers > 0;
   const dropFilterEnabled = fConf.drop_filter_tiers > 0 || fConf.drop_filter_common;
-
-  // 아이템 grade / sell_price 일괄 조회
-  const itemIds = Object.keys(drops).map(Number);
-  const itemInfo = new Map<number, { name: string; grade: string; sell_price: number; slot: string | null }>();
-  if (itemIds.length > 0) {
-    const ir = await query<{ id: number; name: string; grade: string; sell_price: number; slot: string | null }>(
-      `SELECT id, name, grade, sell_price, slot FROM items WHERE id = ANY($1::int[])`, [itemIds]
-    );
-    for (const r of ir.rows) itemInfo.set(r.id, { name: r.name, grade: r.grade, sell_price: r.sell_price, slot: r.slot });
-  }
 
   // 적용
   const levelUp = applyExpGain(char.level, char.exp, expGained, char.class_name);

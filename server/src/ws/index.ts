@@ -6,6 +6,10 @@ import { toggleAutoMode, manualSkillUse } from '../combat/engine.js';
 
 const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
+// 동일 IP 2계정 동시 접속 차단 — ip → 접속 중인 userId set
+// 관리자(isAdmin)는 집계 제외
+const ipToUserIds = new Map<string, Set<number>>();
+
 export function initWebSocket(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     cors: { origin: process.env.CORS_ORIGIN || '*' },
@@ -29,6 +33,7 @@ export function initWebSocket(httpServer: HttpServer) {
       const payload = jwt.verify(token, SECRET) as { userId: number; username: string };
       socket.data.userId = payload.userId;
       socket.data.username = payload.username;
+      socket.data.ip = ip;
       // is_admin 동기로 가져와야 broadcastOnlineCount가 정확
       try {
         const r = await query<{ is_admin: boolean; chat_hidden: boolean }>(
@@ -40,6 +45,13 @@ export function initWebSocket(httpServer: HttpServer) {
       } catch {
         socket.data.isAdmin = false;
         socket.data.chatHidden = false;
+      }
+      // 동일 IP 2계정 동시 접속 차단 (관리자 제외, unknown IP 제외)
+      if (!socket.data.isAdmin && ip && ip !== 'unknown') {
+        const set = ipToUserIds.get(ip);
+        if (set && set.size > 0 && !set.has(payload.userId)) {
+          return next(new Error('동일 IP에서 다른 계정이 이미 접속 중입니다. 기존 접속을 먼저 종료해주세요.'));
+        }
       }
       next();
     } catch {
@@ -59,6 +71,13 @@ export function initWebSocket(httpServer: HttpServer) {
   io.on('connection', (socket) => {
     console.log(`[ws] connected: ${socket.data.username}`);
     broadcastOnlineCount();
+
+    // IP → userId 집계 (관리자 제외)
+    if (!socket.data.isAdmin && socket.data.ip && socket.data.ip !== 'unknown') {
+      const ip = socket.data.ip as string;
+      if (!ipToUserIds.has(ip)) ipToUserIds.set(ip, new Set());
+      ipToUserIds.get(ip)!.add(socket.data.userId);
+    }
 
     // 전투 채널 구독
     socket.on('combat:subscribe', (characterId: number) => {
@@ -144,6 +163,26 @@ export function initWebSocket(httpServer: HttpServer) {
     socket.on('disconnect', () => {
       console.log(`[ws] disconnected: ${socket.data.username}`);
       broadcastOnlineCount();
+
+      // IP → userId 집계 정리: 같은 userId의 다른 소켓이 없을 때만 제거
+      if (!socket.data.isAdmin && socket.data.ip && socket.data.ip !== 'unknown') {
+        const ip = socket.data.ip as string;
+        const myUserId = socket.data.userId as number;
+        let stillOnline = false;
+        for (const [, s] of io.sockets.sockets) {
+          if (s.id !== socket.id && s.data.userId === myUserId && s.data.ip === ip) {
+            stillOnline = true;
+            break;
+          }
+        }
+        if (!stillOnline) {
+          const set = ipToUserIds.get(ip);
+          if (set) {
+            set.delete(myUserId);
+            if (set.size === 0) ipToUserIds.delete(ip);
+          }
+        }
+      }
     });
   });
 
