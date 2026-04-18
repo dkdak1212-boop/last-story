@@ -3484,14 +3484,21 @@ export function sessionHasSubscriber(characterId: number): boolean {
   const room = io.sockets.adapter.rooms.get(`combat:${characterId}`);
   return (room?.size || 0) > 0;
 }
+const AFK_MAX_MS = 24 * 60 * 60_000; // AFK 최대 24시간
 setInterval(() => {
   const io = getIo();
   if (!io) return;
   const now = Date.now();
   let cleaned = 0;
+  let afkTimedOut = 0;
   for (const charId of activeSessions.keys()) {
     const s = activeSessions.get(charId);
     if (!s) continue;
+    // AFK 24시간 초과 → AFK 해제 (이후 정상 유휴 정리 플로우 진입)
+    if (s.afkMode && s.afkStartedAt > 0 && now - s.afkStartedAt > AFK_MAX_MS) {
+      s.afkMode = false;
+      afkTimedOut++;
+    }
     if (s.afkMode || sessionHasSubscriber(charId)) {
       idleSinceMap.delete(charId);
       continue;
@@ -3506,6 +3513,7 @@ setInterval(() => {
       stopCombatSession(charId, { keepLocation: true }).catch(e => console.error('[cleanup] stop err', charId, e));
     }
   }
+  if (afkTimedOut > 0) console.log(`[combat-cleanup] AFK timed out for ${afkTimedOut} sessions (>24h)`);
   if (cleaned > 0) console.log(`[combat-cleanup] paused ${cleaned} idle (>5min) sessions for offline reward (remaining=${activeSessions.size})`);
 }, 60_000);
 
