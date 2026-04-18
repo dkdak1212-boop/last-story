@@ -274,15 +274,15 @@ export async function generateAndApplyOfflineReport(
     for (const r of ir.rows) itemInfo.set(r.id, { name: r.name, grade: r.grade, sell_price: r.sell_price, slot: r.slot });
   }
 
-  // 드랍 계산 (온라인 rollDrops 와 동일 공식)
+  // 드랍 계산
+  // 방치보상은 기대값 기반(deterministic)이라 온라인의 확률 롤링과 달리
+  // 유니크도 DROP_RATE_MULT 를 적용해 기대값을 축소 — 그렇지 않으면 킬 수 많을 때
+  // 유니크가 확정적으로 다수 지급되는 비정상 현상 발생 (online은 확률 roll이라 운에 맡겨짐)
   const drops: Record<number, number> = {};
   for (const m of monsters) {
     for (const d of m.drop_table || []) {
-      const info = itemInfo.get(d.itemId);
-      const isUnique = info?.grade === 'unique';
-      const rateMult = isUnique ? 1.0 : DROP_RATE_MULT;
       const expectedKills = killCount / monsters.length;
-      const effectiveChance = d.chance * rateMult * dropBoostMult * dropBonusMult * ge.drop;
+      const effectiveChance = d.chance * DROP_RATE_MULT * dropBoostMult * dropBonusMult * ge.drop;
       const expectedQty = expectedKills * effectiveChance * ((d.minQty + d.maxQty) / 2);
       const qty = Math.floor(expectedQty);
       if (qty > 0) drops[d.itemId] = (drops[d.itemId] || 0) + qty;
