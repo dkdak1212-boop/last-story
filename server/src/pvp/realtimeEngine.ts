@@ -1079,9 +1079,9 @@ function applyDamage(s: PvPSession, attackerSide: 'attacker' | 'defender', damag
   // 4) 타격당 maxHp 퍼센트 캡 (스탯 격차 무관 · 최소 20타 확보)
   const cap = Math.max(1, Math.floor(target.maxHp * PVP_PER_HIT_CAP_PCT / 100));
   if (damage > cap) damage = cap;
-  // 쉴드 먼저 감소 — 성직자는 PvP에서 쉴드 차감 ×8 (쉴드 1/8 효율)
+  // 쉴드 먼저 감소 — 성직자는 PvP에서 쉴드 차감 ×4 (쉴드 1/4 효율)
   if (target.shieldAmount > 0) {
-    const shieldDropMult = target.className === 'cleric' ? 8 : 1;
+    const shieldDropMult = target.className === 'cleric' ? 4 : 1;
     const shieldDrop = Math.min(target.shieldAmount, damage * shieldDropMult);
     const actualAbsorbed = shieldDrop / shieldDropMult;
     target.shieldAmount -= shieldDrop;
