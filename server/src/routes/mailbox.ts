@@ -2,6 +2,10 @@ import { Router, type Response } from 'express';
 import { query, withTransaction, type TxOk, type TxErr } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
+import {
+  getClientIp, getLatestUserIp, sameIpBlocked,
+  getAccountAgeDays, getTodayGoldSent, ANTIFRAUD_CONST,
+} from '../middleware/antifraud.js';
 
 const router = Router();
 router.use(authRequired);
@@ -151,12 +155,44 @@ router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
   const { recipientName, gold, slotIndex } = parsed.data;
   if (gold <= 0 && slotIndex < 0) return res.status(400).json({ error: '골드 또는 아이템을 선택해주세요.' });
 
-  const recipR = await query<{ id: number; name: string }>(
-    'SELECT id, name FROM characters WHERE name = $1', [recipientName]
+  const recipR = await query<{ id: number; name: string; user_id: number }>(
+    'SELECT id, name, user_id FROM characters WHERE name = $1', [recipientName]
   );
   if (recipR.rowCount === 0) return res.status(404).json({ error: `"${recipientName}" 캐릭터를 찾을 수 없습니다.` });
   const recipient = recipR.rows[0];
   if (recipient.id === id) return res.status(400).json({ error: '자기 자신에게는 보낼 수 없습니다.' });
+  if (recipient.user_id === req.userId) {
+    return res.status(400).json({ error: '같은 계정 간에는 우편을 보낼 수 없습니다.' });
+  }
+
+  // 다계정 우편 거래 방지 (Tier 1)
+  // 1) 발신 캐릭터 Lv.30 이상
+  if (char.level < ANTIFRAUD_CONST.MIN_TRADE_LEVEL) {
+    return res.status(400).json({ error: `Lv.${ANTIFRAUD_CONST.MIN_TRADE_LEVEL} 이상만 우편을 보낼 수 있습니다.` });
+  }
+  // 2) 골드 발송 시 계정 생성 7일 이상
+  if (gold > 0) {
+    const ageDays = await getAccountAgeDays(req.userId!);
+    if (ageDays < ANTIFRAUD_CONST.NEW_ACCOUNT_DAYS) {
+      return res.status(400).json({ error: `계정 생성 후 ${ANTIFRAUD_CONST.NEW_ACCOUNT_DAYS}일이 지나야 골드 송금이 가능합니다.` });
+    }
+    // 3) 일일 골드 송금 한도 1억
+    const todaySent = await getTodayGoldSent(id);
+    if (todaySent + gold > ANTIFRAUD_CONST.DAILY_GOLD_SEND_CAP) {
+      const remain = Math.max(0, ANTIFRAUD_CONST.DAILY_GOLD_SEND_CAP - todaySent);
+      return res.status(400).json({
+        error: `일일 골드 송금 한도 초과 (하루 ${ANTIFRAUD_CONST.DAILY_GOLD_SEND_CAP.toLocaleString()}G). 오늘 남은 한도 ${remain.toLocaleString()}G`,
+      });
+    }
+  }
+  // 4) 같은 IP 차단 — 발신자 현재 IP vs 수신자 계정의 최근 로그인 IP
+  {
+    const myIp = getClientIp(req);
+    const recipIp = await getLatestUserIp(recipient.user_id);
+    if (sameIpBlocked(myIp, recipIp)) {
+      return res.status(400).json({ error: '같은 IP에서 접속한 계정에는 우편을 보낼 수 없습니다.' });
+    }
+  }
 
   const result = await withTransaction<TxOk | TxErr>(async (tx) => {
     if (gold > 0) {
@@ -212,8 +248,8 @@ router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
 
     await tx.query(
       `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
-                             enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+                             enhance_level, prefix_ids, prefix_stats, quality, sender_character_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)`,
       [
         recipient.id, subject, body,
         itemId > 0 ? itemId : null,
@@ -223,6 +259,7 @@ router.post('/:id/mailbox/send', async (req: AuthedRequest, res: Response) => {
         prefixIds && prefixIds.length > 0 ? prefixIds : null,
         prefixStats ? JSON.stringify(prefixStats) : null,
         quality || null,
+        id,
       ]
     );
 

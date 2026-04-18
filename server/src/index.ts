@@ -2035,6 +2035,21 @@ async function runEquipOverhaul() {
       console.error('[late] pvp_defense_loadouts_v1 error:', e);
     }
   }
+
+  // 우편 발신자 추적 — 일일 골드 송금 한도 / 다계정 탐지
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'mailbox_sender_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE mailbox ADD COLUMN IF NOT EXISTS sender_character_id INT`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_mailbox_sender_created ON mailbox(sender_character_id, created_at DESC)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('mailbox_sender_v1')`);
+        console.log('[late] mailbox_sender_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] mailbox_sender_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

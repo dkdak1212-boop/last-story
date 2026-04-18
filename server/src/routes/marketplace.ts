@@ -5,6 +5,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { deliverToMailbox } from '../game/inventory.js';
 import { displayPrefixStats } from '../game/prefix.js';
+import { getClientIp, getLatestCharacterOwnerIp, sameIpBlocked } from '../middleware/antifraud.js';
 
 const router = Router();
 router.use(authRequired);
@@ -190,6 +191,26 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
 
   const char = await loadCharacterOwned(parsed.data.characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 판매자 캐릭터 먼저 조회 → 계정/IP 체크 (트랜잭션 밖에서 빠르게)
+  const sellerLookup = await query<{ seller_id: number; seller_user_id: number | null }>(
+    `SELECT a.seller_id, c.user_id AS seller_user_id
+     FROM auctions a LEFT JOIN characters c ON c.id = a.seller_id
+     WHERE a.id = $1`,
+    [auctionId]
+  );
+  if (sellerLookup.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  const sellerRow = sellerLookup.rows[0];
+  if (sellerRow.seller_user_id === req.userId) {
+    return res.status(400).json({ error: '본인 계정의 아이템은 살 수 없습니다.' });
+  }
+  {
+    const myIp = getClientIp(req);
+    const sellerIp = await getLatestCharacterOwnerIp(sellerRow.seller_id);
+    if (sameIpBlocked(myIp, sellerIp)) {
+      return res.status(400).json({ error: '같은 IP의 판매자 아이템은 구매할 수 없습니다.' });
+    }
+  }
 
   const result = await withTransaction<TxOk | TxErr>(async (tx) => {
     const a = await tx.query<{
