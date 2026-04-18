@@ -238,7 +238,7 @@ function amplifyDamage(
   opp: FighterState,
   baseDmg: number,
   isCrit: boolean,
-  opts: { consumeFirstStrike?: boolean; consumeFirstSkill?: boolean; isDot?: boolean } = {}
+  opts: { consumeFirstStrike?: boolean; consumeFirstSkill?: boolean; isDot?: boolean; skillName?: string } = {}
 ): number {
   let dmg = baseDmg;
   // atk_buff (전쟁의 함성 등)
@@ -258,6 +258,25 @@ function amplifyDamage(
   if (self.className === 'cleric') {
     const judgeAmp = getFPassive(self, 'judge_amp') + getFPassive(self, 'holy_judge');
     if (judgeAmp > 0) dmg = Math.round(dmg * (1 + judgeAmp / 100));
+    // 성직자 심판자의 권능: 자신 쉴드 보유 시 +50%
+    if (opts.skillName === '심판자의 권능' && self.shieldAmount > 0) {
+      dmg = Math.round(dmg * 1.5);
+    }
+  }
+  // 마법사 고유 패시브 — 원소 침식 / 마력 과부하
+  if (self.className === 'mage') {
+    // 원소 침식: 상대에게 도트(dot/poison) 걸려있으면 +30%
+    const oppHasDot = opp.statusEffects.some(e => e.type === 'dot' && e.remainingActions > 0);
+    if (oppHasDot) dmg = Math.round(dmg * 1.3);
+    // 마력 과부하: 자기가 속도 감소 디버프 상태면 +80%
+    const selfSlowed = self.statusEffects.some(e =>
+      e.type === 'speed_mod' && e.remainingActions > 0 && e.value < 0 && e.source !== (self === (self as any) ? 'attacker' : 'defender'));
+    if (selfSlowed) dmg = Math.round(dmg * 1.8);
+  }
+  // 도적 암흑의 심판: 상대에게 걸린 독 스택당 +8%
+  if (self.className === 'rogue' && opts.skillName === '암흑의 심판') {
+    const poisonStacks = self.statusEffects.filter(e => e.type === 'dot' && e.remainingActions > 0).length;
+    if (poisonStacks > 0) dmg = Math.round(dmg * (1 + poisonStacks * 0.08));
   }
   // dot_amp 패시브 + prefix (도트 전용)
   if (opts.isDot) {
@@ -620,7 +639,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       self.missStack = Math.min(5, self.missStack + 1);
       return d;
     }
-    let amplified = amplifyDamage(self, opp, d.damage, d.crit);
+    let amplified = amplifyDamage(self, opp, d.damage, d.crit, { skillName: skName });
     // 전사 분노 폭발
     let rageProc = false;
     if (self.className === 'warrior' && self.rage >= 100) {
@@ -903,6 +922,14 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       const d = dealDamage(skill.damage_mult);
       self.statusEffects.push({ type: 'dot', value: dmgPerTick, remainingActions: dur, source: side });
       s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : `${d.damage}`} + 도트 ${dmgPerTick}×${dur}`);
+      // 마법사 고유: 도트 스킬 시 총 도트 데미지의 50% 즉시 추가 (즉발화)
+      if (self.className === 'mage' && !d.miss) {
+        const instantDot = Math.round(dmgPerTick * dur * 0.5);
+        if (instantDot > 0) {
+          applyDamage(s, side, instantDot, false, false);
+          s.log.push(`${self.name} [${skName}] 도트 즉발 +${Math.round(instantDot * PVP_DAMAGE_MULT)}`);
+        }
+      }
       // 도적 독의 공명 스택 (poison/burn 계열)
       if (self.className === 'rogue' && (skill.effect_type === 'poison' || skill.effect_type === 'dot')) {
         self.poisonResonance = Math.min(10, self.poisonResonance + 1);
