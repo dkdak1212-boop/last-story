@@ -12,11 +12,11 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 30,
+  max: 60,                        // 30 → 60 (풀 고갈 방지 — Railway PG max_connections ≈ 100)
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
-  statement_timeout: 15_000,
-  query_timeout: 15_000,
+  statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
+  query_timeout: 10_000,
 };
 
 export const pool = new pg.Pool(
