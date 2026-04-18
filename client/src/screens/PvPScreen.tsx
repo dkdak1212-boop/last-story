@@ -100,6 +100,19 @@ export function PvPScreen() {
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
 
+  async function attackSkip(defenderId: number, defenderName: string) {
+    if (!active) return;
+    if (!confirm(`${defenderName} 와 즉시 스킵 전투하시겠습니까?\n전투화면 없이 결과만 표시됩니다.`)) return;
+    try {
+      const r = await api<BattleResult>('/pvp/attack-skip', {
+        method: 'POST',
+        body: JSON.stringify({ attackerId: active.id, defenderId }),
+      });
+      setResult({ ...r, opponent: defenderName });
+      loadStats(); loadOpponents();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
+
   async function saveDefense() {
     if (!active || defenseBusy) return;
     if (!confirm('현재 장비·스킬 상태로 방어 세팅을 저장합니다. 이후 PvE 에서 장비 바꿔도 저장된 세팅은 그대로 유지됩니다.')) return;
@@ -178,6 +191,11 @@ export function PvPScreen() {
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 {!o.hasDefense && <span style={{ fontSize: 10, color: '#ff8844' }} title="방어자가 세팅 저장 안함 — 현재 PvE 상태로 방어">⚠️ 방어 미설정 (라이브)</span>}
                 <button onClick={() => loadInspect(o.id)} disabled={inspectLoading} style={{ fontSize: 12 }}>정보</button>
+                <button onClick={() => attackSkip(o.id, o.name)} disabled={o.onCooldown}
+                  title="전투화면 생략 · 즉시 시뮬 결과"
+                  style={{ fontSize: 12, background: 'var(--bg-panel)', color: '#aaa', border: '1px solid #666' }}>
+                  ⏩ 스킵
+                </button>
                 <button className="primary" onClick={() => attack(o.id, o.name)} disabled={o.onCooldown}>
                   {o.onCooldown ? '쿨다운' : '공격'}
                 </button>

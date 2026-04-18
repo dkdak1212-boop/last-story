@@ -130,6 +130,11 @@ export function PvPCombatScreen() {
     try { await api(`/pvp/battle/${battleId}/forfeit`, { method: 'POST', body: JSON.stringify({ attackerId: active.id }) }); }
     catch (e) { setErr(e instanceof Error ? e.message : 'forfeit failed'); }
   }
+  async function toggleAuto() {
+    if (!active || !battleId) return;
+    try { await api(`/pvp/battle/${battleId}/toggle-auto`, { method: 'POST', body: JSON.stringify({ attackerId: active.id }) }); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'toggle failed'); }
+  }
 
   if (!state) return <div style={{ padding: 20, color: 'var(--text-dim)' }}>{err ? `에러: ${err}` : '전투 세션 연결 중...'}</div>;
 
@@ -153,10 +158,19 @@ export function PvPCombatScreen() {
             남은 시간 {fmtTime(remainingMs)}
           </div>
           {!isDone && (
-            <button onClick={forfeit} style={{
-              background: 'transparent', color: 'var(--danger)',
-              border: '1px solid var(--danger)', fontWeight: 700,
-            }}>기권</button>
+            <>
+              <button onClick={toggleAuto} title="자동/수동 토글" style={{
+                background: state.attackerAuto ? 'var(--accent)' : 'transparent',
+                color: state.attackerAuto ? '#000' : 'var(--accent)',
+                border: '1px solid var(--accent)', fontWeight: 700,
+              }}>
+                {state.attackerAuto ? '자동' : '수동'}
+              </button>
+              <button onClick={forfeit} style={{
+                background: 'transparent', color: 'var(--danger)',
+                border: '1px solid var(--danger)', fontWeight: 700,
+              }}>기권</button>
+            </>
           )}
           {isDone && (
             <button onClick={() => navigate('/pvp')} style={{
@@ -270,12 +284,13 @@ export function PvPCombatScreen() {
         </div>
       </div>
 
-      {/* 스킬 슬롯 (공격자 수동) — 게이지 차면 눌러야 발동 */}
+      {/* 스킬 슬롯 — 게이지 차면 수동 클릭, 자동 모드면 표시만 */}
       {!isDone && (
         <PvPSkillBar
           skills={me.skills}
           waitingInput={state.attackerWaitingInput}
           gaugeFull={me.gauge >= GAUGE_MAX}
+          autoMode={state.attackerAuto}
           onUse={useSkill}
         />
       )}
@@ -283,20 +298,24 @@ export function PvPCombatScreen() {
   );
 }
 
-function PvPSkillBar({ skills, waitingInput, gaugeFull, onUse }: {
+function PvPSkillBar({ skills, waitingInput, gaugeFull, autoMode, onUse }: {
   skills: FighterSnapshot['skills'];
   waitingInput: boolean;
   gaugeFull: boolean;
+  autoMode: boolean;
   onUse: (id: number) => void;
 }) {
-  const canUse = waitingInput && gaugeFull;
+  const canUse = !autoMode && waitingInput && gaugeFull;
   return (
     <div style={{
       padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--border)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>스킬 (수동)</span>
-        {!gaugeFull && (
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>스킬 {autoMode ? '(자동)' : '(수동)'}</span>
+        {autoMode && (
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>자동 전투 중 — 슬롯 순서로 자동 발동</span>
+        )}
+        {!autoMode && !gaugeFull && (
           <span style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>게이지 충전 중...</span>
         )}
         {canUse && (

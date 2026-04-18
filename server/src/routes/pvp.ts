@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacter, loadCharacterOwned, getEffectiveStats, getNodePassives } from '../game/character.js';
-import { calculateEloChange } from '../pvp/simulator.js';
+import { calculateEloChange, simulatePvP } from '../pvp/simulator.js';
 import { trackDailyQuestProgress } from './dailyQuests.js';
 import { createPvPSession, toggleAuto, attackerUseSkill, attackerForfeit, attackerPing, sessionSummary } from '../pvp/realtimeEngine.js';
 import { loadEquipPrefixes, getCharSkills, buildPassiveMap } from '../combat/engine.js';
@@ -184,6 +184,74 @@ router.post('/attack', async (req: AuthedRequest, res: Response) => {
   await trackDailyQuestProgress(attackerId, 'pvp_attack', 1).catch(() => {});
 
   res.json({ battleId: r.battleId });
+});
+
+// 스킵 — 즉시 시뮬레이션 결과 반환 (전투화면 진입 없이 결과창만)
+router.post('/attack-skip', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    attackerId: z.number().int().positive(),
+    defenderId: z.number().int().positive(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { attackerId, defenderId } = parsed.data;
+  if (attackerId === defenderId) return res.status(400).json({ error: 'cannot attack self' });
+
+  const char = await loadCharacterOwned(attackerId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+  await ensureStats(attackerId);
+  await ensureStats(defenderId);
+
+  // 일일 제한 + 쿨다운 체크 (실시간과 동일)
+  const statR = await query<{ daily_attacks: number; elo: number }>(
+    `SELECT daily_attacks, elo FROM pvp_stats WHERE character_id = $1`, [attackerId]
+  );
+  if (statR.rows[0].daily_attacks >= DAILY_ATTACK_LIMIT) {
+    return res.status(400).json({ error: '일일 공격 한도 도달' });
+  }
+  const cd = await query(
+    `SELECT 1 FROM pvp_cooldowns WHERE attacker_id = $1 AND defender_id = $2 AND expires_at > NOW()`,
+    [attackerId, defenderId]
+  );
+  if (cd.rowCount && cd.rowCount > 0) return res.status(400).json({ error: '쿨다운 중' });
+
+  // 시뮬 실행
+  const sim = await simulatePvP(attackerId, defenderId);
+  const winnerId = sim.winner === 'attacker' ? attackerId : defenderId;
+  const loserId = sim.winner === 'attacker' ? defenderId : attackerId;
+  const attackerElo = statR.rows[0].elo;
+  const defenderElo = (await query<{ elo: number }>(`SELECT elo FROM pvp_stats WHERE character_id = $1`, [defenderId])).rows[0].elo;
+  const winnerElo = winnerId === attackerId ? attackerElo : defenderElo;
+  const loserElo = winnerId === attackerId ? defenderElo : attackerElo;
+  const eloChange = calculateEloChange(winnerElo, loserElo);
+
+  await query(`UPDATE pvp_stats SET wins = wins + 1, elo = elo + $1 WHERE character_id = $2`, [eloChange, winnerId]);
+  await query(`UPDATE pvp_stats SET losses = losses + 1, elo = GREATEST(0, elo - $1) WHERE character_id = $2`, [eloChange, loserId]);
+  await query(`UPDATE pvp_stats SET daily_attacks = daily_attacks + 1 WHERE character_id = $1`, [attackerId]);
+  await query(
+    `INSERT INTO pvp_cooldowns (attacker_id, defender_id, expires_at)
+     VALUES ($1, $2, NOW() + INTERVAL '${COOLDOWN_MINUTES} minutes')
+     ON CONFLICT (attacker_id, defender_id)
+     DO UPDATE SET expires_at = EXCLUDED.expires_at`,
+    [attackerId, defenderId]
+  );
+
+  const attackerGold = sim.winner === 'attacker' ? 500 : 50;
+  const defenderGold = sim.winner === 'defender' ? 500 : 50;
+  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [attackerGold, attackerId]);
+  await query(`UPDATE characters SET gold = gold + $1 WHERE id = $2`, [defenderGold, defenderId]);
+
+  await query(
+    `INSERT INTO pvp_battles (attacker_id, defender_id, winner_id, elo_change, log)
+     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    [attackerId, defenderId, winnerId,
+     sim.winner === 'attacker' ? eloChange : -eloChange, JSON.stringify(sim.log)]
+  );
+  await trackDailyQuestProgress(attackerId, 'pvp_attack', 1).catch(() => {});
+
+  res.json({
+    winner: sim.winner, log: sim.log, eloChange,
+    goldGained: attackerGold, turns: sim.turns,
+  });
 });
 
 // 세션 상태 조회 (재접속용)
