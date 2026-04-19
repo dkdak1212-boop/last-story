@@ -250,30 +250,49 @@ function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
 }
 async function flushCharBatch(onlyId?: number): Promise<void> {
   const targets = onlyId !== undefined ? [onlyId] : [...charBatch.keys()];
-  // 병렬 UPDATE — sequential 이면 N × 쿼리RTT 만큼 DB 점유 → tick 밀림
-  // EMA 갱신 공식: new_rate = old_rate * 0.99 + delta * 0.01 (~100초 이동평균)
-  const ops: Promise<unknown>[] = [];
+  // 단일 bulk UPDATE — N개 개별 쿼리 대신 unnest 배열 한 번 실행
+  // EMA 갱신: new_rate = old_rate * 0.99 + delta * 0.01 (~100초 이동평균)
+  const ids: number[] = [];
+  const expDs: number[] = [];
+  const goldDs: number[] = [];
+  const killDs: number[] = [];
+  const earnedDs: number[] = [];
   for (const id of targets) {
     const b = charBatch.get(id);
     if (!b) continue;
     charBatch.delete(id);
     if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
-    ops.push(
-      query(
-        `UPDATE characters SET
-           exp = exp + $1,
-           gold = gold + $2,
-           total_kills = total_kills + $3,
-           total_gold_earned = total_gold_earned + $4,
-           online_exp_rate  = online_exp_rate  * 0.99 + $1::numeric * 0.01,
-           online_gold_rate = online_gold_rate * 0.99 + $4::numeric * 0.01,
-           online_kill_rate = online_kill_rate * 0.99 + $3::numeric * 0.01
-         WHERE id = $5`,
-        [b.expDelta, b.goldDelta, b.killDelta, b.goldEarnedDelta, id]
-      ).catch((e) => console.error('[combat] batch flush err char', id, e))
-    );
+    ids.push(id);
+    expDs.push(b.expDelta);
+    goldDs.push(b.goldDelta);
+    killDs.push(b.killDelta);
+    earnedDs.push(b.goldEarnedDelta);
   }
-  if (ops.length > 0) await Promise.all(ops);
+  if (ids.length === 0) return;
+  try {
+    await query(
+      `UPDATE characters c SET
+         exp = c.exp + v.exp_d,
+         gold = c.gold + v.gold_d,
+         total_kills = c.total_kills + v.kill_d,
+         total_gold_earned = c.total_gold_earned + v.earned_d,
+         online_exp_rate  = c.online_exp_rate  * 0.99 + v.exp_d::numeric    * 0.01,
+         online_gold_rate = c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01,
+         online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01
+       FROM (
+         SELECT
+           unnest($1::int[])    AS id,
+           unnest($2::bigint[]) AS exp_d,
+           unnest($3::bigint[]) AS gold_d,
+           unnest($4::int[])    AS kill_d,
+           unnest($5::bigint[]) AS earned_d
+       ) v
+       WHERE c.id = v.id`,
+      [ids, expDs, goldDs, killDs, earnedDs]
+    );
+  } catch (e) {
+    console.error('[combat] bulk flush err', e);
+  }
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
