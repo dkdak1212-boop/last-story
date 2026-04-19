@@ -203,14 +203,19 @@ export async function generateAndApplyOfflineReport(
   // 실제값이 있으면 그걸 사용, 없으면 시뮬 결과 (최소 0.5초 보장)
   const killTimeSec = (realAvg && realAvg > 0.5 && realAvg < 300) ? realAvg : simKillTimeSec;
 
-  // 킬 수 계산
+  // 킬 수 계산 — 시간당 100마리 고정 레이트 (1마리당 36초)
+  // 방치 보상을 안정적·공정하게 유지하기 위해 실제 전투 속도와 무관하게 평균 100마리/시간 적용
+  const OFFLINE_KILLS_PER_HOUR = 100;
+  const OFFLINE_SEC_PER_KILL = 3600 / OFFLINE_KILLS_PER_HOUR; // 36초
   let killCount: number;
   if (dangerous && !realAvg) {
-    // 시뮬에서 플레이어 사망 + 실제값 없음 → 50마리 상한
-    killCount = Math.min(50, Math.floor(effectiveSec / Math.max(1, killTimeSec)));
+    // 시뮬에서 플레이어 사망 + 실제값 없음 → 50마리 상한 (레벨 오버 필드 억제)
+    killCount = Math.min(50, Math.floor(effectiveSec / OFFLINE_SEC_PER_KILL));
   } else {
-    killCount = Math.floor(effectiveSec / Math.max(0.5, killTimeSec));
+    killCount = Math.floor(effectiveSec / OFFLINE_SEC_PER_KILL);
   }
+  // killTimeSec 는 내부 페널티 계산용으로만 유지 (미사용)
+  void killTimeSec;
 
   // 보상 계산 + 글로벌 이벤트 배율 + 길드/접두사/부스터 — 온라인 사냥과 동일하게 적용
   const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
