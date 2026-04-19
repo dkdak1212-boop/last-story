@@ -185,7 +185,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               border: '1px solid var(--accent)', fontWeight: 700, cursor: 'pointer',
             }}>캐릭터 변경</button>
           )}
-          <button onClick={() => { clearChar(); clearMe(); logout(); }} style={{ padding: '2px 8px', fontSize: 10 }}>로그아웃</button>
+          {me?.username && (
+            <span style={{ fontSize: 10, color: 'var(--text-dim)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={me.username}>
+              {me.username}
+            </span>
+          )}
+          <button onClick={() => {
+            clearChar(); clearMe(); logout();
+            try { localStorage.clear(); sessionStorage.clear(); } catch { /* ignore */ }
+            // 새로고침으로 완전 초기화 (공유 브라우저 안전장치)
+            if (typeof window !== 'undefined') window.location.href = '/';
+          }} style={{ padding: '2px 8px', fontSize: 10 }}>로그아웃</button>
         </div>
       </header>
 

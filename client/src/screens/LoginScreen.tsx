@@ -168,6 +168,12 @@ export function LoginScreen() {
             disabled={!agreed}
             onClick={() => {
               if (!agreed) { alert('이용약관에 동의해주세요.'); return; }
+              // 이전 세션 JWT 완전 제거 — 공유 브라우저 안전장치
+              try {
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                sessionStorage.clear();
+              } catch { /* ignore */ }
               window.location.href = '/api/auth/google/start';
             }}
             style={{
