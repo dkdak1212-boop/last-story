@@ -199,6 +199,10 @@ router.get('/_env-check', (_req, res) => {
 });
 
 router.get('/google/start', (req, res) => {
+  // CDN/프록시 캐싱 방지 — 유저별 redirect 가 다른 유저에게 반환되면 계정 뒤섞임
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.status(500).send('Google OAuth 미설정 (GOOGLE_CLIENT_ID)');
   const redirectUri = googleRedirectUri(req);
@@ -208,12 +212,16 @@ router.get('/google/start', (req, res) => {
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'online',
-    prompt: 'select_account',
+    prompt: 'select_account consent', // 계정 선택 + 권한 강제 재확인 — 이전 세션 자동 재사용 방지
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
 router.get('/google/callback', async (req, res) => {
+  // CDN/프록시 캐싱 방지 — JWT 가 포함된 redirect 가 다른 유저에게 노출되는 사고 차단
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const code = typeof req.query.code === 'string' ? req.query.code : null;
   if (!code) return res.status(400).send('code 누락');
 
