@@ -542,12 +542,9 @@ export function InventoryScreen() {
                     borderRadius: 4, cursor: 'pointer',
                     background: isUnique
                       ? 'linear-gradient(135deg, rgba(255,59,59,0.06), rgba(196,82,255,0.06))'
-                      : s.soulbound
-                        ? 'linear-gradient(90deg, rgba(201,162,77,0.06), var(--bg-panel))'
-                        : 'var(--bg-panel)',
+                      : 'var(--bg-panel)',
                     borderLeft: `3px solid ${isUnique ? '#ff8c2a' : gradeClr}`,
-                    borderTop: '1px solid transparent',
-                    borderRight: s.soulbound ? '1px solid rgba(201,162,77,0.35)' : '1px solid transparent',
+                    borderTop: '1px solid transparent', borderRight: '1px solid transparent',
                     borderBottom: `1px solid ${isExpanded ? 'var(--accent)30' : 'var(--border)'}`,
                     boxShadow: isUnique ? '0 0 8px rgba(255,140,42,0.25)' : 'none',
                   }}
@@ -595,13 +592,14 @@ export function InventoryScreen() {
                             borderRadius: 2, fontSize: 11, fontWeight: 900, lineHeight: '16px',
                           }}>+{s.enhanceLevel}</span>
                         )}
-                        {s.soulbound && (
+                        {isEquipment && (
                           <span style={{
-                            color: 'var(--accent)', background: 'rgba(201,162,77,0.15)',
-                            border: '1px solid rgba(201,162,77,0.5)',
-                            padding: '0 5px', borderRadius: 2, fontSize: 10, fontWeight: 700,
-                            lineHeight: '14px', letterSpacing: 0.3,
-                          }}>귀속</span>
+                            fontSize: 13, fontWeight: 900,
+                            color: s.soulbound ? '#ff5a5a' : '#4caf50',
+                            marginLeft: 'auto',
+                          }}>
+                            {s.soulbound ? '거래불가' : '거래가능'}
+                          </span>
                         )}
                         {s.quantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>x{s.quantity}</span>}
                       </div>
