@@ -286,15 +286,57 @@ export function CombatScreen() {
       await refreshActive();
       nav('/village');
     };
+    // 최근 로그에서 사망 원인 찾기 (최근 5줄에서 "사망" 포함 라인 + 직전 라인)
+    const recentLog = (state.log || []).slice(-5);
+    const deathLine = recentLog.find(l => l.includes('사망')) || '';
+    const lastHitLine = recentLog.filter(l => l.includes('몬스터')).slice(-1)[0] || '';
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300, gap: 16 }}>
-        <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>사망했습니다</div>
-        <button onClick={goVillage} style={{
-          padding: '10px 28px', fontSize: 15, fontWeight: 700,
-          background: 'var(--accent)', color: '#000', border: 'none', cursor: 'pointer',
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.85)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: 20, padding: 20,
+      }}>
+        <div style={{
+          maxWidth: 480, width: '100%',
+          background: 'linear-gradient(180deg, #2a0000, #1a0000)',
+          border: '3px solid #ff3030',
+          boxShadow: '0 0 40px rgba(255,48,48,0.5)',
+          padding: '30px 28px', textAlign: 'center',
+          borderRadius: 8,
         }}>
-          마을로 돌아가기
-        </button>
+          <div style={{ fontSize: 72, marginBottom: 12, filter: 'drop-shadow(0 2px 8px rgba(255,48,48,0.7))' }}>💀</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#ff5050', marginBottom: 8, letterSpacing: 2 }}>
+            사망했습니다
+          </div>
+          <div style={{ fontSize: 13, color: '#ffaaaa', marginBottom: 6 }}>
+            몬스터에게 당해 쓰러졌습니다.
+          </div>
+          {(deathLine || lastHitLine) && (
+            <div style={{
+              marginTop: 14, padding: '10px 12px',
+              background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,80,80,0.3)',
+              fontSize: 11, color: 'var(--text-dim)', textAlign: 'left',
+              fontFamily: 'monospace', lineHeight: 1.6, borderRadius: 4,
+            }}>
+              {lastHitLine && <div>{lastHitLine}</div>}
+              {deathLine && <div style={{ color: '#ff5050' }}>{deathLine}</div>}
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 16, marginBottom: 20, lineHeight: 1.5 }}>
+            · 마을로 돌아가면 전투 세션이 종료됩니다<br/>
+            · HP는 자동으로 100% 회복됩니다<br/>
+            · 방치 중이었다면 이후 시간은 보상 없음
+          </div>
+          <button onClick={goVillage} style={{
+            padding: '14px 36px', fontSize: 16, fontWeight: 800,
+            background: 'var(--accent)', color: '#000', border: 'none', cursor: 'pointer',
+            borderRadius: 4, letterSpacing: 2,
+            boxShadow: '0 2px 12px rgba(218,165,32,0.4)',
+          }}>
+            확인 — 마을로 돌아가기
+          </button>
+        </div>
       </div>
     );
   }
