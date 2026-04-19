@@ -19,6 +19,7 @@ export function CombatScreen() {
   const [state, setState] = useState<CombatSnapshot | null>(null);
   const [damagePopups, setDamagePopups] = useState<{ id: number; value: number; crit: boolean; x: number }[]>([]);
   const [skillFlash, setSkillFlash] = useState<{ icon: string; color: string } | null>(null);
+  const skillFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popupIdRef = useRef(0);
   const socketRef = useRef<Socket | null>(null);
   const prevMonsterHp = useRef<number>(0);
@@ -145,12 +146,19 @@ export function CombatScreen() {
             const fx = SKILL_EFFECTS[fxMatch[1]];
             if (fx) {
               setSkillFlash({ icon: getSkillIcon(fxMatch[1]) || fx.icon, color: fx.glow });
-              setTimeout(() => setSkillFlash(null), 600);
+              // 이전 타이머 취소 → setTimeout 누적 방지
+              if (skillFlashTimerRef.current) clearTimeout(skillFlashTimerRef.current);
+              skillFlashTimerRef.current = setTimeout(() => { setSkillFlash(null); skillFlashTimerRef.current = null; }, 600);
             }
           }
         }
         if (pops.length > 0 && fxEnabled) {
-          setDamagePopups(p => [...p, ...pops]);
+          // 최대 5개 유지: 오래된 것 제거 후 새 팝업 추가
+          const MAX_POPUPS = 5;
+          setDamagePopups(p => {
+            const merged = [...p, ...pops];
+            return merged.length > MAX_POPUPS ? merged.slice(merged.length - MAX_POPUPS) : merged;
+          });
           const ids = pops.map(p => p.id);
           setTimeout(() => setDamagePopups(p => p.filter(v => !ids.includes(v.id))), 1200);
         }
@@ -1259,7 +1267,7 @@ export function CombatLog({ log }: { log: string[] }) {
           height: 200, overflowY: 'auto', fontFamily: 'monospace', fontSize: 12,
           display: 'flex', flexDirection: 'column-reverse',
         }}>
-        {[...log].reverse().map((line, i) => {
+        {[...log].slice(-15).reverse().map((line, i) => {
           const isCrit = line.includes('치명타') || /\d+!/.test(line);
           const isDot = line.includes('[도트]');
           const isHeal = line.includes('HP +') || line.includes('회복') || line.includes('흡혈');
