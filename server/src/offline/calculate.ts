@@ -177,17 +177,27 @@ export async function generateAndApplyOfflineReport(
   const realAvgR = await query<{ recent_avg_kill_time_sec: string | null }>(
     'SELECT recent_avg_kill_time_sec FROM characters WHERE id = $1', [characterId]
   );
-  const realAvg = realAvgR.rows[0]?.recent_avg_kill_time_sec ? Number(realAvgR.rows[0].recent_avg_kill_time_sec) : null;
+  const realAvgRaw = realAvgR.rows[0]?.recent_avg_kill_time_sec
+    ? Number(realAvgR.rows[0].recent_avg_kill_time_sec) : null;
+  // realAvg 신뢰 범위: 0.5초~60초 — 이 범위 내면 실제 전투 속도로 간주
+  const realAvgTrusted = realAvgRaw && realAvgRaw >= 0.5 && realAvgRaw <= 60 ? realAvgRaw : null;
 
-  // killTime = max(simKillTime, recentAvg)  → farming 후 afk 어뷰 방어
-  // 하한 0.5초 (one-shot 방지), 상한 300초 (sim 이 타임아웃까지 갔으면 dangerous 로 간주)
-  const realAvgSafe = realAvg && realAvg > 0.5 && realAvg < 300 ? realAvg : 0;
-  const killTime = Math.max(0.5, sim.killTimeSec, realAvgSafe);
+  // 위험 판정 재정의: sim 사망 AND 실전에서도 고전(realAvg 없거나 >60초) 일 때만 dangerous
+  //   sim 만 죽는다는 건 sim 이 스킬/장비 미반영이라 부정확하므로 realAvg 신뢰
+  const reallyDangerous = sim.dangerous && !realAvgTrusted;
+
+  // killTime 결정
+  //   - realAvg 신뢰 가능하면 그걸 사용 (정상 온라인 속도)
+  //   - 아니면 sim 결과 (신규 캐릭 등 DB 값 없는 경우)
+  //   - 최소 0.5초 바닥
+  const killTime = realAvgTrusted ?? Math.max(0.5, sim.killTimeSec);
 
   let killCount: number;
-  if (sim.dangerous) {
+  if (reallyDangerous) {
+    // 진짜 위험 필드 — 50킬 상한
     killCount = Math.min(50, Math.floor(cappedSec / killTime));
   } else {
+    // 정상 — elapsed × 0.9 / killTime
     killCount = Math.floor((cappedSec * OFFLINE_EFFICIENCY) / killTime);
   }
   if (killCount <= 0) return null;
@@ -433,8 +443,8 @@ export async function generateAndApplyOfflineReport(
       );
     }
 
-    // dangerous → 마을로 복귀
-    if (sim.dangerous) {
+    // 진짜 위험 필드 → 마을로 복귀
+    if (reallyDangerous) {
       await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', characterId]);
       await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
     }
@@ -446,7 +456,7 @@ export async function generateAndApplyOfflineReport(
 
   const report: OfflineReport = {
     minutesAccounted: Math.floor(cappedSec / 60),
-    efficiency: sim.dangerous ? 0 : OFFLINE_EFFICIENCY,
+    efficiency: reallyDangerous ? 0 : OFFLINE_EFFICIENCY,
     killCount,
     expGained,
     goldGained,
@@ -456,9 +466,9 @@ export async function generateAndApplyOfflineReport(
     debug: {
       fieldId,
       simKillTimeSec: Math.round(sim.killTimeSec * 100) / 100,
-      realAvgKillTimeSec: realAvg,
+      realAvgKillTimeSec: realAvgRaw,
       usedKillTimeSec: Math.round(killTime * 100) / 100,
-      dangerous: sim.dangerous,
+      dangerous: reallyDangerous,
       elapsedSec: Math.round(elapsedSec),
       cappedSec: Math.round(cappedSec),
       avgExp: Math.round(avgExpReward),
