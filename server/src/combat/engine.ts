@@ -2701,10 +2701,10 @@ async function combatTick(): Promise<void> {
       s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
 
       // 몬스터·플레이어 행동을 게이지 우선순위 기반으로 인터리브 처리
-      // 온라인 100ms tick 에선 자연스럽게 교대되는 행동을 offline tick(1000ms) 에서도 재현
-      // maxActions 합산 상한으로 폭주 방지
-      const maxTotalAct = Math.max(2, Math.min(20, Math.ceil(tickScale) * 2));
-      let actLeft = maxTotalAct;
+      // 각 사이드 독립 cap — 공유 cap 이면 몬스터가 액션 다 써버려 플레이어가 손해
+      const perSideCap = Math.max(1, Math.min(15, Math.ceil(tickScale)));
+      let mActLeft = perSideCap;
+      let pActLeft = perSideCap;
 
       const runMonsterAction = async (): Promise<'continue' | 'break' | 'return'> => {
         const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
@@ -2760,21 +2760,22 @@ async function combatTick(): Promise<void> {
       };
 
       // 인터리브 루프 — 게이지 높은 쪽 먼저 행동 (동률이면 몬스터 선공)
+      // 각 사이드 독립 cap 으로 플레이어 액션이 몬스터에 의해 잠식되지 않음
       let playerDone = false, monsterDone = false;
-      while (actLeft > 0 && !(playerDone && monsterDone)) {
-        const mReady = !monsterDone && s.monsterGauge >= GAUGE_MAX;
-        const pReady = !playerDone && s.playerGauge >= GAUGE_MAX;
+      while (!(playerDone && monsterDone)) {
+        const mReady = !monsterDone && mActLeft > 0 && s.monsterGauge >= GAUGE_MAX;
+        const pReady = !playerDone && pActLeft > 0 && s.playerGauge >= GAUGE_MAX;
         if (!mReady && !pReady) break;
         // 누가 먼저 행동할지: 게이지 높은 쪽, 동률이면 몬스터
         const monsterFirst = mReady && (!pReady || s.monsterGauge >= s.playerGauge);
         if (monsterFirst) {
+          mActLeft--;
           const r = await runMonsterAction();
-          actLeft--;
           if (r === 'return') return;
           if (r === 'break') monsterDone = true;
         } else if (pReady) {
+          pActLeft--;
           const r = await runPlayerAction();
-          actLeft--;
           if (r === 'return') return;
           if (r === 'break') playerDone = true;
         }
