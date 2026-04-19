@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api/client';
@@ -1237,7 +1237,12 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
 }
 
 // ── 딜미터기 ──
-export function CombatLog({ log }: { log: string[] }) {
+// 로그 길이 + 마지막 라인 동일하면 내용 변화 없음으로 간주하여 리렌더 스킵
+const logEqual = (prev: { log: string[] }, next: { log: string[] }) =>
+  prev.log.length === next.log.length &&
+  prev.log[prev.log.length - 1] === next.log[next.log.length - 1];
+
+export const CombatLog = memo(function CombatLog({ log }: { log: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -1292,9 +1297,9 @@ export function CombatLog({ log }: { log: string[] }) {
       )}
     </div>
   );
-}
+}, logEqual);
 
-function DamageMeter({ log }: { log: string[] }) {
+const DamageMeter = memo(function DamageMeter({ log }: { log: string[] }) {
   const [open, setOpen] = useState(false);
   const [remaining, setRemaining] = useState(60);
   const resetTimeRef = useRef(Date.now());
@@ -1449,4 +1454,4 @@ function DamageMeter({ log }: { log: string[] }) {
       )}
     </div>
   );
-}
+}, logEqual);
