@@ -41,8 +41,15 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: 'level too low' });
   }
 
+  // 같은 필드에서 이미 활성 세션 유지 중이면 리셋하지 않고 현재 상태 유지
+  const { activeSessions } = await import('../combat/engine.js');
+  const existing = activeSessions.get(id);
+  const locStr = `field:${fieldId}`;
+  if (existing && char.location === locStr) {
+    return res.json({ ok: true, resumed: true });
+  }
   await startCombatSession(id, fieldId);
-  res.json({ ok: true });
+  res.json({ ok: true, resumed: false });
 });
 
 // 필드 떠남
