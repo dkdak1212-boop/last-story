@@ -1,8 +1,29 @@
 import { useState } from 'react';
 import { TermsModal } from '../components/ui/TermsModal';
 
+// 인앱 웹뷰 감지 — Google OAuth 차단 대상 (403 disallowed_useragent)
+function isInAppBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  // 안드로이드 WebView / 주요 인앱 브라우저
+  const patterns = /(; wv\)|KAKAOTALK|NAVER|Line\/|Instagram|FBAN|FBAV|FB_IAB|Twitter|Daum|KAKAOSTORY|everytimeApp|NAVER\(inapp|whale\/|WebView)/i;
+  if (patterns.test(ua)) return true;
+  // iOS 인앱 (WebKit 있으나 Safari 없음)
+  const isIOS = /iPhone|iPad|iPod/.test(ua);
+  if (isIOS && /AppleWebKit/.test(ua) && !/Safari/.test(ua)) return true;
+  return false;
+}
+
 export function LoginScreen() {
   const [showTerms, setShowTerms] = useState(false);
+  const inAppBrowser = isInAppBrowser();
+
+  async function copyUrl() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert('주소가 복사되었습니다. 크롬/사파리 등 외부 브라우저에 붙여넣기 하세요.');
+    } catch { alert(window.location.href); }
+  }
 
   return (
     <div
@@ -92,6 +113,30 @@ export function LoginScreen() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {inAppBrowser && (
+            <div style={{
+              padding: '12px 14px', borderRadius: 6,
+              background: 'rgba(255,90,90,0.12)', border: '1px solid #ff5a5a',
+              color: '#ffbdbd', fontSize: 13, lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 800, color: '#ff5a5a', marginBottom: 6 }}>⚠ 구글 로그인 차단 안내</div>
+              카카오톡/네이버/인스타 등 <b>인앱 브라우저에서는 구글 로그인이 불가</b>합니다 (403 disallowed_useragent).
+              <div style={{ marginTop: 6 }}>
+                아래 주소를 복사해서 <b>크롬 · 사파리 · 삼성인터넷</b> 같은 외부 브라우저에서 열어주세요.
+              </div>
+              <button
+                type="button"
+                onClick={copyUrl}
+                style={{
+                  marginTop: 10, padding: '8px 12px', width: '100%',
+                  background: '#ff5a5a', color: '#fff', border: 'none', borderRadius: 4,
+                  fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                사이트 주소 복사하기
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => { window.location.href = '/api/auth/google/start'; }}
