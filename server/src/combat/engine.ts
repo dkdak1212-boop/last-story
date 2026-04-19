@@ -2690,9 +2690,9 @@ async function combatTick(): Promise<void> {
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
       s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
 
-      // 몬스터 행동 — tickScale > 1 (offline) 이면 여러 액션 처리 (서버 부하 방지 상한 3)
+      // 몬스터 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
       {
-        let maxMAct = Math.max(1, Math.min(3, Math.ceil(tickScale)));
+        let maxMAct = Math.max(1, Math.min(10, Math.ceil(tickScale)));
         while (s.monsterGauge >= GAUGE_MAX && maxMAct > 0) {
           maxMAct--;
           const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
@@ -2717,8 +2717,8 @@ async function combatTick(): Promise<void> {
         }
       }
 
-      // 플레이어 행동 — tickScale > 1 (offline) 이면 여러 액션 처리 (상한 3)
-      let maxPAct = Math.max(1, Math.min(3, Math.ceil(tickScale)));
+      // 플레이어 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
+      let maxPAct = Math.max(1, Math.min(10, Math.ceil(tickScale)));
       while (s.playerGauge >= GAUGE_MAX && maxPAct > 0) {
         maxPAct--;
         if (s.autoMode) {
