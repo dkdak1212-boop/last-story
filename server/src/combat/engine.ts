@@ -2619,19 +2619,33 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
 // ── 메인 틱 루프 ──
 let lastTickAt = 0;
 const TICK_TARGET_MS = 100;
+// 세션별 마지막 tick 시각 (백그라운드 세션 간격 조절용)
+const sessionLastTickAt = new Map<number, number>();
+const OFFLINE_TICK_INTERVAL_MS = 1000; // 구독자 없는 세션은 1초 간격
+
 async function combatTick(): Promise<void> {
   const now = Date.now();
-  // 첫 실행이거나 지연이 너무 크면 1회분으로 고정 (스파이크 방지)
-  const dtMs = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(5000, now - lastTickAt);
+  // 글로벌 dtMs (구독자 있는 세션 기준)
+  const dtMsGlobal = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(5000, now - lastTickAt);
   lastTickAt = now;
-  const tickScale = dtMs / TICK_TARGET_MS;
+  const tickScaleGlobal = dtMsGlobal / TICK_TARGET_MS;
 
-  // 세션을 병렬로 처리 (각 세션의 await DB 쿼리가 서로를 블로킹하지 않도록)
-  // 5분 이상 구독자 없는 세션은 별도 interval 에서 stopCombatSession(keepLocation=true)
-  // 으로 제거되므로 여기선 모든 활성 세션을 정상 tick.
+  // 세션을 병렬로 처리
   const tasks: Promise<void>[] = [];
   for (const [charId, s] of activeSessions) {
-    void charId;
+    const hasSub = sessionHasSubscriber(charId);
+    let tickScale: number;
+    if (hasSub) {
+      tickScale = tickScaleGlobal;
+      sessionLastTickAt.set(charId, now);
+    } else {
+      // 구독자 없음 → 1초 간격으로만 tick
+      const last = sessionLastTickAt.get(charId) ?? 0;
+      const sDt = now - last;
+      if (sDt < OFFLINE_TICK_INTERVAL_MS) continue;
+      tickScale = sDt / TICK_TARGET_MS; // 대개 10 (1000ms / 100ms)
+      sessionLastTickAt.set(charId, now);
+    }
     tasks.push((async () => {
     try {
       if (!s.monsterId) return;
