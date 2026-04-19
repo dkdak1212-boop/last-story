@@ -119,9 +119,24 @@ export function InventoryScreen() {
     try { await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) }); await Promise.all([refresh(), refreshActive()]); }
     catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
-  async function sell(slotIndex: number, enhanceLevel: number, itemName: string, e: React.MouseEvent) {
+  async function sell(slotIndex: number, enhanceLevel: number, itemName: string, grade: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
-    if (!confirm(`${enhanceLevel > 0 ? `+${enhanceLevel} ` : ''}${itemName}을(를) 폐기하시겠습니까? (골드 지급 없음)`)) return; setMsg('');
+    // 강화한 템 / 유니크는 추가 경고창 (2단계 확인)
+    const isUnique = grade === 'unique';
+    const isEnhanced = enhanceLevel > 0;
+    if (isUnique || isEnhanced) {
+      const tag = isUnique ? '⚠ 유니크' : `⚠ +${enhanceLevel} 강화`;
+      const confirmed = confirm(
+        `${tag} 아이템을 폐기합니다.\n\n` +
+        `[${itemName}]\n` +
+        `골드는 지급되지 않고 아이템은 영구 삭제됩니다.\n\n` +
+        `정말 폐기하시겠습니까?`
+      );
+      if (!confirmed) return;
+    } else {
+      if (!confirm(`${itemName}을(를) 폐기하시겠습니까? (골드 지급 없음)`)) return;
+    }
+    setMsg('');
     try { const res = await api<{ sold: string; quantity: number }>(`/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
       setMsg(`${res.sold} x${res.quantity} 폐기 완료`); await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '폐기 실패'); }
@@ -706,7 +721,7 @@ export function InventoryScreen() {
                           }}>유니크 합성 (3개 소모)</button>
                         )}
                         {s.item.sellPrice > 0 && !locked && (
-                          <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, e)}
+                          <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, s.item.grade, e)}
                             style={actionBtn('#e0a040')}>폐기</button>
                         )}
                         {isEquipment && !locked && (() => {
