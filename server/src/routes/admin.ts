@@ -258,6 +258,8 @@ router.post('/characters/:id/modify', async (req: AuthedRequest, res: Response) 
 
   params.push(charId);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${paramIdx}`, params);
+  // 전투 중이면 세션 스탯 즉시 갱신 — 어드민 수정 후 데미지 드랍 버그 방지
+  try { const { refreshSessionStats } = await import('../combat/engine.js'); await refreshSessionStats(charId); } catch { /* ignore */ }
   res.json({ ok: true, message: '캐릭터 수정 완료' });
 });
 

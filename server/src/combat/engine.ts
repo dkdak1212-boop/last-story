@@ -2286,10 +2286,20 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     );
     // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
     const updatedChar = await loadCharacter(s.characterId);
-    s.playerStats = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);
-    s.playerMaxHp = s.playerStats.maxHp;
+    const newEff = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);
+    // 2차 버프 적용 (접두사·노드 패시브) — 누락 시 소환사·마법사 데미지 20~40% 감소 버그
+    applyCombatStatBoost(newEff, s.passives, s.equipPrefixes, updatedChar?.max_hp ?? (char.max_hp + result.hpGained));
+    s.playerStats = newEff;
+    s.playerMaxHp = newEff.maxHp;
     s.playerHp = s.playerMaxHp; // 레벨업 시 풀회복
-    s.playerSpeed = s.playerStats.spd;
+    s.playerSpeed = newEff.spd;
+    // 활성 도트 데미지 재계산 (레벨업으로 MATK 변한 것 반영)
+    for (const effItem of s.statusEffects) {
+      if ((effItem.type === 'dot' || effItem.type === 'poison') && effItem.source === 'player' && effItem.dotMult !== undefined) {
+        const base = effItem.dotUseMatk ? newEff.matk : newEff.atk;
+        effItem.value = Math.round(base * effItem.dotMult);
+      }
+    }
     // 새 스킬 학습
     s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
   } else {
