@@ -2690,96 +2690,85 @@ async function combatTick(): Promise<void> {
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
       s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
 
-      // 몬스터 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
-      {
-        let maxMAct = Math.max(1, Math.min(10, Math.ceil(tickScale)));
-        while (s.monsterGauge >= GAUGE_MAX && maxMAct > 0) {
-          maxMAct--;
-          const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
-          const hpBeforeMon = s.monsterHp;
-          monsterAction(s);
-          s.monsterGauge -= GAUGE_MAX; // 초과분 보존 (다음 iter 에서 또 처리 가능)
-          // 몬스터 행동: 몬스터 도트→플레이어 데미지 + 플레이어 버프 만료
-          processDots(s, 'player');
-          tickDownEffects(s, 'monster', preMonsterActIds);
-          s.dirty = true;
+      // 몬스터·플레이어 행동을 게이지 우선순위 기반으로 인터리브 처리
+      // 온라인 100ms tick 에선 자연스럽게 교대되는 행동을 offline tick(1000ms) 에서도 재현
+      // maxActions 합산 상한으로 폭주 방지
+      const maxTotalAct = Math.max(2, Math.min(20, Math.ceil(tickScale) * 2));
+      let actLeft = maxTotalAct;
 
-          if (s.playerHp <= 0) {
-            await handlePlayerDeath(s);
-            return;
-          }
-          handleDummyTick(s, hpBeforeMon);
-          // 도트로 몬스터 처치된 경우 즉시 처리 (허수아비 제외)
-          if (s.monsterHp <= 0 && !isDummyMonster(s)) {
-            await handleMonsterDeath(s);
-            break; // 새 몬스터 등장 — 이 tick 에선 몬스터 행동 종료
-          }
-        }
-      }
+      const runMonsterAction = async (): Promise<'continue' | 'break' | 'return'> => {
+        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+        const hpBeforeMon = s.monsterHp;
+        monsterAction(s);
+        s.monsterGauge -= GAUGE_MAX;
+        processDots(s, 'player');
+        tickDownEffects(s, 'monster', preMonsterActIds);
+        s.dirty = true;
+        if (s.playerHp <= 0) { await handlePlayerDeath(s); return 'return'; }
+        handleDummyTick(s, hpBeforeMon);
+        if (s.monsterHp <= 0 && !isDummyMonster(s)) { await handleMonsterDeath(s); return 'break'; }
+        return 'continue';
+      };
 
-      // 플레이어 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
-      let maxPAct = Math.max(1, Math.min(10, Math.ceil(tickScale)));
-      while (s.playerGauge >= GAUGE_MAX && maxPAct > 0) {
-        maxPAct--;
-        if (s.autoMode) {
-          s.playerGauge -= GAUGE_MAX; // 초과분 보존
-          s.actionCount++;
-
-          // 쿨다운 감소 (안전한 새 맵 생성)
-          const newCd = new Map<number, number>();
-          for (const [skId, cd] of s.skillCooldowns) {
-            const next = cd - 1;
-            if (next > 0) newCd.set(skId, next);
-          }
-          s.skillCooldowns = newCd;
-          if (s.potionCooldown > 0) s.potionCooldown--;
-
-          const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
-          const hpBeforePl = s.monsterHp;
-          await autoAction(s);
-          // 플레이어 행동: 플레이어 도트→몬스터 데미지 + 플레이어 도트 만료 + 쉴드 턴 감소
-          processDots(s, 'monster');
-          tickDownEffects(s, 'player', preAutoIds);
-          tickShield(s);
-          s.dirty = true;
-
-          // 이번 행동에서 몬스터에게 가한 데미지 (오버킬 포함)
-          const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
-
-          // AFK 데미지 누적 (플레이어 행동으로 깎인 HP)
-          if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
-
-          // 길드 보스 데미지 누적 → 즉시 flush
-          if (s.guildBossRunId && dealtThisAction > 0) {
-            s.guildBossDmgBuffer += dealtThisAction;
-            s.guildBossHitsBuffer += 1;
-            await flushGuildBossDamage(s);
-          }
-
-          handleDummyTick(s, hpBeforePl);
-          // 몬스터 처치 체크 (허수아비 제외)
-          if (s.monsterHp <= 0 && !isDummyMonster(s)) {
-            await handleMonsterDeath(s);
-            // 새 몬스터 등장 — 이번 tick 에선 플레이어 추가 행동 중단
-            break;
-          }
-          // 플레이어 사망 체크
-          if (s.playerHp <= 0) {
-            await handlePlayerDeath(s);
-            return;
-          }
-        } else {
-          // 수동 모드: 입력 대기
+      const runPlayerAction = async (): Promise<'continue' | 'break' | 'return'> => {
+        if (!s.autoMode) {
           if (!s.waitingInput) {
             s.waitingInput = true;
             s.waitingSince = Date.now();
             s.playerGauge = GAUGE_MAX;
             s.dirty = true;
           }
-          break; // 수동 모드에선 여러 액션 X
+          return 'break'; // 수동 모드 추가 처리 없음
+        }
+        s.playerGauge -= GAUGE_MAX;
+        s.actionCount++;
+        const newCd = new Map<number, number>();
+        for (const [skId, cd] of s.skillCooldowns) {
+          const next = cd - 1;
+          if (next > 0) newCd.set(skId, next);
+        }
+        s.skillCooldowns = newCd;
+        if (s.potionCooldown > 0) s.potionCooldown--;
+        const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+        const hpBeforePl = s.monsterHp;
+        await autoAction(s);
+        processDots(s, 'monster');
+        tickDownEffects(s, 'player', preAutoIds);
+        tickShield(s);
+        s.dirty = true;
+        const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
+        if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
+        if (s.guildBossRunId && dealtThisAction > 0) {
+          s.guildBossDmgBuffer += dealtThisAction;
+          s.guildBossHitsBuffer += 1;
+          await flushGuildBossDamage(s);
+        }
+        handleDummyTick(s, hpBeforePl);
+        if (s.monsterHp <= 0 && !isDummyMonster(s)) { await handleMonsterDeath(s); return 'break'; }
+        if (s.playerHp <= 0) { await handlePlayerDeath(s); return 'return'; }
+        return 'continue';
+      };
+
+      // 인터리브 루프 — 게이지 높은 쪽 먼저 행동 (동률이면 몬스터 선공)
+      let playerDone = false, monsterDone = false;
+      while (actLeft > 0 && !(playerDone && monsterDone)) {
+        const mReady = !monsterDone && s.monsterGauge >= GAUGE_MAX;
+        const pReady = !playerDone && s.playerGauge >= GAUGE_MAX;
+        if (!mReady && !pReady) break;
+        // 누가 먼저 행동할지: 게이지 높은 쪽, 동률이면 몬스터
+        const monsterFirst = mReady && (!pReady || s.monsterGauge >= s.playerGauge);
+        if (monsterFirst) {
+          const r = await runMonsterAction();
+          actLeft--;
+          if (r === 'return') return;
+          if (r === 'break') monsterDone = true;
+        } else if (pReady) {
+          const r = await runPlayerAction();
+          actLeft--;
+          if (r === 'return') return;
+          if (r === 'break') playerDone = true;
         }
       }
-
       // 상태 push (dirty일 때만, 200ms throttle — push 성공 시에만 dirty 해제)
       if (s.dirty) {
         const pushed = await pushCombatState(s, true);
