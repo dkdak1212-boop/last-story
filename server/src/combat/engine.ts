@@ -366,18 +366,9 @@ export async function getCharSkills(characterId: number, className: string, leve
     );
     for (const sk of newSkills.rows) {
       // 자유행동(buff)·기본기(cd=0)는 슬롯 카운트에 포함되지 않으며 항상 ON
+      // 그 외 일반 스킬은 OFF 상태로 학습 → 유저가 직접 ON 토글 필요
       const isFreeAction = sk.kind === 'buff' || sk.cooldown_actions === 0;
-      let autoOn: boolean;
-      if (isFreeAction) {
-        autoOn = true;
-      } else {
-        const countR = await query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-           WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0 AND s.kind != 'buff'`,
-          [characterId]
-        );
-        autoOn = Number(countR.rows[0].cnt) < MAX_COMBAT_SKILLS;
-      }
+      const autoOn = isFreeAction;
       const maxR = await query<{ mx: number | null }>(
         `SELECT COALESCE(MAX(slot_order), 0) AS mx FROM character_skills WHERE character_id = $1`, [characterId]
       );
