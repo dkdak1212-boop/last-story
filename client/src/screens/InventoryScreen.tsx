@@ -121,10 +121,10 @@ export function InventoryScreen() {
   }
   async function sell(slotIndex: number, enhanceLevel: number, itemName: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
-    if (enhanceLevel > 0 && !confirm(`+${enhanceLevel} ${itemName} 판매?`)) return; setMsg('');
-    try { const res = await api<{ sold: string; quantity: number; gold: number }>(`/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
-      setMsg(`${res.sold} x${res.quantity} 판매 +${res.gold}G`); await Promise.all([refresh(), refreshActive()]);
-    } catch (e) { setMsg(e instanceof Error ? e.message : '판매 실패'); }
+    if (!confirm(`${enhanceLevel > 0 ? `+${enhanceLevel} ` : ''}${itemName}을(를) 폐기하시겠습니까? (골드 지급 없음)`)) return; setMsg('');
+    try { const res = await api<{ sold: string; quantity: number }>(`/characters/${active.id}/sell`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
+      setMsg(`${res.sold} x${res.quantity} 폐기 완료`); await Promise.all([refresh(), refreshActive()]);
+    } catch (e) { setMsg(e instanceof Error ? e.message : '폐기 실패'); }
   }
   async function toggleLock(slotIndex: number, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
@@ -445,11 +445,11 @@ export function InventoryScreen() {
           {/* 전체 판매 + 필터 설정 */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
             <button onClick={async () => {
-              if (!active || !confirm('잠금되지 않은 모든 장비를 판매하시겠습니까?')) return;
+              if (!active || !confirm('잠금되지 않은 모든 장비를 폐기하시겠습니까? (골드 지급 없음)')) return;
               setMsg('');
               try {
-                const res = await api<{ count: number; gold: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({}) });
-                setMsg(`${res.count}개 장비 판매 +${res.gold.toLocaleString()}G`);
+                const res = await api<{ count: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({}) });
+                setMsg(`${res.count}개 장비 폐기 완료`);
                 await Promise.all([refresh(), refreshActive()]);
               } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
             }} style={{
@@ -457,7 +457,7 @@ export function InventoryScreen() {
               background: 'rgba(218,165,32,0.15)', color: 'var(--accent)',
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
               whiteSpace: 'nowrap',
-            }}>전체 판매</button>
+            }}>전체 폐기</button>
             <FilterToggleButton label="자동판매" active={dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4} color="var(--accent)" onClick={() => setFilterPanel(filterPanel === 'sell' ? null : 'sell')} open={filterPanel === 'sell'} />
             <FilterToggleButton label="드랍필터" active={!!dfTiers || dropFilter.common} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
           </div>
@@ -707,7 +707,7 @@ export function InventoryScreen() {
                         )}
                         {s.item.sellPrice > 0 && !locked && (
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, e)}
-                            style={actionBtn('#e0a040')}>판매 {s.item.sellPrice}G</button>
+                            style={actionBtn('#e0a040')}>폐기</button>
                         )}
                         {isEquipment && !locked && (() => {
                           const eInfo = getEnhanceInfo(s.enhanceLevel || 0, active?.level || 1);
