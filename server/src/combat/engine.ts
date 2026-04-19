@@ -3606,12 +3606,22 @@ function ensureCombatLoop() {
   console.log('[combat] engine started (100ms tick)');
 }
 
-// 서버 시작 시 DB 세션 전부 클리어
-// 이전에는 복구(restore)했으나 고스트 세션이 방치보상을 막는 문제가 있어 삭제로 전환.
-// 유저 재접속 시 /offline/:id/resume 이 offline reward 처리 + 전투 자동 재시작을 수행.
+// 서버 시작 시 DB 세션 정리
+// combat_sessions 의 status_effects JSONB 에는 소환사 소환수가 저장돼있으므로 삭제 금지.
+// 대신 '마을에 있는' 캐릭터의 stale row 만 제거 (위치 불일치 = 실제로 세션 필요 없음).
+// 유저 재접속 시 /combat/state 가 startCombatSession 을 호출하며 savedSummons 복원.
 export async function restoreCombatSessions(): Promise<void> {
-  const r = await query(`DELETE FROM combat_sessions`);
-  if (r.rowCount && r.rowCount > 0) {
-    console.log(`[combat] cleared ${r.rowCount} stale sessions on startup`);
+  try {
+    const r = await query(`
+      DELETE FROM combat_sessions
+      WHERE character_id IN (
+        SELECT id FROM characters WHERE location IS NULL OR location NOT LIKE 'field:%'
+      )
+    `);
+    if (r.rowCount && r.rowCount > 0) {
+      console.log(`[combat] cleared ${r.rowCount} orphan sessions (character not in field)`);
+    }
+  } catch (e) {
+    console.error('[combat] restoreCombatSessions cleanup error:', e);
   }
 }
