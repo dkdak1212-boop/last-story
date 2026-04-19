@@ -16,6 +16,7 @@ function isInAppBrowser(): boolean {
 
 export function LoginScreen() {
   const [showTerms, setShowTerms] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const inAppBrowser = isInAppBrowser();
 
   async function copyUrl() {
@@ -137,13 +138,45 @@ export function LoginScreen() {
               </button>
             </div>
           )}
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12,
+            color: 'var(--text-dim)', cursor: 'pointer',
+            padding: '10px 12px',
+            border: `1px solid ${agreed ? 'var(--accent)' : 'var(--border)'}`,
+            borderRadius: 4,
+            background: agreed ? 'rgba(201,162,77,0.06)' : 'transparent',
+          }}>
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              style={{ flexShrink: 0, marginTop: 2 }}
+            />
+            <span style={{ lineHeight: 1.5 }}>
+              [필수]{' '}
+              <span
+                onClick={(e) => { e.preventDefault(); setShowTerms(true); }}
+                style={{ color: 'var(--accent)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 700 }}
+              >
+                서비스 이용약관 및 개인정보처리방침
+              </span>
+              에 동의합니다
+            </span>
+          </label>
           <button
             type="button"
-            onClick={() => { window.location.href = '/api/auth/google/start'; }}
+            disabled={!agreed}
+            onClick={() => {
+              if (!agreed) { alert('이용약관에 동의해주세요.'); return; }
+              window.location.href = '/api/auth/google/start';
+            }}
             style={{
               padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              background: '#fff', color: '#1f1f1f', border: '1px solid #ddd', borderRadius: 4,
-              cursor: 'pointer', fontWeight: 600, fontSize: 15,
+              background: agreed ? '#fff' : '#555', color: agreed ? '#1f1f1f' : '#aaa',
+              border: '1px solid #ddd', borderRadius: 4,
+              cursor: agreed ? 'pointer' : 'not-allowed', fontWeight: 600, fontSize: 15,
+              opacity: agreed ? 1 : 0.6,
+              transition: 'all 0.2s',
             }}
           >
             <svg width="20" height="20" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
