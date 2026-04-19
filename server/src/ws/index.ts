@@ -87,9 +87,28 @@ export function initWebSocket(httpServer: HttpServer) {
       ipToUserIds.get(ip)!.add(socket.data.userId);
     }
 
-    // 전투 채널 구독
-    socket.on('combat:subscribe', (characterId: number) => {
+    // 전투 채널 구독 — 세션 없으면 자동 복원 (배포 후 재접속 시 세션 휘발 복구)
+    socket.on('combat:subscribe', async (characterId: number) => {
       socket.join(`combat:${characterId}`);
+      try {
+        const { activeSessions, startCombatSession } = await import('../combat/engine.js');
+        if (!activeSessions.has(characterId)) {
+          // 캐릭터가 여전히 field:X 에 있으면 세션 복원
+          const { query } = await import('../db/pool.js');
+          const r = await query<{ user_id: number; location: string }>(
+            'SELECT user_id, location FROM characters WHERE id = $1', [characterId]
+          );
+          const row = r.rows[0];
+          if (row && row.user_id === socket.data.userId && row.location && row.location.startsWith('field:')) {
+            const fid = parseInt(row.location.slice(6), 10);
+            if (!Number.isNaN(fid) && fid > 0) {
+              await startCombatSession(characterId, fid);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[ws] combat:subscribe restore err', e);
+      }
     });
 
     socket.on('combat:unsubscribe', (characterId: number) => {

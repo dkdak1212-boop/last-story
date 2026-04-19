@@ -226,7 +226,7 @@ interface ActiveSession {
   afkT4Prefix: number;      // T4 접두사 드랍 수
 }
 
-const activeSessions = new Map<number, ActiveSession>();
+export const activeSessions = new Map<number, ActiveSession>();
 let combatInterval: ReturnType<typeof setInterval> | null = null;
 let tickRunning = false;
 
