@@ -2100,6 +2100,20 @@ async function runEquipOverhaul() {
       console.error('[late] server_config_v1 error:', e);
     }
   }
+
+  // 기존 장착 아이템 backfill — 모두 계정 귀속 처리 (이미 장착 = 이미 사용됨)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'soulbound_backfill_v1'`);
+      if (!applied.rowCount) {
+        const r = await query(`UPDATE character_equipped SET soulbound = TRUE WHERE soulbound = FALSE`);
+        await query(`INSERT INTO _migrations (name) VALUES ('soulbound_backfill_v1')`);
+        console.log(`[late] soulbound_backfill_v1: 완료 (${r.rowCount ?? 0}개 장착 아이템 귀속 처리)`);
+      }
+    } catch (e) {
+      console.error('[late] soulbound_backfill_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
