@@ -246,12 +246,13 @@ export function InventoryScreen() {
   const equipmentItems = inv.filter(s => !!s.item.slot);
   const etcItems = inv.filter(s => !s.item.slot);
 
-  // 카테고리 필터링 — 잠긴 아이템(locked=true) 은 항상 상단 고정, 그 아래는 slotIndex desc
+  // 카테고리 필터링 — 잠긴 아이템만 위로, 동일 lock 상태 내에서는 서버 sortMode 순서 유지
+  //   (Array.prototype.sort 는 stable sort 이므로 0 반환 시 원래 순서 보존)
   function orderBy(a: InventorySlot, b: InventorySlot) {
     const la = (a as any).locked ? 1 : 0;
     const lb = (b as any).locked ? 1 : 0;
     if (la !== lb) return lb - la; // locked first
-    return b.slotIndex - a.slotIndex;
+    return 0; // 동일 lock 상태는 서버가 준 순서 그대로 (최신/등급/종류/레벨순 적용)
   }
   function filterByCategory(items: typeof inv) {
     if (categoryTab === 'recent') return [...items].sort(orderBy);
