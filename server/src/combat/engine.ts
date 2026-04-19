@@ -296,13 +296,15 @@ setInterval(async () => {
 
 function monsterToEffective(m: MonsterDef): EffectiveStats {
   const s = m.stats;
+  // 레벨 50 이상 몬스터는 공격력/방어력 3배 (난이도 상향)
+  const highTierMult = m.level >= 50 ? 3.0 : 1.0;
   return {
     str: s.str, dex: s.dex, int: s.int, vit: s.vit, spd: s.spd, cri: s.cri,
     maxHp: m.max_hp,
-    atk: s.str * 1.0,
-    matk: s.int * 1.2,
-    def: s.vit * 0.8,
-    mdef: s.int * 0.5,
+    atk: s.str * 1.0 * highTierMult,
+    matk: s.int * 1.2 * highTierMult,
+    def: s.vit * 0.8 * highTierMult,
+    mdef: s.int * 0.5 * highTierMult,
     dodge: s.dex * 0.4,
     accuracy: 80 + s.dex * 0.5,
   };

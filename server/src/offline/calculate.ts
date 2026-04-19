@@ -104,6 +104,8 @@ export async function generateAndApplyOfflineReport(
   const useMatk = pEff.matk > pEff.atk;
 
   // 몬스터 평균 effective stats 계산 (온라인 엔진과 동일 공식)
+  // 레벨 50 이상은 공격력/방어력 3배 (engine.ts monsterToEffective 와 동일)
+  const mMult = (m: { level: number }) => m.level >= 50 ? 3.0 : 1.0;
   const avgMonsterStats: EffectiveStats = {
     str: avg(monsters.map(m => m.stats.str)),
     dex: avg(monsters.map(m => m.stats.dex)),
@@ -112,10 +114,10 @@ export async function generateAndApplyOfflineReport(
     spd: avg(monsters.map(m => m.stats.spd)),
     cri: avg(monsters.map(m => m.stats.cri)),
     maxHp: avg(monsters.map(m => m.max_hp)),
-    atk: avg(monsters.map(m => m.stats.str)),
-    matk: avg(monsters.map(m => m.stats.int * 1.2)),
-    def: avg(monsters.map(m => m.stats.vit * 0.8)),
-    mdef: avg(monsters.map(m => m.stats.int * 0.5)),
+    atk: avg(monsters.map(m => m.stats.str * mMult(m))),
+    matk: avg(monsters.map(m => m.stats.int * 1.2 * mMult(m))),
+    def: avg(monsters.map(m => m.stats.vit * 0.8 * mMult(m))),
+    mdef: avg(monsters.map(m => m.stats.int * 0.5 * mMult(m))),
     dodge: avg(monsters.map(m => m.stats.dex * 0.2)),
     accuracy: avg(monsters.map(m => 80 + m.stats.dex * 0.3)),
   };
