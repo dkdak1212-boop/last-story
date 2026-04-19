@@ -10,6 +10,13 @@ const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 // 관리자(isAdmin)는 집계 제외
 const ipToUserIds = new Map<string, Set<number>>();
 
+// userId → is_admin / chat_hidden 캐시 (WS 재연결 폭주 시 DB 쿼리 감소)
+const adminCache = new Map<number, { isAdmin: boolean; chatHidden: boolean; exp: number }>();
+const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
+export function invalidateAdminCache(userId: number) {
+  adminCache.delete(userId);
+}
+
 export function initWebSocket(httpServer: HttpServer) {
   const io = new Server(httpServer, {
     cors: { origin: process.env.CORS_ORIGIN || '*' },
@@ -34,17 +41,27 @@ export function initWebSocket(httpServer: HttpServer) {
       socket.data.userId = payload.userId;
       socket.data.username = payload.username;
       socket.data.ip = ip;
-      // is_admin 동기로 가져와야 broadcastOnlineCount가 정확
-      try {
-        const r = await query<{ is_admin: boolean; chat_hidden: boolean }>(
-          'SELECT is_admin, COALESCE(chat_hidden, FALSE) AS chat_hidden FROM users WHERE id = $1',
-          [payload.userId]
-        );
-        socket.data.isAdmin = r.rows[0]?.is_admin ?? false;
-        socket.data.chatHidden = r.rows[0]?.chat_hidden ?? false;
-      } catch {
-        socket.data.isAdmin = false;
-        socket.data.chatHidden = false;
+      // is_admin / chat_hidden — 5분 메모리 캐시로 재연결 시 DB 쿼리 스킵
+      const now = Date.now();
+      const cached = adminCache.get(payload.userId);
+      if (cached && cached.exp > now) {
+        socket.data.isAdmin = cached.isAdmin;
+        socket.data.chatHidden = cached.chatHidden;
+      } else {
+        try {
+          const r = await query<{ is_admin: boolean; chat_hidden: boolean }>(
+            'SELECT is_admin, COALESCE(chat_hidden, FALSE) AS chat_hidden FROM users WHERE id = $1',
+            [payload.userId]
+          );
+          const isAdmin = r.rows[0]?.is_admin ?? false;
+          const chatHidden = r.rows[0]?.chat_hidden ?? false;
+          socket.data.isAdmin = isAdmin;
+          socket.data.chatHidden = chatHidden;
+          adminCache.set(payload.userId, { isAdmin, chatHidden, exp: now + ADMIN_CACHE_TTL_MS });
+        } catch {
+          socket.data.isAdmin = false;
+          socket.data.chatHidden = false;
+        }
       }
       // 유지보수 모드 — 어드민 외 WS 접속 차단
       if (!socket.data.isAdmin) {
@@ -67,13 +84,32 @@ export function initWebSocket(httpServer: HttpServer) {
     }
   });
 
-  function broadcastOnlineCount() {
+  function broadcastOnlineCountNow() {
     const userIds = new Set<number>();
     for (const [, s] of io.sockets.sockets) {
       if (s.data.isAdmin) continue;
       if (s.data.userId) userIds.add(s.data.userId);
     }
     io.emit('online-count', userIds.size);
+  }
+
+  // WS 재연결 폭주 시 broadcast 폭주 방지 — 최대 초당 1회
+  const BROADCAST_THROTTLE_MS = 1000;
+  let broadcastTimer: NodeJS.Timeout | null = null;
+  let broadcastPending = false;
+  function broadcastOnlineCount() {
+    if (broadcastTimer) {
+      broadcastPending = true;
+      return;
+    }
+    broadcastOnlineCountNow();
+    broadcastTimer = setTimeout(() => {
+      broadcastTimer = null;
+      if (broadcastPending) {
+        broadcastPending = false;
+        broadcastOnlineCount();
+      }
+    }, BROADCAST_THROTTLE_MS);
   }
 
   io.on('connection', (socket) => {
@@ -92,18 +128,17 @@ export function initWebSocket(httpServer: HttpServer) {
       socket.join(`combat:${characterId}`);
       try {
         const { activeSessions, startCombatSession } = await import('../combat/engine.js');
-        if (!activeSessions.has(characterId)) {
-          // 캐릭터가 여전히 field:X 에 있으면 세션 복원
-          const { query } = await import('../db/pool.js');
-          const r = await query<{ user_id: number; location: string }>(
-            'SELECT user_id, location FROM characters WHERE id = $1', [characterId]
-          );
-          const row = r.rows[0];
-          if (row && row.user_id === socket.data.userId && row.location && row.location.startsWith('field:')) {
-            const fid = parseInt(row.location.slice(6), 10);
-            if (!Number.isNaN(fid) && fid > 0) {
-              await startCombatSession(characterId, fid);
-            }
+        // 이미 세션 있으면 재구독 DB 쿼리 스킵 (재연결 스톰 시 부하 감소)
+        if (activeSessions.has(characterId)) return;
+        // 캐릭터가 여전히 field:X 에 있으면 세션 복원
+        const r = await query<{ user_id: number; location: string }>(
+          'SELECT user_id, location FROM characters WHERE id = $1', [characterId]
+        );
+        const row = r.rows[0];
+        if (row && row.user_id === socket.data.userId && row.location && row.location.startsWith('field:')) {
+          const fid = parseInt(row.location.slice(6), 10);
+          if (!Number.isNaN(fid) && fid > 0) {
+            await startCombatSession(characterId, fid);
           }
         }
       } catch (e) {
