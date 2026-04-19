@@ -87,7 +87,6 @@ export function MailboxScreen() {
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <button className={tab === 'inbox' ? 'primary' : ''} onClick={() => setTab('inbox')}>받은 우편</button>
-        <button className={tab === 'send' ? 'primary' : ''} onClick={() => { setTab('send'); loadInv(); }}>보내기</button>
       </div>
       {msg && <div style={{ color: msg.includes('실패') || msg.includes('찾을') || msg.includes('부족') || msg.includes('full') ? 'var(--danger)' : 'var(--success)', marginBottom: 12, fontSize: 13 }}>{msg}</div>}
 

@@ -48,10 +48,8 @@ interface Props {
 
 export function StorageModal({ inventory, onClose, onChange }: Props) {
   const active = useCharacterStore((s) => s.activeCharacter);
-  const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [data, setData] = useState<StorageData | null>(null);
   const [busy, setBusy] = useState(false);
-  const [goldAmt, setGoldAmt] = useState('');
   const [err, setErr] = useState('');
 
   async function load() {
@@ -84,32 +82,6 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
     } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
     finally { setBusy(false); }
   }
-  async function goldDeposit() {
-    if (!active || busy) return;
-    const amt = Number(goldAmt);
-    if (!amt || amt <= 0) return;
-    setBusy(true); setErr('');
-    try {
-      await api('/storage/gold/deposit', { method: 'POST', body: JSON.stringify({
-        characterId: active.id, amount: amt,
-      })});
-      setGoldAmt(''); await load(); await refreshActive();
-    } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
-    finally { setBusy(false); }
-  }
-  async function goldWithdraw() {
-    if (!active || busy) return;
-    const amt = Number(goldAmt);
-    if (!amt || amt <= 0) return;
-    setBusy(true); setErr('');
-    try {
-      await api('/storage/gold/withdraw', { method: 'POST', body: JSON.stringify({
-        characterId: active.id, amount: amt,
-      })});
-      setGoldAmt(''); await load(); await refreshActive();
-    } catch (e) { setErr(e instanceof Error ? e.message : '실패'); }
-    finally { setBusy(false); }
-  }
 
   return (
     <div onClick={onClose} style={{
@@ -127,27 +99,6 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
           계정 내 모든 캐릭터가 공유합니다 · 무료
-        </div>
-
-        {/* 골드 보관 */}
-        <div style={{
-          padding: 12, marginBottom: 12, background: 'var(--bg)',
-          border: '1px solid var(--border)', borderRadius: 4,
-          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-        }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>창고 보관 골드</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)' }}>
-              {(data?.gold ?? 0).toLocaleString()} G
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
-              내 골드: {(active?.gold ?? 0).toLocaleString()} G
-            </div>
-          </div>
-          <input type="number" placeholder="금액" value={goldAmt} onChange={e => setGoldAmt(e.target.value)}
-            style={{ width: 110, padding: '6px 8px' }} min={1} />
-          <button onClick={goldDeposit} disabled={busy}>입금 →</button>
-          <button onClick={goldWithdraw} disabled={busy}>← 출금</button>
         </div>
 
         {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{err}</div>}

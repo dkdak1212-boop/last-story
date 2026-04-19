@@ -8,6 +8,11 @@ import { displayPrefixStats } from '../game/prefix.js';
 const router = Router();
 router.use(authRequired);
 
+// 길드 창고 기능 영구 비활성화 — 모든 요청 차단
+router.use((_req, res) => {
+  res.status(403).json({ error: '길드 창고 기능이 비활성화되었습니다.' });
+});
+
 const STORAGE_BASE_SLOTS = 50;
 const MAX_LOG_ENTRIES = 50;
 

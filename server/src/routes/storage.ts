@@ -108,13 +108,19 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      soulbound: boolean;
+      soulbound: boolean; item_slot: string | null;
     }>(
-      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
+      `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
+              COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
+              i.slot AS item_slot
+       FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+       WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [characterId, inventorySlotIndex]
     );
     if (inv.rowCount === 0) return { error: '아이템 없음', status: 404 };
     const it = inv.rows[0];
+    // 창고에는 장비만 보관 가능
+    if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
 
@@ -188,8 +194,11 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true });
 });
 
-// 골드 입금 (캐릭터 → 창고)
-router.post('/gold/deposit', async (req: AuthedRequest, res: Response) => {
+// 골드 입금 — 비활성화 (자금세탁 차단)
+router.post('/gold/deposit', async (_req: AuthedRequest, res: Response) => {
+  return res.status(403).json({ error: '창고 골드 입금이 비활성화되었습니다.' });
+});
+router.post('/gold/deposit/_disabled', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     amount: z.number().int().positive(),
@@ -214,8 +223,11 @@ router.post('/gold/deposit', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true });
 });
 
-// 골드 출금 (창고 → 캐릭터)
-router.post('/gold/withdraw', async (req: AuthedRequest, res: Response) => {
+// 골드 출금 — 비활성화
+router.post('/gold/withdraw', async (_req: AuthedRequest, res: Response) => {
+  return res.status(403).json({ error: '창고 골드 출금이 비활성화되었습니다.' });
+});
+router.post('/gold/withdraw/_disabled', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     amount: z.number().int().positive(),
