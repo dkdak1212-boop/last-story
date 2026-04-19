@@ -3492,10 +3492,11 @@ export function getCombatHp(characterId: number): number | null {
   return s ? Math.max(0, s.playerHp) : null;
 }
 
-// 유휴 세션 정리 — WS 구독자 없는 세션은 5분 후 stopCombatSession(keepLocation=true)
-// 이렇게 해야 오프라인 보상 계산이 유저 재접속 시 정상 트리거됨 (field location 유지).
-// AFK 모드는 제외 (백그라운드 진행 계속 필요).
-const idleSinceMap = new Map<number, number>();
+// 세션 지속 정책 (방법 3 — 온라인·오프라인 동일 시뮬레이션)
+// - WS 구독자 유무 무관하게 combat_sessions 은 계속 틱 실행
+// - 최대 24h 연속 실행 후 자동 종료 (리소스 관리)
+// - 24h 이후엔 stopCombatSession(keepLocation=true) 으로 필드 유지 → 재접속 시 자동 재시작
+const sessionStartedMap = new Map<number, number>();
 export function sessionHasSubscriber(characterId: number): boolean {
   const io = getIo();
   if (!io) return true;
@@ -3510,37 +3511,34 @@ export function sessionHasSubscriber(characterId: number): boolean {
   }
   return false;
 }
-const AFK_MAX_MS = 24 * 60 * 60_000; // AFK 최대 24시간
+const SESSION_MAX_MS = 24 * 60 * 60_000; // 최대 24시간 연속 시뮬레이션
 setInterval(() => {
   const io = getIo();
   if (!io) return;
   const now = Date.now();
   let cleaned = 0;
-  let afkTimedOut = 0;
   for (const charId of activeSessions.keys()) {
     const s = activeSessions.get(charId);
     if (!s) continue;
-    // AFK 24시간 초과 → AFK 해제 (이후 정상 유휴 정리 플로우 진입)
-    if (s.afkMode && s.afkStartedAt > 0 && now - s.afkStartedAt > AFK_MAX_MS) {
-      s.afkMode = false;
-      afkTimedOut++;
-    }
-    if (s.afkMode || sessionHasSubscriber(charId)) {
-      idleSinceMap.delete(charId);
+    // 세션 시작 시각 기록 (초회)
+    if (!sessionStartedMap.has(charId)) {
+      sessionStartedMap.set(charId, now);
       continue;
     }
-    const since = idleSinceMap.get(charId);
-    if (!since) {
-      idleSinceMap.set(charId, now);
-    } else if (now - since > 5 * 60_000) {
-      // 5분 이상 구독자 없음 → 종료 (location 유지, 오프라인 보상 적용 대상)
-      idleSinceMap.delete(charId);
+    const startedAt = sessionStartedMap.get(charId)!;
+    // 구독자 있으면 타이머 리셋 (온라인 플레이 중)
+    if (sessionHasSubscriber(charId)) {
+      sessionStartedMap.set(charId, now);
+      continue;
+    }
+    // 구독자 없는 상태로 24h 경과 → 종료
+    if (now - startedAt > SESSION_MAX_MS) {
+      sessionStartedMap.delete(charId);
       cleaned++;
       stopCombatSession(charId, { keepLocation: true }).catch(e => console.error('[cleanup] stop err', charId, e));
     }
   }
-  if (afkTimedOut > 0) console.log(`[combat-cleanup] AFK timed out for ${afkTimedOut} sessions (>24h)`);
-  if (cleaned > 0) console.log(`[combat-cleanup] paused ${cleaned} idle (>5min) sessions for offline reward (remaining=${activeSessions.size})`);
+  if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} offline sessions (>24h, no subscriber, remaining=${activeSessions.size})`);
 }, 60_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
