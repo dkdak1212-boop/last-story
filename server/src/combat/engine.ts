@@ -256,12 +256,19 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
     charBatch.delete(id);
     if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
     try {
+      // EMA 갱신 (flush 간격 1초 기준):
+      //   new_rate = old_rate * 0.99 + delta * 0.01
+      //   alpha=0.01 → 약 100초 이동평균 (초기 cold start 는 delta 가 그대로 섞임)
+      //   goldEarnedDelta 를 gold rate 에 사용 (획득 골드, 소비 제외)
       await query(
         `UPDATE characters SET
            exp = exp + $1,
            gold = gold + $2,
            total_kills = total_kills + $3,
-           total_gold_earned = total_gold_earned + $4
+           total_gold_earned = total_gold_earned + $4,
+           online_exp_rate  = online_exp_rate  * 0.99 + $1::numeric * 0.01,
+           online_gold_rate = online_gold_rate * 0.99 + $4::numeric * 0.01,
+           online_kill_rate = online_kill_rate * 0.99 + $3::numeric * 0.01
          WHERE id = $5`,
         [b.expDelta, b.goldDelta, b.killDelta, b.goldEarnedDelta, id]
       );

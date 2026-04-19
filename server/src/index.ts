@@ -2157,6 +2157,22 @@ async function runEquipOverhaul() {
       console.error('[late] newbie_buff_clear_v1 error:', e);
     }
   }
+
+  // 온라인 EXP/골드/킬 rate 추적 — 방치보상 정확도 향상 (EMA 1초 기준)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'online_rate_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS online_exp_rate NUMERIC(18, 3) NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS online_gold_rate NUMERIC(18, 3) NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS online_kill_rate NUMERIC(10, 4) NOT NULL DEFAULT 0`);
+        await query(`INSERT INTO _migrations (name) VALUES ('online_rate_v1')`);
+        console.log('[late] online_rate_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] online_rate_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
