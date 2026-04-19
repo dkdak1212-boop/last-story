@@ -2688,32 +2688,39 @@ async function combatTick(): Promise<void> {
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
       s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
 
-      // 몬스터 행동
-      if (s.monsterGauge >= GAUGE_MAX) {
-        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
-        const hpBeforeMon = s.monsterHp;
-        monsterAction(s);
-        s.monsterGauge = 0;
-        // 몬스터 행동: 몬스터 도트→플레이어 데미지 + 플레이어 버프 만료
-        processDots(s, 'player');
-        tickDownEffects(s, 'monster', preMonsterActIds);
-        s.dirty = true;
+      // 몬스터 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
+      {
+        let maxMAct = Math.max(1, Math.ceil(tickScale));
+        while (s.monsterGauge >= GAUGE_MAX && maxMAct > 0) {
+          maxMAct--;
+          const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+          const hpBeforeMon = s.monsterHp;
+          monsterAction(s);
+          s.monsterGauge -= GAUGE_MAX; // 초과분 보존 (다음 iter 에서 또 처리 가능)
+          // 몬스터 행동: 몬스터 도트→플레이어 데미지 + 플레이어 버프 만료
+          processDots(s, 'player');
+          tickDownEffects(s, 'monster', preMonsterActIds);
+          s.dirty = true;
 
-        if (s.playerHp <= 0) {
-          await handlePlayerDeath(s);
-          return;
-        }
-        handleDummyTick(s, hpBeforeMon);
-        // 도트로 몬스터 처치된 경우 즉시 처리 (허수아비 제외)
-        if (s.monsterHp <= 0 && !isDummyMonster(s)) {
-          await handleMonsterDeath(s);
+          if (s.playerHp <= 0) {
+            await handlePlayerDeath(s);
+            return;
+          }
+          handleDummyTick(s, hpBeforeMon);
+          // 도트로 몬스터 처치된 경우 즉시 처리 (허수아비 제외)
+          if (s.monsterHp <= 0 && !isDummyMonster(s)) {
+            await handleMonsterDeath(s);
+            break; // 새 몬스터 등장 — 이 tick 에선 몬스터 행동 종료
+          }
         }
       }
 
-      // 플레이어 행동
-      if (s.playerGauge >= GAUGE_MAX) {
+      // 플레이어 행동 — tickScale > 1 (offline) 이면 여러 액션 처리
+      let maxPAct = Math.max(1, Math.ceil(tickScale));
+      while (s.playerGauge >= GAUGE_MAX && maxPAct > 0) {
+        maxPAct--;
         if (s.autoMode) {
-          s.playerGauge = 0;
+          s.playerGauge -= GAUGE_MAX; // 초과분 보존
           s.actionCount++;
 
           // 쿨다운 감소 (안전한 새 맵 생성)
@@ -2751,6 +2758,8 @@ async function combatTick(): Promise<void> {
           // 몬스터 처치 체크 (허수아비 제외)
           if (s.monsterHp <= 0 && !isDummyMonster(s)) {
             await handleMonsterDeath(s);
+            // 새 몬스터 등장 — 이번 tick 에선 플레이어 추가 행동 중단
+            break;
           }
           // 플레이어 사망 체크
           if (s.playerHp <= 0) {
@@ -2765,6 +2774,7 @@ async function combatTick(): Promise<void> {
             s.playerGauge = GAUGE_MAX;
             s.dirty = true;
           }
+          break; // 수동 모드에선 여러 액션 X
         }
       }
 
