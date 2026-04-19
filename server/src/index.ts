@@ -2114,6 +2114,21 @@ async function runEquipOverhaul() {
       console.error('[late] soulbound_backfill_v1 error:', e);
     }
   }
+
+  // 거래소 등록 랜덤 딜레이 (어뷰 방지)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'auction_listed_at_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE auctions ADD COLUMN IF NOT EXISTS listed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_auctions_listed_at ON auctions(listed_at)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('auction_listed_at_v1')`);
+        console.log('[late] auction_listed_at_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] auction_listed_at_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

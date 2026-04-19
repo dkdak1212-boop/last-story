@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
   const prefixTier = req.query.prefixTier ? Number(req.query.prefixTier) : null; // 1~4
   const levelBracket = req.query.levelBracket as string | undefined; // '' | '1-9' | '10-19' | ... | '70+'
 
-  const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()'];
+  const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()', 'a.listed_at <= NOW()'];
   const params: unknown[] = [];
   if (slot) { params.push(slot); filters.push(`i.slot = $${params.length}`); }
   if (grade) { params.push(grade); filters.push(`i.grade = $${params.length}`); }
@@ -167,21 +167,25 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
     await tx.query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, invRow.id]);
     await tx.query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [invRow.id]);
 
-    const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000).toISOString();
+    // 어뷰 방지: 등록 시 1~15분 랜덤 딜레이 후 노출
+    const delayMinutes = 1 + Math.floor(Math.random() * 15);
+    const listedAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
+    const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000 + delayMinutes * 60_000).toISOString();
     await tx.query(
-      `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9)`,
+      `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality, listed_at)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
       [characterId, invRow.item_id, quantity, price, endsAt,
        invRow.enhance_level || 0,
        invRow.prefix_ids || null,
        invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null,
-       invRow.quality || 0]
+       invRow.quality || 0,
+       listedAt]
     );
-    return { ok: true };
-  });
+    return { ok: true, delayMinutes };
+  }) as TxOk & { delayMinutes?: number } | TxErr;
 
   if ('error' in result) return res.status(result.status).json({ error: result.error });
-  res.json({ ok: true });
+  res.json({ ok: true, delayMinutes: (result as any).delayMinutes });
 });
 
 // 구매 → 우편으로 지급
@@ -216,10 +220,10 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
   const result = await withTransaction<TxOk | TxErr>(async (tx) => {
     const a = await tx.query<{
       seller_id: number; buyout_price: string | null; item_id: number; item_quantity: number;
-      settled: boolean; cancelled: boolean; ends_at: string;
+      settled: boolean; cancelled: boolean; ends_at: string; listed_at: string;
       enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
     }>(
-      `SELECT seller_id, buyout_price, item_id, item_quantity, settled, cancelled, ends_at,
+      `SELECT seller_id, buyout_price, item_id, item_quantity, settled, cancelled, ends_at, listed_at,
               enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
        FROM auctions WHERE id = $1 FOR UPDATE`,
       [auctionId]
@@ -227,6 +231,7 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
     if (a.rowCount === 0) return { error: 'item not found', status: 404 };
     const au = a.rows[0];
     if (au.settled || au.cancelled) return { error: '판매 종료됨', status: 400 };
+    if (new Date(au.listed_at) > new Date()) return { error: '아직 노출 대기 중인 매물입니다.', status: 400 };
     if (new Date(au.ends_at) < new Date()) return { error: '등록 만료', status: 400 };
     if (!au.buyout_price) return { error: 'no price', status: 400 };
     if (au.seller_id === parsed.data.characterId) return { error: '본인 아이템은 살 수 없습니다', status: 400 };
@@ -348,10 +353,10 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   const r = await query<{
     id: number; item_id: number; item_quantity: number;
     buyout_price: string | null;
-    ends_at: string; settled: boolean; cancelled: boolean;
+    ends_at: string; listed_at: string; settled: boolean; cancelled: boolean;
     item_name: string; item_grade: string;
   }>(
-    `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at, a.settled, a.cancelled,
+    `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at, a.listed_at, a.settled, a.cancelled,
             i.name AS item_name, i.grade AS item_grade
      FROM auctions a JOIN items i ON i.id = a.item_id
      WHERE a.seller_id = $1 ORDER BY a.created_at DESC LIMIT 50`,
@@ -360,7 +365,9 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   res.json(r.rows.map(row => ({
     id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
     price: row.buyout_price ? Number(row.buyout_price) : 0,
-    endsAt: row.ends_at, settled: row.settled, cancelled: row.cancelled,
+    endsAt: row.ends_at, listedAt: row.listed_at,
+    pending: new Date(row.listed_at).getTime() > Date.now(),
+    settled: row.settled, cancelled: row.cancelled,
     itemName: row.item_name, itemGrade: row.item_grade,
   })));
 });

@@ -593,19 +593,22 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
     const p = Number(price);
     if (!p || p < 1) { alert('판매가를 입력하세요'); return; }
     try {
-      await api('/marketplace/list', {
+      const r = await api<{ ok: boolean; delayMinutes?: number }>('/marketplace/list', {
         method: 'POST',
         body: JSON.stringify({
           characterId: active, slotIndex, quantity: qty, price: p,
         }),
       });
+      if (r?.delayMinutes && r.delayMinutes > 0) {
+        alert(`등록 완료 — 어뷰 방지를 위해 약 ${r.delayMinutes}분 후 거래소에 노출됩니다.`);
+      }
       onDone();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간</div>
+      <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간 · 등록 후 1~15분 랜덤 딜레이 후 노출</div>
       {/* 인벤토리 그리드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, marginBottom: 16 }}>
         {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>인벤토리 비어있음</div>}
