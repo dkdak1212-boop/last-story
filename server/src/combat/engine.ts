@@ -2625,8 +2625,9 @@ const OFFLINE_TICK_INTERVAL_MS = 1000; // 구독자 없는 세션은 1초 간격
 
 async function combatTick(): Promise<void> {
   const now = Date.now();
-  // 글로벌 dtMs (구독자 있는 세션 기준)
-  const dtMsGlobal = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(5000, now - lastTickAt);
+  // 글로벌 dtMs — tick 지연 누적으로 대폭 가속되는 것 방지:
+  //   상한 300ms (=tickScale 3) 로 clamp. 서버 스파이크 후 연속 행동 폭발 억제.
+  const dtMsGlobal = lastTickAt === 0 ? TICK_TARGET_MS : Math.min(300, now - lastTickAt);
   lastTickAt = now;
   const tickScaleGlobal = dtMsGlobal / TICK_TARGET_MS;
 
@@ -2643,7 +2644,8 @@ async function combatTick(): Promise<void> {
       const last = sessionLastTickAt.get(charId) ?? 0;
       const sDt = now - last;
       if (sDt < OFFLINE_TICK_INTERVAL_MS) continue;
-      tickScale = sDt / TICK_TARGET_MS; // 대개 10 (1000ms / 100ms)
+      // sDt 상한 2000ms (=tickScale 20 → while 루프가 3으로 재차 컷) — 장기 lag 후 폭주 방어
+      tickScale = Math.min(2000, sDt) / TICK_TARGET_MS;
       sessionLastTickAt.set(charId, now);
     }
     tasks.push((async () => {
