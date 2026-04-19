@@ -43,6 +43,10 @@ export function CharacterSelectScreen() {
 
   async function handleCreate() {
     setError('');
+    if (!/^[가-힣A-Za-z0-9]{2,12}$/.test(name)) {
+      setError('닉네임은 공백·특수문자 없이 한글/영문/숫자 2~12자만 가능합니다.');
+      return;
+    }
     try {
       const c = await createCharacter(name, pickedClass);
       await selectCharacter(c.id);
@@ -62,7 +66,7 @@ export function CharacterSelectScreen() {
       <div>
         <h2 style={{ marginBottom: 20 }}>캐릭터 생성</h2>
         <input
-          placeholder="캐릭터 이름 (2~12자)"
+          placeholder="캐릭터 이름 (한글/영문/숫자 2~12자, 공백·특수문자 불가)"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={12}

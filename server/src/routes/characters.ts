@@ -9,8 +9,10 @@ import { getCombatHp } from '../combat/engine.js';
 const router = Router();
 router.use(authRequired);
 
+// 닉네임 규칙: 한글/영문/숫자만 허용 (공백·특수문자 불가), 2~12자
+const NICKNAME_RE = /^[가-힣A-Za-z0-9]{2,12}$/;
 const createSchema = z.object({
-  name: z.string().min(2).max(12),
+  name: z.string().min(2).max(12).regex(NICKNAME_RE, '닉네임은 공백·특수문자 없이 한글/영문/숫자 2~12자만 가능합니다.'),
   className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner']),
 });
 
@@ -75,7 +77,10 @@ router.get('/:id', async (req: AuthedRequest, res: Response) => {
 // 생성
 router.post('/', async (req: AuthedRequest, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return res.status(400).json({ error: first?.message || 'invalid input' });
+  }
 
   const { name, className } = parsed.data;
 
