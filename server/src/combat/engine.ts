@@ -2220,6 +2220,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
   }
+  if (newbieActive && s.actionCount % 20 === 1) {
+    // 매 20액션마다 1회 노출 (스팸 방지)
+    addLog(s, `✨ [신규 버프] EXP×5 · 드랍×5 (24시간 한정)`);
+  }
   if (levelDiffMult < 1.0) {
     addLog(s, `⚠️ 레벨차 -${charBoostRow!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
   }
