@@ -19,6 +19,24 @@ export function LoginScreen() {
   const [agreed, setAgreed] = useState(false);
   const inAppBrowser = isInAppBrowser();
 
+  function startDeletion() {
+    const a = confirm(
+      '⚠ 회원 탈퇴 진행\n\n' +
+      '계속하시려면 먼저 구글 로그인으로 본인 확인을 진행합니다.\n' +
+      '로그인 완료 후 즉시 계정이 삭제되며, 캐릭터·아이템·골드·우편 등 모든 데이터가 영구 삭제됩니다.\n\n' +
+      '되돌릴 수 없습니다. 진행하시겠습니까?'
+    );
+    if (!a) return;
+    const b = confirm('정말로 탈퇴하시겠습니까? 복구 불가입니다.');
+    if (!b) return;
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      sessionStorage.setItem('deleteAccountOnLogin', '1');
+    } catch { /* ignore */ }
+    window.location.href = '/api/auth/google/start';
+  }
+
   async function copyUrl() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -209,6 +227,13 @@ export function LoginScreen() {
             style={{ background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
           >
             서비스 이용약관 보기
+          </button>
+          <span style={{ color: 'var(--text-dim)', margin: '0 6px' }}>·</span>
+          <button
+            onClick={startDeletion}
+            style={{ background: 'none', border: 'none', color: '#ff7070', fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
+          >
+            회원 탈퇴
           </button>
         </div>
       </div>

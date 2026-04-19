@@ -110,6 +110,30 @@ function OAuthTokenCapture() {
     if (hash.startsWith('#oauth_token=')) {
       const token = decodeURIComponent(hash.replace('#oauth_token=', ''));
       if (token) {
+        // 탈퇴 플로우: 토큰을 받자마자 /me/delete 호출 후 로그아웃
+        const deleteMode = sessionStorage.getItem('deleteAccountOnLogin');
+        if (deleteMode === '1') {
+          sessionStorage.removeItem('deleteAccountOnLogin');
+          history.replaceState(null, '', window.location.pathname);
+          (async () => {
+            try {
+              const resp = await fetch(`/api/me/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ confirm: 'DELETE_MY_ACCOUNT' }),
+              });
+              const data = await resp.json().catch(() => ({}));
+              if (resp.ok) alert(`회원 탈퇴가 완료되었습니다.\n계정: ${data.deletedUser}\n모든 데이터가 영구 삭제되었습니다.`);
+              else alert(`탈퇴 실패: ${data.error || resp.status}`);
+            } catch (e) {
+              alert('탈퇴 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+            }
+            try { localStorage.clear(); sessionStorage.clear(); } catch { /* ignore */ }
+            window.location.href = '/';
+          })();
+          return;
+        }
+
         loginWithToken(token);
         // 해시 제거
         history.replaceState(null, '', window.location.pathname);
