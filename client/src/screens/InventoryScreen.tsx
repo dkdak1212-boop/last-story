@@ -246,17 +246,23 @@ export function InventoryScreen() {
   const equipmentItems = inv.filter(s => !!s.item.slot);
   const etcItems = inv.filter(s => !s.item.slot);
 
-  // 카테고리 필터링
+  // 카테고리 필터링 — 잠긴 아이템(locked=true) 은 항상 상단 고정, 그 아래는 slotIndex desc
+  function orderBy(a: InventorySlot, b: InventorySlot) {
+    const la = (a as any).locked ? 1 : 0;
+    const lb = (b as any).locked ? 1 : 0;
+    if (la !== lb) return lb - la; // locked first
+    return b.slotIndex - a.slotIndex;
+  }
   function filterByCategory(items: typeof inv) {
-    if (categoryTab === 'recent') return [...items].sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'weapon') return items.filter(s => s.item.slot === 'weapon').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'helm') return items.filter(s => s.item.slot === 'helm').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'chest') return items.filter(s => s.item.slot === 'chest').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'boots') return items.filter(s => s.item.slot === 'boots').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'ring') return items.filter(s => s.item.slot === 'ring').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'amulet') return items.filter(s => s.item.slot === 'amulet').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'consumable') return items.filter(s => (s.item as any).type === 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
-    if (categoryTab === 'etc') return items.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').sort((a, b) => b.slotIndex - a.slotIndex);
+    if (categoryTab === 'recent') return [...items].sort(orderBy);
+    if (categoryTab === 'weapon') return items.filter(s => s.item.slot === 'weapon').sort(orderBy);
+    if (categoryTab === 'helm') return items.filter(s => s.item.slot === 'helm').sort(orderBy);
+    if (categoryTab === 'chest') return items.filter(s => s.item.slot === 'chest').sort(orderBy);
+    if (categoryTab === 'boots') return items.filter(s => s.item.slot === 'boots').sort(orderBy);
+    if (categoryTab === 'ring') return items.filter(s => s.item.slot === 'ring').sort(orderBy);
+    if (categoryTab === 'amulet') return items.filter(s => s.item.slot === 'amulet').sort(orderBy);
+    if (categoryTab === 'consumable') return items.filter(s => (s.item as any).type === 'consumable').sort(orderBy);
+    if (categoryTab === 'etc') return items.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').sort(orderBy);
     return items;
   }
 
@@ -326,7 +332,7 @@ export function InventoryScreen() {
                   <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
                     onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
                     onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                    style={{ width: 20, height: 20, imageRendering: 'pixelated', opacity: locked ? 1 : 0.35, cursor: 'pointer', marginLeft: 'auto' }}
+                    style={{ width: 28, height: 28, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5, cursor: 'pointer', marginLeft: 'auto' }}
                   />
                 )}
               </div>
@@ -634,7 +640,7 @@ export function InventoryScreen() {
                       <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
                         onClick={(e) => toggleLock(s.slotIndex, e)}
                         onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                        style={{ width: 22, height: 22, imageRendering: 'pixelated', opacity: locked ? 1 : 0.35, cursor: 'pointer', flexShrink: 0 }}
+                        style={{ width: 32, height: 32, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5, cursor: 'pointer', flexShrink: 0 }}
                       />
                     )}
                   </div>
