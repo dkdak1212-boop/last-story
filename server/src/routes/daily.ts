@@ -40,16 +40,18 @@ router.get('/status', async (req: AuthedRequest, res: Response) => {
     [req.userId]
   );
   const row = u.rows[0];
+  if (!row) return res.status(404).json({ error: 'user not found' });
+  const consecutive = row.consecutive_days ?? 0;
   const today = new Date().toISOString().slice(0, 10);
   const last = row.last_check_in ? new Date(row.last_check_in).toISOString().slice(0, 10) : null;
   const canCheckIn = last !== today;
   // 다음 연속 일수 예측
-  let nextConsecutive = row.consecutive_days;
+  let nextConsecutive = consecutive;
   if (canCheckIn) {
     if (last === null) nextConsecutive = 1;
     else {
       const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      nextConsecutive = last === y ? row.consecutive_days + 1 : 1;
+      nextConsecutive = last === y ? consecutive + 1 : 1;
     }
   }
   const nextIs7 = nextConsecutive % 7 === 0 && nextConsecutive > 0;
@@ -61,7 +63,7 @@ router.get('/status', async (req: AuthedRequest, res: Response) => {
   });
   res.json({
     canCheckIn,
-    currentStreak: row.consecutive_days,
+    currentStreak: consecutive,
     nextStreak: nextConsecutive,
     nextIsWeekly: nextIs7,
     nextReward: { gold: nextReward.gold, items: nextReward.items.map(i => `${i.label}×${i.qty}`), label: nextReward.label },
@@ -81,12 +83,14 @@ router.post('/check-in', async (req: AuthedRequest, res: Response) => {
     [req.userId]
   );
   const row = u.rows[0];
+  if (!row) return res.status(404).json({ error: 'user not found' });
+  const consecutive = row.consecutive_days ?? 0;
   const today = new Date().toISOString().slice(0, 10);
   const last = row.last_check_in ? new Date(row.last_check_in).toISOString().slice(0, 10) : null;
   if (last === today) return res.status(400).json({ error: '오늘 이미 체크인 완료' });
 
   const y = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const newConsec = (last === y) ? row.consecutive_days + 1 : 1;
+  const newConsec = (last === y) ? consecutive + 1 : 1;
 
   // 보상 지급 — 7일 주기로 순환
   const dayInCycle = newConsec % 7; // 1~6 + 0(=7일차)
