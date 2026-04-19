@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../../stores/characterStore';
 import { useAuthStore } from '../../stores/authStore';
 import { OfflineReportOverlay } from '../ui/OfflineReportOverlay';
@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
+  const nav = useNavigate();
   const active = useCharacterStore((s) => s.activeCharacter);
   const characters = useCharacterStore((s) => s.characters);
   const selectCharacter = useCharacterStore((s) => s.selectCharacter);
@@ -166,11 +167,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
         <div className="app-header-actions" style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
-          {onlineCount > 0 && (
-            <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 700 }}>
-              {onlineCount}명 접속 중
-            </span>
-          )}
+          <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 700 }}>
+            {onlineCount}명 접속 중
+          </span>
           {me?.isAdmin && (
             <Link to="/admin" style={{
               padding: '4px 10px', fontSize: 12, color: 'var(--danger)',
@@ -179,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               관리자
             </Link>
           )}
-          {characters.length > 1 && (
+          {characters.length >= 1 && (
             <button onClick={() => setCharSwitchOpen(true)} style={{
               padding: '3px 10px', fontSize: 11,
               background: 'var(--bg-panel)', color: 'var(--accent)',
@@ -245,6 +244,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
                 전환 중...
               </div>
+            )}
+            {characters.length < 2 && (
+              <button onClick={() => { setCharSwitchOpen(false); nav('/characters'); }} style={{
+                marginTop: 10, padding: '8px', width: '100%', fontSize: 12,
+                background: 'var(--bg)', color: 'var(--accent)',
+                border: '1px dashed var(--accent)', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
+              }}>+ 새 캐릭터 생성 ({characters.length}/2)</button>
             )}
           </div>
         </div>
