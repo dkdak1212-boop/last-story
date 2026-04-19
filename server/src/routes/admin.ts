@@ -363,6 +363,68 @@ router.get('/users', async (req, res) => {
   res.json({ users: r.rows, total, page, totalPages: Math.ceil(total / limit) });
 });
 
+// 서버 전체 초기화 — 유저 데이터 전부 삭제 (마스터 데이터 보존) + admin 계정 재생성
+router.post('/wipe-server', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ confirm: z.literal('WIPE_SERVER_YES_I_AM_SURE') }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid confirm token' });
+
+  const USER_DATA_TABLES = [
+    'users',
+    'characters', 'character_inventory', 'character_equipped', 'character_skills',
+    'character_nodes', 'combat_sessions', 'mailbox', 'offline_reports',
+    'account_storage_items', 'character_quests', 'character_daily_quests', 'character_achievements',
+    'character_equip_presets', 'character_node_presets', 'character_skill_presets',
+    'auctions', 'chat_messages',
+    'guilds', 'guild_members', 'guild_storage_items', 'guild_storage_logs',
+    'guild_wars', 'guild_war_matches', 'guild_boss_daily', 'guild_boss_runs',
+    'guild_boss_guild_daily', 'guild_boss_weekly_settlements', 'guild_boss_shop_purchases',
+    'parties', 'party_members', 'party_invites',
+    'pvp_stats', 'pvp_battles', 'pvp_cooldowns', 'pvp_defense_loadouts',
+    'premium_purchases', 'announcement_reads', 'feedback',
+    'world_event_active', 'world_event_participants',
+    'enhance_log', 'guestbook',
+    'blocked_ips', 'global_events', 'user_login_log',
+    'board_posts', 'board_comments', 'board_reports',
+    'item_drop_log',
+  ];
+
+  const truncated: string[] = [];
+  const skipped: { table: string; error: string }[] = [];
+
+  // 개별 try-catch: 존재하지 않는 테이블은 스킵
+  for (const t of USER_DATA_TABLES) {
+    try {
+      await query(`TRUNCATE ${t} RESTART IDENTITY CASCADE`);
+      truncated.push(t);
+    } catch (e: any) {
+      skipped.push({ table: t, error: String(e?.message || e).slice(0, 100) });
+    }
+  }
+
+  // admin 계정 즉시 재생성 (이후 요청을 위해)
+  const { default: bcrypt } = await import('bcryptjs');
+  const hash = await bcrypt.hash('tlqkfsnr123!', 10);
+  await query(
+    `INSERT INTO users (username, password_hash, email, is_admin)
+     VALUES ('admin', $1, 'admin@internal', TRUE)
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_admin = TRUE`,
+    [hash]
+  );
+
+  // 점검 해제 (관리자만 남은 빈 서버이므로 점검 유지 의미 없음 — 선택)
+  // await query(`DELETE FROM server_config WHERE key = 'maintenance_until'`);
+
+  res.json({
+    ok: true,
+    truncatedCount: truncated.length,
+    truncated,
+    skippedCount: skipped.length,
+    skipped,
+    adminRecreated: true,
+    adminCredentials: { username: 'admin', note: '기존 비밀번호 tlqkfsnr123! 유지' },
+  });
+});
+
 // 유지보수 모드 설정/해제 — 어드민 외 접속 차단
 // enabled=true 면 현재 접속한 non-admin 전부 강제 종료 + 신규 접속 503/차단
 router.post('/maintenance', async (req: AuthedRequest, res: Response) => {
