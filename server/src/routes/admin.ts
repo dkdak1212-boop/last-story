@@ -506,6 +506,25 @@ router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) =>
   res.json({ ok: true, username: r.rows[0].username, isAdmin: parsed.data.isAdmin });
 });
 
+// 유저 계정 완전 삭제 (탈퇴 처리) — CASCADE 로 characters·inventory·mailbox 등 전부 삭제
+router.post('/users/:id/delete', async (req: AuthedRequest, res: Response) => {
+  const userId = Number(req.params.id);
+  if (userId === req.userId) return res.status(400).json({ error: '본인 계정은 삭제 불가' });
+  const ur = await query<{ username: string; is_admin: boolean }>(
+    'SELECT username, is_admin FROM users WHERE id = $1', [userId]
+  );
+  if (ur.rowCount === 0) return res.status(404).json({ error: 'user not found' });
+  if (ur.rows[0].is_admin) return res.status(400).json({ error: '어드민 계정은 set-admin 으로 권한 해제 후 삭제' });
+
+  try {
+    await query('DELETE FROM users WHERE id = $1', [userId]);
+    res.json({ ok: true, deletedUser: ur.rows[0].username });
+  } catch (e) {
+    console.error('[admin] delete user err', e);
+    res.status(500).json({ error: String(e).slice(0, 200) });
+  }
+});
+
 router.post('/users/:id/ban', async (req, res) => {
   const userId = Number(req.params.id);
   const parsed = z.object({
