@@ -167,7 +167,7 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
     await tx.query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [quantity, invRow.id]);
     await tx.query('DELETE FROM character_inventory WHERE id = $1 AND quantity <= 0', [invRow.id]);
 
-    // 어뷰 방지: 등록 시 1~15분 랜덤 딜레이 후 노출
+    // 어뷰 방지: 등록 시 1~15분 랜덤 딜레이 후 노출 (판매자에게 정확한 시간 미노출)
     const delayMinutes = 1 + Math.floor(Math.random() * 15);
     const listedAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
     const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000 + delayMinutes * 60_000).toISOString();
@@ -181,11 +181,11 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
        invRow.quality || 0,
        listedAt]
     );
-    return { ok: true, delayMinutes };
-  }) as TxOk & { delayMinutes?: number } | TxErr;
+    return { ok: true };
+  });
 
   if ('error' in result) return res.status(result.status).json({ error: result.error });
-  res.json({ ok: true, delayMinutes: (result as any).delayMinutes });
+  res.json({ ok: true });
 });
 
 // 구매 → 우편으로 지급
@@ -353,10 +353,10 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   const r = await query<{
     id: number; item_id: number; item_quantity: number;
     buyout_price: string | null;
-    ends_at: string; listed_at: string; settled: boolean; cancelled: boolean;
+    ends_at: string; settled: boolean; cancelled: boolean;
     item_name: string; item_grade: string;
   }>(
-    `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at, a.listed_at, a.settled, a.cancelled,
+    `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at, a.settled, a.cancelled,
             i.name AS item_name, i.grade AS item_grade
      FROM auctions a JOIN items i ON i.id = a.item_id
      WHERE a.seller_id = $1 ORDER BY a.created_at DESC LIMIT 50`,
@@ -365,9 +365,7 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   res.json(r.rows.map(row => ({
     id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
     price: row.buyout_price ? Number(row.buyout_price) : 0,
-    endsAt: row.ends_at, listedAt: row.listed_at,
-    pending: new Date(row.listed_at).getTime() > Date.now(),
-    settled: row.settled, cancelled: row.cancelled,
+    endsAt: row.ends_at, settled: row.settled, cancelled: row.cancelled,
     itemName: row.item_name, itemGrade: row.item_grade,
   })));
 });
