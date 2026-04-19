@@ -250,17 +250,16 @@ function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
 }
 async function flushCharBatch(onlyId?: number): Promise<void> {
   const targets = onlyId !== undefined ? [onlyId] : [...charBatch.keys()];
+  // 병렬 UPDATE — sequential 이면 N × 쿼리RTT 만큼 DB 점유 → tick 밀림
+  // EMA 갱신 공식: new_rate = old_rate * 0.99 + delta * 0.01 (~100초 이동평균)
+  const ops: Promise<unknown>[] = [];
   for (const id of targets) {
     const b = charBatch.get(id);
     if (!b) continue;
     charBatch.delete(id);
     if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
-    try {
-      // EMA 갱신 (flush 간격 1초 기준):
-      //   new_rate = old_rate * 0.99 + delta * 0.01
-      //   alpha=0.01 → 약 100초 이동평균 (초기 cold start 는 delta 가 그대로 섞임)
-      //   goldEarnedDelta 를 gold rate 에 사용 (획득 골드, 소비 제외)
-      await query(
+    ops.push(
+      query(
         `UPDATE characters SET
            exp = exp + $1,
            gold = gold + $2,
@@ -271,11 +270,10 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
            online_kill_rate = online_kill_rate * 0.99 + $3::numeric * 0.01
          WHERE id = $5`,
         [b.expDelta, b.goldDelta, b.killDelta, b.goldEarnedDelta, id]
-      );
-    } catch (e) {
-      console.error('[combat] batch flush err', e);
-    }
+      ).catch((e) => console.error('[combat] batch flush err char', id, e))
+    );
   }
+  if (ops.length > 0) await Promise.all(ops);
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
