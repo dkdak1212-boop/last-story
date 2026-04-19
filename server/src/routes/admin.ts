@@ -506,6 +506,23 @@ router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) =>
   res.json({ ok: true, username: r.rows[0].username, isAdmin: parsed.data.isAdmin });
 });
 
+// 필드 진단 — monster_pool + 각 몬스터의 스탯 확인용
+router.get('/field-diag/:fieldId', async (req, res) => {
+  const fieldId = Number(req.params.fieldId);
+  const f = await query<{ id: number; name: string; required_level: number; monster_pool: number[] }>(
+    'SELECT id, name, required_level, monster_pool FROM fields WHERE id = $1', [fieldId]
+  );
+  if (f.rowCount === 0) return res.status(404).json({ error: 'field not found' });
+  const pool = f.rows[0].monster_pool || [];
+  const m = pool.length > 0 ? await query<{
+    id: number; name: string; level: number; max_hp: number;
+    exp_reward: number; gold_reward: number;
+    stats: Record<string, number>;
+    drop_table: unknown;
+  }>('SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table FROM monsters WHERE id = ANY($1::int[])', [pool]) : { rows: [] };
+  res.json({ field: f.rows[0], monsters: m.rows });
+});
+
 // 캐릭터 버프 (EXP/골드/드랍 boost) 시간 추가 — 일일임무 버프 N시간 부여
 router.post('/characters/:id/grant-boost', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
