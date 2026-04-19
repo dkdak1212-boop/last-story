@@ -580,13 +580,45 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
   );
 }
 
+type ListCategory = 'all' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'locked';
+const LIST_CATS: { key: ListCategory; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'locked', label: '🔒 잠금' },
+  { key: 'weapon', label: '무기' },
+  { key: 'helm', label: '투구' },
+  { key: 'chest', label: '갑옷' },
+  { key: 'boots', label: '신발' },
+  { key: 'ring', label: '반지' },
+  { key: 'amulet', label: '목걸이' },
+];
+
 function ListItemPanel({ active, inv, onDone }: { active: number | undefined; inv: InventorySlot[]; onDone: () => void }) {
   const [slotIndex, setSlotIndex] = useState<number | null>(null);
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState('');
+  const [cat, setCat] = useState<ListCategory>('all');
 
   const sel = slotIndex !== null ? inv.find(s => s.slotIndex === slotIndex) : null;
   const maxQty = sel?.quantity ?? 1;
+
+  // 장비 아이템만 + 카테고리 필터 + 잠긴 아이템 우선 정렬
+  const equipInv = inv.filter(s => !!s.item.slot);
+  const filteredInv = (() => {
+    let list = equipInv;
+    if (cat === 'locked') list = list.filter(s => (s as any).locked);
+    else if (cat !== 'all') list = list.filter(s => s.item.slot === cat);
+    return [...list].sort((a, b) => {
+      const la = (a as any).locked ? 1 : 0;
+      const lb = (b as any).locked ? 1 : 0;
+      if (la !== lb) return lb - la; // 잠긴 것 먼저
+      return b.slotIndex - a.slotIndex;
+    });
+  })();
+  const catCount = (k: ListCategory) => {
+    if (k === 'all') return equipInv.length;
+    if (k === 'locked') return equipInv.filter(s => (s as any).locked).length;
+    return equipInv.filter(s => s.item.slot === k).length;
+  };
 
   async function submit() {
     if (!active || slotIndex === null) return;
@@ -605,11 +637,31 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
 
   return (
     <div>
-      <div style={{ marginBottom: 12, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간</div>
+      <div style={{ marginBottom: 8, color: 'var(--text-dim)', fontSize: 13 }}>판매할 아이템을 선택하세요 · 수수료 10% · 등록 기간 72시간</div>
+
+      {/* 카테고리 필터 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+        {LIST_CATS.map(({ key, label }) => {
+          const n = catCount(key);
+          const active = cat === key;
+          return (
+            <button key={key} onClick={() => { setCat(key); setSlotIndex(null); }}
+              style={{
+                padding: '5px 10px', fontSize: 11, cursor: 'pointer',
+                background: active ? 'var(--accent)' : 'var(--bg-panel)',
+                color: active ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 3, fontWeight: active ? 700 : 400,
+                opacity: n === 0 && !active ? 0.5 : 1,
+              }}>{label} {n > 0 && `(${n})`}</button>
+          );
+        })}
+      </div>
+
       {/* 인벤토리 그리드 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, marginBottom: 16 }}>
-        {inv.length === 0 && <div style={{ color: 'var(--text-dim)' }}>인벤토리 비어있음</div>}
-        {inv.filter(s => !!s.item.slot).map(s => {
+        {filteredInv.length === 0 && <div style={{ color: 'var(--text-dim)', gridColumn: '1 / -1', padding: 20, textAlign: 'center' }}>해당 카테고리에 아이템 없음</div>}
+        {filteredInv.map(s => {
           const gradeClr = GRADE_COLOR[s.item.grade];
           const isSel = slotIndex === s.slotIndex;
           return (
@@ -624,6 +676,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
                 <ItemIcon slot={s.item.slot ?? null} grade={s.item.grade} itemName={s.item.name} size={24} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={nameStyle(s.item.grade, 12)}>
+                    {(s as any).locked && <span style={{ marginRight: 4 }}>🔒</span>}
                     {s.item.name}
                     {s.enhanceLevel > 0 && (
                       <span style={{
