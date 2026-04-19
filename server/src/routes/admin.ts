@@ -506,6 +506,31 @@ router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) =>
   res.json({ ok: true, username: r.rows[0].username, isAdmin: parsed.data.isAdmin });
 });
 
+// 캐릭터 버프 (EXP/골드/드랍 boost) 시간 추가 — 일일임무 버프 N시간 부여
+router.post('/characters/:id/grant-boost', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    hours: z.number().int().min(1).max(168),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const charId = Number(req.params.id);
+  const hours = parsed.data.hours;
+  try {
+    const r = await query(
+      `UPDATE characters SET
+         exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + INTERVAL '${hours} hours',
+         gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + INTERVAL '${hours} hours',
+         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + INTERVAL '${hours} hours'
+       WHERE id = $1 RETURNING name, exp_boost_until, gold_boost_until, drop_boost_until`,
+      [charId]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+    res.json({ ok: true, character: r.rows[0] });
+  } catch (e) {
+    console.error('[admin] grant-boost err', e);
+    res.status(500).json({ error: String(e).slice(0, 200) });
+  }
+});
+
 // 유저 계정 완전 삭제 (탈퇴 처리) — CASCADE 로 characters·inventory·mailbox 등 전부 삭제
 router.post('/users/:id/delete', async (req: AuthedRequest, res: Response) => {
   const userId = Number(req.params.id);
