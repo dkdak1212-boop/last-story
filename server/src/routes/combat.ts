@@ -127,7 +127,17 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const snapshot = await getCombatSnapshot(id);
+  let snapshot = await getCombatSnapshot(id);
+  // 세션 없음 + 필드 위치 → 자동 재시작 (배포/재시작 후 세션 휘발 복구)
+  if (!snapshot && char.location && char.location.startsWith('field:')) {
+    const fieldId = parseInt(char.location.slice(6), 10);
+    if (!Number.isNaN(fieldId) && fieldId > 0) {
+      try {
+        await startCombatSession(id, fieldId);
+        snapshot = await getCombatSnapshot(id);
+      } catch (e) { console.error('[combat] auto-restart fail', id, e); }
+    }
+  }
   if (!snapshot) {
     return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp } });
   }
