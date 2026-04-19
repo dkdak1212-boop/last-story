@@ -63,6 +63,8 @@ export interface InventorySlot {
   enhanceLevel: number;
   prefixIds: number[];
   prefixStats: Record<string, number>;
+  locked?: boolean;
+  soulbound?: boolean;
 }
 
 export interface Equipped {

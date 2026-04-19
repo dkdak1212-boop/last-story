@@ -99,7 +99,21 @@ export function InventoryScreen() {
 
   async function equip(slotIndex: number) {
     if (!active) return; setMsg('');
-    try { await api(`/characters/${active.id}/equip`, { method: 'POST', body: JSON.stringify({ slotIndex }) }); await Promise.all([refresh(), refreshActive()]); }
+    // 최초 장착 시 귀속 경고
+    const target = inv.find(s => s.slotIndex === slotIndex);
+    if (target && !target.soulbound) {
+      const confirmed = confirm(
+        '착용하면 이 장비는 계정에 귀속되어 거래소 등록/우편 발송/길드 창고 보관이 불가능해집니다.\n\n' +
+        '(계정 창고를 통해 같은 계정 내 다른 캐릭터와는 공유 가능)\n\n' +
+        '착용하시겠습니까?'
+      );
+      if (!confirmed) return;
+    }
+    try {
+      await api(`/characters/${active.id}/equip`, { method: 'POST', body: JSON.stringify({ slotIndex }) });
+      await Promise.all([refresh(), refreshActive()]);
+      if (target && !target.soulbound) setMsg('장착 완료 — 이 장비는 이제 계정 귀속 상태입니다.');
+    }
     catch (e) { setMsg(e instanceof Error ? e.message : '장착 실패'); }
   }
   async function unequip(slot: string) {
@@ -723,6 +737,7 @@ export function InventoryScreen() {
                         })()}
                       </div>
                       {locked && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 6 }}>잠김</div>}
+                      {s.soulbound && <div style={{ fontSize: 10, color: 'var(--accent)', marginTop: 4 }}>계정 귀속 — 거래 불가</div>}
                     </div>
                     );
                   })()}
