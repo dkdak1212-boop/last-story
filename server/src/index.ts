@@ -2129,6 +2129,20 @@ async function runEquipOverhaul() {
       console.error('[late] auction_listed_at_v1 error:', e);
     }
   }
+
+  // 신규 캐릭터 24시간 버프 (EXP x5, 드랍 x5)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'newbie_buff_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS newbie_buff_until TIMESTAMPTZ`);
+        await query(`INSERT INTO _migrations (name) VALUES ('newbie_buff_v1')`);
+        console.log('[late] newbie_buff_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] newbie_buff_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

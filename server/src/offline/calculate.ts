@@ -231,11 +231,14 @@ export async function generateAndApplyOfflineReport(
     if (row.prefix_stats.exp_bonus_pct) expBonusPct += Math.round(row.prefix_stats.exp_bonus_pct * mult);
     if (row.prefix_stats.gold_bonus_pct) goldBonusPct += Math.round(row.prefix_stats.gold_bonus_pct * mult);
   }
-  const boostR = await query<{ gold_boost_until: string | null; drop_boost_until: string | null }>(
-    'SELECT gold_boost_until, drop_boost_until FROM characters WHERE id = $1', [characterId]
+  const boostR = await query<{ gold_boost_until: string | null; drop_boost_until: string | null; newbie_buff_until: string | null }>(
+    'SELECT gold_boost_until, drop_boost_until, newbie_buff_until FROM characters WHERE id = $1', [characterId]
   );
   const goldBoostActive = boostR.rows[0]?.gold_boost_until && new Date(boostR.rows[0].gold_boost_until) > now;
   const dropBoostActive = !!(boostR.rows[0]?.drop_boost_until && new Date(boostR.rows[0].drop_boost_until) > now);
+  const newbieActive = !!(boostR.rows[0]?.newbie_buff_until && new Date(boostR.rows[0].newbie_buff_until) > now);
+  const newbieExpMult = newbieActive ? 5 : 1;
+  const newbieDropMult = newbieActive ? 5 : 1;
   const avgExp = avg(monsters.map(m => m.exp_reward));
   const avgGold = avg(monsters.map(m => m.gold_reward));
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > now;
@@ -244,7 +247,7 @@ export async function generateAndApplyOfflineReport(
   const { computeLevelDiffExpMult } = await import('../combat/engine.js');
   const avgMonsterLevel = Math.round(avg(monsters.map(m => m.level)));
   const levelDiffMult = computeLevelDiffExpMult(char.level, avgMonsterLevel);
-  const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
+  const expGained = Math.floor(killCount * avgExp * boostMult * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * newbieExpMult);
   // 몬스터 골드 전역 -50% (engine.ts MONSTER_GOLD_MULT 와 동일)
   const MONSTER_GOLD_MULT = 0.5;
   const goldGained = Math.floor(killCount * avgGold * MONSTER_GOLD_MULT * (goldBoostActive ? 1.5 : 1.0) * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * ge.gold);
@@ -266,7 +269,7 @@ export async function generateAndApplyOfflineReport(
     if (row.prefix_stats.drop_rate_pct) prefixDropBonus += Math.round(row.prefix_stats.drop_rate_pct * mult);
   }
   const dropBoostMult = dropBoostActive ? 1.5 : 1.0;
-  const dropBonusMult = 1 + (guildDropBonus + territoryDropPct + prefixDropBonus) / 100;
+  const dropBonusMult = (1 + (guildDropBonus + territoryDropPct + prefixDropBonus) / 100) * newbieDropMult;
 
   // 몬스터 드랍 아이템의 grade 미리 조회 (유니크는 DROP_RATE_MULT 제외)
   const allDropItemIds = [...new Set(monsters.flatMap(m => (m.drop_table || []).map(d => d.itemId)))];
