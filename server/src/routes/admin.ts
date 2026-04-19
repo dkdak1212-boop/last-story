@@ -363,6 +363,35 @@ router.get('/users', async (req, res) => {
   res.json({ users: r.rows, total, page, totalPages: Math.ceil(total / limit) });
 });
 
+// 방치보상 드라이런 — 실제 지급 없이 계산 결과만 반환 (검증용)
+// ?characterId=123&fakeHours=12  (fakeHours 옵션: last_online_at 을 임시로 N시간 전으로 계산)
+router.get('/offline-simulate', async (req, res) => {
+  const characterId = Number(req.query.characterId);
+  const fakeHours = req.query.fakeHours ? Number(req.query.fakeHours) : null;
+  if (!characterId) return res.status(400).json({ error: 'characterId required' });
+
+  // fakeHours 사용 시 last_online_at 임시 백업→덮어쓰기→복원
+  let originalLastOnline: string | null = null;
+  if (fakeHours && fakeHours > 0 && fakeHours <= 24) {
+    const r = await query<{ last_online_at: string }>('SELECT last_online_at FROM characters WHERE id = $1', [characterId]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+    originalLastOnline = r.rows[0].last_online_at;
+    const backDate = new Date(Date.now() - fakeHours * 3600 * 1000).toISOString();
+    await query('UPDATE characters SET last_online_at = $1 WHERE id = $2', [backDate, characterId]);
+  }
+
+  try {
+    const { generateAndApplyOfflineReport } = await import('../offline/calculate.js');
+    const report = await generateAndApplyOfflineReport(characterId, { dryRun: true });
+    res.json({ ok: true, fakeHours: fakeHours || 'actual', report });
+  } finally {
+    // 원복
+    if (originalLastOnline) {
+      await query('UPDATE characters SET last_online_at = $1 WHERE id = $2', [originalLastOnline, characterId]);
+    }
+  }
+});
+
 // 서버 전체 초기화 — 유저 데이터 전부 삭제 (마스터 데이터 보존) + admin 계정 재생성
 router.post('/wipe-server', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ confirm: z.literal('WIPE_SERVER_YES_I_AM_SURE') }).safeParse(req.body);
