@@ -363,6 +363,47 @@ router.get('/users', async (req, res) => {
   res.json({ users: r.rows, total, page, totalPages: Math.ceil(total / limit) });
 });
 
+// 유지보수 모드 설정/해제 — 어드민 외 접속 차단
+// enabled=true 면 현재 접속한 non-admin 전부 강제 종료 + 신규 접속 503/차단
+router.post('/maintenance', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    enabled: z.boolean(),
+    untilMinutes: z.number().int().min(1).max(24 * 60).default(120),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { enabled, untilMinutes } = parsed.data;
+
+  if (enabled) {
+    const until = new Date(Date.now() + untilMinutes * 60_000).toISOString();
+    await query(
+      `INSERT INTO server_config (key, value) VALUES ('maintenance_until', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [until]
+    );
+  } else {
+    await query(`DELETE FROM server_config WHERE key = 'maintenance_until'`);
+  }
+
+  const { invalidateMaintenanceCache } = await import('../middleware/maintenance.js');
+  invalidateMaintenanceCache();
+
+  // 현재 접속한 non-admin 소켓 강제 종료
+  let kicked = 0;
+  const io = getIo();
+  if (enabled && io) {
+    for (const [, s] of io.sockets.sockets) {
+      if (!s.data.isAdmin) {
+        s.emit('server:maintenance', { message: '서버 점검에 들어갑니다. 자동으로 접속이 종료됩니다.' });
+        s.disconnect(true);
+        kicked += 1;
+      }
+    }
+  }
+
+  res.json({ ok: true, enabled, untilMinutes: enabled ? untilMinutes : 0, kicked });
+});
+
 // 어드민 권한 부여/회수
 router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) => {
   const userId = Number(req.params.id);

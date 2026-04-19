@@ -2080,6 +2080,26 @@ async function runEquipOverhaul() {
       console.error('[late] soulbound_v1 error:', e);
     }
   }
+
+  // 서버 설정 저장 테이블 (유지보수 모드 등)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'server_config_v1'`);
+      if (!applied.rowCount) {
+        await query(`
+          CREATE TABLE IF NOT EXISTS server_config (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `);
+        await query(`INSERT INTO _migrations (name) VALUES ('server_config_v1')`);
+        console.log('[late] server_config_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] server_config_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

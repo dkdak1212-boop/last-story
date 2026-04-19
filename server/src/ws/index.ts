@@ -46,6 +46,14 @@ export function initWebSocket(httpServer: HttpServer) {
         socket.data.isAdmin = false;
         socket.data.chatHidden = false;
       }
+      // 유지보수 모드 — 어드민 외 WS 접속 차단
+      if (!socket.data.isAdmin) {
+        const { getServerStatus } = await import('../middleware/maintenance.js');
+        const status = await getServerStatus();
+        if (status.maintenance) {
+          return next(new Error('서버 점검 중입니다. 잠시 후 다시 접속해주세요.'));
+        }
+      }
       // 동일 IP 2계정 동시 접속 차단 (관리자 제외, unknown IP 제외)
       if (!socket.data.isAdmin && ip && ip !== 'unknown') {
         const set = ipToUserIds.get(ip);
