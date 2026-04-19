@@ -1275,7 +1275,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-        const DOT_SKILL_MULT = 1.56; // 화상 도트: 기본 1.2 × 1.3배
+        const DOT_SKILL_MULT = 2.0; // 화상 도트: 200% (1.56 → 2.0 상향)
         const dotDmg = Math.round(dotBase * DOT_SKILL_MULT);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0;
         const dotDuration = skill.effect_duration + stormExt;
