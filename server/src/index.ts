@@ -2173,6 +2173,29 @@ async function runEquipOverhaul() {
       console.error('[late] online_rate_v1 error:', e);
     }
   }
+
+  // blocked_ips 재생성 (wipe 중 CASCADE 로 드랍됐을 가능성) + fail2ban 용 expires_at 보강
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'blocked_ips_recreate_v1'`);
+      if (!applied.rowCount) {
+        await query(`
+          CREATE TABLE IF NOT EXISTS blocked_ips (
+            ip          TEXT PRIMARY KEY,
+            reason      TEXT,
+            blocked_by  INTEGER REFERENCES users(id),
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at  TIMESTAMPTZ
+          )
+        `);
+        await query(`ALTER TABLE blocked_ips ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`);
+        await query(`INSERT INTO _migrations (name) VALUES ('blocked_ips_recreate_v1')`);
+        console.log('[late] blocked_ips_recreate_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] blocked_ips_recreate_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)
