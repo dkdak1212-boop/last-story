@@ -2143,6 +2143,20 @@ async function runEquipOverhaul() {
       console.error('[late] newbie_buff_v1 error:', e);
     }
   }
+
+  // 신규 버프 제거 — 현재 활성 newbie_buff_until 전부 NULL 처리
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'newbie_buff_clear_v1'`);
+      if (!applied.rowCount) {
+        const r = await query(`UPDATE characters SET newbie_buff_until = NULL WHERE newbie_buff_until IS NOT NULL`);
+        await query(`INSERT INTO _migrations (name) VALUES ('newbie_buff_clear_v1')`);
+        console.log(`[late] newbie_buff_clear_v1: 완료 (${r.rowCount ?? 0}개 버프 해제)`);
+      }
+    } catch (e) {
+      console.error('[late] newbie_buff_clear_v1 error:', e);
+    }
+  }
 }
 
 // 경매 만료 정산 (1분마다)

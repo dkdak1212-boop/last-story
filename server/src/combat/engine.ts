@@ -2185,9 +2185,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 접두사 + 프리미엄 부스터 + 레벨 (1 쿼리로 통합)
   const charBoost = await query<{
     gold_boost_until: string | null; drop_boost_until: string | null;
-    exp_boost_until: string | null; newbie_buff_until: string | null; level: number;
+    exp_boost_until: string | null; level: number;
   }>(
-    'SELECT gold_boost_until, drop_boost_until, exp_boost_until, newbie_buff_until, level FROM characters WHERE id = $1',
+    'SELECT gold_boost_until, drop_boost_until, exp_boost_until, level FROM characters WHERE id = $1',
     [s.characterId]
   );
   const charBoostRow = charBoost.rows[0];
@@ -2196,10 +2196,6 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const goldBoostActive = charBoostRow?.gold_boost_until && new Date(charBoostRow.gold_boost_until) > new Date();
   const dropBoostActive = charBoostRow?.drop_boost_until && new Date(charBoostRow.drop_boost_until) > new Date();
   const isExpBoosted = charBoostRow?.exp_boost_until && new Date(charBoostRow.exp_boost_until) > new Date();
-  // 신규 캐릭 버프 — 생성 후 24시간 동안 EXP x5, 드랍 x5
-  const newbieActive = !!(charBoostRow?.newbie_buff_until && new Date(charBoostRow.newbie_buff_until) > new Date());
-  const newbieExpMult = newbieActive ? 5 : 1;
-  const newbieDropPctAdd = newbieActive ? 400 : 0; // guildMult = 1 + 400/100 = 5x
   // 길드 스킬 버프: 세션 캐시 재사용 (refreshSessionMeta가 이미 GUILD_SKILL_PCT 곱한 값을 저장)
   const guildGoldBonus = s.cachedGuildBuffs.gold;
   const guildExpBonus = s.cachedGuildBuffs.exp;
@@ -2215,14 +2211,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const MONSTER_GOLD_MULT = 0.5;
   const finalGold = Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * newbieExpMult);
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
-  }
-  if (newbieActive && s.actionCount % 20 === 1) {
-    // 매 20액션마다 1회 노출 (스팸 방지)
-    addLog(s, `✨ [신규 버프] EXP×5 · 드랍×5 (24시간 한정)`);
   }
   if (levelDiffMult < 1.0) {
     addLog(s, `⚠️ 레벨차 -${charBoostRow!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
@@ -2295,7 +2287,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     .catch(err => console.error('[combat] trackMonsterKill err', err));
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus + newbieDropPctAdd, ge.drop);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop);
   // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)
   if (!s.autoSellCache) {
     await loadAutoSellCache(s);

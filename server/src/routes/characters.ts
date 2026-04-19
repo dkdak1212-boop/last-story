@@ -100,8 +100,8 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   const start = getStartingStats(className);
   const r = await query(
     `INSERT INTO characters
-       (user_id, name, class_name, level, exp, gold, hp, max_hp, node_points, stats, location, last_online_at, newbie_buff_until)
-     VALUES ($1, $2, $3, 1, 0, 100, $4, $4, 0, $5, 'village', NOW(), NOW() + INTERVAL '24 hours')
+       (user_id, name, class_name, level, exp, gold, hp, max_hp, node_points, stats, location, last_online_at)
+     VALUES ($1, $2, $3, 1, 0, 100, $4, $4, 0, $5, 'village', NOW())
      RETURNING id, name, class_name AS "className", level, exp, gold,
                hp, max_hp AS "maxHp", node_points AS "nodePoints",
                stats, location, last_online_at AS "lastOnlineAt", created_at AS "createdAt",
