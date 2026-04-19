@@ -517,11 +517,34 @@ router.post('/users/:id/delete', async (req: AuthedRequest, res: Response) => {
   if (ur.rows[0].is_admin) return res.status(400).json({ error: '어드민 계정은 set-admin 으로 권한 해제 후 삭제' });
 
   try {
+    // 유저 캐릭터 id 목록
+    const charR = await query<{ id: number }>('SELECT id FROM characters WHERE user_id = $1', [userId]);
+    const charIds = charR.rows.map(r => r.id);
+
+    if (charIds.length > 0) {
+      // CASCADE 없는 FK 참조 테이블 선제 정리 (best-effort)
+      const cleanupTables = [
+        'item_drop_log', 'enhance_log', 'guestbook', 'feedback',
+        'announcement_reads', 'board_posts', 'board_comments', 'board_reports',
+        'pvp_battles', 'pvp_cooldowns', 'guild_boss_runs', 'guild_boss_guild_daily',
+        'guild_boss_weekly_settlements', 'guild_boss_shop_purchases',
+        'world_event_participants',
+      ];
+      for (const t of cleanupTables) {
+        try { await query(`DELETE FROM ${t} WHERE character_id = ANY($1::int[])`, [charIds]); } catch { /* table or column missing */ }
+      }
+    }
+    // user_login_log 등 user_id 참조 테이블
+    const userCleanup = ['user_login_log', 'premium_purchases'];
+    for (const t of userCleanup) {
+      try { await query(`DELETE FROM ${t} WHERE user_id = $1`, [userId]); } catch { /* ignore */ }
+    }
+
     await query('DELETE FROM users WHERE id = $1', [userId]);
-    res.json({ ok: true, deletedUser: ur.rows[0].username });
+    res.json({ ok: true, deletedUser: ur.rows[0].username, deletedCharacters: charIds.length });
   } catch (e) {
     console.error('[admin] delete user err', e);
-    res.status(500).json({ error: String(e).slice(0, 200) });
+    res.status(500).json({ error: String(e).slice(0, 300) });
   }
 });
 
