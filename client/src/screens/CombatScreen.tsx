@@ -608,10 +608,11 @@ export function CombatScreen() {
         );
       })()}
 
-      {/* 길드 + 영토 버프 */}
+      {/* 길드 + 영토 + 접두사 획득 보너스 */}
       {(() => {
         const gb = state.guildBuffs;
         const tb = state.territoryBuffs;
+        const pb = state.prefixBuffs;
         const items: { label: string; pct: number; color: string; icon?: string }[] = [];
         if (gb) {
           if (gb.hp > 0) items.push({ label: '길드 체력', pct: gb.hp, color: '#e07070' });
@@ -622,6 +623,11 @@ export function CombatScreen() {
         if (tb) {
           if (tb.expPct > 0) items.push({ label: '영토 경험', pct: tb.expPct, color: '#daa520', icon: '/images/skills/spells/shields.png' });
           if (tb.dropPct > 0) items.push({ label: '영토 드랍', pct: tb.dropPct, color: '#daa520', icon: '/images/skills/spells/shields.png' });
+        }
+        if (pb) {
+          if (pb.gold > 0) items.push({ label: '접두사 골드', pct: pb.gold, color: '#e0a040' });
+          if (pb.exp > 0) items.push({ label: '접두사 경험', pct: pb.exp, color: '#8b8bef' });
+          if (pb.drop > 0) items.push({ label: '접두사 드랍', pct: pb.drop, color: '#66dd66' });
         }
         if (items.length === 0) return null;
         return (

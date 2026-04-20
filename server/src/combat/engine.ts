@@ -50,6 +50,7 @@ interface CombatSnapshot {
   boosts?: { name: string; until: string }[];
   guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
   territoryBuffs?: { expPct: number; dropPct: number };
+  prefixBuffs?: { gold: number; exp: number; drop: number };
   rage?: number; // 전사 전용 분노 게이지
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
@@ -3522,6 +3523,12 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
     boosts: s.cachedBoosts,
     potions: s.cachedPotions,
     guildBuffs: s.cachedGuildBuffs,
+    // 장비 접두사에서 집계된 획득 보너스 — 전투화면에 버프 칩으로 표시
+    prefixBuffs: {
+      gold: s.equipPrefixes.gold_bonus_pct || 0,
+      exp: s.equipPrefixes.exp_bonus_pct || 0,
+      drop: s.equipPrefixes.drop_rate_pct || 0,
+    },
     serverTime: Date.now(),
     guildBossRunId: s.guildBossRunId ?? undefined,
   };

@@ -5,6 +5,9 @@ import { STAT_LABEL } from '../components/ui/ItemStats';
 import { ClassIcon } from '../components/ui/ClassIcon';
 import type { Stats, ClassName } from '../types';
 
+interface GainBreakdown {
+  prefix: number; guild: number; personal: number; event: number; territory?: number; total: number;
+}
 interface CharStatus {
   level: number; exp: number; expToNext: number; expPercent: number;
   gold: number; hp: number; className: string;
@@ -16,6 +19,7 @@ interface CharStatus {
   guildBuff: { name: string; pct: number } | null;
   prefixBonuses: Record<string, number>;
   passiveBonuses: Record<string, number>;
+  gainBonuses?: { gold: GainBreakdown; exp: GainBreakdown; drop: GainBreakdown };
 }
 
 const CLASS_LABEL: Record<string, string> = {
@@ -285,6 +289,37 @@ export function StatusScreen() {
           <span style={{ color: 'var(--accent)', fontWeight: 700 }}>길드 버프</span>{' '}
           <span style={{ color: 'var(--text-dim)' }}>({status.guildBuff.name})</span>{' '}
           모든 전투 능력치 +{status.guildBuff.pct}%
+        </div>
+      )}
+
+      {/* 획득 보너스 요약 — gold/exp/drop 소스별 */}
+      {status.gainBonuses && (
+        <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>획득 보너스 합산</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr auto', gap: '6px 10px', fontSize: 12, alignItems: 'center' }}>
+            {([
+              ['gold', '골드', '#e0a040', status.gainBonuses.gold],
+              ['exp', '경험치', '#8b8bef', status.gainBonuses.exp],
+              ['drop', '드랍률', '#66dd66', status.gainBonuses.drop],
+            ] as const).map(([k, label, color, b]) => {
+              const parts: string[] = [];
+              if (b.prefix > 0) parts.push(`접두사 +${b.prefix}%`);
+              if (b.guild > 0) parts.push(`길드 +${b.guild}%`);
+              if (b.territory && b.territory > 0) parts.push(`영토 +${b.territory}%`);
+              if (b.personal > 0) parts.push(`개인 +${b.personal}%`);
+              if (b.event > 0) parts.push(`이벤트 +${b.event}%`);
+              return (
+                <div key={k} style={{ display: 'contents' }}>
+                  <span style={{ color, fontWeight: 700 }}>{label}</span>
+                  <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>{parts.length > 0 ? parts.join(' · ') : '—'}</span>
+                  <span style={{ color, fontWeight: 700, textAlign: 'right' }}>{b.total > 0 ? `+${b.total}%` : '0%'}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+            ※ 몬스터 드랍 골드 전역 -50% 별도 적용
+          </div>
         </div>
       )}
 

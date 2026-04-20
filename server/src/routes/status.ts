@@ -136,6 +136,76 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   );
   const guildBuff = gr.rows[0] ?? null;
 
+  // ── 획득 보너스 요약 (gold/exp/drop) ──
+  // 소스: 접두사 + 길드 스킬(+ 길드 이벤트 부스트) + 영토 + 개인 부스트 + 글로벌 이벤트
+  const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('../game/guild.js');
+  const { getTerritoryBonusForChar } = await import('../game/territory.js');
+  const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
+  const now = new Date();
+
+  const gskills = await getGuildSkillsForCharacter(cid);
+  let guildGoldPct = gskills.gold * GUILD_SKILL_PCT.gold;
+  let guildExpPct = gskills.exp * GUILD_SKILL_PCT.exp;
+  let guildDropPct = gskills.drop * GUILD_SKILL_PCT.drop;
+  try {
+    const gbR = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
+      `SELECT g.exp_boost_until, g.gold_boost_until, g.drop_boost_until
+         FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`, [cid]
+    );
+    if (gbR.rows[0]) {
+      if (gbR.rows[0].gold_boost_until && new Date(gbR.rows[0].gold_boost_until) > now) guildGoldPct += 25;
+      if (gbR.rows[0].exp_boost_until && new Date(gbR.rows[0].exp_boost_until) > now) guildExpPct += 25;
+      if (gbR.rows[0].drop_boost_until && new Date(gbR.rows[0].drop_boost_until) > now) guildDropPct += 25;
+    }
+  } catch { /* ignore */ }
+
+  const tb = await getTerritoryBonusForChar(cid, 0).catch(() => null);
+  const territoryExpPct = tb?.expPct || 0;
+  const territoryDropPct = tb?.dropPct || 0;
+
+  const ge = await getActiveGlobalEvent();
+  const geGoldPct = Math.max(0, (ge.gold - 1) * 100);
+  const geExpPct = Math.max(0, (ge.exp - 1) * 100);
+  const geDropPct = Math.max(0, (ge.drop - 1) * 100);
+
+  const boostR = await query<{ gold_boost_until: string | null; exp_boost_until: string | null; drop_boost_until: string | null }>(
+    `SELECT gold_boost_until, exp_boost_until, drop_boost_until FROM characters WHERE id = $1`, [cid]
+  );
+  const br = boostR.rows[0];
+  const personalGoldPct = (br?.gold_boost_until && new Date(br.gold_boost_until) > now) ? 50 : 0;
+  const personalExpPct = (br?.exp_boost_until && new Date(br.exp_boost_until) > now) ? 50 : 0;
+  const personalDropPct = (br?.drop_boost_until && new Date(br.drop_boost_until) > now) ? 50 : 0;
+
+  const prefixGold = prefixTotals.gold_bonus_pct || 0;
+  const prefixExp = prefixTotals.exp_bonus_pct || 0;
+  const prefixDrop = prefixTotals.drop_rate_pct || 0;
+
+  const gainBonuses = {
+    gold: {
+      prefix: prefixGold,
+      guild: Math.round(guildGoldPct),
+      personal: personalGoldPct,
+      event: Math.round(geGoldPct),
+      total: Math.round(prefixGold + guildGoldPct + personalGoldPct + geGoldPct),
+    },
+    exp: {
+      prefix: prefixExp,
+      guild: Math.round(guildExpPct),
+      territory: territoryExpPct,
+      personal: personalExpPct,
+      event: Math.round(geExpPct),
+      total: Math.round(prefixExp + guildExpPct + territoryExpPct + personalExpPct + geExpPct),
+    },
+    drop: {
+      prefix: prefixDrop,
+      guild: Math.round(guildDropPct),
+      territory: territoryDropPct,
+      personal: personalDropPct,
+      event: Math.round(geDropPct),
+      total: Math.round(prefixDrop + guildDropPct + territoryDropPct + personalDropPct + geDropPct),
+    },
+  };
+
   const expNeed = expToNext(char.level);
 
   res.json({
@@ -166,6 +236,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     guildBuff: guildBuff ? { name: guildBuff.name, pct: guildBuff.stat_buff_pct } : null,
     prefixBonuses: prefixTotals,
     passiveBonuses: passiveTotals,
+    gainBonuses,
   });
 });
 

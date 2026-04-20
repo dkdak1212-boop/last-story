@@ -191,6 +191,7 @@ export interface CombatSnapshot {
   boosts?: { name: string; until: string }[];
   guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
   territoryBuffs?: { expPct: number; dropPct: number };
+  prefixBuffs?: { gold: number; exp: number; drop: number };
   rage?: number; // 전사 전용 분노 게이지 (0~100)
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름 (5스택 → 5행동 버스트)
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10, 10 도달 시 다음 공격에 독 폭발)
