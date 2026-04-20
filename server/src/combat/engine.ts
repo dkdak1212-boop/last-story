@@ -2284,10 +2284,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // 몬스터 골드 드롭 전역 -50% (인플레·자금세탁 억제)
   const MONSTER_GOLD_MULT = 0.5;
-  // 오프라인 모드: 다계정 세탁 방지 정책으로 몬스터 킬 골드 전부 0
-  const finalGold = s.offline
-    ? 0
-    : Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
+  // 오프라인 / 온라인 동일 지급 (정책 C: 세탁 방지 해제)
+  const finalGold = Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
   const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
@@ -2382,16 +2380,16 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await loadAutoSellCache(s);
   }
   const ac = s.autoSellCache!;
-  // 오프라인 모드: 자동판매·드랍필터 비활성. 아이템만 가방에 담고, 가득 차면 drop 스킵.
-  const sellTiers = s.offline ? 0 : ac.auto_dismantle_tiers;
-  const sellQualityMax = s.offline ? 0 : ac.auto_sell_quality_max;
-  const sellProtect = new Set(s.offline ? [] : ac.auto_sell_protect_prefixes);
-  const sellProtect3opt = s.offline ? true : ac.auto_sell_protect_3opt;
-  const dfTiers = s.offline ? 0 : ac.drop_filter_tiers;
-  const dfQualityMax = s.offline ? 0 : ac.drop_filter_quality_max;
-  const dfCommon = s.offline ? false : ac.drop_filter_common;
-  const dfProtect = new Set(s.offline ? [] : ac.drop_filter_protect_prefixes);
-  const dfProtect3opt = s.offline ? true : ac.drop_filter_protect_3opt;
+  // 정책 C: 오프라인도 온라인과 동일. 자동판매·드랍필터 그대로 적용.
+  const sellTiers = ac.auto_dismantle_tiers;
+  const sellQualityMax = ac.auto_sell_quality_max;
+  const sellProtect = new Set(ac.auto_sell_protect_prefixes);
+  const sellProtect3opt = ac.auto_sell_protect_3opt;
+  const dfTiers = ac.drop_filter_tiers;
+  const dfQualityMax = ac.drop_filter_quality_max;
+  const dfCommon = ac.drop_filter_common;
+  const dfProtect = new Set(ac.drop_filter_protect_prefixes);
+  const dfProtect3opt = ac.drop_filter_protect_3opt;
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
