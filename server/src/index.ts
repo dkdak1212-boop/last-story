@@ -2191,6 +2191,20 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 유저별 offline 캐릭 tick 제한 (기본 2) — admin/운영자가 특정 계정만 상향 가능
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'offline_char_limit_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS offline_char_limit INT NOT NULL DEFAULT 2`);
+        await query(`INSERT INTO _migrations (name) VALUES ('offline_char_limit_v1')`);
+        console.log('[late] offline_char_limit_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] offline_char_limit_v1 error:', e);
+    }
+  }
+
   // 신규 캐릭터 24시간 버프 (EXP x5, 드랍 x5)
   {
     try {

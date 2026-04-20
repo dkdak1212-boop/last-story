@@ -2698,9 +2698,10 @@ async function combatTick(): Promise<void> {
     offlineByUser.set(s.userId, arr);
   }
   const offlineAllowed = new Set<number>();
-  for (const [, arr] of offlineByUser) {
+  for (const [userId, arr] of offlineByUser) {
     arr.sort((a, b) => b.lastOnlineAt - a.lastOnlineAt);
-    for (const e of arr.slice(0, 2)) offlineAllowed.add(e.charId);
+    const limit = await getOfflineCharLimit(userId);
+    for (const e of arr.slice(0, limit)) offlineAllowed.add(e.charId);
   }
 
   // 세션을 병렬로 처리
@@ -3166,6 +3167,29 @@ export async function endGuildBossCombatSession(characterId: number): Promise<vo
   s.guildBossRunId = null;
   s.guildBossBoss = null;
   activeSessions.delete(characterId);
+}
+
+// userId → offline_char_limit 캐시 (5분 TTL). combatTick 에서 매 100ms DB 쿼리 방지.
+const offlineCharLimitCache = new Map<number, { limit: number; exp: number }>();
+const OFFLINE_CHAR_LIMIT_TTL_MS = 5 * 60 * 1000;
+async function getOfflineCharLimit(userId: number): Promise<number> {
+  const now = Date.now();
+  const cached = offlineCharLimitCache.get(userId);
+  if (cached && cached.exp > now) return cached.limit;
+  try {
+    const r = await query<{ offline_char_limit: number }>(
+      `SELECT COALESCE(offline_char_limit, 2) AS offline_char_limit FROM users WHERE id = $1`, [userId]
+    );
+    const limit = Math.max(1, r.rows[0]?.offline_char_limit ?? 2);
+    offlineCharLimitCache.set(userId, { limit, exp: now + OFFLINE_CHAR_LIMIT_TTL_MS });
+    return limit;
+  } catch {
+    return cached?.limit ?? 2;
+  }
+}
+export function invalidateOfflineCharLimitCache(userId?: number): void {
+  if (userId !== undefined) offlineCharLimitCache.delete(userId);
+  else offlineCharLimitCache.clear();
 }
 
 // 동시 호출 방지 — 같은 characterId 로 startCombatSession 이 병렬 진입 시
