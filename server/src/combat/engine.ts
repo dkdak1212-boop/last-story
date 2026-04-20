@@ -331,7 +331,9 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
     def: s.vit * 0.8 * highTierMult,
     mdef: s.int * 0.5 * highTierMult,
     dodge: s.dex * 0.4,
-    accuracy: 80 + s.dex * 0.5,
+    // 몬스터 accuracy 상한 95 — dex 스케일 그대로 쓰면 고레벨에서 accBonus=1.0 이
+    // 되어 플레이어 회피가 구조적으로 0%. 최소 25% 의 회피율은 항상 유효하도록 캡.
+    accuracy: Math.min(95, 80 + s.dex * 0.5),
   };
 }
 
