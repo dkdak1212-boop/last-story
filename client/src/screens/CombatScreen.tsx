@@ -213,14 +213,6 @@ export function CombatScreen() {
     setState(prev => prev ? { ...prev, autoMode: res.autoMode, waitingInput: false } : prev);
   }, [active]);
 
-  const toggleAfk = useCallback(async () => {
-    if (!active) return;
-    const currentlyAfk = !!state?.afk?.mode;
-    await api(`/characters/${active.id}/combat/afk-mode`, {
-      method: 'POST', body: JSON.stringify({ enabled: !currentlyAfk }),
-    });
-  }, [active, state?.afk?.mode]);
-
   const useSkill = useCallback(async (skillId: number) => {
     if (!active) return;
     await api(`/characters/${active.id}/combat/use-skill`, {
@@ -255,6 +247,16 @@ export function CombatScreen() {
       body: JSON.stringify({ enabled, threshold }),
     });
   }, [active]);
+
+  // AFK 모드 자동 해제 (deprecate) — 구 클라/오래된 세션이 afk.mode 를 true 로
+  // 유지한 경우 유저가 "흑백 화면" 만 보는 상황 방지.
+  useEffect(() => {
+    if (state?.afk?.mode && active) {
+      api(`/characters/${active.id}/combat/afk-mode`, {
+        method: 'POST', body: JSON.stringify({ enabled: false }),
+      }).catch(() => {});
+    }
+  }, [state?.afk?.mode, active?.id]);
 
   async function leave() {
     if (!active) return;
@@ -349,10 +351,6 @@ export function CombatScreen() {
   const expMax = state.expMax ?? 1;
   const expPct = Math.min(100, (exp / expMax) * 100);
 
-  // AFK 모드: 검은 화면 + 통계 박스
-  if (state.afk?.mode) {
-    return <AfkOverlay state={state} active={active} onToggle={toggleAfk} onLeave={leave} />;
-  }
 
   return (
     <div>
@@ -825,82 +823,6 @@ export function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: 
   );
 }
 
-function AfkOverlay({ state, active, onToggle, onLeave }: {
-  state: CombatSnapshot; active: any; onToggle: () => void; onLeave: () => void;
-}) {
-  const a = state.afk!;
-  const elapsedMin = a.elapsedMs / 1000 / 60;
-  const expPerMin = elapsedMin > 0 ? Math.round(a.exp / elapsedMin) : 0;
-  const goldPerMin = elapsedMin > 0 ? Math.round(a.gold / elapsedMin) : 0;
-  const killsPerMin = elapsedMin > 0 ? (a.kills / elapsedMin).toFixed(1) : '0.0';
-  const timeStr = (() => {
-    const sec = Math.floor(a.elapsedMs / 1000);
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    return h > 0 ? `${h}시간 ${m}분 ${s}초` : `${m}분 ${s}초`;
-  })();
-  const hpPct = a.playerMaxHp > 0 ? (a.playerHp / a.playerMaxHp) * 100 : 0;
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: '#000', zIndex: 9999,
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 32, color: '#fff',
-    }}>
-      <div style={{ fontSize: 14, color: '#666', fontWeight: 600 }}>
-        {active?.name || ''}
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#888', letterSpacing: 4 }}>
-        사냥중...
-      </div>
-      <div style={{ fontSize: 12, color: '#444' }}>경과 {timeStr}</div>
-
-      {a.dead && (
-        <div style={{ fontSize: 18, color: '#ff4444', fontWeight: 700 }}>⚠️ 사망 — 자동 부활 대기</div>
-      )}
-
-      <div style={{
-        width: 340, padding: 24, background: '#111', border: '2px solid #333',
-        borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 14, fontSize: 14,
-      }}>
-        <Row label="DPS" value={a.dps.toLocaleString()} color="#ffaa44" />
-        <Row label="누적 경험치" value={a.exp.toLocaleString()} sub={`+${expPerMin.toLocaleString()}/분`} color="#88ddff" />
-        <Row label="누적 골드" value={a.gold.toLocaleString()} sub={`+${goldPerMin.toLocaleString()}/분`} color="#ffcc44" />
-        <Row label="처치 몹" value={`${a.kills.toLocaleString()}마리`} sub={`+${killsPerMin}/분`} color="#88ff88" />
-        <div style={{ borderTop: '1px solid #333', margin: '4px 0' }} />
-        <Row label="100% 품질" value={a.quality100.toString()} color="#aaff44" />
-        <Row label="유니크" value={a.unique.toString()} color="#ff8c2a" />
-        <Row label="T4 접두" value={a.t4Prefix.toString()} color="#ff4444" />
-        <div style={{ borderTop: '1px solid #333', margin: '4px 0' }} />
-        <Row label="HP" value={`${a.playerHp.toLocaleString()} / ${a.playerMaxHp.toLocaleString()}`} sub={`${Math.round(hpPct)}%`} color={hpPct < 30 ? '#ff4444' : '#88ff88'} />
-      </div>
-
-      <div style={{ display: 'flex', gap: 12 }}>
-        <button onClick={onToggle} style={{
-          padding: '12px 28px', fontSize: 14, fontWeight: 700, background: 'var(--accent)',
-          color: '#000', border: 'none', borderRadius: 6, cursor: 'pointer',
-        }}>방치 OFF</button>
-        <button onClick={onLeave} style={{
-          padding: '12px 20px', fontSize: 13, fontWeight: 700, background: 'transparent',
-          color: '#888', border: '1px solid #444', borderRadius: 6, cursor: 'pointer',
-        }}>마을 귀환</button>
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-      <span style={{ color: '#888', fontSize: 12 }}>{label}</span>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-        <span style={{ color, fontWeight: 700, fontSize: 16 }}>{value}</span>
-        {sub && <span style={{ color: '#666', fontSize: 10 }}>{sub}</span>}
-      </div>
-    </div>
-  );
-}
 
 export function GaugeBar({ percent, color, label, highlight }: {
   percent: number; color: string; label: string; highlight?: boolean;
