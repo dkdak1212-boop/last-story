@@ -317,9 +317,6 @@ export function StatusScreen() {
               );
             })}
           </div>
-          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
-            ※ 몬스터 드랍 골드 전역 -50% 별도 적용
-          </div>
         </div>
       )}
 

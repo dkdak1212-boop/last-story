@@ -53,13 +53,12 @@ router.get('/', async (_req, res) => {
     monsters: (f.monsterPool || []).map(mid => {
       const m = monsterMap.get(mid);
       if (!m) return null;
-      // 실제 지급값: gold 는 전역 -50% (MONSTER_GOLD_MULT=0.5) 적용된 값으로 표시.
-      // exp 는 base (레벨차 페널티·부스트 제외된 기준값).
+      // gold/exp 모두 base (레벨차 페널티·부스트·접두사 제외된 기준값)
       return {
         name: m.name,
         level: m.level,
         exp: m.exp_reward,
-        gold: Math.floor(m.gold_reward * 0.5),
+        gold: m.gold_reward,
         drops: (m.drop_table || []).map(d => {
           const grade = itemNames.get(d.itemId)?.grade || 'common';
           // 유니크는 DROP_RATE_MULT(0.1) 제외, 나머지는 적용
