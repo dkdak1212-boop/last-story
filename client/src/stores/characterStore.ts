@@ -39,6 +39,9 @@ export const useCharacterStore = create<CharacterState>((set, get) => ({
           try {
             await get().selectCharacter(id);
           } catch { /* ignore */ }
+        } else {
+          // 다른 계정 캐릭터ID 잔존 — 즉시 정리 (계정 전환 후 유출 방어)
+          localStorage.removeItem('activeCharacterId');
         }
       }
     } catch (e) {

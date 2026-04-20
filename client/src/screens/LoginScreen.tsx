@@ -32,6 +32,7 @@ export function LoginScreen() {
     try {
       localStorage.removeItem('token');
       localStorage.removeItem('username');
+      localStorage.removeItem('activeCharacterId');
       sessionStorage.setItem('deleteAccountOnLogin', '1');
     } catch { /* ignore */ }
     window.location.href = '/api/auth/google/start';
@@ -190,6 +191,7 @@ export function LoginScreen() {
               try {
                 localStorage.removeItem('token');
                 localStorage.removeItem('username');
+                localStorage.removeItem('activeCharacterId');
                 sessionStorage.clear();
               } catch { /* ignore */ }
               window.location.href = '/api/auth/google/start';

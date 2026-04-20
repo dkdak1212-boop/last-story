@@ -29,8 +29,10 @@ export const useMeStore = create<MeState>((set) => ({
       const isAuthError = msg.includes('401') || msg.includes('not found') || msg.includes('404');
       if (isAuthError) {
         try {
+          // 계정-종속 모든 localStorage 키 제거 (activeCharacterId 포함)
           localStorage.removeItem('token');
           localStorage.removeItem('username');
+          localStorage.removeItem('activeCharacterId');
         } catch { /* ignore */ }
         // 전체 새로고침으로 인증 상태 초기화
         if (typeof window !== 'undefined') window.location.reload();
