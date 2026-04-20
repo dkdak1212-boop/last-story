@@ -2136,6 +2136,13 @@ function monsterAction(s: ActiveSession): void {
       dmg = Math.round(dmg * (1 - dmgTakenDown / 100));
     }
 
+    // 소환사 방어 오오라 — 오오라의 왕 시 ×2
+    if (s.className === 'summoner' && dmg > 0) {
+      const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
+      const auraDef = getPassive(s, 'aura_def') * auraMul;
+      if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
+    }
+
     if (dmg > 0) {
       s.playerHp -= dmg;
       const defUsed = Math.round(playerDefStats.def);
@@ -2161,6 +2168,19 @@ function monsterAction(s: ActiveSession): void {
       const reflected = Math.round(d.damage * reflectPct / 100);
       s.monsterHp -= reflected;
       addLog(s, `반사! 몬스터에게 ${reflected} 데미지`);
+    }
+
+    // 소환사 반사 오오라 — 받은 데미지의 aura_reflect% 를 몬스터에게 반사 (상시)
+    if (s.className === 'summoner' && d.damage > 0) {
+      const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
+      const auraReflect = getPassive(s, 'aura_reflect') * auraMul;
+      if (auraReflect > 0) {
+        const reflected = Math.round(d.damage * auraReflect / 100);
+        if (reflected > 0) {
+          s.monsterHp -= reflected;
+          addLog(s, `오오라 반사! ${reflected} 데미지`);
+        }
+      }
     }
   }
 }
@@ -2748,6 +2768,13 @@ async function combatTick(): Promise<void> {
       // 접두사: 저주(slow_pct) → 몬스터 속도 감소
       if (s.equipPrefixes.slow_pct) {
         effectiveMonsterSpeed = Math.round(effectiveMonsterSpeed * (1 - s.equipPrefixes.slow_pct / 100));
+      }
+      // 소환사 속도 오오라 — 플레이어 행동 주기 가속 (소환수가 player 액션마다 발동하므로
+      // 결과적으로 "소환수 속도 상승" 과 동치). 오오라의 왕 키스톤 시 ×2.
+      if (s.className === 'summoner') {
+        const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
+        const auraSpd = getPassive(s, 'aura_speed') * auraMul;
+        if (auraSpd > 0) effectivePlayerSpeed += auraSpd;
       }
       effectivePlayerSpeed = diminishSpeed(Math.max(10, effectivePlayerSpeed));
       effectiveMonsterSpeed = diminishSpeed(Math.max(10, effectiveMonsterSpeed));
