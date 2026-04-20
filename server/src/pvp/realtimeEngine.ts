@@ -397,13 +397,13 @@ function tickSession(s: PvPSession): void {
 
   // 시간 초과 체크
   if (elapsedMs >= TIME_LIMIT_MS) {
-    finalizeTimeout(s);
+    finalizeTimeout(s).catch(e => console.error('[pvp-rt] finalizeTimeout err', e));
     return;
   }
 
   // 공격자 DC 체크 (30초 ping 없음) — FF 에서는 스킵
   if (!s.isFastForward && now - s.attackerLastPing > 30_000) {
-    finalize(s, s.defender.id, 'dc');
+    finalize(s, s.defender.id, 'dc').catch(e => console.error('[pvp-rt] finalize dc err', e));
     return;
   }
 
@@ -467,8 +467,8 @@ function tickSession(s: PvPSession): void {
   tickDots(s);
 
   // 승패 체크
-  if (s.attacker.hp <= 0) { void finalize(s, s.defender.id, 'hp'); return; }
-  if (s.defender.hp <= 0) { void finalize(s, s.attacker.id, 'hp'); return; }
+  if (s.attacker.hp <= 0) { finalize(s, s.defender.id, 'hp').catch(e => console.error('[pvp-rt] finalize hp err', e)); return; }
+  if (s.defender.hp <= 0) { finalize(s, s.attacker.id, 'hp').catch(e => console.error('[pvp-rt] finalize hp err', e)); return; }
 
   // FF 모드는 WS push 스킵
   if (!s.isFastForward) pushState(s);
@@ -1248,8 +1248,8 @@ export function attackerUseSkill(battleId: string, attackerId: number, skillId: 
   s.attacker.gauge = 0;
   s.attackerWaitingInput = false;
   s.attackerLastPing = Date.now();
-  if (s.defender.hp <= 0) finalize(s, s.attacker.id, 'hp');
-  else if (s.attacker.hp <= 0) finalize(s, s.defender.id, 'hp');
+  if (s.defender.hp <= 0) finalize(s, s.attacker.id, 'hp').catch(e => console.error('[pvp-rt] finalize hp err', e));
+  else if (s.attacker.hp <= 0) finalize(s, s.defender.id, 'hp').catch(e => console.error('[pvp-rt] finalize hp err', e));
   pushState(s);
   return { ok: true };
 }

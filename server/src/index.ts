@@ -1,5 +1,14 @@
 import dotenv from 'dotenv';
 dotenv.config({ override: false }); // 기존 환경변수를 덮어쓰지 않음
+
+// 프로세스 전역 가드 — 비동기 콜백(setTimeout/setInterval/WebSocket handler)에서
+// 튀어나온 에러로 서버가 죽는 것을 방지. 로그만 남기고 계속 구동.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 // 진단: OAuth 환경변수 로드 상태
 console.log('[env-check]', JSON.stringify({
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? `SET(${process.env.GOOGLE_CLIENT_ID.slice(0, 8)}...)` : 'MISSING',
