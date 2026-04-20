@@ -3188,7 +3188,26 @@ export async function endGuildBossCombatSession(characterId: number): Promise<vo
   activeSessions.delete(characterId);
 }
 
+// 동시 호출 방지 — 같은 characterId 로 startCombatSession 이 병렬 진입 시
+// DELETE/INSERT race 로 combat_sessions_pkey 중복 충돌 발생. 인플라이트 Promise 를
+// 공유해 한 번만 실행.
+const startInFlight = new Map<number, Promise<void>>();
+
 export async function startCombatSession(
+  characterId: number,
+  fieldId: number,
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData }
+): Promise<void> {
+  const existing = startInFlight.get(characterId);
+  if (existing) return existing;
+  const p = startCombatSessionInner(characterId, fieldId, guildBossOpts).finally(() => {
+    startInFlight.delete(characterId);
+  });
+  startInFlight.set(characterId, p);
+  return p;
+}
+
+async function startCombatSessionInner(
   characterId: number,
   fieldId: number,
   guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData }
@@ -3310,11 +3329,23 @@ export async function startCombatSession(
       }
     } catch {}
   }
-  await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
+  // UPSERT — race condition 대비 (startInFlight 로 1차 차단되지만 2중 방어)
   await query(
     `INSERT INTO combat_sessions
-     (character_id, field_id, player_hp, player_gauge, player_speed, auto_mode)
-     VALUES ($1, $2, $3, 0, $4, TRUE)`,
+       (character_id, field_id, player_hp, player_gauge, player_speed, auto_mode)
+     VALUES ($1, $2, $3, 0, $4, TRUE)
+     ON CONFLICT (character_id) DO UPDATE SET
+       field_id = EXCLUDED.field_id,
+       player_hp = EXCLUDED.player_hp,
+       player_gauge = 0,
+       player_speed = EXCLUDED.player_speed,
+       auto_mode = TRUE,
+       monster_id = NULL,
+       monster_hp = 0,
+       monster_gauge = 0,
+       action_count = 0,
+       combat_log = '[]'::jsonb,
+       updated_at = NOW()`,
     [characterId, fieldId, char.hp, eff.spd]
   );
   await query('UPDATE characters SET location = $1, last_online_at = NOW() WHERE id = $2',
