@@ -233,7 +233,9 @@ router.get('/google/callback', async (req, res) => {
   const clientUrl = process.env.CLIENT_URL || `${req.protocol}://${req.get('host')}`;
 
   try {
-    // 1) code → token
+    // 1) code → token (5초 timeout — Google 느려져도 서버 스레드 hang 방지)
+    const tokenCtrl = new AbortController();
+    const tokenTO = setTimeout(() => tokenCtrl.abort(), 5000);
     const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -241,17 +243,21 @@ router.get('/google/callback', async (req, res) => {
         code, client_id: clientId, client_secret: clientSecret,
         redirect_uri: redirectUri, grant_type: 'authorization_code',
       }).toString(),
-    });
+      signal: tokenCtrl.signal,
+    }).finally(() => clearTimeout(tokenTO));
     if (!tokenResp.ok) {
       console.error('[google-oauth] token fail', await tokenResp.text());
       return res.redirect(`${clientUrl}/?oauth_error=token_exchange`);
     }
     const tokens = await tokenResp.json() as { access_token: string; id_token?: string };
 
-    // 2) userinfo
+    // 2) userinfo (5초 timeout)
+    const uiCtrl = new AbortController();
+    const uiTO = setTimeout(() => uiCtrl.abort(), 5000);
     const uResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
+      signal: uiCtrl.signal,
+    }).finally(() => clearTimeout(uiTO));
     if (!uResp.ok) {
       console.error('[google-oauth] userinfo fail');
       return res.redirect(`${clientUrl}/?oauth_error=userinfo`);

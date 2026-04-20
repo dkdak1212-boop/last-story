@@ -14,6 +14,13 @@ const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
 export function invalidateAdminCache(userId: number) {
   adminCache.delete(userId);
 }
+// 만료 entry 정기 청소 (10분마다) — 장기 운영 시 Map 누수 방지
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, v] of adminCache) {
+    if (v.exp <= now) adminCache.delete(userId);
+  }
+}, 10 * 60 * 1000);
 
 export function initWebSocket(httpServer: HttpServer) {
   const io = new Server(httpServer, {
@@ -246,6 +253,20 @@ export function initWebSocket(httpServer: HttpServer) {
       }
     });
   });
+
+  // ipToUserIds 좀비 entry 정리 (5분마다) — disconnect 누락·예외 대비
+  setInterval(() => {
+    const liveUserIds = new Set<number>();
+    for (const [, sock] of io.sockets.sockets) {
+      if (sock.data?.userId) liveUserIds.add(sock.data.userId);
+    }
+    for (const [ip, set] of ipToUserIds) {
+      for (const uid of set) {
+        if (!liveUserIds.has(uid)) set.delete(uid);
+      }
+      if (set.size === 0) ipToUserIds.delete(ip);
+    }
+  }, 5 * 60 * 1000);
 
   // combat engine에서 emit할 때 room 기반으로 보내도록 오버라이드
   const origEmit = io.emit.bind(io);

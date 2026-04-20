@@ -3428,6 +3428,9 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
     await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
   }
   activeSessions.delete(characterId);
+  // 세션 타이머 Map 도 같이 정리 — 좀비 entry 방지 (예외 경로 포함)
+  sessionStartedMap.delete(characterId);
+  sessionLastTickAt.delete(characterId);
 }
 
 export async function refreshSessionSkills(characterId: number): Promise<void> {
@@ -3746,6 +3749,28 @@ function ensureCombatLoop() {
       });
   }, 100); // 100ms 틱
   console.log('[combat] engine started (100ms tick)');
+}
+
+// Graceful shutdown 용: 전투 루프 중단 + 배치 전수 flush
+export function stopCombatLoop(): void {
+  if (combatInterval) { clearInterval(combatInterval); combatInterval = null; }
+}
+export async function flushCharBatchAll(): Promise<void> {
+  await flushCharBatch();
+  // 소환사 세션 마지막 상태 DB 에 저장 (graceful shutdown 용)
+  for (const [charId, s] of activeSessions) {
+    if (s.className !== 'summoner') continue;
+    const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+    if (summons.length === 0) continue;
+    const cdObj: Record<string, number> = {};
+    for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
+    try {
+      await query(
+        'UPDATE combat_sessions SET status_effects = $1::jsonb, skill_cooldowns = $2::jsonb, last_tick_at = NOW() WHERE character_id = $3',
+        [JSON.stringify(summons), JSON.stringify(cdObj), charId]
+      );
+    } catch {}
+  }
 }
 
 // 서버 시작 시 DB 세션 정리 + 복원 (Stage 2)

@@ -227,6 +227,36 @@ httpServer.listen(PORT, () => {
   })();
 });
 
+// Graceful shutdown — SIGTERM (Railway 재배포·인스턴스 종료 시 수신).
+// 전투 배치 쓰기를 먼저 flush 하고, 세션 상태 저장 후 종료.
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received — flushing state...`);
+  try {
+    const { flushCharBatchAll, stopCombatLoop } = await import('./combat/engine.js');
+    await flushCharBatchAll().catch(e => console.error('[shutdown] flush err', e));
+    stopCombatLoop();
+  } catch (e) { console.error('[shutdown] engine close err', e); }
+  try {
+    httpServer.close(() => {
+      console.log('[shutdown] http closed');
+      process.exit(0);
+    });
+    // 강제 종료 타이머 — 10초 내 graceful close 안 되면 exit
+    setTimeout(() => {
+      console.warn('[shutdown] force exit after 10s');
+      process.exit(0);
+    }, 10_000).unref();
+  } catch (e) {
+    console.error('[shutdown] err', e);
+    process.exit(1);
+  }
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 async function runMigrations() {
   // 노드트리 존 통합 마이그레이션 (017)
   {
