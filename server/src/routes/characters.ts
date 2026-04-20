@@ -84,14 +84,18 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   const { name, className } = parsed.data;
 
-  // 캐릭터 슬롯 한도 — 계정당 2개 고정 (다계정 캐릭 양산 방지)
-  const MAX_CHAR_SLOTS = 2;
-  const curCount = await query<{ cnt: string }>(
-    'SELECT COUNT(*)::text AS cnt FROM characters WHERE user_id = $1',
-    [req.userId]
-  );
-  if (Number(curCount.rows[0].cnt) >= MAX_CHAR_SLOTS) {
-    return res.status(400).json({ error: `계정당 최대 ${MAX_CHAR_SLOTS}개 캐릭터만 생성 가능` });
+  // 캐릭터 슬롯 한도 — 계정당 2개 고정 (다계정 캐릭 양산 방지). 어드민은 무제한.
+  const adminR = await query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [req.userId]);
+  const isAdmin = !!adminR.rows[0]?.is_admin;
+  if (!isAdmin) {
+    const MAX_CHAR_SLOTS = 2;
+    const curCount = await query<{ cnt: string }>(
+      'SELECT COUNT(*)::text AS cnt FROM characters WHERE user_id = $1',
+      [req.userId]
+    );
+    if (Number(curCount.rows[0].cnt) >= MAX_CHAR_SLOTS) {
+      return res.status(400).json({ error: `계정당 최대 ${MAX_CHAR_SLOTS}개 캐릭터만 생성 가능` });
+    }
   }
 
   const dup = await query('SELECT 1 FROM characters WHERE name = $1', [name]);
