@@ -7,6 +7,7 @@ import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { getIo } from '../ws/io.js';
 import { getActiveEvent, finishEvent } from '../game/worldEvent.js';
 import { stopCombatSession, getKillStats } from '../combat/engine.js';
+import { CLASS_START, type ClassName } from '../game/classes.js';
 
 const router = Router();
 router.use(authRequired);
@@ -47,6 +48,132 @@ router.get('/stats', async (_req, res) => {
     pendingMails: Number(mails.rows[0].count),
     topLevel: topLevel.rows[0] ? `${topLevel.rows[0].name} (Lv.${topLevel.rows[0].level})` : '—',
     topGold: topGold.rows[0] ? `${topGold.rows[0].name} (${Number(topGold.rows[0].gold).toLocaleString()}G)` : '—',
+  });
+});
+
+// ========== 스탯/노드 포인트 오버 감사 ==========
+// 레벨 L 기준 기댓값: 스탯 (L-1)×2, 노드 L-1
+// 소비(할당+spent) + 미소비(stat_points/node_points) 가 기댓값 초과하면 오버
+router.get('/stat-node-audit', async (_req, res) => {
+  const chars = await query<{
+    id: number; name: string; user_id: number; class_name: string; level: number;
+    stats: Record<string, number>; stat_points: number | null; node_points: number;
+  }>(
+    `SELECT id, name, user_id, class_name, level,
+            stats, COALESCE(stat_points, 0) AS stat_points, node_points
+       FROM characters`
+  );
+  const spent = await query<{ character_id: number; total: string }>(
+    `SELECT cn.character_id, COALESCE(SUM(nd.cost), 0)::text AS total
+       FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+      GROUP BY cn.character_id`
+  );
+  const spentMap = new Map(spent.rows.map(r => [r.character_id, Number(r.total)]));
+
+  const statOver: Array<{ id: number; name: string; level: number; allocated: number; unspent: number; expected: number; excess: number }> = [];
+  const nodeOver: Array<{ id: number; name: string; level: number; spent: number; unspent: number; expected: number; excess: number }> = [];
+
+  for (const c of chars.rows) {
+    const start = CLASS_START[c.class_name as ClassName];
+    if (!start) continue;
+    const cur = c.stats || {};
+    const allocated =
+      Math.max(0, (cur.str ?? start.stats.str) - start.stats.str) +
+      Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex) +
+      Math.max(0, (cur.int ?? start.stats.int) - start.stats.int) +
+      Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+    const expectedStat = Math.max(0, (c.level - 1) * 2);
+    const totalStat = allocated + (c.stat_points || 0);
+    if (totalStat > expectedStat) {
+      statOver.push({ id: c.id, name: c.name, level: c.level, allocated, unspent: c.stat_points || 0, expected: expectedStat, excess: totalStat - expectedStat });
+    }
+
+    const nodeSpent = spentMap.get(c.id) || 0;
+    const expectedNode = Math.max(0, c.level - 1);
+    const totalNode = nodeSpent + c.node_points;
+    if (totalNode > expectedNode) {
+      nodeOver.push({ id: c.id, name: c.name, level: c.level, spent: nodeSpent, unspent: c.node_points, expected: expectedNode, excess: totalNode - expectedNode });
+    }
+  }
+
+  res.json({
+    totalCharacters: chars.rowCount,
+    statOverflow: { count: statOver.length, totalExcess: statOver.reduce((s, x) => s + x.excess, 0), entries: statOver.slice(0, 50) },
+    nodeOverflow: { count: nodeOver.length, totalExcess: nodeOver.reduce((s, x) => s + x.excess, 0), entries: nodeOver.slice(0, 50) },
+  });
+});
+
+// 오버분 정리 — 미소비 포인트(stat_points / node_points) 부터 차감
+// 그래도 부족하면 allocated/spent 는 건드리지 않음 (리포트에 남김)
+router.post('/stat-node-fix', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ dryRun: z.boolean().default(true) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { dryRun } = parsed.data;
+
+  const chars = await query<{
+    id: number; class_name: string; level: number;
+    stats: Record<string, number>; stat_points: number | null; node_points: number;
+  }>(
+    `SELECT id, class_name, level, stats,
+            COALESCE(stat_points, 0) AS stat_points, node_points FROM characters`
+  );
+  const spent = await query<{ character_id: number; total: string }>(
+    `SELECT cn.character_id, COALESCE(SUM(nd.cost), 0)::text AS total
+       FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+      GROUP BY cn.character_id`
+  );
+  const spentMap = new Map(spent.rows.map(r => [r.character_id, Number(r.total)]));
+
+  let statFixedChars = 0, statPointsRemoved = 0, statUnfixable = 0;
+  let nodeFixedChars = 0, nodePointsRemoved = 0, nodeUnfixable = 0;
+
+  for (const c of chars.rows) {
+    const start = CLASS_START[c.class_name as ClassName];
+    if (!start) continue;
+    const cur = c.stats || {};
+    const allocated =
+      Math.max(0, (cur.str ?? start.stats.str) - start.stats.str) +
+      Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex) +
+      Math.max(0, (cur.int ?? start.stats.int) - start.stats.int) +
+      Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+    const expectedStat = Math.max(0, (c.level - 1) * 2);
+    const sp = c.stat_points || 0;
+    const totalStat = allocated + sp;
+    if (totalStat > expectedStat) {
+      const excess = totalStat - expectedStat;
+      const removable = Math.min(excess, sp);
+      if (removable > 0) {
+        statFixedChars++;
+        statPointsRemoved += removable;
+        if (!dryRun) {
+          await query('UPDATE characters SET stat_points = stat_points - $1 WHERE id = $2', [removable, c.id]);
+        }
+      }
+      if (removable < excess) statUnfixable++;
+    }
+
+    const nodeSpent = spentMap.get(c.id) || 0;
+    const expectedNode = Math.max(0, c.level - 1);
+    const totalNode = nodeSpent + c.node_points;
+    if (totalNode > expectedNode) {
+      const excess = totalNode - expectedNode;
+      const removable = Math.min(excess, c.node_points);
+      if (removable > 0) {
+        nodeFixedChars++;
+        nodePointsRemoved += removable;
+        if (!dryRun) {
+          await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [removable, c.id]);
+        }
+      }
+      if (removable < excess) nodeUnfixable++;
+    }
+  }
+
+  res.json({
+    dryRun,
+    statFix: { charsFixed: statFixedChars, pointsRemoved: statPointsRemoved, charsUnfixable: statUnfixable },
+    nodeFix: { charsFixed: nodeFixedChars, pointsRemoved: nodePointsRemoved, charsUnfixable: nodeUnfixable },
   });
 });
 
