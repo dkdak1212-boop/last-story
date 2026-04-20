@@ -324,11 +324,23 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
-// 소환수/쿨다운 상태를 DB에 주기적 저장 (30초)
+// 세션 상태 DB 주기 저장 (30초) — Stage 2: last_tick_at + 소환수/쿨다운 전체 세션
 let lastSummonSave = 0;
 setInterval(async () => {
   if (Date.now() - lastSummonSave < 30000) return;
   lastSummonSave = Date.now();
+  if (activeSessions.size === 0) return;
+  // 모든 활성 세션 last_tick_at 갱신 (향후 catch-up 기반)
+  try {
+    const ids = [...activeSessions.keys()];
+    if (ids.length > 0) {
+      await query(
+        `UPDATE combat_sessions SET last_tick_at = NOW() WHERE character_id = ANY($1::int[])`,
+        [ids]
+      );
+    }
+  } catch (e) { console.error('[combat] last_tick_at save err', e); }
+  // 소환사 세션: 소환수/쿨다운 상태 저장 (복원용)
   for (const [charId, s] of activeSessions) {
     if (s.className !== 'summoner') continue;
     const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
@@ -3663,10 +3675,12 @@ function ensureCombatLoop() {
   console.log('[combat] engine started (100ms tick)');
 }
 
-// 서버 시작 시 DB 세션 정리
-// combat_sessions 의 status_effects JSONB 에는 소환사 소환수가 저장돼있으므로 삭제 금지.
-// 대신 '마을에 있는' 캐릭터의 stale row 만 제거 (위치 불일치 = 실제로 세션 필요 없음).
-// 유저 재접속 시 /combat/state 가 startCombatSession 을 호출하며 savedSummons 복원.
+// 서버 시작 시 DB 세션 정리 + 복원 (Stage 2)
+// 1) 마을에 있는 캐릭터의 stale row 제거
+// 2) 필드에 있는 캐릭터의 combat_sessions 를 메모리 activeSessions 에 재건 —
+//    서버 재시작 후에도 오프라인 시뮬이 자동으로 재개되도록.
+//    status_effects(소환수) · skill_cooldowns 는 startCombatSession 이 복원.
+//    서버 다운 동안 놓친 시간은 버림 (catch-up 은 향후 Stage 2b).
 export async function restoreCombatSessions(): Promise<void> {
   try {
     const r = await query(`
@@ -3678,7 +3692,30 @@ export async function restoreCombatSessions(): Promise<void> {
     if (r.rowCount && r.rowCount > 0) {
       console.log(`[combat] cleared ${r.rowCount} orphan sessions (character not in field)`);
     }
+
+    // 필드 활성 세션 재건
+    const active = await query<{ character_id: number; field_id: number }>(`
+      SELECT cs.character_id, cs.field_id
+        FROM combat_sessions cs JOIN characters c ON c.id = cs.character_id
+       WHERE c.location LIKE 'field:%'
+       ORDER BY cs.character_id
+    `);
+    if (active.rowCount && active.rowCount > 0) {
+      console.log(`[combat] restoring ${active.rowCount} active field sessions…`);
+      let restored = 0, failed = 0;
+      for (const row of active.rows) {
+        try {
+          if (activeSessions.has(row.character_id)) continue;
+          await startCombatSession(row.character_id, row.field_id);
+          restored++;
+        } catch (e) {
+          failed++;
+          console.error('[combat] restore fail char', row.character_id, e);
+        }
+      }
+      console.log(`[combat] restored ${restored}, failed ${failed}`);
+    }
   } catch (e) {
-    console.error('[combat] restoreCombatSessions cleanup error:', e);
+    console.error('[combat] restoreCombatSessions error:', e);
   }
 }

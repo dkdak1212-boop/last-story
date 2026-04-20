@@ -2132,6 +2132,20 @@ async function runEquipOverhaul() {
     }
   }
 
+  // combat_sessions.last_tick_at — Stage 2 영속화용
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'combat_last_tick_at_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE combat_sessions ADD COLUMN IF NOT EXISTS last_tick_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+        await query(`INSERT INTO _migrations (name) VALUES ('combat_last_tick_at_v1')`);
+        console.log('[late] combat_last_tick_at_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] combat_last_tick_at_v1 error:', e);
+    }
+  }
+
   // 신규 캐릭터 24시간 버프 (EXP x5, 드랍 x5)
   {
     try {
