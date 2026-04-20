@@ -751,6 +751,27 @@ function getCritDmgBonus(s: ActiveSession): number {
   return bonus;
 }
 
+// 치명타 후속 효과 — 모든 공격 타입(damage/multi_hit/dot/poison/stun 등)에서 공통 호출.
+// 게이지 재충전(접두사) + 치명 흡혈(패시브) 를 일관되게 적용.
+// hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
+function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
+  if (!crit) return;
+  const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
+  if (gaugeOnCrit > 0) {
+    const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCrit / 100);
+    s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+    addLog(s, `[재충전] ${hitLabel ? hitLabel + ' ' : ''}게이지 +${Math.min(50, gaugeOnCrit)}%`);
+  }
+  const critLifesteal = getPassive(s, 'crit_lifesteal');
+  if (critLifesteal > 0 && dmg > 0) {
+    const critHeal = Math.round(dmg * critLifesteal / 100);
+    if (critHeal > 0) {
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + critHeal);
+      addLog(s, `치명 흡혈 HP +${critHeal}`);
+    }
+  }
+}
+
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
   for (const eff of s.statusEffects) {
     if (eff.source === actor && eff.remainingActions > 0) {
@@ -1091,13 +1112,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (d.crit) {
           const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
-          // 접두사: 재충전 (치명타 시 게이지 충전) — 최대 50% 캡
-          const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
-          if (gaugeOnCrit > 0) {
-            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCrit / 100);
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-            addLog(s, `[재충전] 게이지 +${Math.min(50, gaugeOnCrit)}%`);
-          }
         }
         // 전사 분노 폭발 (rage 100 이상 → ×3)
         // rage_reduce 패시브: 폭발 후 잔여 분노 (소모량 -N%)
@@ -1133,15 +1147,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           }
         }
 
-        // 패시브: crit_lifesteal (치명타 시 흡혈)
-        if (d.crit) {
-          const critLifesteal = getPassive(s, 'crit_lifesteal');
-          if (critLifesteal > 0) {
-            const critHeal = Math.round(dmg * critLifesteal / 100);
-            s.playerHp = Math.min(s.playerMaxHp, s.playerHp + critHeal);
-            addLog(s, `치명 흡혈 HP +${critHeal}`);
-          }
-        }
+        // 치명타 후속 (재충전·흡혈) — 모든 스킬 타입 공통
+        applyCritPostEffects(s, dmg, d.crit);
 
         // 패시브: bleed_on_hit (타격 시 출혈)
         const bleedChance = getPassive(s, 'bleed_on_hit');
@@ -1231,7 +1238,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const hitMult = multiAmp > 0 ? baseChain * (1 + multiAmp / 100) : baseChain;
-      const gaugeOnCritMulti = s.equipPrefixes.gauge_on_crit_pct || 0;
       let firstLandedHit = true;
       let landedCount = 0;
       for (let i = 0; i < hits; i++) {
@@ -1254,12 +1260,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           } else {
             addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
           }
-          // 접두사: 재충전 (치명타 시 게이지 충전) — multi_hit 각 타격마다 적용, 최대 50% 캡
-          if (d.crit && gaugeOnCritMulti > 0) {
-            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritMulti / 100);
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-            addLog(s, `[재충전] ${i + 1}타 치명타 → 게이지 +${Math.min(50, gaugeOnCritMulti)}%`);
-          }
+          // 치명타 후속 (재충전·흡혈) — 타격마다 적용
+          applyCritPostEffects(s, dmg, d.crit, `${i + 1}타`);
           // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
           if (s.className === 'warrior') {
             s.rage = Math.min(100, s.rage + 5);
@@ -1284,7 +1286,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
       const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
       const poisonHitMult = multiAmpPoison > 0 ? skill.damage_mult * (1 + multiAmpPoison / 100) : skill.damage_mult;
-      const gaugeOnCritMultiPoison = s.equipPrefixes.gauge_on_crit_pct || 0;
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, poisonHitMult, useMatk);
@@ -1298,12 +1299,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}${d.crit ? '!' : ''}`);
           const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
           addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
-          // 접두사: 재충전 (치명타 시 게이지 충전) — 타격마다 적용, 최대 50% 캡
-          if (d.crit && gaugeOnCritMultiPoison > 0) {
-            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritMultiPoison / 100);
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-            addLog(s, `[재충전] ${i + 1}타 치명타 → 게이지 +${Math.min(50, gaugeOnCritMultiPoison)}%`);
-          }
+          // 치명타 후속 (재충전·흡혈) — 타격마다 적용
+          applyCritPostEffects(s, dmg, d.crit, `${i + 1}타`);
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
@@ -1316,6 +1313,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
+        applyCritPostEffects(s, dmg, d.crit);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const DOT_SKILL_MULT = 2.0; // 화상 도트: 200% (1.56 → 2.0 상향)
         const dotDmg = Math.round(dotBase * DOT_SKILL_MULT);
@@ -1354,6 +1352,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
+        applyCritPostEffects(s, dmg, d.crit);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULT = 2.0;
@@ -1444,15 +1443,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
         }
-        // 접두사: 재충전 (치명타 시 게이지 충전) — G4 버그 수정, 최대 50% 캡
-        if (d.crit) {
-          const gaugeOnCritStun = s.equipPrefixes.gauge_on_crit_pct || 0;
-          if (gaugeOnCritStun > 0) {
-            const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCritStun / 100);
-            s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-            addLog(s, `[재충전] 게이지 +${Math.min(50, gaugeOnCritStun)}%`);
-          }
-        }
+        // 치명타 후속 (재충전·흡혈)
+        applyCritPostEffects(s, dmg, d.crit);
         // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
         if (skill.name === '방패 강타') {
           const bonus = Math.round(s.playerMaxHp * 0.15);
