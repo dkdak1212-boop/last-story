@@ -268,8 +268,12 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
     bonusChance = 0.10;
   }
 
-  // 골드 차감
-  await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [info.cost, cid]);
+  // 골드 원자적 차감 — 동시 소비 시 음수 방지. 차감 실패 시 400 반환
+  const deductR = await query(
+    'UPDATE characters SET gold = gold - $1 WHERE id = $2 AND gold >= $1',
+    [info.cost, cid]
+  );
+  if (deductR.rowCount === 0) return res.status(400).json({ error: '골드가 부족합니다.' });
 
   // 확률 굴림
   const finalChance = Math.min(1.0, info.chance + bonusChance);

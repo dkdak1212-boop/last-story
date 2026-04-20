@@ -186,7 +186,12 @@ router.post('/donate', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: `일일 기부 한도 초과 (오늘 ${todaySoFar.toLocaleString()}/${DAILY_DONATION_CAP.toLocaleString()}G)` });
   }
 
-  await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [parsed.data.amount, char.id]);
+  // 원자적 차감 — 동시 소비 시 음수/재소비 방지
+  const deductR = await query(
+    'UPDATE characters SET gold = gold - $1 WHERE id = $2 AND gold >= $1',
+    [parsed.data.amount, char.id]
+  );
+  if (deductR.rowCount === 0) return res.status(400).json({ error: '골드가 부족합니다.' });
   await query('UPDATE guilds SET treasury = treasury + $1 WHERE id = $2', [parsed.data.amount, guildId]);
 
   await query(
@@ -249,12 +254,24 @@ router.post('/skill/upgrade', async (req: AuthedRequest, res: Response) => {
   if (guildLevel < reqLv) return res.status(400).json({ error: `길드 레벨 ${reqLv} 이상 필요` });
   if (treasury < cost) return res.status(400).json({ error: `자금 부족 (필요: ${cost.toLocaleString()}G)` });
 
-  await query('UPDATE guilds SET treasury = treasury - $1 WHERE id = $2', [cost, guildId]);
-  await query(
+  // 원자적 자금 차감 — 동시 업그레이드 시 중복 소비 방지
+  const deductR = await query(
+    'UPDATE guilds SET treasury = treasury - $1 WHERE id = $2 AND treasury >= $1',
+    [cost, guildId]
+  );
+  if (deductR.rowCount === 0) return res.status(400).json({ error: '자금이 부족합니다.' });
+  // 단계 업그레이드 — 현재 단계 조건부로만 적용 (동시 요청 방어)
+  const upR = await query(
     `INSERT INTO guild_skills (guild_id, skill_key, level) VALUES ($1, $2, $3)
-     ON CONFLICT (guild_id, skill_key) DO UPDATE SET level = $3`,
+     ON CONFLICT (guild_id, skill_key) DO UPDATE SET level = $3
+     WHERE guild_skills.level = $3 - 1`,
     [guildId, parsed.data.skillKey, next]
   );
+  if (upR.rowCount === 0) {
+    // 경쟁 조건 — 업그레이드 실패. 자금 롤백.
+    await query('UPDATE guilds SET treasury = treasury + $1 WHERE id = $2', [cost, guildId]);
+    return res.status(409).json({ error: '동시 업그레이드 충돌. 다시 시도해주세요.' });
+  }
   invalidateGuildSkillCache(guildId);
 
   res.json({ ok: true, newLevel: next });

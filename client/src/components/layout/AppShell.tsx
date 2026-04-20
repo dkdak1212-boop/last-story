@@ -75,12 +75,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!token) return;
     const socket = socketIo({ auth: { token }, transports: ['websocket', 'polling'] });
-    socket.on('online-count', (count: number) => setOnlineCount(count));
-    socket.on('system-broadcast', (data: { text: string; durationMs?: number }) => {
+    const onCount = (count: number) => setOnlineCount(count);
+    const onBroadcast = (data: { text: string; durationMs?: number }) => {
       setBroadcast(data.text);
       setTimeout(() => setBroadcast(null), data.durationMs ?? 60000);
-    });
-    return () => { socket.disconnect(); };
+    };
+    socket.on('online-count', onCount);
+    socket.on('system-broadcast', onBroadcast);
+    return () => {
+      socket.off('online-count', onCount);
+      socket.off('system-broadcast', onBroadcast);
+      socket.disconnect();
+    };
   }, [token]);
 
   // 글로벌 이벤트 폴링 (60초마다)

@@ -2,6 +2,9 @@ import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 import { query } from '../db/pool.js';
 
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET env var is required in production');
+}
 const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
 export interface AuthedRequest extends Request {
