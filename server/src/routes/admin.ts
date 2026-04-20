@@ -497,6 +497,35 @@ router.post('/maintenance', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, enabled, untilMinutes: enabled ? untilMinutes : 0, kicked });
 });
 
+// 전체 로그아웃 — 모든 기존 JWT 무효화
+// server_config.min_jwt_iat = 현재 epoch(초) 로 설정하면 이후 auth 미들웨어가
+// payload.iat < min_jwt_iat 인 모든 토큰을 거부. user_id 재사용 누수 대응.
+router.post('/force-global-logout', async (_req: AuthedRequest, res: Response) => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await query(
+    `INSERT INTO server_config (key, value, updated_at)
+     VALUES ('min_jwt_iat', $1, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+    [String(nowSec)]
+  );
+  const { invalidateMinIatCache } = await import('../middleware/auth.js');
+  invalidateMinIatCache();
+
+  // 현재 접속한 모든 non-admin 소켓 강제 종료
+  let kicked = 0;
+  const io = getIo();
+  if (io) {
+    for (const [, s] of io.sockets.sockets) {
+      if (!s.data.isAdmin) {
+        s.emit('server:force-logout', { message: '보안 갱신으로 재로그인이 필요합니다.' });
+        s.disconnect(true);
+        kicked += 1;
+      }
+    }
+  }
+  res.json({ ok: true, minJwtIat: nowSec, kicked });
+});
+
 // 어드민 권한 부여/회수
 router.post('/users/:id/set-admin', async (req: AuthedRequest, res: Response) => {
   const userId = Number(req.params.id);
@@ -621,6 +650,11 @@ router.post('/users/:id/delete', async (req: AuthedRequest, res: Response) => {
     }
 
     await query('DELETE FROM users WHERE id = $1', [userId]);
+    // auth 캐시 정리 — SERIAL 재사용 시 구 created_at 가 남아있으면 오판 가능
+    try {
+      const { invalidateUserCreatedAtCache } = await import('../middleware/auth.js');
+      invalidateUserCreatedAtCache(userId);
+    } catch { /* ignore */ }
     res.json({ ok: true, deletedUser: ur.rows[0].username, deletedCharacters: charIds.length });
   } catch (e) {
     console.error('[admin] delete user err', e);

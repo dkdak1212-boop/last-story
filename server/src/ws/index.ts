@@ -1,10 +1,8 @@
 import type { Server as HttpServer } from 'http';
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
 import { query } from '../db/pool.js';
 import { toggleAutoMode, manualSkillUse } from '../combat/engine.js';
-
-const SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
+import { verifyJwtFresh } from '../middleware/auth.js';
 
 // 동일 IP 2계정 동시 접속 차단 — ip → 접속 중인 userId set
 // 관리자(isAdmin)는 집계 제외
@@ -36,14 +34,15 @@ export function initWebSocket(httpServer: HttpServer) {
     }
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('no token'));
+    const verified = await verifyJwtFresh(token);
+    if (!verified) return next(new Error('invalid token'));
     try {
-      const payload = jwt.verify(token, SECRET) as { userId: number; username: string };
-      socket.data.userId = payload.userId;
-      socket.data.username = payload.username;
+      socket.data.userId = verified.userId;
+      socket.data.username = verified.username;
       socket.data.ip = ip;
       // is_admin / chat_hidden — 5분 메모리 캐시로 재연결 시 DB 쿼리 스킵
       const now = Date.now();
-      const cached = adminCache.get(payload.userId);
+      const cached = adminCache.get(verified.userId);
       if (cached && cached.exp > now) {
         socket.data.isAdmin = cached.isAdmin;
         socket.data.chatHidden = cached.chatHidden;
@@ -51,13 +50,13 @@ export function initWebSocket(httpServer: HttpServer) {
         try {
           const r = await query<{ is_admin: boolean; chat_hidden: boolean }>(
             'SELECT is_admin, COALESCE(chat_hidden, FALSE) AS chat_hidden FROM users WHERE id = $1',
-            [payload.userId]
+            [verified.userId]
           );
           const isAdmin = r.rows[0]?.is_admin ?? false;
           const chatHidden = r.rows[0]?.chat_hidden ?? false;
           socket.data.isAdmin = isAdmin;
           socket.data.chatHidden = chatHidden;
-          adminCache.set(payload.userId, { isAdmin, chatHidden, exp: now + ADMIN_CACHE_TTL_MS });
+          adminCache.set(verified.userId, { isAdmin, chatHidden, exp: now + ADMIN_CACHE_TTL_MS });
         } catch {
           socket.data.isAdmin = false;
           socket.data.chatHidden = false;
@@ -74,7 +73,7 @@ export function initWebSocket(httpServer: HttpServer) {
       // 동일 IP 2계정 동시 접속 차단 (관리자 제외, unknown IP 제외)
       if (!socket.data.isAdmin && ip && ip !== 'unknown') {
         const set = ipToUserIds.get(ip);
-        if (set && set.size > 0 && !set.has(payload.userId)) {
+        if (set && set.size > 0 && !set.has(verified.userId)) {
           return next(new Error('동일 IP에서 다른 계정이 이미 접속 중입니다. 기존 접속을 먼저 종료해주세요.'));
         }
       }
