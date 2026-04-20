@@ -592,11 +592,27 @@ router.post('/users/:id/delete', async (req: AuthedRequest, res: Response) => {
         'announcement_reads', 'board_posts', 'board_comments', 'board_reports',
         'pvp_battles', 'pvp_cooldowns', 'guild_boss_runs', 'guild_boss_guild_daily',
         'guild_boss_weekly_settlements', 'guild_boss_shop_purchases',
-        'world_event_participants',
+        'world_event_participants', 'premium_purchases',
       ];
       for (const t of cleanupTables) {
         try { await query(`DELETE FROM ${t} WHERE character_id = ANY($1::int[])`, [charIds]); } catch { /* table or column missing */ }
       }
+      // auctions: 판매중이면 삭제, 입찰자면 NULL 처리
+      try { await query(`DELETE FROM auctions WHERE seller_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      try { await query(`UPDATE auctions SET current_bidder_id = NULL WHERE current_bidder_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // party_invites: from/to 양쪽
+      try { await query(`DELETE FROM party_invites WHERE to_id = ANY($1::int[]) OR from_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // pvp_battles.winner_id 는 SET NULL
+      try { await query(`UPDATE pvp_battles SET winner_id = NULL WHERE winner_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // guilds.leader_id — 캐릭터가 길드장이면 해당 길드 자체 삭제 (leader_id 는 NOT NULL)
+      try {
+        const gr = await query<{ id: number }>(`SELECT id FROM guilds WHERE leader_id = ANY($1::int[])`, [charIds]);
+        if (gr.rowCount && gr.rowCount > 0) {
+          const gids = gr.rows.map(r => r.id);
+          await query(`DELETE FROM guild_members WHERE guild_id = ANY($1::int[])`, [gids]);
+          await query(`DELETE FROM guilds WHERE id = ANY($1::int[])`, [gids]);
+        }
+      } catch { /* ignore */ }
     }
     // user_login_log 등 user_id 참조 테이블
     const userCleanup = ['user_login_log', 'premium_purchases'];
