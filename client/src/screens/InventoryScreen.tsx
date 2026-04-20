@@ -445,19 +445,17 @@ export function InventoryScreen() {
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
               whiteSpace: 'nowrap',
             }}>전체 폐기</button>
-            <FilterToggleButton label="드랍필터" active={!!dfTiers || dropFilter.common} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
+            <FilterToggleButton label="드랍필터" active={!!dfTiers} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
           </div>
 
           {/* 드랍필터 패널 — 간결하게 재디자인 */}
           {filterPanel === 'drop' && (
             <FilterPanel title="드랍필터" subtitle="체크한 조건의 장비는 사냥 시 자동으로 줍지 않음" accentColor="#ff6666" onClose={() => setFilterPanel(null)}>
-              {/* 일반 등급 + 접두사 등급을 한 row 에 */}
-              <FilterSection label="걸러낼 등급">
+              <FilterSection label="걸러낼 티어">
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <TierChip label="일반" active={dropFilter.common} color="#888" onClick={() => toggleDropFilter('common')} />
-                  <TierChip label="T1" active={dropFilter.t1} color="#daa520" onClick={() => toggleDropFilter('t1')} />
-                  <TierChip label="T2" active={dropFilter.t2} color="#5b8ecc" onClick={() => toggleDropFilter('t2')} />
-                  <TierChip label="T3" active={dropFilter.t3} color="#b060cc" onClick={() => toggleDropFilter('t3')} />
+                  <TierChip label="T1" active={dropFilter.t1} color="#5bc0ff" onClick={() => toggleDropFilter('t1')} />
+                  <TierChip label="T2" active={dropFilter.t2} color="#b060cc" onClick={() => toggleDropFilter('t2')} />
+                  <TierChip label="T3" active={dropFilter.t3} color="#daa520" onClick={() => toggleDropFilter('t3')} />
                   <TierChip label="T4" active={dropFilter.t4} color="#ff4444" onClick={() => toggleDropFilter('t4')} />
                 </div>
               </FilterSection>
