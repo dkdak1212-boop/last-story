@@ -225,6 +225,10 @@ interface ActiveSession {
   afkQuality100: number;    // 100% 품질 드랍 수
   afkUnique: number;        // 유니크 드랍 수
   afkT4Prefix: number;      // T4 접두사 드랍 수
+  // 오프라인 모드 플래그 — combatTick 초반에 세팅. 다운스트림(handleMonsterDeath,
+  // flushCharBatch, drop 처리 등)에서 사용. 골드 지급 차단 · EMA 업데이트 스킵 ·
+  // 자동판매·드랍필터 비활성.
+  offline: boolean;
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -253,44 +257,67 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
   const targets = onlyId !== undefined ? [onlyId] : [...charBatch.keys()];
   // 단일 bulk UPDATE — N개 개별 쿼리 대신 unnest 배열 한 번 실행
   // EMA 갱신: new_rate = old_rate * 0.99 + delta * 0.01 (~100초 이동평균)
-  const ids: number[] = [];
-  const expDs: number[] = [];
-  const goldDs: number[] = [];
-  const killDs: number[] = [];
-  const earnedDs: number[] = [];
+  // 오프라인 세션은 rate 업데이트 제외 (offline 모드 중 EMA 드리프트 방지).
+  const onIds: number[] = []; const onExp: number[] = []; const onGold: number[] = []; const onKill: number[] = []; const onEarned: number[] = [];
+  const offIds: number[] = []; const offExp: number[] = []; const offGold: number[] = []; const offKill: number[] = []; const offEarned: number[] = [];
   for (const id of targets) {
     const b = charBatch.get(id);
     if (!b) continue;
     charBatch.delete(id);
     if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
-    ids.push(id);
-    expDs.push(b.expDelta);
-    goldDs.push(b.goldDelta);
-    killDs.push(b.killDelta);
-    earnedDs.push(b.goldEarnedDelta);
+    const sess = activeSessions.get(id);
+    const isOffline = sess?.offline === true;
+    const dest = isOffline ? { ids: offIds, exp: offExp, gold: offGold, kill: offKill, earned: offEarned }
+                           : { ids: onIds,  exp: onExp,  gold: onGold,  kill: onKill,  earned: onEarned  };
+    dest.ids.push(id);
+    dest.exp.push(b.expDelta);
+    dest.gold.push(b.goldDelta);
+    dest.kill.push(b.killDelta);
+    dest.earned.push(b.goldEarnedDelta);
   }
-  if (ids.length === 0) return;
   try {
-    await query(
-      `UPDATE characters c SET
-         exp = c.exp + v.exp_d,
-         gold = c.gold + v.gold_d,
-         total_kills = c.total_kills + v.kill_d,
-         total_gold_earned = c.total_gold_earned + v.earned_d,
-         online_exp_rate  = c.online_exp_rate  * 0.99 + v.exp_d::numeric    * 0.01,
-         online_gold_rate = c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01,
-         online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01
-       FROM (
-         SELECT
-           unnest($1::int[])    AS id,
-           unnest($2::bigint[]) AS exp_d,
-           unnest($3::bigint[]) AS gold_d,
-           unnest($4::int[])    AS kill_d,
-           unnest($5::bigint[]) AS earned_d
-       ) v
-       WHERE c.id = v.id`,
-      [ids, expDs, goldDs, killDs, earnedDs]
-    );
+    if (onIds.length > 0) {
+      await query(
+        `UPDATE characters c SET
+           exp = c.exp + v.exp_d,
+           gold = c.gold + v.gold_d,
+           total_kills = c.total_kills + v.kill_d,
+           total_gold_earned = c.total_gold_earned + v.earned_d,
+           online_exp_rate  = c.online_exp_rate  * 0.99 + v.exp_d::numeric    * 0.01,
+           online_gold_rate = c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01,
+           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01
+         FROM (
+           SELECT
+             unnest($1::int[])    AS id,
+             unnest($2::bigint[]) AS exp_d,
+             unnest($3::bigint[]) AS gold_d,
+             unnest($4::int[])    AS kill_d,
+             unnest($5::bigint[]) AS earned_d
+         ) v
+         WHERE c.id = v.id`,
+        [onIds, onExp, onGold, onKill, onEarned]
+      );
+    }
+    if (offIds.length > 0) {
+      // 오프라인: 기본 필드만 업데이트, rate 필드는 건드리지 않음
+      await query(
+        `UPDATE characters c SET
+           exp = c.exp + v.exp_d,
+           gold = c.gold + v.gold_d,
+           total_kills = c.total_kills + v.kill_d,
+           total_gold_earned = c.total_gold_earned + v.earned_d
+         FROM (
+           SELECT
+             unnest($1::int[])    AS id,
+             unnest($2::bigint[]) AS exp_d,
+             unnest($3::bigint[]) AS gold_d,
+             unnest($4::int[])    AS kill_d,
+             unnest($5::bigint[]) AS earned_d
+         ) v
+         WHERE c.id = v.id`,
+        [offIds, offExp, offGold, offKill, offEarned]
+      );
+    }
   } catch (e) {
     console.error('[combat] bulk flush err', e);
   }
@@ -2227,7 +2254,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // 몬스터 골드 드롭 전역 -50% (인플레·자금세탁 억제)
   const MONSTER_GOLD_MULT = 0.5;
-  const finalGold = Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
+  // 오프라인 모드: 다계정 세탁 방지 정책으로 몬스터 킬 골드 전부 0
+  const finalGold = s.offline
+    ? 0
+    : Math.floor(m.gold_reward * MONSTER_GOLD_MULT * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
   const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
@@ -2322,13 +2352,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await loadAutoSellCache(s);
   }
   const ac = s.autoSellCache!;
-  const sellTiers = ac.auto_dismantle_tiers;
-  const sellQualityMax = ac.auto_sell_quality_max;
-  const sellProtect = new Set(ac.auto_sell_protect_prefixes);
-  const dfTiers = ac.drop_filter_tiers;
-  const dfQualityMax = ac.drop_filter_quality_max;
-  const dfCommon = ac.drop_filter_common;
-  const dfProtect = new Set(ac.drop_filter_protect_prefixes);
+  // 오프라인 모드: 자동판매·드랍필터 비활성. 아이템만 가방에 담고, 가득 차면 drop 스킵.
+  const sellTiers = s.offline ? 0 : ac.auto_dismantle_tiers;
+  const sellQualityMax = s.offline ? 0 : ac.auto_sell_quality_max;
+  const sellProtect = new Set(s.offline ? [] : ac.auto_sell_protect_prefixes);
+  const dfTiers = s.offline ? 0 : ac.drop_filter_tiers;
+  const dfQualityMax = s.offline ? 0 : ac.drop_filter_quality_max;
+  const dfCommon = s.offline ? false : ac.drop_filter_common;
+  const dfProtect = new Set(s.offline ? [] : ac.drop_filter_protect_prefixes);
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
@@ -2645,15 +2676,34 @@ async function combatTick(): Promise<void> {
   lastTickAt = now;
   const tickScaleGlobal = dtMsGlobal / TICK_TARGET_MS;
 
+  // 계정당 offline 활성 캐릭 최대 2명 — userId 별로 last_online_at 상위 2명만 tick.
+  // 3번째 이상은 offline 모드에서 skip (일시 정지).
+  const offlineByUser = new Map<number, { charId: number; lastOnlineAt: number }[]>();
+  for (const [charId, s] of activeSessions) {
+    if (sessionHasSubscriber(charId)) continue; // 온라인 활성은 제한 없음
+    const arr = offlineByUser.get(s.userId) ?? [];
+    arr.push({ charId, lastOnlineAt: s.enteredFieldAt });
+    offlineByUser.set(s.userId, arr);
+  }
+  const offlineAllowed = new Set<number>();
+  for (const [, arr] of offlineByUser) {
+    arr.sort((a, b) => b.lastOnlineAt - a.lastOnlineAt);
+    for (const e of arr.slice(0, 2)) offlineAllowed.add(e.charId);
+  }
+
   // 세션을 병렬로 처리
   const tasks: Promise<void>[] = [];
   for (const [charId, s] of activeSessions) {
     const hasSub = sessionHasSubscriber(charId);
     let tickScale: number;
     if (hasSub) {
+      s.offline = false;
       tickScale = tickScaleGlobal;
       sessionLastTickAt.set(charId, now);
     } else {
+      // 계정당 2캐릭 제한 — offline 활성 허용 목록에 없으면 tick 스킵
+      if (!offlineAllowed.has(charId)) continue;
+      s.offline = true;
       // 구독자 없음 → 1초 간격으로만 tick
       const last = sessionLastTickAt.get(charId) ?? 0;
       const sDt = now - last;
@@ -3187,6 +3237,7 @@ export async function startCombatSession(
     afkQuality100: 0,
     afkUnique: 0,
     afkT4Prefix: 0,
+    offline: false,
     guildBossRunId: guildBossOpts?.guildBossRunId ?? null,
     guildBossBoss: guildBossOpts?.guildBossBoss ?? null,
     guildBossDmgBuffer: 0,
