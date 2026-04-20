@@ -75,16 +75,24 @@ export async function getEquippedItems(characterId: number) {
         result[k as keyof Stats] = Math.round((v as number) * mult);
       }
     }
+    // 프리픽스 스탯 — 강화 배율 적용.
+    // result(직접 Stats): str/dex/int/vit/spd/cri/hp/atk/matk/def/mdef
+    // scaledPrefixStats(간접 보너스): dodge/accuracy 등 — sumEquipmentStats 가 읽어감.
+    // 두 경로 모두에 강화 배율을 일관되게 반영.
+    let scaledPrefixStats: Record<string, number> | null = null;
     if (row.prefix_stats) {
       const el = row.enhance_level || 0;
-      const prefixMult = 1 + el * 0.025; // 강화당 접두사 +2.5% 스케일 (모든 스탯 적용)
+      const prefixMult = 1 + el * 0.025;
+      scaledPrefixStats = {};
       for (const [k, v] of Object.entries(row.prefix_stats)) {
+        const scaled = Math.round((v as number) * prefixMult);
+        scaledPrefixStats[k] = scaled;
         if (['str', 'dex', 'int', 'vit', 'spd', 'cri', 'hp', 'atk', 'matk', 'def', 'mdef'].includes(k)) {
-          result[k as keyof Stats] = (result[k as keyof Stats] ?? 0) + Math.round((v as number) * prefixMult);
+          result[k as keyof Stats] = (result[k as keyof Stats] ?? 0) + scaled;
         }
       }
     }
-    return { stats: Object.keys(result).length > 0 ? result : null, prefixStats: row.prefix_stats };
+    return { stats: Object.keys(result).length > 0 ? result : null, prefixStats: scaledPrefixStats };
   });
 }
 
