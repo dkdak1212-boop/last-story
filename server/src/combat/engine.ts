@@ -210,10 +210,12 @@ interface ActiveSession {
     auto_dismantle_tiers: number;
     auto_sell_quality_max: number;
     auto_sell_protect_prefixes: string[];
+    auto_sell_protect_3opt: boolean;
     drop_filter_tiers: number;
     drop_filter_quality_max: number;
     drop_filter_common: boolean;
     drop_filter_protect_prefixes: string[];
+    drop_filter_protect_3opt: boolean;
   } | null; // 자동판매/드랍필터 설정 세션 캐시 (설정 변경 시 invalidateAutoSellCache 호출)
   // ── AFK(방치) 모드 카운터 ──
   afkMode: boolean;
@@ -2380,10 +2382,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const sellTiers = s.offline ? 0 : ac.auto_dismantle_tiers;
   const sellQualityMax = s.offline ? 0 : ac.auto_sell_quality_max;
   const sellProtect = new Set(s.offline ? [] : ac.auto_sell_protect_prefixes);
+  const sellProtect3opt = s.offline ? true : ac.auto_sell_protect_3opt;
   const dfTiers = s.offline ? 0 : ac.drop_filter_tiers;
   const dfQualityMax = s.offline ? 0 : ac.drop_filter_quality_max;
   const dfCommon = s.offline ? false : ac.drop_filter_common;
   const dfProtect = new Set(s.offline ? [] : ac.drop_filter_protect_prefixes);
+  const dfProtect3opt = s.offline ? true : ac.drop_filter_protect_3opt;
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
@@ -2416,31 +2420,34 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const dfHasProtected = protectStats && dfProtect.size > 0
         ? [...protectStats].some(st => dfProtect.has(st)) : false;
 
-      // 2) 드랍필터: 유니크/전설 제외, common 토글 + 티어/품질 일치 시 줍지 않음
-      if (hasDropFilter && item.grade !== 'legendary') {
+      // 2) 드랍필터: 유니크만 제외 (legendary 도 적용). common 토글 + 티어/품질 일치 시 줍지 않음.
+      //    3옵 보호 토글 ON(기본) 이면 3옵은 예외.
+      if (hasDropFilter) {
         if (dfCommon && item.grade === 'common') {
           continue;
         }
         if (dfTiers > 0) {
           const dfTierMatch = (dfTiers & tierBit) !== 0;
           const dfQualMatch = dfQualityMax > 0 ? quality <= dfQualityMax : true;
-          if (!is3Options && !dfHasProtected && dfTierMatch && dfQualMatch) {
+          const protected3opt = is3Options && dfProtect3opt;
+          if (!protected3opt && !dfHasProtected && dfTierMatch && dfQualMatch) {
             continue;
           }
         }
       }
 
-      // 3) 자동판매: 티어·품질 일치 시 골드 변환 (3옵/보호 접두사 보호)
+      // 3) 자동판매: 티어·품질 일치 시 폐기. 3옵 보호 토글 ON(기본) 이면 3옵 예외.
       if (sellTiers > 0) {
         const tierMatch = (sellTiers & tierBit) !== 0;
         const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
-        const shouldSell = !is3Options && !sellHasProtected && tierMatch && qualityMatch;
+        const protected3opt = is3Options && sellProtect3opt;
+        const shouldSell = !protected3opt && !sellHasProtected && tierMatch && qualityMatch;
         if (shouldSell) {
           // 자동판매 골드 지급 중단 — 아이템만 자동 소멸
           addLog(s, `${item.name} 자동폐기 (T${maxTier}, ${quality}%)`);
           continue;
         }
-        if (is3Options && tierMatch) {
+        if (protected3opt && tierMatch) {
           addLog(s, `${item.name} 자동판매 보호! (3옵)`);
         }
       }
@@ -2958,16 +2965,18 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 // invalidateAutoSellCache(characterId) 호출 → null 로 리셋 → 다음 킬에 재로드.
 async function loadAutoSellCache(s: ActiveSession): Promise<void> {
   const r = await query<{
-    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[];
-    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[];
+    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[]; auto_sell_protect_3opt: boolean;
+    drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean;
   }>(
     `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
             COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
             COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
+            COALESCE(auto_sell_protect_3opt, TRUE) AS auto_sell_protect_3opt,
             COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
             COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
             COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
-            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes
+            COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
+            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt
      FROM characters WHERE id = $1`,
     [s.characterId]
   );
@@ -2976,10 +2985,12 @@ async function loadAutoSellCache(s: ActiveSession): Promise<void> {
     auto_dismantle_tiers: row?.auto_dismantle_tiers ?? 0,
     auto_sell_quality_max: row?.auto_sell_quality_max ?? 0,
     auto_sell_protect_prefixes: row?.auto_sell_protect_prefixes ?? [],
+    auto_sell_protect_3opt: row?.auto_sell_protect_3opt ?? true,
     drop_filter_tiers: row?.drop_filter_tiers ?? 0,
     drop_filter_quality_max: row?.drop_filter_quality_max ?? 0,
     drop_filter_common: row?.drop_filter_common ?? false,
     drop_filter_protect_prefixes: row?.drop_filter_protect_prefixes ?? [],
+    drop_filter_protect_3opt: row?.drop_filter_protect_3opt ?? true,
   };
 }
 

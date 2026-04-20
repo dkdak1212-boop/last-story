@@ -66,7 +66,8 @@ export function InventoryScreen() {
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
   const [sellQualityMax, setSellQualityMax] = useState(0);
-  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean; protectPrefixes: string[] }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false, protectPrefixes: [] });
+  const [sellProtect3opt, setSellProtect3opt] = useState(true);
+  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false, protectPrefixes: [], protect3opt: true });
   const [sellProtectPrefixes, setSellProtectPrefixes] = useState<string[]>([]);
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
@@ -84,11 +85,12 @@ export function InventoryScreen() {
 
   useEffect(() => {
     if (!active) return;
-    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; protectPrefixes: string[] }>(`/characters/${active.id}/auto-dismantle`)
+    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; protectPrefixes: string[]; protect3opt: boolean }>(`/characters/${active.id}/auto-dismantle`)
       .then(d => {
         setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
         setSellQualityMax(d.qualityMax ?? 0);
         setSellProtectPrefixes(d.protectPrefixes ?? []);
+        setSellProtect3opt(d.protect3opt ?? true);
       }).catch(() => {});
     api<typeof dropFilter>(`/characters/${active.id}/drop-filter`)
       .then(d => setDropFilter(d)).catch(() => {});
@@ -231,6 +233,20 @@ export function InventoryScreen() {
     const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key];
     setDropFilter(prev => ({ ...prev, protectPrefixes: next }));
     try { await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ protectPrefixes: next }) }); }
+    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function toggleSellProtect3opt() {
+    if (!active) return;
+    const next = !sellProtect3opt;
+    setSellProtect3opt(next);
+    try { await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ protect3opt: next }) }); }
+    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
+  }
+  async function toggleDropProtect3opt() {
+    if (!active) return;
+    const next = !dropFilter.protect3opt;
+    setDropFilter(prev => ({ ...prev, protect3opt: next }));
+    try { await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ protect3opt: next }) }); }
     catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
   async function updateDropFilterQuality(val: number) {
@@ -497,8 +513,16 @@ export function InventoryScreen() {
                 <FilterSection label="보호 접두사">
                   <PrefixProtectGrid selected={sellProtectPrefixes} onToggle={toggleSellPrefix} />
                 </FilterSection>
+                <FilterSection label="3옵 보호">
+                  <button onClick={toggleSellProtect3opt} style={{
+                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
+                    background: sellProtect3opt ? 'var(--accent)' : 'transparent',
+                    color: sellProtect3opt ? '#000' : '#888',
+                    border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
+                  }}>{sellProtect3opt ? '3옵 보호 ON' : '3옵 보호 OFF'}</button>
+                </FilterSection>
               </>)}
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 3옵 · 보호접두 아이템은 항상 보호</div>
+              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 보호접두 아이템은 항상 보호. 3옵 보호 토글로 선택 가능.</div>
             </FilterPanel>
           )}
 
@@ -525,8 +549,16 @@ export function InventoryScreen() {
                 <FilterSection label="보호 접두사">
                   <PrefixProtectGrid selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
                 </FilterSection>
+                <FilterSection label="3옵 보호">
+                  <button onClick={toggleDropProtect3opt} style={{
+                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
+                    background: dropFilter.protect3opt ? '#ff6666' : 'transparent',
+                    color: dropFilter.protect3opt ? '#000' : '#888',
+                    border: '1px solid #ff6666', cursor: 'pointer', fontWeight: 700,
+                  }}>{dropFilter.protect3opt ? '3옵 보호 ON' : '3옵 보호 OFF'}</button>
+                </FilterSection>
               </>)}
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 전설 · 3옵 · 보호접두 아이템은 항상 보호</div>
+              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 보호접두 아이템은 항상 보호. 전설·3옵은 토글로 선택.</div>
             </FilterPanel>
           )}
 

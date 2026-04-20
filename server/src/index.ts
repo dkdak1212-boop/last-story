@@ -2146,6 +2146,21 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 드랍필터·자동판매 3옵 보호 토글 (기본 TRUE = 기존 동작 유지)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'filter_protect_3opt_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS auto_sell_protect_3opt BOOLEAN NOT NULL DEFAULT TRUE`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS drop_filter_protect_3opt BOOLEAN NOT NULL DEFAULT TRUE`);
+        await query(`INSERT INTO _migrations (name) VALUES ('filter_protect_3opt_v1')`);
+        console.log('[late] filter_protect_3opt_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] filter_protect_3opt_v1 error:', e);
+    }
+  }
+
   // 신규 캐릭터 24시간 버프 (EXP x5, 드랍 x5)
   {
     try {
