@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../../stores/characterStore';
 import { useAuthStore } from '../../stores/authStore';
-import { OfflineReportOverlay } from '../ui/OfflineReportOverlay';
+// import { OfflineReportOverlay } from '../ui/OfflineReportOverlay'; — 팝업 비활성화
 import { AnnouncementPopup } from '../ui/AnnouncementPopup';
 import { DailyCheckInBanner } from '../ui/DailyCheckInBanner';
 import { ChatPanel } from '../chat/ChatPanel';
@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <OfflineReportOverlay />
+      {/* <OfflineReportOverlay /> — 팝업 비활성화 */}
       <AnnouncementPopup />
       <header
         className="app-header"
