@@ -2380,19 +2380,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   }
   const ac = s.autoSellCache!;
   // 정책 C: 오프라인도 온라인과 동일. 자동판매·드랍필터 그대로 적용.
-  const sellTiers = ac.auto_dismantle_tiers;
-  const sellQualityMax = ac.auto_sell_quality_max;
-  const sellProtect = new Set(ac.auto_sell_protect_prefixes);
-  const sellProtect3opt = ac.auto_sell_protect_3opt;
+  // 자동판매 제거됨 (2026-04). 드랍필터만 유지. quality 상한도 없음.
   const dfTiers = ac.drop_filter_tiers;
-  const dfQualityMax = ac.drop_filter_quality_max;
   const dfCommon = ac.drop_filter_common;
   const dfProtect = new Set(ac.drop_filter_protect_prefixes);
   const dfProtect3opt = ac.drop_filter_protect_3opt;
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
-  // 드랍 처리: 같은 드랍에 대해 접두사·품질을 한 번만 굴려서 필터/자동판매/인벤토리 저장에 공유
-  const needPrefixModule = drops.length > 0 && (hasDropFilter || sellTiers > 0);
+  const needPrefixModule = drops.length > 0 && hasDropFilter;
   const generatePrefixes = needPrefixModule ? (await import('../game/prefix.js')).generatePrefixes : null;
 
   for (const drop of drops) {
@@ -2409,47 +2404,27 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const is3Options = prefixIds.length >= 3;
       const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
 
-      // 보호 접두사 검사 — 메모리 캐시 (item_prefixes 마스터 테이블 변경 없음)
+      // 보호 접두사 검사
       let protectStats: Set<string> | null = null;
-      const needProtectLookup = prefixIds.length > 0 && (sellProtect.size > 0 || dfProtect.size > 0);
-      if (needProtectLookup) {
+      if (prefixIds.length > 0 && dfProtect.size > 0) {
         const keys = await getPrefixStatKeys(prefixIds);
         protectStats = new Set(keys);
       }
-      const sellHasProtected = protectStats && sellProtect.size > 0
-        ? [...protectStats].some(st => sellProtect.has(st)) : false;
       const dfHasProtected = protectStats && dfProtect.size > 0
         ? [...protectStats].some(st => dfProtect.has(st)) : false;
 
-      // 2) 드랍필터: 유니크만 제외 (legendary 도 적용). common 토글 + 티어/품질 일치 시 줍지 않음.
-      //    3옵 보호 토글 ON(기본) 이면 3옵은 예외.
+      // 드랍필터: 유니크 제외. common 토글 + 티어 일치 시 줍지 않음.
+      // 3옵 보호 토글 ON(기본) 이면 3옵은 예외 (줍기).
       if (hasDropFilter) {
         if (dfCommon && item.grade === 'common') {
           continue;
         }
         if (dfTiers > 0) {
           const dfTierMatch = (dfTiers & tierBit) !== 0;
-          const dfQualMatch = dfQualityMax > 0 ? quality <= dfQualityMax : true;
           const protected3opt = is3Options && dfProtect3opt;
-          if (!protected3opt && !dfHasProtected && dfTierMatch && dfQualMatch) {
+          if (!protected3opt && !dfHasProtected && dfTierMatch) {
             continue;
           }
-        }
-      }
-
-      // 3) 자동판매: 티어·품질 일치 시 폐기. 3옵 보호 토글 ON(기본) 이면 3옵 예외.
-      if (sellTiers > 0) {
-        const tierMatch = (sellTiers & tierBit) !== 0;
-        const qualityMatch = sellQualityMax > 0 ? quality <= sellQualityMax : true;
-        const protected3opt = is3Options && sellProtect3opt;
-        const shouldSell = !protected3opt && !sellHasProtected && tierMatch && qualityMatch;
-        if (shouldSell) {
-          // 자동판매 골드 지급 중단 — 아이템만 자동 소멸
-          addLog(s, `${item.name} 자동폐기 (T${maxTier}, ${quality}%)`);
-          continue;
-        }
-        if (protected3opt && tierMatch) {
-          addLog(s, `${item.name} 자동판매 보호! (3옵)`);
         }
       }
     }

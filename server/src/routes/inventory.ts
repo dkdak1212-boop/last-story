@@ -559,9 +559,8 @@ router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
-  const r = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean }>(
+  const r = await query<{ drop_filter_tiers: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean }>(
     `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
-            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
             COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
             COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
             COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt
@@ -570,7 +569,6 @@ router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const t = r.rows[0]?.drop_filter_tiers ?? 0;
   res.json({
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
-    qualityMax: r.rows[0]?.drop_filter_quality_max ?? 0,
     common: r.rows[0]?.drop_filter_common ?? false,
     protectPrefixes: r.rows[0]?.drop_filter_protect_prefixes ?? [],
     protect3opt: r.rows[0]?.drop_filter_protect_3opt ?? true,
@@ -587,16 +585,14 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
     t2: z.boolean().optional(),
     t3: z.boolean().optional(),
     t4: z.boolean().optional(),
-    qualityMax: z.number().int().min(0).max(100).optional(),
     common: z.boolean().optional(),
     protectPrefixes: z.array(z.string()).optional(),
     protect3opt: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const cur = await query<{ drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean }>(
+  const cur = await query<{ drop_filter_tiers: number; drop_filter_common: boolean }>(
     `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
-            COALESCE(drop_filter_quality_max, 0) AS drop_filter_quality_max,
             COALESCE(drop_filter_common, FALSE) AS drop_filter_common
      FROM characters WHERE id = $1`, [id]
   );
@@ -605,10 +601,9 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   if (parsed.data.t2 !== undefined) t = parsed.data.t2 ? (t | 2) : (t & ~2);
   if (parsed.data.t3 !== undefined) t = parsed.data.t3 ? (t | 4) : (t & ~4);
   if (parsed.data.t4 !== undefined) t = parsed.data.t4 ? (t | 8) : (t & ~8);
-  const qm = parsed.data.qualityMax ?? cur.rows[0]?.drop_filter_quality_max ?? 0;
   const cm = parsed.data.common ?? cur.rows[0]?.drop_filter_common ?? false;
-  const updates = ['drop_filter_tiers = $1', 'drop_filter_quality_max = $2', 'drop_filter_common = $3'];
-  const params: unknown[] = [t, qm, cm];
+  const updates = ['drop_filter_tiers = $1', 'drop_filter_common = $2'];
+  const params: unknown[] = [t, cm];
   if (parsed.data.protectPrefixes !== undefined) {
     updates.push(`drop_filter_protect_prefixes = $${params.length + 1}`);
     params.push(parsed.data.protectPrefixes);
@@ -620,13 +615,16 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   params.push(id);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
   invalidateAutoSellCache(id);
-  const fresh = await query<{ drop_filter_protect_prefixes: string[] }>(
-    `SELECT COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes FROM characters WHERE id = $1`, [id]
+  const fresh = await query<{ drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean }>(
+    `SELECT COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
+            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt
+     FROM characters WHERE id = $1`, [id]
   );
   res.json({
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
-    qualityMax: qm, common: cm,
+    common: cm,
     protectPrefixes: fresh.rows[0]?.drop_filter_protect_prefixes ?? [],
+    protect3opt: fresh.rows[0]?.drop_filter_protect_3opt ?? true,
   });
 });
 

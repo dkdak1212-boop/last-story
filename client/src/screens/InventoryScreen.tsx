@@ -64,11 +64,7 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
-  const [dismantleTiers, setDismantleTiers] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean }>({ t1: false, t2: false, t3: false, t4: false });
-  const [sellQualityMax, setSellQualityMax] = useState(0);
-  const [sellProtect3opt, setSellProtect3opt] = useState(true);
-  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; common: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, qualityMax: 0, common: false, protectPrefixes: [], protect3opt: true });
-  const [sellProtectPrefixes, setSellProtectPrefixes] = useState<string[]>([]);
+  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; common: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, common: false, protectPrefixes: [], protect3opt: true });
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -85,13 +81,6 @@ export function InventoryScreen() {
 
   useEffect(() => {
     if (!active) return;
-    api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number; protectPrefixes: string[]; protect3opt: boolean }>(`/characters/${active.id}/auto-dismantle`)
-      .then(d => {
-        setDismantleTiers({ t1: d.t1, t2: d.t2, t3: d.t3, t4: d.t4 });
-        setSellQualityMax(d.qualityMax ?? 0);
-        setSellProtectPrefixes(d.protectPrefixes ?? []);
-        setSellProtect3opt(d.protect3opt ?? true);
-      }).catch(() => {});
     api<typeof dropFilter>(`/characters/${active.id}/drop-filter`)
       .then(d => setDropFilter(d)).catch(() => {});
   }, [active?.id]);
@@ -191,24 +180,6 @@ export function InventoryScreen() {
       await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '강화 실패'); } finally { setEnhanceBusy(false); }
   }
-  async function toggleSellTier(tier: 't1' | 't2' | 't3' | 't4') {
-    if (!active) return;
-    try {
-      const res = await api<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; qualityMax: number }>(
-        `/characters/${active.id}/auto-dismantle`,
-        { method: 'POST', body: JSON.stringify({ [tier]: !dismantleTiers[tier] }) }
-      );
-      setDismantleTiers({ t1: res.t1, t2: res.t2, t3: res.t3, t4: res.t4 });
-      setSellQualityMax(res.qualityMax);
-    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
-  }
-  async function updateSellQuality(val: number) {
-    if (!active) return;
-    setSellQualityMax(val);
-    try {
-      await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
-    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
-  }
   async function toggleDropFilter(key: string) {
     if (!active) return;
     const val = !(dropFilter as any)[key];
@@ -220,26 +191,12 @@ export function InventoryScreen() {
       setDropFilter(res);
     } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
-  async function toggleSellPrefix(key: string) {
-    if (!active) return;
-    const next = sellProtectPrefixes.includes(key) ? sellProtectPrefixes.filter(k => k !== key) : [...sellProtectPrefixes, key];
-    setSellProtectPrefixes(next);
-    try { await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ protectPrefixes: next }) }); }
-    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
-  }
   async function toggleDropPrefix(key: string) {
     if (!active) return;
     const cur = dropFilter.protectPrefixes;
     const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key];
     setDropFilter(prev => ({ ...prev, protectPrefixes: next }));
     try { await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ protectPrefixes: next }) }); }
-    catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
-  }
-  async function toggleSellProtect3opt() {
-    if (!active) return;
-    const next = !sellProtect3opt;
-    setSellProtect3opt(next);
-    try { await api(`/characters/${active.id}/auto-dismantle`, { method: 'POST', body: JSON.stringify({ protect3opt: next }) }); }
     catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
   async function toggleDropProtect3opt() {
@@ -249,14 +206,6 @@ export function InventoryScreen() {
     try { await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ protect3opt: next }) }); }
     catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
   }
-  async function updateDropFilterQuality(val: number) {
-    if (!active) return;
-    setDropFilter(prev => ({ ...prev, qualityMax: val }));
-    try {
-      await api(`/characters/${active.id}/drop-filter`, { method: 'POST', body: JSON.stringify({ qualityMax: val }) });
-    } catch (e) { setMsg(e instanceof Error ? e.message : '설정 실패'); }
-  }
-
   // 장비/기타 분리
   const dfTiers = dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4;
   const equipmentItems = inv.filter(s => !!s.item.slot);
@@ -496,69 +445,45 @@ export function InventoryScreen() {
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
               whiteSpace: 'nowrap',
             }}>전체 폐기</button>
-            <FilterToggleButton label="자동판매" active={dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4} color="var(--accent)" onClick={() => setFilterPanel(filterPanel === 'sell' ? null : 'sell')} open={filterPanel === 'sell'} />
             <FilterToggleButton label="드랍필터" active={!!dfTiers || dropFilter.common} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
           </div>
 
-          {/* 자동판매 패널 */}
-          {filterPanel === 'sell' && (
-            <FilterPanel title="자동판매 설정" subtitle="사냥 시 조건에 맞는 장비를 자동으로 골드 변환" accentColor="var(--accent)" onClose={() => setFilterPanel(null)}>
-              <FilterSection label="접두사 등급">
-                <TierButtons tiers={dismantleTiers} onToggle={toggleSellTier} />
-              </FilterSection>
-              {(dismantleTiers.t1 || dismantleTiers.t2 || dismantleTiers.t3 || dismantleTiers.t4) && (<>
-                <FilterSection label="품질 상한">
-                  <QualitySlider value={sellQualityMax} onChange={updateSellQuality} color="var(--accent)" suffix="이하 판매" />
-                </FilterSection>
-                <FilterSection label="보호 접두사">
-                  <PrefixProtectGrid selected={sellProtectPrefixes} onToggle={toggleSellPrefix} />
-                </FilterSection>
-                <FilterSection label="3옵 보호">
-                  <button onClick={toggleSellProtect3opt} style={{
-                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
-                    background: sellProtect3opt ? 'var(--accent)' : 'transparent',
-                    color: sellProtect3opt ? '#000' : '#888',
-                    border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
-                  }}>{sellProtect3opt ? '3옵 보호 ON' : '3옵 보호 OFF'}</button>
-                </FilterSection>
-              </>)}
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 보호접두 아이템은 항상 보호. 3옵 보호 토글로 선택 가능.</div>
-            </FilterPanel>
-          )}
-
-          {/* 드랍필터 패널 */}
+          {/* 드랍필터 패널 — 간결하게 재디자인 */}
           {filterPanel === 'drop' && (
-            <FilterPanel title="드랍필터 설정" subtitle="사냥 시 조건에 맞는 장비를 줍지 않음" accentColor="#ff6666" onClose={() => setFilterPanel(null)}>
-              <FilterSection label="등급 필터">
+            <FilterPanel title="드랍필터" subtitle="체크한 조건의 장비는 사냥 시 자동으로 줍지 않음" accentColor="#ff6666" onClose={() => setFilterPanel(null)}>
+              {/* 일반 등급 + 접두사 등급을 한 row 에 */}
+              <FilterSection label="걸러낼 등급">
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => toggleDropFilter('common')} style={{
-                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
-                    background: dropFilter.common ? '#888' : 'transparent',
-                    color: dropFilter.common ? '#000' : '#888',
-                    border: '1px solid #888', cursor: 'pointer', fontWeight: 700,
-                  }}>일반{dropFilter.common ? ' ✕' : ''}</button>
+                  <TierChip label="일반" active={dropFilter.common} color="#888" onClick={() => toggleDropFilter('common')} />
+                  <TierChip label="T1" active={dropFilter.t1} color="#daa520" onClick={() => toggleDropFilter('t1')} />
+                  <TierChip label="T2" active={dropFilter.t2} color="#5b8ecc" onClick={() => toggleDropFilter('t2')} />
+                  <TierChip label="T3" active={dropFilter.t3} color="#b060cc" onClick={() => toggleDropFilter('t3')} />
+                  <TierChip label="T4" active={dropFilter.t4} color="#ff4444" onClick={() => toggleDropFilter('t4')} />
                 </div>
               </FilterSection>
-              <FilterSection label="접두사 등급">
-                <TierButtons tiers={dropFilter} onToggle={(t) => toggleDropFilter(t)} suffix=" ✕" />
-              </FilterSection>
-              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (<>
-                <FilterSection label="품질 상한">
-                  <QualitySlider value={dropFilter.qualityMax} onChange={updateDropFilterQuality} color="#ff6666" suffix="이하 안줍기" />
-                </FilterSection>
-                <FilterSection label="보호 접두사">
-                  <PrefixProtectGrid selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
-                </FilterSection>
-                <FilterSection label="3옵 보호">
-                  <button onClick={toggleDropProtect3opt} style={{
-                    fontSize: 12, padding: '6px 14px', borderRadius: 4,
-                    background: dropFilter.protect3opt ? '#ff6666' : 'transparent',
-                    color: dropFilter.protect3opt ? '#000' : '#888',
-                    border: '1px solid #ff6666', cursor: 'pointer', fontWeight: 700,
-                  }}>{dropFilter.protect3opt ? '3옵 보호 ON' : '3옵 보호 OFF'}</button>
-                </FilterSection>
-              </>)}
-              <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>유니크 · 보호접두 아이템은 항상 보호. 전설·3옵은 토글로 선택.</div>
+              {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (
+                <>
+                  <FilterSection label="3옵 아이템 보호">
+                    <button onClick={toggleDropProtect3opt} style={{
+                      fontSize: 12, padding: '8px 14px', borderRadius: 4,
+                      background: dropFilter.protect3opt ? 'rgba(102,221,102,0.2)' : 'rgba(255,102,102,0.12)',
+                      color: dropFilter.protect3opt ? '#66dd66' : '#ff9090',
+                      border: `1px solid ${dropFilter.protect3opt ? '#66dd66' : '#ff6666'}`,
+                      cursor: 'pointer', fontWeight: 700, minWidth: 120, textAlign: 'center',
+                    }}>
+                      {dropFilter.protect3opt ? '🛡 보호 ON (줍기)' : '⚠ 보호 OFF (버리기)'}
+                    </button>
+                  </FilterSection>
+                  <FilterSection label="보호 접두사 (있으면 줍기)">
+                    <PrefixProtectGrid selected={dropFilter.protectPrefixes} onToggle={toggleDropPrefix} />
+                  </FilterSection>
+                </>
+              )}
+              <div style={{ marginTop: 8, padding: 8, background: 'rgba(255,102,102,0.06)', borderRadius: 4, fontSize: 10, color: '#aaa', lineHeight: 1.6 }}>
+                <div>• 체크한 티어 장비는 사냥 중 <b>줍지 않고 버림</b> (골드 지급 없음)</div>
+                <div>• <span style={{ color: '#aaaaff' }}>유니크</span>는 항상 줍기</div>
+                <div>• <span style={{ color: '#66dd66' }}>보호 ON</span> 시 3옵 / 보호접두 아이템은 티어 체크돼있어도 줍기</div>
+              </div>
             </FilterPanel>
           )}
 
@@ -891,39 +816,17 @@ function FilterSection({ label, children }: { label: string; children: React.Rea
   );
 }
 
-const TIER_COLORS: Record<string, string> = { t1: '#5b8ecc', t2: '#b060cc', t3: '#ffcc33', t4: '#ff4444' };
-
-function TierButtons({ tiers, onToggle, suffix }: { tiers: { t1: boolean; t2: boolean; t3: boolean; t4: boolean }; onToggle: (t: 't1'|'t2'|'t3'|'t4') => void; suffix?: string }) {
+function TierChip({ label, active, color, onClick }: { label: string; active: boolean; color: string; onClick: () => void }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {(['t1','t2','t3','t4'] as const).map(t => {
-        const on = tiers[t];
-        const c = TIER_COLORS[t];
-        return (
-          <button key={t} onClick={() => onToggle(t)} style={{
-            fontSize: 13, padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
-            background: on ? c : 'transparent', color: on ? '#000' : c,
-            border: `2px solid ${c}`, minWidth: 54, textAlign: 'center',
-          }}>{t.toUpperCase()}{on && suffix ? suffix : ''}</button>
-        );
-      })}
-    </div>
-  );
-}
-
-function QualitySlider({ value, onChange, color, suffix }: { value: number; onChange: (v: number) => void; color: string; suffix: string }) {
-  return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-      <input type="range" min={0} max={100} step={5} value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        style={{ flex: 1, height: 20, accentColor: color }} />
-      <span style={{
-        fontWeight: 700, fontSize: 14, minWidth: 80, textAlign: 'right',
-        color: value === 0 ? 'var(--text-dim)' : color,
-      }}>
-        {value === 0 ? 'OFF' : `${value}% ${suffix}`}
-      </span>
-    </div>
+    <button onClick={onClick} style={{
+      fontSize: 13, padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 700,
+      background: active ? color : 'transparent',
+      color: active ? '#000' : color,
+      border: `2px solid ${color}`, minWidth: 60, textAlign: 'center',
+      transition: 'all 0.15s',
+    }}>
+      {label}{active ? ' ✕' : ''}
+    </button>
   );
 }
 
