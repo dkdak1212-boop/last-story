@@ -9,6 +9,7 @@
 
 import { query } from '../db/pool.js';
 import { applyExpGain } from '../game/leveling.js';
+import { clampCharacterPoints } from '../game/pointClamper.js';
 import { addItemToInventory } from '../game/inventory.js';
 import { loadCharacter } from '../game/character.js';
 import { generatePrefixes } from '../game/prefix.js';
@@ -293,6 +294,7 @@ export async function generateAndApplyOfflineReport(
          levelUp.hpGained, levelUp.nodePointsGained, characterId,
          levelUp.statPointsGained]
       );
+      clampCharacterPoints(characterId).catch(() => {});
     } else {
       await query(
         'UPDATE characters SET exp=$1, gold=gold+$2, last_online_at=NOW() WHERE id=$3',

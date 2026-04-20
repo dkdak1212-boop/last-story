@@ -2,6 +2,7 @@
 import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
+import { clampCharacterPoints } from '../game/pointClamper.js';
 import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
 import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
@@ -2284,6 +2285,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
        result.hpGained, result.nodePointsGained, s.characterId,
        result.statPointsGained]
     );
+    clampCharacterPoints(s.characterId).catch(() => {});
     // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
     const updatedChar = await loadCharacter(s.characterId);
     const newEff = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);

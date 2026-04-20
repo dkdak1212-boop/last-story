@@ -76,6 +76,57 @@ export async function clampOverflowPoints(): Promise<ClampResult> {
   return { statCharsFixed, statPointsRemoved, nodeCharsFixed, nodePointsRemoved };
 }
 
+// 단일 캐릭터용 — 포인트 지급 직후 호출. 실패해도 무시 (주기 clamper 가 백업).
+export async function clampCharacterPoints(characterId: number): Promise<void> {
+  try {
+    const cr = await query<{
+      class_name: string; level: number;
+      stats: Record<string, number>; stat_points: number | null; node_points: number;
+    }>(
+      `SELECT class_name, level, stats,
+              COALESCE(stat_points, 0) AS stat_points, node_points
+         FROM characters WHERE id = $1`, [characterId]
+    );
+    const c = cr.rows[0];
+    if (!c) return;
+    const start = CLASS_START[c.class_name as ClassName];
+    if (!start) return;
+
+    const cur = c.stats || {};
+    const allocated =
+      Math.max(0, (cur.str ?? start.stats.str) - start.stats.str) +
+      Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex) +
+      Math.max(0, (cur.int ?? start.stats.int) - start.stats.int) +
+      Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+    const expectedStat = Math.max(0, (c.level - 1) * 2);
+    const sp = c.stat_points || 0;
+    const statExcess = (allocated + sp) - expectedStat;
+    if (statExcess > 0) {
+      const removable = Math.min(statExcess, sp);
+      if (removable > 0) {
+        await query('UPDATE characters SET stat_points = stat_points - $1 WHERE id = $2', [removable, characterId]);
+      }
+    }
+
+    const spentR = await query<{ total: string }>(
+      `SELECT COALESCE(SUM(nd.cost), 0)::text AS total
+         FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+        WHERE cn.character_id = $1`, [characterId]
+    );
+    const nodeSpent = Number(spentR.rows[0]?.total || 0);
+    const expectedNode = Math.max(0, c.level - 1);
+    const nodeExcess = (nodeSpent + c.node_points) - expectedNode;
+    if (nodeExcess > 0) {
+      const removable = Math.min(nodeExcess, c.node_points);
+      if (removable > 0) {
+        await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [removable, characterId]);
+      }
+    }
+  } catch (e) {
+    console.error('[clamp] clampCharacterPoints err', characterId, e);
+  }
+}
+
 let clampInterval: NodeJS.Timeout | null = null;
 export function startPointClamper(): void {
   if (clampInterval) return;

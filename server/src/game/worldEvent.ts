@@ -2,6 +2,7 @@ import { query } from '../db/pool.js';
 import { loadCharacter, getEffectiveStats } from './character.js';
 import { addItemToInventory, deliverToMailbox } from './inventory.js';
 import { applyExpGain } from './leveling.js';
+import { clampCharacterPoints } from './pointClamper.js';
 import type { Server } from 'socket.io';
 import type { StatusEffect } from '../combat/shared.js';
 import { calcDotTickDamage, buildDotEntry, decrementEffects } from '../combat/shared.js';
@@ -487,6 +488,7 @@ async function distributeRewards(eventId: number, mult: number = 1.0) {
            WHERE id=$5`,
           [result.newLevel, result.newExp, result.hpGained, result.nodePointsGained, p.character_id, result.statPointsGained]
         );
+        clampCharacterPoints(p.character_id).catch(() => {});
       }
     }
     if (rw.itemId && rw.qty) {

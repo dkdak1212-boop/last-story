@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { applyExpGain } from '../game/leveling.js';
+import { clampCharacterPoints } from '../game/pointClamper.js';
 
 const router = Router();
 router.use(authRequired);
@@ -106,6 +107,7 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
        WHERE id = $6`,
       [lvUp.newLevel, lvUp.newExp, lvUp.hpGained, lvUp.nodePointsGained, lvUp.statPointsGained, id]
     );
+    clampCharacterPoints(id).catch(() => {});
   } else {
     await query(
       `UPDATE characters SET

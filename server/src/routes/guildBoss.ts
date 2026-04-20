@@ -5,6 +5,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { adminRequired } from '../middleware/admin.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { applyExpGain } from '../game/leveling.js';
+import { clampCharacterPoints } from '../game/pointClamper.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { startGuildBossCombatSession, endGuildBossCombatSession } from '../combat/engine.js';
 import { getBossById } from '../combat/guildBossHelpers.js';
@@ -568,6 +569,7 @@ async function grantChest(characterId: number, tier: 'gold' | 'silver' | 'copper
        WHERE id = $6`,
       [lv.newLevel, lv.newExp, lv.hpGained, lv.statPointsGained, lv.nodePointsGained, characterId]
     );
+    clampCharacterPoints(characterId).catch(() => {});
   }
 
   return result;
