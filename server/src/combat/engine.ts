@@ -1793,12 +1793,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'summon_extend': {
-      // 소환수 지속시간 연장
+      // 소환수 지속시간 연장 — 상한 60 행동. 무한 누적 방지 (영혼 유대 6action cd×
+      // effect_value 6 이면 시전 주기 = 소모 속도 → 무한 증가 가능).
+      const SUMMON_REMAIN_CAP = 60;
       const ext = skill.effect_value;
       for (const eff of s.statusEffects) {
-        if (eff.type === 'summon' && eff.source === 'player') eff.remainingActions += ext;
+        if (eff.type === 'summon' && eff.source === 'player') {
+          eff.remainingActions = Math.min(SUMMON_REMAIN_CAP, eff.remainingActions + ext);
+        }
       }
-      addLog(s, `[${skill.name}] 소환수 전원 지속시간 +${ext}행동!`);
+      addLog(s, `[${skill.name}] 소환수 전원 지속시간 +${ext}행동! (상한 ${SUMMON_REMAIN_CAP})`);
       break;
     }
 
