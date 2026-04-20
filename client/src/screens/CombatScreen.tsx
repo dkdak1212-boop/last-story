@@ -45,9 +45,9 @@ export function CombatScreen() {
   // BGM — 자동재생 X, 토글 ON 시 localStorage 영구 저장
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [bgmPlaying, setBgmPlaying] = useState(false);
-  const [bgmEnabled, setBgmEnabled] = useState(() => localStorage.getItem('combatBgmEnabled') === '1');
+  const [bgmEnabled, setBgmEnabled] = useState(() => localStorage.getItem('bgmEnabled') === '1');
   const [bgmVolume, setBgmVolume] = useState(() => {
-    const saved = localStorage.getItem('combatBgmVolume');
+    const saved = localStorage.getItem('bgmVolume');
     return saved ? Number(saved) : 0.3;
   });
 
@@ -75,14 +75,14 @@ export function CombatScreen() {
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = bgmVolume;
-      localStorage.setItem('combatBgmVolume', String(bgmVolume));
+      localStorage.setItem('bgmVolume', String(bgmVolume));
     }
   }, [bgmVolume]);
 
   function toggleBgm() {
     const next = !bgmEnabled;
     setBgmEnabled(next);
-    localStorage.setItem('combatBgmEnabled', next ? '1' : '0');
+    localStorage.setItem('bgmEnabled', next ? '1' : '0');
   }
 
   // WebSocket 연결
@@ -259,7 +259,7 @@ export function CombatScreen() {
   async function leave() {
     if (!active) return;
     // 길드 보스 세션이면 먼저 /guild-boss/exit 호출 → 세션 엔진 정리는 서버에서 endGuildBossCombatSession 담당
-    const gbRunId = (state as any)?.guildBossRunId as string | undefined;
+    const gbRunId = state?.guildBossRunId;
     if (gbRunId) {
       try {
         await api(`/guild-boss/exit/${gbRunId}`, { method: 'POST', body: JSON.stringify({ reason: 'exit' }) });
@@ -345,8 +345,8 @@ export function CombatScreen() {
   const monsterGaugePct = Math.min(100, (localGauges.monster / 1000) * 100);
 
   // 경험치 계산
-  const exp = (state as any).exp ?? 0;
-  const expMax = (state as any).expMax ?? 1;
+  const exp = state.exp ?? 0;
+  const expMax = state.expMax ?? 1;
   const expPct = Math.min(100, (exp / expMax) * 100);
 
   // AFK 모드: 검은 화면 + 통계 박스
@@ -371,10 +371,10 @@ export function CombatScreen() {
           >
             {state.autoMode ? '자동' : '수동'}
           </button>
-          <button onClick={leave} style={(state as any).guildBossRunId ? {
+          <button onClick={leave} style={state.guildBossRunId ? {
             background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700,
           } : undefined}>
-            {(state as any).guildBossRunId ? '길드 보스 퇴장' : '마을 귀환'}
+            {state.guildBossRunId ? '길드 보스 퇴장' : '마을 귀환'}
           </button>
         </div>
       </div>
@@ -499,11 +499,11 @@ export function CombatScreen() {
               <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MonsterIcon name={state.monster.name} size={22} />
                 {state.monster.name}
-                {(state as any).guildBossRunId
+                {state.guildBossRunId
                   ? <span style={{ fontSize: 11, color: '#daa520', marginLeft: 6 }}>[길드 보스]</span>
                   : <span style={{ fontSize: 13 }}>Lv.{state.monster.level}</span>}
               </div>
-              {(state as any).guildBossRunId ? (
+              {state.guildBossRunId ? (
                 <div style={{
                   padding: '8px 12px', background: '#2a1a0a', border: '1px solid #daa520',
                   fontSize: 14, fontWeight: 700, color: '#daa520', marginBottom: 6,
@@ -610,8 +610,8 @@ export function CombatScreen() {
 
       {/* 길드 + 영토 버프 */}
       {(() => {
-        const gb = (state as any).guildBuffs as { hp: number; gold: number; exp: number; drop: number } | undefined;
-        const tb = (state as any).territoryBuffs as { expPct: number; dropPct: number } | undefined;
+        const gb = state.guildBuffs;
+        const tb = state.territoryBuffs;
         const items: { label: string; pct: number; color: string; icon?: string }[] = [];
         if (gb) {
           if (gb.hp > 0) items.push({ label: '길드 체력', pct: gb.hp, color: '#e07070' });
@@ -641,11 +641,11 @@ export function CombatScreen() {
       })()}
 
       {/* 활성 버프 */}
-      {(state as any).boosts && (state as any).boosts.length > 0 && (
+      {state.boosts && state.boosts.length > 0 && (
         <div style={{
           display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8,
         }}>
-          {(state as any).boosts.map((b: { name: string; until: string }, i: number) => {
+          {state.boosts.map((b: { name: string; until: string }, i: number) => {
             let timeLeft = '';
             if (b.until) {
               const sec = Math.max(0, Math.floor((new Date(b.until).getTime() - Date.now()) / 1000));
@@ -679,8 +679,8 @@ export function CombatScreen() {
       <DamageMeter log={state.log} />
 
       {/* 보유 물약 */}
-      {(state as any).potions && (() => {
-        const p = (state as any).potions as { small: number; mid: number; high: number; max: number };
+      {state.potions && (() => {
+        const p = state.potions;
         const items: { label: string; qty: number; src: string }[] = [
           { label: '소', qty: p.small, src: '/images/items/potion/ruby.png' },
           { label: '중', qty: p.mid, src: '/images/items/potion/ruby.png' },

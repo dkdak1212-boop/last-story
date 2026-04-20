@@ -22,6 +22,17 @@ export interface PotionSettings {
   hpThreshold: number;  // 0~100
 }
 
+export interface EffectiveStats {
+  atk: number;
+  matk: number;
+  def: number;
+  mdef: number;
+  dodge: number;
+  accuracy: number;
+  spd: number;
+  cri: number;
+}
+
 export interface Character {
   id: number;
   userId: number;
@@ -38,6 +49,12 @@ export interface Character {
   lastOnlineAt: string;      // ISO timestamp
   createdAt: string;
   potionSettings: PotionSettings;
+  title?: string | null;
+  transientTitle?: string | null;
+  transientTitleExpiresAt?: string | null;
+  // /:id 엔드포인트에서만 내려오는 추가 필드
+  effectiveStats?: EffectiveStats;
+  fieldName?: string;
 }
 
 export interface Item {
@@ -166,12 +183,14 @@ export interface CombatSnapshot {
   };
   skills: CombatSkillInfo[];
   log: string[];
-  potions?: { hpSmall: number; hpMid: number };
+  potions?: { small: number; mid: number; high: number; max: number };
   autoPotion: { enabled: boolean; threshold: number };
   exp?: number;
   expMax?: number;
   serverTime: number;
   boosts?: { name: string; until: string }[];
+  guildBuffs?: { hp: number; gold: number; exp: number; drop: number };
+  territoryBuffs?: { expPct: number; dropPct: number };
   rage?: number; // 전사 전용 분노 게이지 (0~100)
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름 (5스택 → 5행동 버스트)
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10, 10 도달 시 다음 공격에 독 폭발)

@@ -148,19 +148,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {active && (
           <div className="app-header-stats" style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 15, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 17 }}>
-              {(active as any).title && <span style={{ color: '#ffd700', fontSize: 11, marginRight: 4 }}>[{(active as any).title}]</span>}
+              {active.title && <span style={{ color: '#ffd700', fontSize: 11, marginRight: 4 }}>[{active.title}]</span>}
               {active.name}
             </span>
             <span style={{ color: 'var(--text-dim)' }}>Lv.{active.level}</span>
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
-            <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {(active as any).nodePoints ?? 0}</span>
+            <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {active.nodePoints ?? 0}</span>
             {active.location?.startsWith('field:') ? (
               <span style={{
                 color: '#ff6b6b', fontWeight: 700, fontSize: 13,
                 animation: 'blink-status 1s ease-in-out infinite',
               }}>
-                사냥 중 — {(active as any).fieldName || ''}
+                사냥 중 — {active.fieldName || ''}
               </span>
             ) : (
               <span style={{
