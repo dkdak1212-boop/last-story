@@ -1794,9 +1794,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'summon_extend': {
-      // 소환수 지속시간 연장 — 상한 60 행동. 무한 누적 방지 (영혼 유대 6action cd×
+      // 소환수 지속시간 연장 — 상한 120 행동. 무한 누적 방지 (영혼 유대 6action cd×
       // effect_value 6 이면 시전 주기 = 소모 속도 → 무한 증가 가능).
-      const SUMMON_REMAIN_CAP = 60;
+      // 60 → 120 상향 (방치 중 소환수 빈틈으로 솔로 전투 사망하던 문제 완화).
+      const SUMMON_REMAIN_CAP = 120;
       const ext = skill.effect_value;
       for (const eff of s.statusEffects) {
         if (eff.type === 'summon' && eff.source === 'player') {
@@ -1940,7 +1941,11 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
   // ── 자동 포션 (아이템 — 스킬과 별개, HP 위험 시 사용) ──
-  const healThresholdPct = s.autoPotionThreshold || 50;
+  // 소환사는 소환수 빈틈에서 취약 → offline 중 threshold 을 최소 70% 로 상향 (생존률↑)
+  let healThresholdPct = s.autoPotionThreshold || 50;
+  if (s.className === 'summoner' && s.offline) {
+    healThresholdPct = Math.max(70, healThresholdPct);
+  }
   if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
     const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
     const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
