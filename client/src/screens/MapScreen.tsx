@@ -96,11 +96,14 @@ export function MapScreen() {
                         <MonsterIcon name={m.name} size={24} />
                         <span style={{ fontWeight: 700, color: 'var(--danger)' }}>{m.name}</span>
                         <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>Lv.{m.level}</span>
-                        <span style={{ fontSize: 11, color: 'var(--success)' }}>+{m.exp}exp</span>
-                        <span style={{ fontSize: 11, color: '#e0a040' }}>+{m.gold}G</span>
+                        <span style={{ fontSize: 11, color: 'var(--success)' }}>+{m.exp.toLocaleString()}exp</span>
+                        <span style={{ fontSize: 11, color: '#e0a040' }}>+{m.gold.toLocaleString()}G</span>
                       </div>
                     </div>
                   ))}
+                  <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                    ※ 기본값 기준. 부스트·길드·이벤트·레벨차 페널티에 따라 실제 획득량은 달라집니다.
+                  </div>
                   {/* 드랍 아이템 + 슬롯별 실제 확률 */}
                   {(() => {
                     // 같은 이름은 1개로 (몬스터 두 마리가 같은 드랍 테이블 가질 수 있음)
