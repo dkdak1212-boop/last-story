@@ -104,6 +104,145 @@ router.get('/stat-node-audit', async (_req, res) => {
   });
 });
 
+// 오버 캐릭터 골드 감사 — 동레벨 정상(오버없음) 유저 중앙값 대비 비교
+router.post('/overflow-gold-audit', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({ characterIds: z.array(z.number().int().positive()).min(1).max(200) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const ids = parsed.data.characterIds;
+
+  const targetR = await query<{ id: number; name: string; level: number; gold: string; class_name: string }>(
+    `SELECT id, name, level, gold::text, class_name FROM characters WHERE id = ANY($1::int[])`,
+    [ids]
+  );
+
+  // 정상 유저 (오버 리스트에 없는) 동레벨 ±3 중앙값
+  const benchR = await query<{ level: number; median: string; p75: string; top: string }>(
+    `SELECT level,
+            (percentile_cont(0.5) WITHIN GROUP (ORDER BY gold))::text AS median,
+            (percentile_cont(0.75) WITHIN GROUP (ORDER BY gold))::text AS p75,
+            MAX(gold)::text AS top
+       FROM characters
+      WHERE id <> ALL($1::int[])
+      GROUP BY level`,
+    [ids]
+  );
+  const levelBench = new Map<number, { median: number; p75: number; top: number }>();
+  for (const r of benchR.rows) {
+    levelBench.set(r.level, { median: Number(r.median), p75: Number(r.p75), top: Number(r.top) });
+  }
+
+  function windowedBench(level: number) {
+    let best = { median: 0, p75: 0, top: 0 };
+    for (let lv = level - 3; lv <= level + 3; lv++) {
+      const b = levelBench.get(lv);
+      if (b && b.top > best.top) best = b;
+    }
+    return best;
+  }
+
+  const report = targetR.rows.map(c => {
+    const bench = windowedBench(c.level);
+    const gold = Number(c.gold);
+    return {
+      id: c.id, name: c.name, level: c.level, className: c.class_name,
+      gold,
+      benchMedian: bench.median,
+      benchP75: bench.p75,
+      benchTop: bench.top,
+      excessOverP75: Math.max(0, gold - bench.p75),
+    };
+  }).sort((a, b) => b.gold - a.gold);
+
+  res.json({
+    targets: report.length,
+    totalGold: report.reduce((s, x) => s + x.gold, 0),
+    totalExcess: report.reduce((s, x) => s + x.excessOverP75, 0),
+    report,
+  });
+});
+
+// 오버 캐릭터 일괄 초기화: 스탯/노드 강제 리셋 + 골드 상한 지정
+router.post('/normalize-overflow', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterIds: z.array(z.number().int().positive()).min(1).max(200),
+    goldClamp: z.number().int().nonnegative().optional(), // 지정 시 이 값 초과 골드는 깎음
+    dryRun: z.boolean().default(true),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { characterIds, goldClamp, dryRun } = parsed.data;
+
+  const chars = await query<{
+    id: number; name: string; class_name: string; level: number;
+    stats: Record<string, number>; stat_points: number | null; node_points: number;
+    max_hp: number; gold: string;
+  }>(
+    `SELECT id, name, class_name, level, stats,
+            COALESCE(stat_points, 0) AS stat_points, node_points, max_hp, gold::text
+       FROM characters WHERE id = ANY($1::int[])`,
+    [characterIds]
+  );
+
+  const results: Array<{ id: number; name: string; level: number; statRefund: number; nodeRefund: number; hpRestored: number; goldClamped: number }> = [];
+
+  for (const c of chars.rows) {
+    const start = CLASS_START[c.class_name as ClassName];
+    if (!start) continue;
+
+    const cur = c.stats || {};
+    const spentStr = Math.max(0, (cur.str ?? start.stats.str) - start.stats.str);
+    const spentDex = Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex);
+    const spentInt = Math.max(0, (cur.int ?? start.stats.int) - start.stats.int);
+    const spentVit = Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+    const HP_PER_VIT = 20;
+    const hpFromVit = spentVit * HP_PER_VIT;
+
+    // 정상 한도까지 stat_points 지급 (L-1)*2
+    const expectedStat = Math.max(0, (c.level - 1) * 2);
+    const expectedNode = Math.max(0, c.level - 1);
+
+    // 노드 spent 조회
+    const spentR = await query<{ total: string }>(
+      `SELECT COALESCE(SUM(nd.cost), 0)::text AS total
+         FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+        WHERE cn.character_id = $1`, [c.id]
+    );
+    const nodeSpent = Number(spentR.rows[0]?.total || 0);
+
+    const newStats = { ...cur, str: start.stats.str, dex: start.stats.dex, int: start.stats.int, vit: start.stats.vit };
+    const newMaxHp = Math.max(1, c.max_hp - hpFromVit);
+
+    const gold = Number(c.gold);
+    const goldClamped = goldClamp !== undefined && gold > goldClamp ? gold - goldClamp : 0;
+    const newGold = goldClamp !== undefined && gold > goldClamp ? goldClamp : gold;
+
+    results.push({
+      id: c.id, name: c.name, level: c.level,
+      statRefund: spentStr + spentDex + spentInt + spentVit,
+      nodeRefund: nodeSpent,
+      hpRestored: hpFromVit,
+      goldClamped,
+    });
+
+    if (!dryRun) {
+      await query(`DELETE FROM character_nodes WHERE character_id = $1`, [c.id]);
+      // stat/node 를 정확히 기댓값으로 세팅 (환불받아 expected 를 넘지 않도록)
+      await query(
+        `UPDATE characters
+            SET stats = $1::jsonb,
+                max_hp = $2,
+                hp = LEAST(hp, $2),
+                stat_points = $3,
+                node_points = $4,
+                gold = $5
+          WHERE id = $6`,
+        [JSON.stringify(newStats), newMaxHp, expectedStat, expectedNode, newGold, c.id]
+      );
+    }
+  }
+
+  res.json({ dryRun, processed: results.length, results });
+});
+
 // 오버분 정리 — 미소비 포인트(stat_points / node_points) 부터 차감
 // 그래도 부족하면 allocated/spent 는 건드리지 않음 (리포트에 남김)
 router.post('/stat-node-fix', async (req: AuthedRequest, res: Response) => {
