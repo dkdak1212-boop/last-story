@@ -104,6 +104,153 @@ router.get('/stat-node-audit', async (_req, res) => {
   });
 });
 
+// 전 캐릭터 골드 sweep — 동레벨(±3) P75 대비 threshold 배수 초과 캐릭터 전수조사
+router.get('/gold-sweep', async (req: AuthedRequest, res: Response) => {
+  const threshold = Number(req.query.threshold) || 2.0; // default: P75 × 2
+  const allR = await query<{ id: number; name: string; level: number; gold: string; class_name: string }>(
+    `SELECT id, name, level, gold::text, class_name FROM characters`
+  );
+  const benchR = await query<{ level: number; p75: string; top: string }>(
+    `SELECT level,
+            (percentile_cont(0.75) WITHIN GROUP (ORDER BY gold))::text AS p75,
+            MAX(gold)::text AS top
+       FROM characters GROUP BY level`
+  );
+  const benchByLv = new Map<number, { p75: number; top: number }>();
+  for (const r of benchR.rows) benchByLv.set(r.level, { p75: Number(r.p75), top: Number(r.top) });
+
+  function bench(level: number) {
+    let best = { p75: 0, top: 0 };
+    for (let lv = level - 3; lv <= level + 3; lv++) {
+      const b = benchByLv.get(lv);
+      if (b && b.top > best.top) best = b;
+    }
+    return best;
+  }
+
+  const outliers = allR.rows
+    .map(c => {
+      const b = bench(c.level);
+      const gold = Number(c.gold);
+      const cap = Math.floor(b.p75 * threshold);
+      return {
+        id: c.id, name: c.name, level: c.level, className: c.class_name,
+        gold, benchP75: b.p75, benchTop: b.top, cap,
+        excessOverCap: Math.max(0, gold - cap),
+        ratioP75: b.p75 > 0 ? gold / b.p75 : 0,
+      };
+    })
+    .filter(c => c.excessOverCap > 0)
+    .sort((a, b) => b.excessOverCap - a.excessOverCap);
+
+  res.json({
+    threshold,
+    totalChars: allR.rowCount,
+    outlierCount: outliers.length,
+    totalExcess: outliers.reduce((s, x) => s + x.excessOverCap, 0),
+    outliers: outliers.slice(0, 100),
+  });
+});
+
+// 골드 sweep 결과를 기반으로 일괄 클램프 (각 캐릭을 자기 cap 값까지 낮춤)
+router.post('/gold-sweep-clamp', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    threshold: z.number().positive().default(2.0),
+    dryRun: z.boolean().default(true),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { threshold, dryRun } = parsed.data;
+
+  const allR = await query<{ id: number; level: number; gold: string }>(
+    `SELECT id, level, gold::text FROM characters`
+  );
+  const benchR = await query<{ level: number; p75: string }>(
+    `SELECT level, (percentile_cont(0.75) WITHIN GROUP (ORDER BY gold))::text AS p75
+       FROM characters GROUP BY level`
+  );
+  const benchByLv = new Map<number, number>();
+  for (const r of benchR.rows) benchByLv.set(r.level, Number(r.p75));
+  function p75Window(level: number): number {
+    let top = 0;
+    for (let lv = level - 3; lv <= level + 3; lv++) {
+      const v = benchByLv.get(lv) || 0;
+      if (v > top) top = v;
+    }
+    return top;
+  }
+
+  let charsClamped = 0, totalRemoved = 0;
+  for (const c of allR.rows) {
+    const gold = Number(c.gold);
+    const cap = Math.floor(p75Window(c.level) * threshold);
+    if (cap > 0 && gold > cap) {
+      const removed = gold - cap;
+      charsClamped++;
+      totalRemoved += removed;
+      if (!dryRun) {
+        await query('UPDATE characters SET gold = $1 WHERE id = $2', [cap, c.id]);
+      }
+    }
+  }
+  res.json({ dryRun, threshold, charsClamped, totalRemoved });
+});
+
+// 할당 스탯이 기댓값 초과인 캐릭터 강제 정상화 (stats 리셋 + 포인트 재지급)
+router.post('/force-reset-allocated', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterIds: z.array(z.number().int().positive()).min(1).max(200),
+    dryRun: z.boolean().default(true),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { characterIds, dryRun } = parsed.data;
+
+  const chars = await query<{
+    id: number; name: string; class_name: string; level: number;
+    stats: Record<string, number>; max_hp: number;
+  }>(
+    `SELECT id, name, class_name, level, stats, max_hp FROM characters WHERE id = ANY($1::int[])`,
+    [characterIds]
+  );
+  const results: Array<{ id: number; name: string; level: number; statRefund: number; nodeRefund: number; hpRestored: number }> = [];
+  for (const c of chars.rows) {
+    const start = CLASS_START[c.class_name as ClassName];
+    if (!start) continue;
+    const cur = c.stats || {};
+    const spentStr = Math.max(0, (cur.str ?? start.stats.str) - start.stats.str);
+    const spentDex = Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex);
+    const spentInt = Math.max(0, (cur.int ?? start.stats.int) - start.stats.int);
+    const spentVit = Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+    const HP_PER_VIT = 20;
+    const hpFromVit = spentVit * HP_PER_VIT;
+    const statRefundTotal = spentStr + spentDex + spentInt + spentVit;
+
+    const spentR = await query<{ total: string }>(
+      `SELECT COALESCE(SUM(nd.cost), 0)::text AS total FROM character_nodes cn
+         JOIN node_definitions nd ON nd.id = cn.node_id WHERE cn.character_id = $1`, [c.id]
+    );
+    const nodeSpent = Number(spentR.rows[0]?.total || 0);
+
+    const newStats = { ...cur, str: start.stats.str, dex: start.stats.dex, int: start.stats.int, vit: start.stats.vit };
+    const newMaxHp = Math.max(1, c.max_hp - hpFromVit);
+    const expectedStat = Math.max(0, (c.level - 1) * 2);
+    const expectedNode = Math.max(0, c.level - 1);
+
+    results.push({ id: c.id, name: c.name, level: c.level, statRefund: statRefundTotal, nodeRefund: nodeSpent, hpRestored: hpFromVit });
+
+    if (!dryRun) {
+      await query(`DELETE FROM character_nodes WHERE character_id = $1`, [c.id]);
+      await query(
+        `UPDATE characters
+            SET stats = $1::jsonb, max_hp = $2, hp = LEAST(hp, $2),
+                stat_points = $3, node_points = $4
+          WHERE id = $5`,
+        [JSON.stringify(newStats), newMaxHp, expectedStat, expectedNode, c.id]
+      );
+    }
+  }
+  res.json({ dryRun, processed: results.length, results });
+});
+
 // 오버 캐릭터 골드 감사 — 동레벨 정상(오버없음) 유저 중앙값 대비 비교
 router.post('/overflow-gold-audit', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ characterIds: z.array(z.number().int().positive()).min(1).max(200) }).safeParse(req.body);
@@ -521,6 +668,46 @@ router.post('/characters/:id/modify', async (req: AuthedRequest, res: Response) 
   }
 
   if (updates.length === 0) return res.status(400).json({ error: '수정할 항목이 없습니다.' });
+
+  // 스탯/노드 포인트 오버 방어 — 어드민이 직접 stats/node_points 를 올려 (L-1)×2 / (L-1)
+  // 초과를 만드는 케이스 차단. 필요 시 force=true 쿼리로 우회 가능.
+  const force = req.query.force === 'true' || req.query.force === '1';
+  if (!force && (d.stats || d.nodePoints !== undefined || d.level !== undefined)) {
+    const curR = await query<{ class_name: string; level: number; stats: Record<string, number>; node_points: number }>(
+      `SELECT class_name, level, stats, node_points FROM characters WHERE id = $1`, [charId]
+    );
+    const cur = curR.rows[0];
+    if (cur) {
+      const start = CLASS_START[cur.class_name as ClassName];
+      if (start) {
+        const newLevel = d.level ?? cur.level;
+        const newStats = { ...cur.stats, ...(d.stats || {}) };
+        const newNodePoints = d.nodePoints ?? cur.node_points;
+        const alloc =
+          Math.max(0, (newStats.str ?? start.stats.str) - start.stats.str) +
+          Math.max(0, (newStats.dex ?? start.stats.dex) - start.stats.dex) +
+          Math.max(0, (newStats.int ?? start.stats.int) - start.stats.int) +
+          Math.max(0, (newStats.vit ?? start.stats.vit) - start.stats.vit);
+        const expectedStat = Math.max(0, (newLevel - 1) * 2);
+        if (alloc > expectedStat) {
+          return res.status(400).json({
+            error: `스탯 할당 ${alloc} > 레벨 ${newLevel} 기댓값 ${expectedStat}. 강제 진행 필요 시 ?force=true`,
+          });
+        }
+        const spentR = await query<{ total: string }>(
+          `SELECT COALESCE(SUM(nd.cost), 0)::text AS total FROM character_nodes cn
+             JOIN node_definitions nd ON nd.id = cn.node_id WHERE cn.character_id = $1`, [charId]
+        );
+        const nodeSpent = Number(spentR.rows[0]?.total || 0);
+        const expectedNode = Math.max(0, newLevel - 1);
+        if (nodeSpent + newNodePoints > expectedNode) {
+          return res.status(400).json({
+            error: `노드 총량 ${nodeSpent + newNodePoints} > 기댓값 ${expectedNode}. 강제 진행 필요 시 ?force=true`,
+          });
+        }
+      }
+    }
+  }
 
   params.push(charId);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${paramIdx}`, params);
