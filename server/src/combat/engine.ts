@@ -373,9 +373,9 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
     def: s.vit * 0.8 * highTierMult,
     mdef: s.int * 0.5 * highTierMult,
     dodge: s.dex * 0.4,
-    // 몬스터 accuracy 상한 95 — dex 스케일 그대로 쓰면 고레벨에서 accBonus=1.0 이
-    // 되어 플레이어 회피가 구조적으로 0%. 최소 25% 의 회피율은 항상 유효하도록 캡.
-    accuracy: Math.min(95, 80 + s.dex * 0.5),
+    // 몬스터 accuracy 고정 80 — 플레이어 dodge 를 accBonus 로 깎지 않음.
+    // 결과: 플레이어 dodge 표기 70% = 실전 70% (dodge = effectiveDodge).
+    accuracy: 80,
   };
 }
 
@@ -2530,7 +2530,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
       maxHp: BOSS_HP_VIRTUAL,
       atk: boss.base_atk, matk: boss.base_atk,
       def: boss.base_def, mdef: boss.base_mdef,
-      dodge: boss.base_dodge, accuracy: 95,
+      dodge: boss.base_dodge, accuracy: 80,
     };
     s.monsterSpeed = 300; // 길드 보스는 일반보다 빠르게 (공격 빈도↑)
     s.monsterGauge = 0;
