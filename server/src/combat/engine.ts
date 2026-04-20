@@ -3390,7 +3390,12 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
       } catch {}
     }
   }
-  await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
+  // keepLocation:true → 세션 row 유지 (소환수·쿨다운 보존 → 서버 재시작/재접속 시
+  //   restoreCombatSessions 가 startCombatSession 을 돌려 summons 복원).
+  // keepLocation:false → 명시적 마을 귀환이므로 row 삭제 (summons 도 사라짐, 기존 동작).
+  if (!opts.keepLocation) {
+    await query('DELETE FROM combat_sessions WHERE character_id=$1', [characterId]);
+  }
   activeSessions.delete(characterId);
 }
 
