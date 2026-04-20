@@ -58,6 +58,7 @@ import guildBossShopRoutes from './routes/guildBossShop.js';
 import guildStorageRoutes from './routes/guildStorage.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
+import { startPointClamper } from './game/pointClamper.js';
 import { query } from './db/pool.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -222,6 +223,7 @@ httpServer.listen(PORT, () => {
     }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
     loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));
+    startPointClamper();
   })();
 });
 
