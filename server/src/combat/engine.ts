@@ -341,11 +341,11 @@ setInterval(() => {
       // run 의 guild_id 는 DB 에서만 알 수 있음 — runId 로 lookup
     }
     // 활성 길드보스 run 의 guild_id 수집 후 각 길드 milestone 실시간 판정
+    // (practice-* runId 는 DB INSERT 되지 않으므로 guild_boss_runs 에 자연히 존재하지 않음)
     try {
       const gr = await (await import('../db/pool.js')).query<{ guild_id: number }>(
         `SELECT DISTINCT guild_id FROM guild_boss_runs
-          WHERE ended_at IS NULL AND guild_id IS NOT NULL
-            AND id !~ '^[^0-9]'`   // practice- 프리픽스 제외
+          WHERE ended_at IS NULL AND guild_id IS NOT NULL`
       );
       if (gr.rowCount && gr.rowCount > 0) {
         const { judgeAndGrantGuildMilestones } = await import('../routes/guildBoss.js');
