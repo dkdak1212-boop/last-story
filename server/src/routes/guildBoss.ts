@@ -682,6 +682,82 @@ function tierLabelKr(tier: 'copper' | 'silver' | 'gold'): string {
   return tier === 'gold' ? '황금빛 상자' : tier === 'silver' ? '은빛 상자' : '구리 상자';
 }
 
+// ============================================================
+// 관리자 전용: 이미 임계값 통과했지만 milestone 비트가 세팅 안 된 길드들에
+// 상자/메달 소급 지급. (exit 핸들러 milestone 기준 버그 이전에 쌓인 누적분 복구용)
+// ============================================================
+router.post('/admin/backfill', async (req: AuthedRequest, res: Response) => {
+  // 관리자 체크
+  const uR = await query<{ is_admin: boolean }>(
+    'SELECT is_admin FROM users WHERE id = $1', [req.userId!]
+  );
+  if (!uR.rowCount || !uR.rows[0].is_admin) return res.status(403).json({ error: 'admin only' });
+
+  const today = await todayKst();
+  const rows = await query<{ guild_id: number; total_damage: string; global_chest_milestones: number }>(
+    `SELECT guild_id, total_damage::text, global_chest_milestones
+       FROM guild_boss_guild_daily WHERE date = $1`,
+    [today]
+  );
+
+  const results: { guildId: number; granted: string[] }[] = [];
+  for (const g of rows.rows) {
+    const guildDamage = BigInt(g.total_damage);
+    let milestones = g.global_chest_milestones;
+    const granted: string[] = [];
+
+    const members = await query<{ character_id: number }>(
+      'SELECT character_id FROM guild_members WHERE guild_id = $1', [g.guild_id]
+    );
+    if (members.rowCount === 0) continue;
+
+    // 티어 상자 (copper/silver/gold)
+    for (const m of GUILD_TIER_MILESTONES) {
+      if (guildDamage >= m.damage && (milestones & m.bit) === 0) {
+        milestones |= m.bit;
+        for (const mb of members.rows) {
+          try {
+            await grantChest(mb.character_id, m.tier);
+            await deliverToMailbox(mb.character_id, m.subject,
+              `[소급] ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 길드 달성 — 전원 지급`,
+              0, 0, 0);
+          } catch (e) { console.error('[gb-backfill] chest fail', g.guild_id, mb.character_id, e); }
+        }
+        granted.push(m.tier);
+      }
+    }
+
+    // 처치 메달
+    if (guildDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0) {
+      milestones |= KILL_BIT;
+      try {
+        const ids = members.rows.map(mb => mb.character_id);
+        await query(
+          'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
+          [ids]
+        );
+        for (const mb of members.rows) {
+          await deliverToMailbox(mb.character_id,
+            '[소급] 길드 보스 처치 — 메달 1000 지급',
+            '오늘의 길드 보스 처치 공적으로 메달 1000개가 지급되었습니다.',
+            0, 0, 0);
+        }
+        granted.push('kill');
+      } catch (e) { console.error('[gb-backfill] kill fail', g.guild_id, e); }
+    }
+
+    if (milestones !== g.global_chest_milestones) {
+      await query(
+        'UPDATE guild_boss_guild_daily SET global_chest_milestones = $1 WHERE guild_id = $2 AND date = $3',
+        [milestones, g.guild_id, today]
+      );
+    }
+    if (granted.length > 0) results.push({ guildId: g.guild_id, granted });
+  }
+
+  res.json({ ok: true, guildsProcessed: results.length, details: results });
+});
+
 function formatNum(n: bigint): string {
   const num = Number(n);
   if (num >= 100_000_000) return `${(num / 100_000_000).toFixed(num % 100_000_000 === 0 ? 0 : 1)}억`;
