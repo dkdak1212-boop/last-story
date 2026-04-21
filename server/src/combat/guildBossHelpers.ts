@@ -77,6 +77,8 @@ export async function applyDamageToRun(
   const applied: string[] = [];
 
   if (rawDamage <= 0 && hits <= 0) return { effective: 0, recovered: 0, applied };
+  // 연습 모드 — DB run 없음. BigInt 파싱 에러 방어차 조기 탈출.
+  if (runId.startsWith('practice-')) return { effective: 0, recovered: 0, applied };
 
   const runR = await query<{
     character_id: number; guild_id: number | null; boss_id: number; ended_at: string | null;
@@ -190,6 +192,8 @@ export async function applyDamageToRun(
  * 대신, 엔진에서 사망 시 직접 상자 지급까지 해야 함. → route에 dispatchChest 함수를 export.
  */
 export async function markRunEndedByEngine(runId: string, reason: 'death' | 'logout'): Promise<{ totalDamage: bigint; tier: 'gold' | 'silver' | 'copper' | null; thresholdsPassed: number }> {
+  // 연습 모드 세션은 DB run 이 없는 임시 ID ('practice-<char>-<ts>') — 스킵.
+  if (runId.startsWith('practice-')) return { totalDamage: 0n, tier: null, thresholdsPassed: 0 };
   const runR = await query<{ total_damage: string; ended_at: string | null }>(
     'SELECT total_damage::text, ended_at FROM guild_boss_runs WHERE id = $1', [runId]
   );
