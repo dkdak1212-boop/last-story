@@ -780,18 +780,22 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       break;
     }
     case 'self_speed_mod': {
+      // 자기 버프 중첩 금지 — 마력 집중 같은 스킬을 연속 사용해도 효과가 합산되지 않음.
+      // 기존 self-source speed_mod 제거 후 신규로 대체.
+      self.statusEffects = self.statusEffects.filter(e => !(e.type === 'speed_mod' && e.source === side));
       self.statusEffects.push({ type: 'speed_mod', value: skill.effect_value, remainingActions: dur, source: side });
       s.log.push(`${self.name} [${skName}] 자기 스피드 ${skill.effect_value >= 0 ? '+' : ''}${skill.effect_value}% (${dur}행동)`);
       break;
     }
     case 'speed_mod': {
-      // kind='debuff' 이면 상대에게, 아니면 데미지 + 감속
+      // PvP CC 상한: 상대 대상 CC 류는 최대 1행동.
+      const ccDur = Math.min(1, dur);
       if (skill.kind === 'debuff') {
-        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: dur, source: side });
-        s.log.push(`${self.name} [${skName}] 상대 스피드 -${Math.abs(skill.effect_value)}% (${dur}행동)`);
+        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: ccDur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 스피드 -${Math.abs(skill.effect_value)}% (${ccDur}행동)`);
       } else {
         const d = dealDamage(skill.damage_mult);
-        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: dur, source: side });
+        opp.statusEffects.push({ type: 'speed_mod', value: -Math.abs(skill.effect_value), remainingActions: ccDur, source: side });
         s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 상대 감속 ${skill.effect_value}%`);
       }
       break;
@@ -803,14 +807,14 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       break;
     }
     case 'gauge_freeze': {
-      // kind='damage' 이면 데미지 동반
+      const ccDur = Math.min(1, dur); // PvP CC 상한 1행동
       if (skill.kind === 'damage') {
         const d = dealDamage(skill.damage_mult);
-        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: dur, source: side });
-        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 상대 게이지 동결 (${dur}행동)`);
+        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: ccDur, source: side });
+        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 상대 게이지 동결 (${ccDur}행동)`);
       } else {
-        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: dur, source: side });
-        s.log.push(`${self.name} [${skName}] 상대 게이지 동결 (${dur}행동)`);
+        opp.statusEffects.push({ type: 'gauge_freeze', value: 1, remainingActions: ccDur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 게이지 동결 (${ccDur}행동)`);
       }
       break;
     }
@@ -820,19 +824,21 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       break;
     }
     case 'stun': {
+      const ccDur = Math.min(1, dur); // PvP CC 상한 1행동
       if (skill.kind === 'damage') {
         const d = dealDamage(skill.damage_mult);
-        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: dur, source: side });
-        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 기절 ${dur}행동`);
+        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: ccDur, source: side });
+        s.log.push(`${self.name} [${skName}] ${d.miss ? '빗나감' : d.damage} + 기절 ${ccDur}행동`);
       } else {
-        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: dur, source: side });
-        s.log.push(`${self.name} [${skName}] 상대 기절 ${dur}행동`);
+        opp.statusEffects.push({ type: 'stun', value: 1, remainingActions: ccDur, source: side });
+        s.log.push(`${self.name} [${skName}] 상대 기절 ${ccDur}행동`);
       }
       break;
     }
     case 'accuracy_debuff': {
-      opp.statusEffects.push({ type: 'accuracy_debuff', value: skill.effect_value, remainingActions: dur, source: side });
-      s.log.push(`${self.name} [${skName}] 상대 명중 -${skill.effect_value}% (${dur}행동)`);
+      const ccDur = Math.min(1, dur); // PvP CC 상한 1행동
+      opp.statusEffects.push({ type: 'accuracy_debuff', value: skill.effect_value, remainingActions: ccDur, source: side });
+      s.log.push(`${self.name} [${skName}] 상대 명중 -${skill.effect_value}% (${ccDur}행동)`);
       break;
     }
     case 'lifesteal': {
