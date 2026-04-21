@@ -2119,6 +2119,9 @@ function monsterAction(s: ActiveSession): void {
       }
     }
 
+    // 감소 전 원본 데미지 기억 — 총 감소율 70% 상한 (= 최소 원본의 30% 피해)
+    const preReduceDmg = dmg;
+
     // 데미지 감소
     const reduce = s.statusEffects.find(e => e.type === 'damage_reduce' && e.source === 'monster');
     if (reduce && dmg > 0) {
@@ -2150,6 +2153,12 @@ function monsterAction(s: ActiveSession): void {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraDef = getPassive(s, 'aura_def') * auraMul;
       if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
+    }
+
+    // 데미지 감소 총합 한계 70% — 최종 데미지는 원본의 30% 이상 보장
+    if (preReduceDmg > 0) {
+      const minDmg = Math.ceil(preReduceDmg * 0.3);
+      if (dmg < minDmg) dmg = minDmg;
     }
 
     if (dmg > 0) {
