@@ -2,7 +2,6 @@
 import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { adminRequired } from '../middleware/admin.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { applyExpGain } from '../game/leveling.js';
 import { clampCharacterPoints } from '../game/pointClamper.js';
@@ -12,8 +11,6 @@ import { getBossById } from '../combat/guildBossHelpers.js';
 
 const router = Router();
 router.use(authRequired);
-// 테스트 단계 — 관리자만 접근 허용 (정식 오픈 시 제거)
-router.use(adminRequired);
 
 // 아이템 ID (라이브 DB 조회 결과 기반)
 const ITEM_ENHANCE_SCROLL = 286;      // 강화 성공률 스크롤
