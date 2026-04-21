@@ -2135,18 +2135,12 @@ function monsterAction(s: ActiveSession): void {
       dmg = Math.round(dmg * (1 - guardian / 100));
       guardianProc = true;
     }
-    // 접두사: 받는 데미지 감소 (상시)
+    // 접두사: 받는 데미지 감소 (상시) — damage_taken_down_pct
     const dtDown = s.equipPrefixes.damage_taken_down_pct || 0;
     if (dtDown > 0 && dmg > 0) {
       dmg = Math.round(dmg * (1 - dtDown / 100));
     }
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
-
-    // 접두사: 경감 (damage_taken_down_pct) — 조건 없이 상시 감소
-    const dmgTakenDown = s.equipPrefixes.damage_taken_down_pct || 0;
-    if (dmgTakenDown > 0 && dmg > 0) {
-      dmg = Math.round(dmg * (1 - dmgTakenDown / 100));
-    }
 
     // 소환사 방어 오오라 — 오오라의 왕 시 ×2
     if (s.className === 'summoner' && dmg > 0) {
