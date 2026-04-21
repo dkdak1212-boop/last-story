@@ -37,7 +37,9 @@ export async function pickRandomUnique(characterLevel: number): Promise<number |
 // 데미지 임계값 (단위: 실제 입힌 데미지)
 const THRESHOLD_COPPER = 100_000_000;      // 1억
 const THRESHOLD_SILVER = 500_000_000;      // 5억
-const THRESHOLD_GOLD = 5_000_000_000;      // 50억 (보스 처치 조건)
+const THRESHOLD_GOLD = 1_000_000_000;      // 10억 — 황금상자 임계값 (원복)
+const THRESHOLD_KILL = 5_000_000_000n;     // 50억 — 보스 HP 처치 조건
+const KILL_BIT = 8;                        // global_chest_milestones bit 8 = 처치 완료 플래그
 
 const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
@@ -45,7 +47,7 @@ const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
   { bit: 1, damage: 100_000_000n,   tier: 'copper', subject: '길드 보스 — 구리 상자 (길드원 보상)' },
   { bit: 2, damage: 500_000_000n,   tier: 'silver', subject: '길드 보스 — 은빛 상자 (길드원 보상)' },
-  { bit: 4, damage: 5_000_000_000n, tier: 'gold',   subject: '길드 보스 — 처치! 황금빛 상자 (길드원 보상)' },
+  { bit: 4, damage: 1_000_000_000n, tier: 'gold',   subject: '길드 보스 — 황금빛 상자 (길드원 보상)' },
 ];
 
 // 오늘 날짜 (KST)
@@ -523,7 +525,10 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
       milestones |= highestTier.bit;
       newlyPassed.push(highestTier);
     }
-    if (newlyPassed.length > 0) {
+    const killNowPassed = totalDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0;
+    if (killNowPassed) milestones |= KILL_BIT;
+
+    if (newlyPassed.length > 0 || killNowPassed) {
       await query(
         'UPDATE guild_boss_guild_daily SET global_chest_milestones = $1 WHERE guild_id = $2 AND date = $3',
         [milestones, run.guild_id, today]
@@ -532,10 +537,10 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
         'SELECT character_id FROM guild_members WHERE guild_id = $1',
         [run.guild_id]
       );
+      // 티어 상자 지급 (copper/silver/gold 기존 로직)
       for (const m of newlyPassed) {
         guildTiersGranted.push(m.tier);
         for (const mb of members.rows) {
-          // 동일 티어의 상자를 각 길드원에게 우편 지급 (각자 잭팟 독립 굴림)
           try {
             await grantChest(mb.character_id, m.tier);
             await deliverToMailbox(mb.character_id, m.subject,
@@ -543,24 +548,24 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
               0, 0, 0);
           } catch (e) { console.error('[guild-boss] guild chest fail', e); }
         }
-        // gold 티어 = 길드 차원의 "보스 처치" — 길드원 전원 메달 1000개 추가 지급
-        if (m.tier === 'gold') {
-          try {
-            const ids = members.rows.map(mb => mb.character_id);
-            await query(
-              'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
-              [ids]
+      }
+      // 처치 보상 — 길드 누적 딜이 보스 HP(50억) 도달 시 메달 1000 (1회/일)
+      if (killNowPassed) {
+        try {
+          const ids = members.rows.map(mb => mb.character_id);
+          await query(
+            'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
+            [ids]
+          );
+          for (const mb of members.rows) {
+            await deliverToMailbox(
+              mb.character_id,
+              '길드 보스 처치! 메달 1000 지급',
+              '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
+              0, 0, 0
             );
-            for (const mb of members.rows) {
-              await deliverToMailbox(
-                mb.character_id,
-                '길드 보스 처치 — 메달 1000 지급',
-                '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
-                0, 0, 0
-              );
-            }
-          } catch (e) { console.error('[guild-boss] kill medal grant fail', e); }
-        }
+          }
+        } catch (e) { console.error('[guild-boss] kill reward fail', e); }
       }
     }
   }
