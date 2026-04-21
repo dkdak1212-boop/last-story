@@ -189,6 +189,7 @@ interface ActiveSession {
   rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 20)
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
+  guildBossPractice: boolean; // true면 연습 모드 — 딜 누적/보상 스킵, 규칙(디버프 면역 등)은 동일 적용
   guildBossDmgBuffer: number; // flush 전 누적 raw 데미지
   guildBossHitsBuffer: number; // flush 전 누적 타격 수
   guildBossStartedAt: number; // 광분 타이머 기준 (unix ms, 0이면 미사용)
@@ -2469,6 +2470,12 @@ function isDummyMonster(s: ActiveSession): boolean {
 // 길드 보스 데미지 flush — 버퍼를 DB에 반영하고 메커닉 적용
 async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   if (!s.guildBossRunId) return;
+  // 연습 모드: 딜 집계·DB 반영 전부 스킵 (버퍼만 초기화)
+  if (s.guildBossPractice) {
+    s.guildBossDmgBuffer = 0;
+    s.guildBossHitsBuffer = 0;
+    return;
+  }
   if (s.guildBossDmgBuffer <= 0 && s.guildBossHitsBuffer <= 0) return;
   const dmg = s.guildBossDmgBuffer;
   const hits = s.guildBossHitsBuffer;
@@ -3159,16 +3166,17 @@ export async function setAfkMode(characterId: number, enabled: boolean): Promise
 // 길드 보스 전용 필드 (DB에 id=999로 등록 — fields 테이블 FK 충족용)
 const GUILD_BOSS_FIELD_ID = 999;
 
-export async function startGuildBossCombatSession(characterId: number, runId: string, boss: GuildBossData): Promise<void> {
-  await startCombatSession(characterId, GUILD_BOSS_FIELD_ID, { guildBossRunId: runId, guildBossBoss: boss });
+export async function startGuildBossCombatSession(characterId: number, runId: string, boss: GuildBossData, practice: boolean = false): Promise<void> {
+  await startCombatSession(characterId, GUILD_BOSS_FIELD_ID, { guildBossRunId: runId, guildBossBoss: boss, practice });
 }
 
 export async function endGuildBossCombatSession(characterId: number): Promise<void> {
   const s = activeSessions.get(characterId);
   if (!s) return;
-  if (s.guildBossRunId) await flushGuildBossDamage(s);
+  if (s.guildBossRunId && !s.guildBossPractice) await flushGuildBossDamage(s);
   s.guildBossRunId = null;
   s.guildBossBoss = null;
+  s.guildBossPractice = false;
   activeSessions.delete(characterId);
 }
 
@@ -3203,7 +3211,7 @@ const startInFlight = new Map<number, Promise<void>>();
 export async function startCombatSession(
   characterId: number,
   fieldId: number,
-  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData }
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean }
 ): Promise<void> {
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
@@ -3217,7 +3225,7 @@ export async function startCombatSession(
 async function startCombatSessionInner(
   characterId: number,
   fieldId: number,
-  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData }
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean }
 ): Promise<void> {
   // 기존 세션 정리
   activeSessions.delete(characterId);
@@ -3309,6 +3317,7 @@ async function startCombatSessionInner(
     offline: false,
     guildBossRunId: guildBossOpts?.guildBossRunId ?? null,
     guildBossBoss: guildBossOpts?.guildBossBoss ?? null,
+    guildBossPractice: guildBossOpts?.practice ?? false,
     guildBossDmgBuffer: 0,
     guildBossHitsBuffer: 0,
     guildBossStartedAt: guildBossOpts ? Date.now() : 0,

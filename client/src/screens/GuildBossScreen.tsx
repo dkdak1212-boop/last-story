@@ -177,6 +177,18 @@ export function GuildBossScreen() {
     }
   }
 
+  async function handlePractice() {
+    if (!active || !state || state.activeRun) return;
+    setBusy(true);
+    try {
+      await api(`/guild-boss/practice/${active.id}`, { method: 'POST' });
+      navigate('/combat');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
   async function handleExit(reason: 'exit' | 'death' = 'exit') {
     if (!state?.activeRun) return;
     setBusy(true);
@@ -544,6 +556,26 @@ export function GuildBossScreen() {
               입장 시 입장키 1개 소모 · 사망하면 상자 수령 후 마을로 귀환
             </div>
           )}
+          {/* 연습 모드 버튼 — 키 소모 없음, 딜 누적 없음, 순수 테스트 */}
+          <div style={{ marginTop: 18 }}>
+            <button
+              onClick={handlePractice}
+              disabled={busy}
+              style={{
+                padding: '12px 30px', fontSize: 13, fontWeight: 700,
+                letterSpacing: 1,
+                background: 'linear-gradient(180deg, #4a5a7a 0%, #2a3a5a 100%)',
+                color: '#d8e0f0',
+                border: '1px solid #5a7aa0',
+                cursor: 'pointer',
+                borderRadius: 2,
+                boxShadow: '0 0 12px rgba(90,122,160,0.25), inset 0 0 10px rgba(255,255,255,0.05)',
+              }}
+            >연습 모드 (키 소모 없음)</button>
+            <div style={{ fontSize: 10, color: '#5a6888', marginTop: 8 }}>
+              보상·딜 누적 없이 보스와 전투 테스트만 가능
+            </div>
+          </div>
         </div>
       )}
 

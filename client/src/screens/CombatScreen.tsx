@@ -264,7 +264,12 @@ export function CombatScreen() {
     const gbRunId = state?.guildBossRunId;
     if (gbRunId) {
       try {
-        await api(`/guild-boss/exit/${gbRunId}`, { method: 'POST', body: JSON.stringify({ reason: 'exit' }) });
+        // 연습 모드는 DB run 이 없으므로 별도 엔드포인트로 세션만 종료
+        if (gbRunId.startsWith('practice-')) {
+          await api(`/guild-boss/practice-exit/${active.id}`, { method: 'POST' });
+        } else {
+          await api(`/guild-boss/exit/${gbRunId}`, { method: 'POST', body: JSON.stringify({ reason: 'exit' }) });
+        }
       } catch (e) {
         console.error('[guild-boss] exit fail', e);
       }

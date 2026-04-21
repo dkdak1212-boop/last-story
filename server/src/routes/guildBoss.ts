@@ -251,6 +251,64 @@ router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => 
 });
 
 // ============================================================
+// POST /guild-boss/practice/:characterId — 연습 모드 입장
+// - 입장 키 소모 X
+// - guild_boss_runs 에 row 생성하지 않음 (DB 기록·딜 집계·보상 전부 없음)
+// - 단순히 오늘의 보스와 동일 조건으로 전투해보고 퇴장 가능
+// ============================================================
+router.post('/practice/:characterId', async (req: AuthedRequest, res: Response) => {
+  const characterId = Number(req.params.characterId);
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'character not found' });
+
+  const guildId = await getCharacterGuildId(characterId);
+  if (!guildId) return res.status(403).json({ error: '길드 가입 필요' });
+
+  const boss = await getTodaysBoss();
+  if (!boss) return res.status(500).json({ error: '오늘의 보스 설정 없음' });
+
+  // 정식 run 이 이미 진행 중이면 연습 진입 차단 (동시 세션 충돌 방지)
+  const ongoing = await query(
+    `SELECT id FROM guild_boss_runs WHERE character_id = $1 AND ended_at IS NULL`,
+    [characterId]
+  );
+  if (ongoing.rowCount && ongoing.rowCount > 0) {
+    return res.status(400).json({ error: '이미 진행 중인 입장 있음' });
+  }
+
+  // HP 풀피 회복 (성직자 제외) — 입장 로직과 동일
+  try {
+    await query(
+      `UPDATE characters SET hp = max_hp WHERE id = $1 AND class_name <> 'cleric'`,
+      [characterId]
+    );
+  } catch (e) {
+    console.error('[guild-boss-practice] hp refill fail', e);
+  }
+
+  // 실제 전투 세션 시작 — runId 는 메모리 한정 임시 UUID (DB 없음)
+  // 랜덤 약점은 연습 모드에서 생략 (DB run row 가 없어 저장 불가 — 테스트용이라 고정 약점 기반)
+  const practiceRunId = `practice-${characterId}-${Date.now()}`;
+  try {
+    const bossFull = await getBossById(boss.id);
+    if (bossFull) await startGuildBossCombatSession(characterId, practiceRunId, bossFull, true);
+  } catch (e) {
+    console.error('[guild-boss-practice] session start fail', e);
+  }
+
+  res.json({ ok: true, practice: true, runId: practiceRunId, boss });
+});
+
+// POST /guild-boss/practice-exit/:characterId — 연습 모드 퇴장
+router.post('/practice-exit/:characterId', async (req: AuthedRequest, res: Response) => {
+  const characterId = Number(req.params.characterId);
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'character not found' });
+  try { await endGuildBossCombatSession(characterId); } catch (e) { console.error('[guild-boss-practice] end fail', e); }
+  res.json({ ok: true });
+});
+
+// ============================================================
 // PATCH /guild-boss/damage/:runId — 누적 데미지 업데이트 (10초 주기)
 // body: { damage, hits, damageType?, element?, isDot? }
 // ============================================================
