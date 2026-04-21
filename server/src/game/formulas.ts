@@ -30,9 +30,8 @@ export function sumEquipmentStats(
     if (it.prefixStats) {
       if (it.prefixStats.dodge) acc.bonusDodge = (acc.bonusDodge ?? 0) + it.prefixStats.dodge;
       if (it.prefixStats.accuracy) acc.bonusAccuracy = (acc.bonusAccuracy ?? 0) + it.prefixStats.accuracy;
-      // 직접 스탯 접두사는 cri 만 합산. str/dex/int/vit/spd 는 유저 밸런스 충격 우려로
-      // 버그 수정을 롤백 — 기존 상태(미적용) 유지. 치명타 체감 이슈 해결 목적으로 cri 만 살림.
-      if (it.prefixStats.cri) acc.cri = (acc.cri ?? 0) + it.prefixStats.cri;
+      // cri 를 포함한 모든 직접 스탯 접두사는 합산에서 제외 — 치명타 확률이 2배처럼
+      // 체감된다는 피드백에 따라 이전 동작(미적용)으로 원상복귀.
     }
   }
   return acc;
