@@ -12,7 +12,7 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 60,                        // 30 → 60 (풀 고갈 방지 — Railway PG max_connections ≈ 100)
+  max: 85,                        // 60 → 85 (Railway PG max_connections=100, 시스템 연결 여유 15 남김)
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)

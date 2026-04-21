@@ -68,6 +68,7 @@ import guildStorageRoutes from './routes/guildStorage.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import { startPointClamper } from './game/pointClamper.js';
+import { loadItemsCache } from './game/itemsCache.js';
 import { query } from './db/pool.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -229,6 +230,13 @@ httpServer.listen(PORT, () => {
       console.log('[migrations] late 마이그레이션 완료');
     } catch (e) {
       console.error('[migrations] late migrations error:', e);
+    }
+    // 아이템 메타 캐시 — 드랍 핫패스에서 매 건 SELECT 하던 것을 메모리 Map 조회로 대체.
+    // await 해서 세션 복원 전 반드시 준비되도록 (복원 중에도 드랍은 없지만 안전)
+    try {
+      await loadItemsCache();
+    } catch (e) {
+      console.error('[items-cache] load error', e);
     }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
     loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));

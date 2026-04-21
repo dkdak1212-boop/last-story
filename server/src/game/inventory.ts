@@ -1,5 +1,6 @@
 import { query } from '../db/pool.js';
 import { generatePrefixes } from './prefix.js';
+import { getCachedItem } from './itemsCache.js';
 
 export const BASE_INVENTORY_SLOTS = 300;
 
@@ -30,18 +31,36 @@ export async function addItemToInventory(
   mailOnOverflow?: { subject: string; body: string },
   preroll?: EquipPreroll
 ): Promise<{ added: number; overflow: number; equipMetas?: EquipDropMeta[] }> {
-  // 아이템 조회 — 스택 가능 여부 + 장비 여부 + 유니크 여부
-  const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
-    'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name FROM items WHERE id = $1',
-    [itemId]
-  );
-  if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
-  const stackSize = itemR.rows[0].stack_size;
-  const isEquipment = !!itemR.rows[0].slot;
-  const itemRequiredLevel = itemR.rows[0].required_level;
-  const itemGrade = itemR.rows[0].grade;
-  const uniquePrefixStats = itemR.rows[0].unique_prefix_stats;
-  const itemName = itemR.rows[0].name;
+  // 아이템 조회 — in-memory 캐시 (boot 시 전체 로드). items 테이블은 시드/마이그레이션
+  // 경로에서만 변경되므로 런타임 stale 우려 없음. 드랍 핫패스의 SELECT 1건 제거.
+  let stackSize: number;
+  let isEquipment: boolean;
+  let itemRequiredLevel: number;
+  let itemGrade: string;
+  let uniquePrefixStats: Record<string, number> | null;
+  let itemName: string;
+  const cached = getCachedItem(itemId);
+  if (cached) {
+    stackSize = cached.stack_size;
+    isEquipment = !!cached.slot;
+    itemRequiredLevel = cached.required_level;
+    itemGrade = cached.grade;
+    uniquePrefixStats = cached.unique_prefix_stats;
+    itemName = cached.name;
+  } else {
+    // 캐시 미스 (아직 로드 전 or 신규 아이템) → DB 폴백
+    const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
+      'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name FROM items WHERE id = $1',
+      [itemId]
+    );
+    if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
+    stackSize = itemR.rows[0].stack_size;
+    isEquipment = !!itemR.rows[0].slot;
+    itemRequiredLevel = itemR.rows[0].required_level;
+    itemGrade = itemR.rows[0].grade;
+    uniquePrefixStats = itemR.rows[0].unique_prefix_stats;
+    itemName = itemR.rows[0].name;
+  }
   const isUnique = itemGrade === 'unique';
 
   let remaining = quantity;
