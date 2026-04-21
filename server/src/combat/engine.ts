@@ -2678,7 +2678,7 @@ let lastTickAt = 0;
 const TICK_TARGET_MS = 100;
 // 세션별 마지막 tick 시각 (백그라운드 세션 간격 조절용)
 const sessionLastTickAt = new Map<number, number>();
-const OFFLINE_TICK_INTERVAL_MS = 2000; // 구독자 없는 세션은 2초 간격 (tickScale 보정으로 진행량 동일)
+const OFFLINE_TICK_INTERVAL_MS = 1000; // 구독자 없는 세션은 1초 간격 — 쿼리 분산 완충 역할
 
 async function combatTick(): Promise<void> {
   const now = Date.now();
