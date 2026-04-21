@@ -136,6 +136,17 @@ export function InventoryScreen() {
     e.stopPropagation(); if (!active) return;
     await api(`/characters/${active.id}/lock`, { method: 'POST', body: JSON.stringify({ slotIndex }) }); refresh();
   }
+  async function depositToStorage(slotIndex: number, itemName: string, e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return;
+    setMsg('');
+    try {
+      await api('/storage/deposit', { method: 'POST', body: JSON.stringify({ characterId: active.id, inventorySlotIndex: slotIndex }) });
+      setMsg(`${itemName} 창고 보관 완료`);
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '창고 보관 실패');
+    }
+  }
   async function useUniqueTicket(e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return; setMsg('');
     if (!confirm('유니크 무작위 추첨권을 사용하시겠습니까?\n캐릭 레벨 ±10 범위의 유니크 1개가 무작위 지급됩니다.')) return;
@@ -211,13 +222,12 @@ export function InventoryScreen() {
   const equipmentItems = inv.filter(s => !!s.item.slot);
   const etcItems = inv.filter(s => !s.item.slot);
 
-  // 카테고리 필터링 — 잠긴 아이템만 위로, 동일 lock 상태 내에서는 서버 sortMode 순서 유지
+  // 카테고리 필터링 — 서버 sortMode 순서 그대로 유지
+  // (잠금 토글 시 아이템이 위로 튀는 것을 막기 위해 locked-first 재정렬 제거)
   //   (Array.prototype.sort 는 stable sort 이므로 0 반환 시 원래 순서 보존)
   function orderBy(a: InventorySlot, b: InventorySlot) {
-    const la = (a as any).locked ? 1 : 0;
-    const lb = (b as any).locked ? 1 : 0;
-    if (la !== lb) return lb - la; // locked first
-    return 0; // 동일 lock 상태는 서버가 준 순서 그대로 (최신/등급/종류/레벨순 적용)
+    void a; void b;
+    return 0; // 서버가 준 순서 그대로 (최신/등급/종류/레벨순 적용) — lock 상태 무관
   }
   function filterByCategory(items: typeof inv) {
     if (categoryTab === 'recent') return [...items].sort(orderBy);
@@ -685,6 +695,10 @@ export function InventoryScreen() {
                         {s.item.sellPrice > 0 && !locked && (
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, s.item.grade, e)}
                             style={actionBtn('#e0a040')}>폐기</button>
+                        )}
+                        {isEquipment && !locked && (
+                          <button onClick={(e) => depositToStorage(s.slotIndex, s.item.name, e)}
+                            style={actionBtn('#66ccff')}>📦 창고 보관</button>
                         )}
                         {isEquipment && !locked && (() => {
                           const eInfo = getEnhanceInfo(s.enhanceLevel || 0, active?.level || 1);
