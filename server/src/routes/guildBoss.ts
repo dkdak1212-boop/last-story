@@ -534,8 +534,8 @@ async function grantChest(characterId: number, tier: 'gold' | 'silver' | 'copper
 
   // 잭팟 굴림
   if (tier === 'gold') {
-    if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_PREFIX_REROLL, 1).catch(() => {}); result.jackpots.push('접두사 수치 재굴림권'); }
-    if (Math.random() < 0.01) { await addItemToInventory(characterId, ITEM_QUALITY_REROLL, 1).catch(() => {}); result.jackpots.push('품질 재굴림권'); }
+    if (Math.random() < 0.05) { await addItemToInventory(characterId, ITEM_PREFIX_REROLL, 1).catch(() => {}); result.jackpots.push('접두사 수치 재굴림권'); }
+    if (Math.random() < 0.02) { await addItemToInventory(characterId, ITEM_QUALITY_REROLL, 1).catch(() => {}); result.jackpots.push('품질 재굴림권'); }
     if (Math.random() < 0.01) {
       // 창고 슬롯 영구 +1 — users.storage_slots_bonus 증가
       const ur = await query<{ user_id: number }>('SELECT user_id FROM characters WHERE id = $1', [characterId]);
