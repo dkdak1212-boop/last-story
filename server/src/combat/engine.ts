@@ -2330,7 +2330,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
-  contributeGuildExp(s.characterId, boostedExp).catch(() => {});
+  contributeGuildExp(s.characterId, boostedExp);
   // 영토 점수 +1 (사냥 처치 횟수 누적)
   // 영토 점령전 일시 비활성 — 점수 적립 중단
   // addTerritoryScore(s.characterId, s.fieldId).catch(() => {});

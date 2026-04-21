@@ -69,6 +69,12 @@ import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
 import { startPointClamper } from './game/pointClamper.js';
 import { loadItemsCache } from './game/itemsCache.js';
+import {
+  preloadGuildMemberCache,
+  startGuildContribFlushLoop,
+  stopGuildContribFlushLoop,
+  flushGuildContributions,
+} from './game/guild.js';
 import { query } from './db/pool.js';
 
 console.log('[env] DATABASE_URL =', process.env.DATABASE_URL ? '***set***' : '!!!MISSING!!!');
@@ -238,9 +244,16 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[items-cache] load error', e);
     }
+    // 길드 멤버십 캐시 — 매 킬 SELECT guild_members 제거용
+    try {
+      await preloadGuildMemberCache();
+    } catch (e) {
+      console.error('[guild-cache] preload error', e);
+    }
     restoreCombatSessions().catch(e => console.error('[combat] restore error', e));
     loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));
     startPointClamper();
+    startGuildContribFlushLoop();
   })();
 });
 
@@ -256,6 +269,11 @@ async function gracefulShutdown(signal: string) {
     await flushCharBatchAll().catch(e => console.error('[shutdown] flush err', e));
     stopCombatLoop();
   } catch (e) { console.error('[shutdown] engine close err', e); }
+  // 길드 기여도 배치 잔여분 flush (최대 5초치)
+  try {
+    stopGuildContribFlushLoop();
+    await flushGuildContributions();
+  } catch (e) { console.error('[shutdown] guild flush err', e); }
   try {
     httpServer.close(() => {
       console.log('[shutdown] http closed');

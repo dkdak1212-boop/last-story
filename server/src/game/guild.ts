@@ -73,38 +73,136 @@ export function invalidateGuildSkillCache(guildId: number) {
   skillCache.delete(guildId);
 }
 
-// 사냥 EXP 기여 — 캐릭터가 길드원이면 5% 적립 + 길드 레벨업 처리
-export async function contributeGuildExp(characterId: number, expGained: number): Promise<void> {
-  if (expGained <= 0) return;
-  const r = await query<{ guild_id: number }>(
-    'SELECT guild_id FROM guild_members WHERE character_id = $1', [characterId]
+// ─────────────────────────────────────────────
+// 사냥 EXP 기여 — 메모리 배치 집계 + 주기 flush
+// 매 킬마다 4쿼리(SELECT guild_members / UPSERT contributions / FOR UPDATE guilds / UPDATE) →
+// 5초 interval flush 로 N 킬을 캐릭당 1 UPSERT + 길드당 1 UPDATE 로 축약.
+// SELECT FOR UPDATE 락 대기도 제거 (원자적 UPDATE ... RETURNING 사용).
+// ─────────────────────────────────────────────
+
+// 캐릭 → 길드ID 캐시 (부팅 시 preload, 가입·탈퇴 시 invalidate)
+const memberGuildCache = new Map<number, number | null>();
+let memberCacheReady = false;
+
+export async function preloadGuildMemberCache(): Promise<void> {
+  const r = await query<{ character_id: number; guild_id: number }>(
+    'SELECT character_id, guild_id FROM guild_members'
   );
-  if (r.rowCount === 0) return;
-  const guildId = r.rows[0].guild_id;
+  memberGuildCache.clear();
+  for (const row of r.rows) memberGuildCache.set(row.character_id, row.guild_id);
+  memberCacheReady = true;
+  console.log(`[guild-cache] preloaded ${r.rowCount} member mappings`);
+}
+
+export function setMemberGuild(characterId: number, guildId: number | null): void {
+  memberGuildCache.set(characterId, guildId);
+}
+
+export function clearMemberGuild(characterId: number): void {
+  memberGuildCache.delete(characterId);
+}
+
+// 캐릭별 누적 기여 — flush 전까지 메모리에만 있음
+const pendingContrib = new Map<number, { guildId: number; expPending: number }>();
+
+// 호출부 fire-and-forget 호환: void 반환, 내부에서 멤버 캐시 miss 시 async 폴백
+export function contributeGuildExp(characterId: number, expGained: number): void {
+  if (expGained <= 0) return;
   const contrib = Math.floor(expGained * GUILD_EXP_RATIO);
   if (contrib <= 0) return;
 
-  // 기여도 적립
-  await query(
-    `INSERT INTO guild_contributions (guild_id, character_id, exp_contributed, gold_donated)
-     VALUES ($1, $2, $3, 0)
-     ON CONFLICT (guild_id, character_id) DO UPDATE
-       SET exp_contributed = guild_contributions.exp_contributed + $3`,
-    [guildId, characterId, contrib]
-  );
-
-  // 길드 EXP 증가 + 레벨업 체크
-  const gr = await query<{ level: number; exp: string }>(
-    'SELECT level, exp FROM guilds WHERE id = $1 FOR UPDATE', [guildId]
-  );
-  if (gr.rowCount === 0) return;
-  let level = gr.rows[0].level;
-  let exp = Number(gr.rows[0].exp) + contrib;
-
-  while (level < GUILD_MAX_LEVEL && exp >= expToNextGuild(level)) {
-    exp -= expToNextGuild(level);
-    level += 1;
+  // 캐시 hit 시 즉시 누적
+  if (memberCacheReady) {
+    const guildId = memberGuildCache.get(characterId);
+    if (guildId == null) return; // 비길드원
+    const cur = pendingContrib.get(characterId);
+    if (cur) cur.expPending += contrib;
+    else pendingContrib.set(characterId, { guildId, expPending: contrib });
+    return;
   }
 
-  await query('UPDATE guilds SET level = $1, exp = $2 WHERE id = $3', [level, exp, guildId]);
+  // 캐시 미 준비 — DB 폴백 (부팅 초기에만 발생)
+  (async () => {
+    try {
+      const r = await query<{ guild_id: number }>(
+        'SELECT guild_id FROM guild_members WHERE character_id = $1', [characterId]
+      );
+      if (r.rowCount === 0) { memberGuildCache.set(characterId, null); return; }
+      const guildId = r.rows[0].guild_id;
+      memberGuildCache.set(characterId, guildId);
+      const cur = pendingContrib.get(characterId);
+      if (cur) cur.expPending += contrib;
+      else pendingContrib.set(characterId, { guildId, expPending: contrib });
+    } catch (e) {
+      console.error('[guild-contrib] member lookup err', e);
+    }
+  })();
+}
+
+export async function flushGuildContributions(): Promise<void> {
+  if (pendingContrib.size === 0) return;
+  // snapshot + clear (다음 주기 fill 과 격리)
+  const batch: { characterId: number; guildId: number; exp: number }[] = [];
+  for (const [charId, v] of pendingContrib) {
+    batch.push({ characterId: charId, guildId: v.guildId, exp: v.expPending });
+  }
+  pendingContrib.clear();
+
+  // guild_contributions 다중 upsert — 한 INSERT 문에 모든 (guild, char) 쌍
+  try {
+    const values: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    for (const b of batch) {
+      values.push(`($${i++}, $${i++}, $${i++}, 0)`);
+      params.push(b.guildId, b.characterId, b.exp);
+    }
+    await query(
+      `INSERT INTO guild_contributions (guild_id, character_id, exp_contributed, gold_donated)
+       VALUES ${values.join(',')}
+       ON CONFLICT (guild_id, character_id) DO UPDATE
+         SET exp_contributed = guild_contributions.exp_contributed + EXCLUDED.exp_contributed`,
+      params
+    );
+  } catch (e) {
+    console.error('[guild-contrib-flush] contributions err', e);
+  }
+
+  // 길드별 합산 → UPDATE guilds (원자적 exp 증가 후 레벨업 체크)
+  const byGuild = new Map<number, number>();
+  for (const b of batch) byGuild.set(b.guildId, (byGuild.get(b.guildId) ?? 0) + b.exp);
+
+  for (const [guildId, expDelta] of byGuild) {
+    try {
+      const r = await query<{ level: number; exp: string }>(
+        'UPDATE guilds SET exp = exp + $1 WHERE id = $2 RETURNING level, exp',
+        [expDelta, guildId]
+      );
+      if (r.rowCount === 0) continue;
+      let level = r.rows[0].level;
+      let curExp = Number(r.rows[0].exp);
+      // 레벨업 체크 (임계 초과 시에만 추가 UPDATE — 드문 경우)
+      if (level < GUILD_MAX_LEVEL && curExp >= expToNextGuild(level)) {
+        while (level < GUILD_MAX_LEVEL && curExp >= expToNextGuild(level)) {
+          curExp -= expToNextGuild(level);
+          level += 1;
+        }
+        await query('UPDATE guilds SET level = $1, exp = $2 WHERE id = $3', [level, curExp, guildId]);
+      }
+    } catch (e) {
+      console.error('[guild-contrib-flush] guild upd err', guildId, e);
+    }
+  }
+}
+
+let flushInterval: NodeJS.Timeout | null = null;
+export function startGuildContribFlushLoop(): void {
+  if (flushInterval) return;
+  flushInterval = setInterval(() => {
+    flushGuildContributions().catch(e => console.error('[guild-contrib-flush] loop err', e));
+  }, 5000);
+  console.log('[guild-contrib] flush loop started (5s)');
+}
+export function stopGuildContribFlushLoop(): void {
+  if (flushInterval) { clearInterval(flushInterval); flushInterval = null; }
 }

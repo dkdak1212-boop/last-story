@@ -8,6 +8,7 @@ import {
   GUILD_MAX_LEVEL, DAILY_DONATION_CAP,
   expToNextGuild, getGuildSkillUpgradeCost, getGuildSkillReqLevel,
   invalidateGuildSkillCache,
+  setMemberGuild, clearMemberGuild,
 } from '../game/guild.js';
 import {
   getCurrentWeekStart, settleTerritoriesNow,
@@ -306,6 +307,7 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
     `INSERT INTO guild_members (guild_id, character_id, role) VALUES ($1, $2, 'leader')`,
     [g.rows[0].id, char.id]
   );
+  setMemberGuild(char.id, g.rows[0].id);
   await query('UPDATE characters SET gold = gold - $1 WHERE id = $2', [GUILD_COST, char.id]);
   res.json({ ok: true, guildId: g.rows[0].id });
 });
@@ -416,6 +418,7 @@ router.post('/applications/:appId/approve', async (req: AuthedRequest, res: Resp
   }
 
   await query('INSERT INTO guild_members (guild_id, character_id) VALUES ($1, $2)', [app.guild_id, app.character_id]);
+  setMemberGuild(app.character_id, app.guild_id);
   await query("UPDATE guild_applications SET status = 'approved' WHERE id = $1", [appId]);
   // 같은 캐릭터의 다른 길드 신청은 자동 거절
   await query("UPDATE guild_applications SET status = 'rejected' WHERE character_id = $1 AND status = 'pending'", [app.character_id]);
@@ -476,6 +479,7 @@ router.post('/kick', async (req: AuthedRequest, res: Response) => {
   }
 
   await query('DELETE FROM guild_members WHERE character_id = $1', [targetCharacterId]);
+  clearMemberGuild(targetCharacterId);
   res.json({ ok: true });
 });
 
@@ -499,6 +503,7 @@ router.post('/leave/:characterId', async (req: AuthedRequest, res: Response) => 
     await query('DELETE FROM guilds WHERE id = $1', [r.rows[0].guild_id]);
   }
   await query('DELETE FROM guild_members WHERE character_id = $1', [cid]);
+  clearMemberGuild(cid);
   res.json({ ok: true });
 });
 
@@ -512,7 +517,13 @@ router.post('/disband/:characterId', async (req: AuthedRequest, res: Response) =
   );
   if (r.rowCount === 0) return res.status(400).json({ error: 'not in guild' });
   if (r.rows[0].role !== 'leader') return res.status(403).json({ error: 'not leader' });
-  await query('DELETE FROM guilds WHERE id = $1', [r.rows[0].guild_id]);
+  // 해산 전 멤버 전원 조회 — 길드 삭제 후 CASCADE 로 guild_members 가 지워지기 전에 캐시 invalidate 목록 확보
+  const gid = r.rows[0].guild_id;
+  const members = await query<{ character_id: number }>(
+    'SELECT character_id FROM guild_members WHERE guild_id = $1', [gid]
+  );
+  await query('DELETE FROM guilds WHERE id = $1', [gid]);
+  for (const m of members.rows) clearMemberGuild(m.character_id);
   res.json({ ok: true });
 });
 
