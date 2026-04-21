@@ -1325,11 +1325,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addEffect(s, { type: 'dot', value: dotDmg, remainingActions: dotDuration, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${dotDuration}행동 (방어 50% 무시)`);
         // 마법사 전용: DoT 즉발화 — 총 도트 데미지의 50%를 즉시 추가 (실사냥 1타킬 대응)
+        // 첫 타격이 crit 이면 즉발분도 ×2 (치명타 발동 표시인데 체감 데미지가 일반 수준이던 버그 수정)
         if (s.className === 'mage') {
-          const instantDot = Math.round(dotDmg * dotDuration * 0.5);
+          const instantBase = Math.round(dotDmg * dotDuration * 0.5);
+          const instantDot = d.crit ? Math.round(instantBase * 2.0) : instantBase;
           if (instantDot > 0) {
             s.monsterHp -= instantDot;
-            addLog(s, `[${skill.name}] 도트 즉발 +${instantDot}`);
+            addLog(s, `[${skill.name}] 도트 즉발 +${instantDot}${d.crit ? '!' : ''}`);
           }
         }
         // effect_value > 0이면 N% 확률로 2회 발동 (운석 폭격 등)
