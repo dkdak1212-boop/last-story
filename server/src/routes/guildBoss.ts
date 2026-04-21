@@ -497,24 +497,22 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
 
   let guildTiersGranted: ('copper' | 'silver' | 'gold')[] = [];
   if (run.guild_id) {
-    // 길드 일일 total_damage 는 이제 applyDamageToRun 에서 실시간 누적됨.
-    // 여기서 중복 합산하면 길드 누적이 2배로 부풀어오르므로 별도 누적 제거.
-    // 마일스톤 판정만 수행.
-    const gd = await query<{ global_chest_milestones: number }>(
-      'SELECT global_chest_milestones FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
+    // 마일스톤 판정은 길드 누적 damage 기준 (현재 run 데미지 아님)
+    const gd = await query<{ global_chest_milestones: number; total_damage: string }>(
+      'SELECT global_chest_milestones, total_damage::text FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
       [run.guild_id, today]
     );
     let milestones = gd.rows[0]?.global_chest_milestones ?? 0;
-    let highestTier: typeof GUILD_TIER_MILESTONES[number] | null = null;
-    for (const m of GUILD_TIER_MILESTONES) {
-      if (totalDamage >= m.damage) highestTier = m; // 최상위 갱신
-    }
+    const guildDamage = BigInt(gd.rows[0]?.total_damage ?? '0');
+    // 길드 누적 기준으로 미달성 티어 모두 일괄 판정 (한 exit 에서 여러 티어 동시 통과 가능)
     const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
-    if (highestTier && (milestones & highestTier.bit) === 0) {
-      milestones |= highestTier.bit;
-      newlyPassed.push(highestTier);
+    for (const m of GUILD_TIER_MILESTONES) {
+      if (guildDamage >= m.damage && (milestones & m.bit) === 0) {
+        milestones |= m.bit;
+        newlyPassed.push(m);
+      }
     }
-    const killNowPassed = totalDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0;
+    const killNowPassed = guildDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0;
     if (killNowPassed) milestones |= KILL_BIT;
 
     if (newlyPassed.length > 0 || killNowPassed) {
