@@ -12,7 +12,9 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 85,                        // 60 → 85 (Railway PG max_connections=100, 시스템 연결 여유 15 남김)
+  max: 50,                        // 85 → 50: 롤링 배포 시 신·구 인스턴스 동시 점유 대비
+                                  // (50+50=100 = Railway PG max_connections 정확히 안쪽)
+                                  // A+B' 후 단일 인스턴스 기준 idle=50-80 확인되어 50으로 충분
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
