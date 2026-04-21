@@ -140,7 +140,7 @@ export function MapScreen() {
                                   ) : (
                                     <span style={{ color: 'var(--text-dim)' }}>{d.name}</span>
                                   )}
-                                  <span style={{ color: isUnique ? '#ffb060' : '#88ccff', fontWeight: 700 }}>{isUnique ? d.chance.toFixed(4) : d.chance.toFixed(2)}%</span>
+                                  <span style={{ color: isUnique ? '#ffb060' : '#88ccff', fontWeight: 700 }}>{isUnique ? (d.chance < 0.001 ? d.chance.toFixed(6) : d.chance.toFixed(4)) : d.chance.toFixed(2)}%</span>
                                 </div>
                               );
                             })}
