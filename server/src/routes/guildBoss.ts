@@ -229,6 +229,16 @@ router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => 
   );
   if (!r.rowCount) return res.status(400).json({ error: '키 차감 실패' });
 
+  // 입장 시 HP 풀피 회복 — 단, 성직자(cleric)는 자체 힐 설계상 제외
+  try {
+    await query(
+      `UPDATE characters SET hp = max_hp WHERE id = $1 AND class_name <> 'cleric'`,
+      [characterId]
+    );
+  } catch (e) {
+    console.error('[guild-boss] hp refill fail', e);
+  }
+
   // 실제 전투 세션 시작 — 보스를 가상 몬스터로 스폰
   try {
     const bossFull = await getBossById(boss.id);
