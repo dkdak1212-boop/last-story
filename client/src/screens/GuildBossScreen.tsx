@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import { useMeStore } from '../stores/meStore';
 import { useNavigate } from 'react-router-dom';
 
 interface BossInfo {
@@ -130,7 +129,6 @@ function fmt(v: string | number): string {
 
 export function GuildBossScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
-  const isAdmin = useMeStore((s) => s.me?.isAdmin ?? false);
   const navigate = useNavigate();
   const [state, setState] = useState<BossState | null>(null);
   const [err, setErr] = useState<string>('');
@@ -208,13 +206,6 @@ export function GuildBossScreen() {
   }
 
   if (!active) return null;
-  if (!isAdmin) return (
-    <div style={{ padding: 24, color: '#e55', textAlign: 'center' }}>
-      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>접근 제한</div>
-      <div style={{ fontSize: 14, marginBottom: 16 }}>길드 보스는 현재 관리자 테스트 단계입니다.</div>
-      <button onClick={() => navigate('/guild')} style={navButtonStyle(true)}>길드로 돌아가기</button>
-    </div>
-  );
   if (err) return <div style={{ padding: 24, color: '#e55' }}>오류: {err}</div>;
   if (!state) return <div style={{ padding: 24 }}>불러오는 중...</div>;
 
