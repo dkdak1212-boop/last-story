@@ -3676,14 +3676,35 @@ export function getKillStats(characterId: number): {
 // getEffectiveStats가 이미 한 번 적용한 위에 한 번 더 곱하여 기존 라이브 밸런스를 유지
 // (startCombatSession과 refreshSessionStats 양쪽이 동일한 값을 내도록 강제)
 export function applyCombatStatBoost(
-  _eff: import('../game/formulas.js').EffectiveStats,
-  _passives: Map<string, number>,
-  _equipPrefixes: Record<string, number>,
-  _charMaxHp: number,
+  eff: import('../game/formulas.js').EffectiveStats,
+  passives: Map<string, number>,
+  equipPrefixes: Record<string, number>,
+  charMaxHp: number,
 ): void {
-  // 이전에 키스톤(war_god/iron_will/trickster/berserker_heart 등)과 atk_pct/matk_pct 접두사를
-  // 여기서도 한 번 더 적용해 "의도된 이중 적용"을 만들었으나, 체감 수치가 설계값의 2배가 되는
-  // 문제로 제거. getEffectiveStats (character.ts) 단일 경로에서만 1배 적용.
+  const pMap = passives;
+  if (pMap.has('war_god')) eff.atk = Math.round(eff.atk * (1 + pMap.get('war_god')! / 100));
+  if (pMap.has('shadow_dance')) eff.dodge += pMap.get('shadow_dance')!;
+  if (pMap.has('trickster')) eff.cri += pMap.get('trickster')!;
+  if (pMap.has('iron_will')) eff.def = Math.round(eff.def * (1 + pMap.get('iron_will')! / 100));
+  const matkBonus = pMap.get('mana_overload') || 0;
+  if (matkBonus > 0) eff.matk = Math.round(eff.matk * (1 + matkBonus / 100));
+  if (pMap.has('focus_mastery')) eff.accuracy += pMap.get('focus_mastery')!;
+  if (pMap.has('berserker_heart')) {
+    const v = pMap.get('berserker_heart')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 - v / 200));
+  }
+  if (pMap.has('sanctuary_guard')) {
+    eff.maxHp += Math.round(charMaxHp * pMap.get('sanctuary_guard')! / 100);
+  }
+  if (pMap.has('balance_apostle')) {
+    const v = pMap.get('balance_apostle')!;
+    eff.atk = Math.round(eff.atk * (1 + v / 100));
+    eff.matk = Math.round(eff.matk * (1 + v / 100));
+    eff.def = Math.round(eff.def * (1 + v / 100));
+  }
+  if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
+  if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
 }
 
 // 장비/노드 변경 시 인메모리 세션 스탯 갱신
