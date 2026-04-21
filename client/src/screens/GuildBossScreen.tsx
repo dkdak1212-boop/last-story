@@ -107,7 +107,7 @@ const GUILD_TIER_MILESTONES_BN: {
   {
     label: '황금', threshold: '10억+', dmg: 1_000_000_000n, bit: 4, color: '#ffd700',
     confirmed: [
-      '강화 성공 스크롤 1',
+      '강화 성공률 스크롤 1',
       '골드 5,000,000',
       '길드 보스 메달 50',
       'EXP 두루마리 (현 레벨 5%)',

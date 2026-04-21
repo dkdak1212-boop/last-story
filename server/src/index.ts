@@ -1875,7 +1875,7 @@ async function runEquipOverhaul() {
           { section: 'large', name: '길드영웅 호칭 영구 부여', desc: '영구 호칭 "길드영웅" 획득', price: 7000, scope: 'account_total', count: 1, type: 'title_permanent', payload: { title: '길드영웅' }, order: 30, leader: false },
           // 중형
           { section: 'medium', name: '접두사 수치 재굴림권', desc: '장비 접두사 수치 재굴림 1회권', price: 1200, scope: 'weekly', count: 3, type: 'item', payload: { itemId: 322, qty: 1 }, order: 10, leader: false },
-          { section: 'medium', name: '강화 성공 스크롤', desc: '강화 100% 성공 스크롤 1회권', price: 800, scope: 'weekly', count: 5, type: 'item', payload: { itemId: 286, qty: 1 }, order: 20, leader: false },
+          { section: 'medium', name: '강화 성공률 스크롤', desc: '다음 강화의 성공 확률 +10%', price: 800, scope: 'weekly', count: 5, type: 'item', payload: { itemId: 286, qty: 1 }, order: 20, leader: false },
           { section: 'medium', name: '부스터 6시간 패키지', desc: 'EXP/골드/드랍/공격력/HP 5종 +50% 6시간 동시 부스트', price: 3000, scope: 'weekly', count: 5, type: 'boosters_package', payload: { durationMin: 360 }, order: 30, leader: false },
           // 소형
           { section: 'small', name: '골드 묶음 (100만)', desc: '즉시 골드 +1,000,000', price: 100, scope: 'daily', count: 3, type: 'gold', payload: { amount: 1000000 }, order: 10, leader: false },
