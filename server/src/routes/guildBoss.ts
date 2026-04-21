@@ -492,13 +492,8 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
   // 전투 세션 종료 (버퍼 flush 후 세션 제거)
   try { await endGuildBossCombatSession(run.character_id); } catch (e) { console.error('[guild-boss] endSession fail', e); }
 
-  // 길드 일일 누적 + 캐릭 일일 누적
+  // 캐릭 / 길드 일일 누적은 applyDamageToRun 에서 실시간 반영됨 — 여기서 중복 가산 제거.
   const today = await todayKst();
-  await query(
-    `UPDATE guild_boss_daily SET daily_damage_total = daily_damage_total + $1
-     WHERE character_id = $2 AND date = $3`,
-    [totalDamageNum, run.character_id, today]
-  );
 
   let guildTiersGranted: ('copper' | 'silver' | 'gold')[] = [];
   if (run.guild_id) {

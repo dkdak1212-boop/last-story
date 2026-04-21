@@ -169,6 +169,16 @@ export async function applyDamageToRun(
     );
   }
 
+  // 캐릭터 일일 누적 — MVP 선정용 실시간 반영
+  if (finalEffective > 0) {
+    const today = await todayKst();
+    await query(
+      `UPDATE guild_boss_daily SET daily_damage_total = daily_damage_total + $1
+       WHERE character_id = $2 AND date = $3`,
+      [finalEffective, run.character_id, today]
+    );
+  }
+
   return { effective: finalEffective, recovered, applied };
 }
 
