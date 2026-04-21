@@ -30,12 +30,9 @@ export function sumEquipmentStats(
     if (it.prefixStats) {
       if (it.prefixStats.dodge) acc.bonusDodge = (acc.bonusDodge ?? 0) + it.prefixStats.dodge;
       if (it.prefixStats.accuracy) acc.bonusAccuracy = (acc.bonusAccuracy ?? 0) + it.prefixStats.accuracy;
-      // 직접 스탯 접두사(전사의/바람의/맹수의 등) 합산 — 이전엔 누락돼 cri/spd/str 접두사가
-      // 전투 계산에 전혀 반영되지 않던 버그 수정.
-      for (const k of ['str','dex','int','vit','spd','cri'] as const) {
-        const v = (it.prefixStats as Record<string, number>)[k];
-        if (v) acc[k] = (acc[k] ?? 0) + v;
-      }
+      // 직접 스탯 접두사는 cri 만 합산. str/dex/int/vit/spd 는 유저 밸런스 충격 우려로
+      // 버그 수정을 롤백 — 기존 상태(미적용) 유지. 치명타 체감 이슈 해결 목적으로 cri 만 살림.
+      if (it.prefixStats.cri) acc.cri = (acc.cri ?? 0) + it.prefixStats.cri;
     }
   }
   return acc;
