@@ -2508,7 +2508,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   // 길드 보스 세션은 보스를 "가상 몬스터"로 스폰 (필드 풀 무시)
   if (s.guildBossRunId && s.guildBossBoss) {
     const boss = s.guildBossBoss;
-    const BOSS_HP_VIRTUAL = 10_000_000_000; // 사실상 무한 (99억, 도달 거의 불가능)
+    const BOSS_HP_VIRTUAL = 5_000_000_000; // 50억 (길드 누적 처치 임계값과 동기화)
     s.monsterId = -1 * boss.id; // 음수로 표기해 실 몬스터와 구분
     s.monsterName = boss.name;
     s.monsterLevel = 100;

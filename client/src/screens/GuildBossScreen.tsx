@@ -75,7 +75,7 @@ const BOSS_IMAGE_KEY: Record<string, string> = {
 
 const THRESHOLD_COPPER = 100_000_000n;
 const THRESHOLD_SILVER = 500_000_000n;
-const THRESHOLD_GOLD = 1_000_000_000n;
+const THRESHOLD_GOLD = 5_000_000_000n; // 50억 — 처치 임계값
 
 const GUILD_TIER_MILESTONES_BN: {
   label: string; threshold: string; dmg: bigint; bit: number; color: string;
@@ -105,11 +105,12 @@ const GUILD_TIER_MILESTONES_BN: {
     ],
   },
   {
-    label: '황금', threshold: '10억+', dmg: 1_000_000_000n, bit: 4, color: '#ffd700',
+    label: '처치', threshold: '50억+', dmg: 5_000_000_000n, bit: 4, color: '#ffd700',
     confirmed: [
       '강화 성공 스크롤 1',
       '골드 5,000,000',
       '길드 보스 메달 50',
+      '길드 보스 메달 +1000 (처치 보상 · 길드원 전원)',
       'EXP 두루마리 (현 레벨 5%)',
       '부스터 5종 패키지 (1시간)',
     ],

@@ -37,7 +37,7 @@ export async function pickRandomUnique(characterLevel: number): Promise<number |
 // 데미지 임계값 (단위: 실제 입힌 데미지)
 const THRESHOLD_COPPER = 100_000_000;      // 1억
 const THRESHOLD_SILVER = 500_000_000;      // 5억
-const THRESHOLD_GOLD = 1_000_000_000;      // 10억
+const THRESHOLD_GOLD = 5_000_000_000;      // 50억 (보스 처치 조건)
 
 const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
@@ -45,7 +45,7 @@ const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
   { bit: 1, damage: 100_000_000n,   tier: 'copper', subject: '길드 보스 — 구리 상자 (길드원 보상)' },
   { bit: 2, damage: 500_000_000n,   tier: 'silver', subject: '길드 보스 — 은빛 상자 (길드원 보상)' },
-  { bit: 4, damage: 1_000_000_000n, tier: 'gold',   subject: '길드 보스 — 황금빛 상자 (길드원 보상)' },
+  { bit: 4, damage: 5_000_000_000n, tier: 'gold',   subject: '길드 보스 — 처치! 황금빛 상자 (길드원 보상)' },
 ];
 
 // 오늘 날짜 (KST)

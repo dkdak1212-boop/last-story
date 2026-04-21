@@ -5,13 +5,13 @@ export const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
 export const THRESHOLD_COPPER = 100_000_000n;
 export const THRESHOLD_SILVER = 500_000_000n;
-export const THRESHOLD_GOLD = 1_000_000_000n;
+export const THRESHOLD_GOLD = 5_000_000_000n; // 50억 — 보스 처치 조건
 
 // 단일 run이 임계값을 돌파 → 길드원 전원에게 해당 티어 상자 배포 (일일 1회 per tier)
 export const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
   { bit: 1, damage: 100_000_000n,   tier: 'copper', subject: '길드 보스 — 구리 상자 (길드원 보상)' },
   { bit: 2, damage: 500_000_000n,   tier: 'silver', subject: '길드 보스 — 은빛 상자 (길드원 보상)' },
-  { bit: 4, damage: 1_000_000_000n, tier: 'gold',   subject: '길드 보스 — 황금빛 상자 (길드원 보상)' },
+  { bit: 4, damage: 5_000_000_000n, tier: 'gold',   subject: '길드 보스 — 처치! 황금빛 상자 (길드원 보상)' },
 ];
 
 export interface GuildBossData {
