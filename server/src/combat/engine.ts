@@ -328,6 +328,18 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
+// 길드 보스 데미지 버퍼 일괄 flush — 1초 주기 (이전엔 매 액션마다 flush 해서 DB 폭주)
+setInterval(() => {
+  (async () => {
+    for (const [, s] of activeSessions) {
+      if (!s.guildBossRunId || s.guildBossPractice) continue;
+      if (s.guildBossDmgBuffer <= 0 && s.guildBossHitsBuffer <= 0) continue;
+      try { await flushGuildBossDamage(s); }
+      catch (e) { console.error('[guild-boss] interval flush err', s.characterId, e); }
+    }
+  })().catch(err => console.error('[guild-boss] flush loop err', err));
+}, 1000);
+
 // 세션 상태 DB 주기 저장 (30초) — Stage 2: last_tick_at + 소환수/쿨다운 전체 세션
 let lastSummonSave = 0;
 setInterval(async () => {
@@ -2842,9 +2854,9 @@ async function combatTick(): Promise<void> {
         const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
         if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
         if (s.guildBossRunId && dealtThisAction > 0) {
+          // 버퍼만 누적, flush 는 1초 interval(아래 setInterval)이 담당해 DB 쓰기 부하 낮춤
           s.guildBossDmgBuffer += dealtThisAction;
           s.guildBossHitsBuffer += 1;
-          await flushGuildBossDamage(s);
         }
         handleDummyTick(s, hpBeforePl);
         if (s.monsterHp <= 0 && !isDummyMonster(s)) { await handleMonsterDeath(s); return 'break'; }
