@@ -906,7 +906,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       // 도적 독의 공명 스택 +1 per multi_hit_poison cast
       if (self.className === 'rogue') self.poisonResonance = Math.min(10, self.poisonResonance + 1);
       const dotBase = useMatk ? self.stats.matk : self.stats.atk;
-      const dotDmg = Math.round(dotBase * 2.0);
+      const dotDmg = Math.round(dotBase * 1.8); // 2.0 → 1.8 (도적 중첩독 계수 하향)
       self.statusEffects.push({ type: 'dot', value: dotDmg, remainingActions: dur, source: side });
       s.log.push(`${self.name} [${skName}] ${hits}연타+독 ${total} (치명 ${crits}/빗 ${miss}) · 독 ${dotDmg}×${dur}`);
       break;

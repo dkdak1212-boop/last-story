@@ -1286,7 +1286,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'multi_hit_poison': {
       const hits = Math.round(skill.effect_value);
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const POISON_MULTI_MULT = 2.0;
+      const POISON_MULTI_MULT = 1.8; // 2.0 → 1.8 (도적 중첩독 계수 하향)
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
       const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
       const poisonHitMult = multiAmpPoison > 0 ? skill.damage_mult * (1 + multiAmpPoison / 100) : skill.damage_mult;
@@ -1361,7 +1361,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         applyCritPostEffects(s, dmg, d.crit);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-      const POISON_MULT = 2.0;
+      const POISON_MULT = 1.8; // 2.0 → 1.8 (도적 독 스킬 계수 하향)
       const dotDmg = Math.round(dotBase * POISON_MULT);
       const poisonLordExt2 = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
       addEffect(s, { type: 'poison', value: dotDmg, remainingActions: skill.effect_duration + poisonLordExt2, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
