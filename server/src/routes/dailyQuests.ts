@@ -4,6 +4,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { applyExpGain } from '../game/leveling.js';
 import { clampCharacterPoints } from '../game/pointClamper.js';
+import { invalidateSessionMeta } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -119,6 +120,8 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
       [lvUp.newExp, id]
     );
   }
+  // 세션 캐시 무효화 — 다음 combat push 시 새 boost_until 값이 UI 로 반영됨
+  invalidateSessionMeta(id);
   res.json({ exp: expReward, boostHours: 3 });
 });
 

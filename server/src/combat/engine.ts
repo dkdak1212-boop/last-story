@@ -3035,6 +3035,13 @@ export function invalidateAutoSellCache(characterId: number): void {
   if (s) s.autoSellCache = null;
 }
 
+// 세션 메타 캐시(부스트·길드버프·exp·포션) 강제 재조회 플래그.
+// 부스트 지급/변경 시 호출 — 다음 push 타이밍에 refreshSessionMeta 로 최신화.
+export function invalidateSessionMeta(characterId: number): void {
+  const s = activeSessions.get(characterId);
+  if (s) s.metaDirty = true;
+}
+
 // ── WebSocket Push ──
 const PUSH_THROTTLE_FULL_MS = 200; // 진입 후 1분간 — 5fps (150→200, 이벤트루프 CPU 절감)
 const PUSH_THROTTLE_LITE_MS = 1500; // 이후 — 0.67fps (1000→1500, egress·CPU 절감)

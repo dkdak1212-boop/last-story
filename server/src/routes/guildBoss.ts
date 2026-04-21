@@ -620,6 +620,11 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
       [characterId]
     );
   }
+  // 세션 캐시 무효화 — 진행 중 전투 세션이 있다면 다음 push 시 새 boost 시각 반영
+  try {
+    const { invalidateSessionMeta } = await import('../combat/engine.js');
+    invalidateSessionMeta(characterId);
+  } catch {}
 }
 
 function tierLabelKr(tier: 'copper' | 'silver' | 'gold'): string {
