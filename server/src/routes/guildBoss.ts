@@ -686,6 +686,33 @@ function tierLabelKr(tier: 'copper' | 'silver' | 'gold'): string {
 // 관리자 전용: 이미 임계값 통과했지만 milestone 비트가 세팅 안 된 길드들에
 // 상자/메달 소급 지급. (exit 핸들러 milestone 기준 버그 이전에 쌓인 누적분 복구용)
 // ============================================================
+// 관리자: 특정 길드에 특정 티어 상자 수동 지급 (운영 보상용)
+// 예: POST /guild-boss/admin/grant-guild-chest?guildId=12&tier=gold
+router.post('/admin/grant-guild-chest', async (req: AuthedRequest, res: Response) => {
+  const uR = await query<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [req.userId!]);
+  if (!uR.rowCount || !uR.rows[0].is_admin) return res.status(403).json({ error: 'admin only' });
+
+  const guildId = Number(req.query.guildId);
+  const tier = String(req.query.tier || '') as 'gold' | 'silver' | 'copper';
+  if (!guildId || !['gold','silver','copper'].includes(tier)) {
+    return res.status(400).json({ error: 'guildId, tier (gold|silver|copper) 필수' });
+  }
+
+  const members = await query<{ character_id: number }>(
+    'SELECT character_id FROM guild_members WHERE guild_id = $1', [guildId]
+  );
+  let granted = 0;
+  for (const m of members.rows) {
+    try {
+      await grantChest(m.character_id, tier);
+      await deliverToMailbox(m.character_id, `운영자 — ${tierLabelKr(tier)} 지급`,
+        `운영자가 ${tierLabelKr(tier)}를 지급했습니다.`, 0, 0, 0);
+      granted++;
+    } catch (e) { console.error('[gb-manual-grant] fail', m.character_id, e); }
+  }
+  res.json({ ok: true, guildId, tier, granted, members: members.rowCount });
+});
+
 router.post('/admin/backfill', async (req: AuthedRequest, res: Response) => {
   // 관리자 체크
   const uR = await query<{ is_admin: boolean }>(
