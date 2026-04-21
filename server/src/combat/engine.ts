@@ -2782,7 +2782,12 @@ async function combatTick(): Promise<void> {
       }
 
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
-      s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale;
+      // 길드 보스: 60초 경과 후 게이지 충전 속도 2배 (장기전 페널티)
+      let monsterGaugeMult = 1;
+      if (s.guildBossRunId && s.guildBossStartedAt > 0 && Date.now() - s.guildBossStartedAt >= 60_000) {
+        monsterGaugeMult = 2;
+      }
+      s.monsterGauge += effectiveMonsterSpeed * GAUGE_FILL_RATE * tickScale * monsterGaugeMult;
 
       // 몬스터·플레이어 행동을 게이지 우선순위 기반으로 인터리브 처리
       // 각 사이드 독립 cap — 공유 cap 이면 몬스터가 액션 다 써버려 플레이어가 손해
