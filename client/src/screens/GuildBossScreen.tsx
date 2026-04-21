@@ -413,6 +413,33 @@ export function GuildBossScreen() {
         })}
       </div>
 
+      {/* 보스 처치 안내 */}
+      <div style={{
+        padding: '14px 16px', marginBottom: 22,
+        border: '1px solid #c92a2a',
+        background: 'linear-gradient(180deg, rgba(201,42,42,0.10) 0%, rgba(201,42,42,0.03) 100%)',
+        boxShadow: '0 0 24px rgba(201,42,42,0.18), inset 0 0 20px rgba(201,42,42,0.06)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+      }}>
+        <div>
+          <div style={{
+            fontSize: 10, letterSpacing: 2, color: '#ff6666', fontWeight: 800,
+            textTransform: 'uppercase', marginBottom: 4,
+          }}>보스 처치</div>
+          <div style={{ fontSize: 13, color: '#f0d0d0', fontWeight: 700 }}>
+            길드 누적 딜 50억 달성 시 — 길드원 전원 메달 +1000 지급
+          </div>
+          <div style={{ fontSize: 11, color: '#a08080', marginTop: 2 }}>
+            황금상자(10억)와는 별개로 일일 1회 지급됩니다.
+          </div>
+        </div>
+        <div style={{
+          fontSize: 22, fontWeight: 900, color: '#ffd0d0',
+          padding: '6px 14px', border: '1px solid #c92a2a22',
+          background: 'rgba(201,42,42,0.15)',
+        }}>+1000</div>
+      </div>
+
       {/* 길드 랭킹 */}
       {rankings.length > 0 && (
         <>
