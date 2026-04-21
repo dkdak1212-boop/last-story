@@ -12,9 +12,9 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 50,                        // 85 → 50: 롤링 배포 시 신·구 인스턴스 동시 점유 대비
-                                  // (50+50=100 = Railway PG max_connections 정확히 안쪽)
-                                  // A+B' 후 단일 인스턴스 기준 idle=50-80 확인되어 50으로 충분
+  max: 70,                        // 50으로 줄인 뒤 waiting=496 피크 발생 → 70으로 복구.
+                                  // 롤링 배포 순간에는 PG max_connections=100을 넘길 수 있음
+                                  // (대응책: Railway PG MAX_CONNECTIONS 증액 예정)
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
