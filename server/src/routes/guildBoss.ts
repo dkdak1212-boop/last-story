@@ -543,6 +543,24 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
               0, 0, 0);
           } catch (e) { console.error('[guild-boss] guild chest fail', e); }
         }
+        // gold 티어 = 길드 차원의 "보스 처치" — 길드원 전원 메달 1000개 추가 지급
+        if (m.tier === 'gold') {
+          try {
+            const ids = members.rows.map(mb => mb.character_id);
+            await query(
+              'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
+              [ids]
+            );
+            for (const mb of members.rows) {
+              await deliverToMailbox(
+                mb.character_id,
+                '길드 보스 처치 — 메달 1000 지급',
+                '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
+                0, 0, 0
+              );
+            }
+          } catch (e) { console.error('[guild-boss] kill medal grant fail', e); }
+        }
       }
     }
   }
