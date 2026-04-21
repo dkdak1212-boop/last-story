@@ -1049,13 +1049,13 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     }
   }
 
-  // 도적 독의 공명 — 스택 10 도달 시 폭발 (상대에게 활성 dot 합 × 3 데미지)
+  // 도적 독의 공명 — 스택 10 도달 시 폭발 (상대에게 활성 dot 합 × 2 데미지, 3→2 하향)
   if (self.className === 'rogue' && self.poisonResonance >= 10) {
     const poisonDots = self.statusEffects
       .filter(e => e.type === 'dot' && e.remainingActions > 0)
       .reduce((sum, e) => sum + e.value * e.remainingActions, 0);
     if (poisonDots > 0) {
-      const burstDmg = Math.round(poisonDots * 3);
+      const burstDmg = Math.round(poisonDots * 2);
       applyDamage(s, side, burstDmg, false, false);
       s.log.push(`💀 ${self.name} 독의 공명 폭발! ${Math.round(burstDmg * PVP_DAMAGE_MULT)} 데미지`);
     }

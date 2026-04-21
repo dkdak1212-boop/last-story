@@ -949,16 +949,17 @@ function processSummons(s: ActiveSession) {
   }
 }
 
-// 도적 독의 공명: 10 게이지 도달 시 독 폭발 (남은 도트 합계 × 3 데미지, 스택은 유지)
+// 도적 독의 공명: 10 게이지 도달 시 독 폭발 (남은 도트 합계 × 2 데미지, 스택은 유지)
 // executeSkill 시작 + 기본공격(default attack) 시작 양쪽에서 호출되어
 // 스킬을 안 쓰는 턴에도 발동 가능.
+// (×3 → ×2 하향: 폭발 피크 데미지 33% 완화, 지속 독 틱은 유지)
 function tryPoisonResonanceBurst(s: ActiveSession): void {
   if (s.className !== 'rogue' || s.poisonResonance < 10) return;
   const poisons = s.statusEffects.filter(e =>
     e.type === 'poison' && e.source === 'player' && e.remainingActions > 0
   );
   let burst = 0;
-  for (const p of poisons) burst += p.value * p.remainingActions * 3;
+  for (const p of poisons) burst += p.value * p.remainingActions * 2;
   if (burst > 0) {
     s.monsterHp -= burst;
     // raw 숫자로 출력 — 콤마 포맷이 들어가면 클라 DPS 미터 regex가 마지막 자리만 캡처함
