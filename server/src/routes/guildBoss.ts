@@ -497,64 +497,8 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
 
   let guildTiersGranted: ('copper' | 'silver' | 'gold')[] = [];
   if (run.guild_id) {
-    // 마일스톤 판정은 길드 누적 damage 기준 (현재 run 데미지 아님)
-    const gd = await query<{ global_chest_milestones: number; total_damage: string }>(
-      'SELECT global_chest_milestones, total_damage::text FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
-      [run.guild_id, today]
-    );
-    let milestones = gd.rows[0]?.global_chest_milestones ?? 0;
-    const guildDamage = BigInt(gd.rows[0]?.total_damage ?? '0');
-    // 길드 누적 기준으로 미달성 티어 모두 일괄 판정 (한 exit 에서 여러 티어 동시 통과 가능)
-    const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
-    for (const m of GUILD_TIER_MILESTONES) {
-      if (guildDamage >= m.damage && (milestones & m.bit) === 0) {
-        milestones |= m.bit;
-        newlyPassed.push(m);
-      }
-    }
-    const killNowPassed = guildDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0;
-    if (killNowPassed) milestones |= KILL_BIT;
-
-    if (newlyPassed.length > 0 || killNowPassed) {
-      await query(
-        'UPDATE guild_boss_guild_daily SET global_chest_milestones = $1 WHERE guild_id = $2 AND date = $3',
-        [milestones, run.guild_id, today]
-      );
-      const members = await query<{ character_id: number }>(
-        'SELECT character_id FROM guild_members WHERE guild_id = $1',
-        [run.guild_id]
-      );
-      // 티어 상자 지급 (copper/silver/gold 기존 로직)
-      for (const m of newlyPassed) {
-        guildTiersGranted.push(m.tier);
-        for (const mb of members.rows) {
-          try {
-            await grantChest(mb.character_id, m.tier);
-            await deliverToMailbox(mb.character_id, m.subject,
-              `${run.character_id === mb.character_id ? '내가' : '길드원이'} ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 달성 — 길드 전원에게 ${tierLabelKr(m.tier)} 지급`,
-              0, 0, 0);
-          } catch (e) { console.error('[guild-boss] guild chest fail', e); }
-        }
-      }
-      // 처치 보상 — 길드 누적 딜이 보스 HP(50억) 도달 시 메달 1000 (1회/일)
-      if (killNowPassed) {
-        try {
-          const ids = members.rows.map(mb => mb.character_id);
-          await query(
-            'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
-            [ids]
-          );
-          for (const mb of members.rows) {
-            await deliverToMailbox(
-              mb.character_id,
-              '길드 보스 처치! 메달 1000 지급',
-              '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
-              0, 0, 0
-            );
-          }
-        } catch (e) { console.error('[guild-boss] kill reward fail', e); }
-      }
-    }
+    const judged = await judgeAndGrantGuildMilestones(run.guild_id, today, run.character_id);
+    guildTiersGranted = judged.newlyPassed.filter(t => t !== 'kill') as ('copper'|'silver'|'gold')[];
   }
 
   // 본인 상자 지급
@@ -680,6 +624,71 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
 
 function tierLabelKr(tier: 'copper' | 'silver' | 'gold'): string {
   return tier === 'gold' ? '황금빛 상자' : tier === 'silver' ? '은빛 상자' : '구리 상자';
+}
+
+// ============================================================
+// 길드 누적 damage 기반 milestone 판정 + 상자/메달 즉시 지급.
+// exit 뿐 아니라 실시간 flush loop 에서도 호출되어 유저가 퇴장하지 않아도
+// 임계값 도달 즉시 길드원 전원 보상 수령.
+// ============================================================
+export async function judgeAndGrantGuildMilestones(
+  guildId: number,
+  today: string,
+  triggerCharId: number | null = null
+): Promise<{ newlyPassed: string[]; killGranted: boolean }> {
+  const gd = await query<{ global_chest_milestones: number; total_damage: string }>(
+    'SELECT global_chest_milestones, total_damage::text FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
+    [guildId, today]
+  );
+  if (!gd.rowCount) return { newlyPassed: [], killGranted: false };
+  let milestones = gd.rows[0].global_chest_milestones;
+  const guildDamage = BigInt(gd.rows[0].total_damage);
+
+  const newlyPassed: typeof GUILD_TIER_MILESTONES = [];
+  for (const m of GUILD_TIER_MILESTONES) {
+    if (guildDamage >= m.damage && (milestones & m.bit) === 0) {
+      milestones |= m.bit;
+      newlyPassed.push(m);
+    }
+  }
+  const killNowPassed = guildDamage >= THRESHOLD_KILL && (milestones & KILL_BIT) === 0;
+  if (killNowPassed) milestones |= KILL_BIT;
+  if (newlyPassed.length === 0 && !killNowPassed) return { newlyPassed: [], killGranted: false };
+
+  await query(
+    'UPDATE guild_boss_guild_daily SET global_chest_milestones = $1 WHERE guild_id = $2 AND date = $3',
+    [milestones, guildId, today]
+  );
+  const members = await query<{ character_id: number }>(
+    'SELECT character_id FROM guild_members WHERE guild_id = $1', [guildId]
+  );
+
+  for (const m of newlyPassed) {
+    for (const mb of members.rows) {
+      try {
+        await grantChest(mb.character_id, m.tier);
+        await deliverToMailbox(mb.character_id, m.subject,
+          `${triggerCharId === mb.character_id ? '내가' : '길드원이'} ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 달성 — 길드 전원에게 ${tierLabelKr(m.tier)} 지급`,
+          0, 0, 0);
+      } catch (e) { console.error('[guild-boss] chest fail', guildId, mb.character_id, e); }
+    }
+  }
+  if (killNowPassed) {
+    try {
+      const ids = members.rows.map(mb => mb.character_id);
+      await query(
+        'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
+        [ids]
+      );
+      for (const mb of members.rows) {
+        await deliverToMailbox(mb.character_id,
+          '길드 보스 처치! 메달 1000 지급',
+          '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
+          0, 0, 0);
+      }
+    } catch (e) { console.error('[guild-boss] kill reward fail', guildId, e); }
+  }
+  return { newlyPassed: newlyPassed.map(m => m.tier), killGranted: killNowPassed };
 }
 
 // ============================================================

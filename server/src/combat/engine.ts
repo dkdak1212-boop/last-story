@@ -328,15 +328,38 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
-// 길드 보스 데미지 버퍼 일괄 flush — 5초 주기 (pool 포화 대응, UI 지연 허용치 내)
+// 길드 보스 데미지 버퍼 일괄 flush + milestone 실시간 판정 — 5초 주기
 setInterval(() => {
   (async () => {
+    const guildIds = new Set<number>();
     for (const [, s] of activeSessions) {
       if (!s.guildBossRunId || s.guildBossPractice) continue;
-      if (s.guildBossDmgBuffer <= 0 && s.guildBossHitsBuffer <= 0) continue;
-      try { await flushGuildBossDamage(s); }
-      catch (e) { console.error('[guild-boss] interval flush err', s.characterId, e); }
+      if (s.guildBossDmgBuffer > 0 || s.guildBossHitsBuffer > 0) {
+        try { await flushGuildBossDamage(s); }
+        catch (e) { console.error('[guild-boss] interval flush err', s.characterId, e); }
+      }
+      // run 의 guild_id 는 DB 에서만 알 수 있음 — runId 로 lookup
     }
+    // 활성 길드보스 run 의 guild_id 수집 후 각 길드 milestone 실시간 판정
+    try {
+      const gr = await (await import('../db/pool.js')).query<{ guild_id: number }>(
+        `SELECT DISTINCT guild_id FROM guild_boss_runs
+          WHERE ended_at IS NULL AND guild_id IS NOT NULL
+            AND id !~ '^[^0-9]'`   // practice- 프리픽스 제외
+      );
+      if (gr.rowCount && gr.rowCount > 0) {
+        const { judgeAndGrantGuildMilestones } = await import('../routes/guildBoss.js');
+        // KST 오늘 날짜 문자열
+        const dr = await (await import('../db/pool.js')).query<{ d: string }>(
+          "SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d"
+        );
+        const today = dr.rows[0].d;
+        for (const row of gr.rows) {
+          try { await judgeAndGrantGuildMilestones(row.guild_id, today, null); }
+          catch (e) { console.error('[guild-boss] realtime judge err', row.guild_id, e); }
+        }
+      }
+    } catch (e) { console.error('[guild-boss] realtime judge setup err', e); }
   })().catch(err => console.error('[guild-boss] flush loop err', err));
 }, 5000);
 
