@@ -1158,8 +1158,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const bleedChance = getPassive(s, 'bleed_on_hit');
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
           const bleedBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
-          const bleedDmg = Math.round(bleedBase * 1.2);
-          addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player', dotMult: 1.2, dotUseMatk: useMatk });
+          const bleedDmg = Math.round(bleedBase * 2.0); // 1.2 → 2.0 상향
+          addEffect(s, { type: 'dot', value: bleedDmg, remainingActions: 3, source: 'player', dotMult: 2.0, dotUseMatk: useMatk });
           addLog(s, `출혈! ${bleedDmg}/행동 x3 (방어 50% 무시)`);
         }
 

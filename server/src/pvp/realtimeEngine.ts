@@ -696,7 +696,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     const bleed = getFPassive(self, 'bleed_on_hit');
     if (bleed > 0 && Math.random() * 100 < bleed) {
       const bleedBase = useMatk ? self.stats.matk : self.stats.atk;
-      const bleedDmg = Math.round(bleedBase * 1.2);
+      const bleedDmg = Math.round(bleedBase * 2.0); // 1.2 → 2.0 상향
       self.statusEffects.push({ type: 'dot', value: bleedDmg, remainingActions: 3, source: side });
     }
     // skill_double_chance 패시브 (마법사 시간 지배자 등) — 스킬 1회 추가 발동
