@@ -502,15 +502,9 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
 
   let guildTiersGranted: ('copper' | 'silver' | 'gold')[] = [];
   if (run.guild_id) {
-    // 길드 일일 누적은 랭킹 표시용으로만 유지
-    await query(
-      `INSERT INTO guild_boss_guild_daily (guild_id, date, total_damage)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (guild_id, date) DO UPDATE SET total_damage = guild_boss_guild_daily.total_damage + EXCLUDED.total_damage`,
-      [run.guild_id, today, totalDamageNum]
-    );
-    // 이 run의 데미지가 임계값을 넘으면 길드원 전원에게 해당 티어 상자 배포 (일일 1회/티어)
-    // 한 run에서는 달성한 가장 높은 티어 "하나만" 발동 (낮은 티어는 같은 run에서 동시 발동 안 함)
+    // 길드 일일 total_damage 는 이제 applyDamageToRun 에서 실시간 누적됨.
+    // 여기서 중복 합산하면 길드 누적이 2배로 부풀어오르므로 별도 누적 제거.
+    // 마일스톤 판정만 수행.
     const gd = await query<{ global_chest_milestones: number }>(
       'SELECT global_chest_milestones FROM guild_boss_guild_daily WHERE guild_id = $1 AND date = $2',
       [run.guild_id, today]

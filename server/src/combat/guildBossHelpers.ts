@@ -155,14 +155,17 @@ export async function applyDamageToRun(
     );
   }
 
-  // total_hits 컬럼은 유지 (통계/랭킹용) — 누적 디버프 증폭 로직만 제거됨.
-  if (hits > 0 && run.guild_id) {
+  // 길드 일일 누적 — damage + hits 실시간 반영. (exit 시점까지 기다리지 않고
+  // 진행 중에도 길드 누적 UI가 업데이트 되도록.)
+  if (run.guild_id && (finalEffective > 0 || hits > 0)) {
     const today = await todayKst();
     await query(
-      `INSERT INTO guild_boss_guild_daily (guild_id, date, total_hits)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (guild_id, date) DO UPDATE SET total_hits = guild_boss_guild_daily.total_hits + $3`,
-      [run.guild_id, today, hits]
+      `INSERT INTO guild_boss_guild_daily (guild_id, date, total_damage, total_hits)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (guild_id, date) DO UPDATE
+         SET total_damage = guild_boss_guild_daily.total_damage + EXCLUDED.total_damage,
+             total_hits   = guild_boss_guild_daily.total_hits   + EXCLUDED.total_hits`,
+      [run.guild_id, today, finalEffective, hits]
     );
   }
 
