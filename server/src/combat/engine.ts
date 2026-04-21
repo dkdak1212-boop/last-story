@@ -1221,6 +1221,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             const dmg3 = applyDamagePrefixes(s, d3.damage, d3.crit, { consumeOneShot: false, skillName: skill.name });
             s.monsterHp -= dmg3;
             addLog(s, `[칼날 추가타] ${dmg3}${d3.crit ? '!' : ''}`);
+            applyCritPostEffects(s, dmg3, d3.crit);
           }
         }
       }
@@ -1667,6 +1668,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const total = applyDamagePrefixes(s, d.damage + defBonus, d.crit, { skillName: skill.name });
         s.monsterHp -= total;
         addLog(s, `[${skill.name}] ${total} 데미지${d.crit ? '!' : ''} (방어력 +${defBonus})`);
+        applyCritPostEffects(s, total, d.crit);
       } else {
         addLog(s, `[${skill.name}] 빗나감!`);
       }
@@ -1681,6 +1683,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] 실드 파괴 + ${dmg} 데미지${d.crit ? '!' : ''}`);
+        applyCritPostEffects(s, dmg, d.crit);
       }
       const buffPct = skill.effect_value || 50;
       const buffDur = skill.effect_duration || 3;
