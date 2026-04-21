@@ -977,26 +977,24 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 쿨다운 설정
   // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
   // mana_flow: 추가 턴 수 감소 (예: 1 → -1턴)
-  // 마법사 마나의 흐름 버스트 중에는 쿨다운 감소 적용 안 함 (기본 쿨다운만 저장)
+  // 마법사 마나의 흐름 버스트 중에도 쿨감은 적용 — 버스트 중엔 쿨다운 자체를 무시하지만
+  // 저장되는 숫자는 쿨감이 반영된 값이어야 버스트 종료 후 쿨감 효과가 유지됨.
   if (skill.cooldown_actions > 0) {
-    const manaBurst = s.className === 'mage' && s.manaFlowActive > 0;
     let cd = skill.cooldown_actions;
-    if (!manaBurst) {
-      const cdReducePct = getPassive(s, 'cooldown_reduce');
-      const cdFlat = getPassive(s, 'mana_flow');
-      // 소환사 신규: summon_*_cdr 는 소환 계열 스킬에만 적용
-      const isSummonSkill = skill.effect_type === 'summon' || skill.effect_type.startsWith('summon_');
-      const summonCdFlat = isSummonSkill ? (
-        getPassive(s, 'summon_support_cdr') +
-        getPassive(s, 'summon_all_cdr') +
-        getPassive(s, 'summon_tank_cdr') +
-        getPassive(s, 'summon_dps_cdr') +
-        getPassive(s, 'summon_hybrid_cdr')
-      ) : 0;
-      if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
-      if (cdFlat > 0) cd = cd - cdFlat;
-      if (summonCdFlat > 0) cd = cd - summonCdFlat;
-    }
+    const cdReducePct = getPassive(s, 'cooldown_reduce');
+    const cdFlat = getPassive(s, 'mana_flow');
+    // 소환사 신규: summon_*_cdr 는 소환 계열 스킬에만 적용
+    const isSummonSkill = skill.effect_type === 'summon' || skill.effect_type.startsWith('summon_');
+    const summonCdFlat = isSummonSkill ? (
+      getPassive(s, 'summon_support_cdr') +
+      getPassive(s, 'summon_all_cdr') +
+      getPassive(s, 'summon_tank_cdr') +
+      getPassive(s, 'summon_dps_cdr') +
+      getPassive(s, 'summon_hybrid_cdr')
+    ) : 0;
+    if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
+    if (cdFlat > 0) cd = cd - cdFlat;
+    if (summonCdFlat > 0) cd = cd - summonCdFlat;
     cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);
   }
