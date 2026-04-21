@@ -9,7 +9,7 @@ import { loadEquipPrefixes, getCharSkills, buildPassiveMap, applyCombatStatBoost
 import { getIo } from '../ws/io.js';
 
 const GAUGE_MAX = 1000;
-const GAUGE_FILL_RATE = 0.1;     // speed × rate = 틱당 충전량
+const GAUGE_FILL_RATE = 0.5;     // speed × rate = 틱당 충전량 (0.1 → 0.5: 행동 속도 5배)
 const TICK_MS = 100;
 const TIME_LIMIT_MS = 180_000;   // 3분
 const MANUAL_TIMEOUT_MS = 3000;  // 수동 대기 시간 — 초과 시 자동 발동
