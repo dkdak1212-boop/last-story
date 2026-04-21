@@ -277,8 +277,18 @@ async function gracefulShutdown(signal: string) {
   try {
     httpServer.close(() => {
       console.log('[shutdown] http closed');
-      process.exit(0);
     });
+    // DB pool 연결 즉시 해제 — 옛 인스턴스가 점유한 70개 연결을 빨리 반환시켜
+    // 롤링 배포 시 새 인스턴스가 PG max_connections(100) 한도 안에서 시작하도록.
+    try {
+      const { pool } = await import('./db/pool.js');
+      await pool.end();
+      console.log('[shutdown] pg pool ended');
+    } catch (e) {
+      console.error('[shutdown] pool.end err', e);
+    }
+    // 짧은 여유 후 종료
+    setTimeout(() => process.exit(0), 500).unref();
     // 강제 종료 타이머 — 10초 내 graceful close 안 되면 exit
     setTimeout(() => {
       console.warn('[shutdown] force exit after 10s');
