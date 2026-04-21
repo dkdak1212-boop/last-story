@@ -693,7 +693,9 @@ router.post('/admin/backfill', async (req: AuthedRequest, res: Response) => {
   );
   if (!uR.rowCount || !uR.rows[0].is_admin) return res.status(403).json({ error: 'admin only' });
 
-  const today = await todayKst();
+  // 쿼리 파라미터 date 지정 가능. 형식 YYYY-MM-DD. 기본값 = 오늘 (KST).
+  const dateParam = (req.query.date as string | undefined);
+  const today = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : await todayKst();
   const rows = await query<{ guild_id: number; total_damage: string; global_chest_milestones: number }>(
     `SELECT guild_id, total_damage::text, global_chest_milestones
        FROM guild_boss_guild_daily WHERE date = $1`,
