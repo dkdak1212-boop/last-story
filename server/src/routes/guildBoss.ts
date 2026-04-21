@@ -108,8 +108,9 @@ router.get('/state/:characterId', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'character not found' });
 
+  // 일반 유저도 길드보스 접근 허용 — 길드 미가입자는 개인 run 진행만 가능
+  // (길드 누적·티어 상자·처치 보상은 길드 소속 시에만 반영)
   const guildId = await getCharacterGuildId(characterId);
-  if (!guildId) return res.status(403).json({ error: '길드 가입 필요' });
 
   const boss = await getTodaysBoss();
   if (!boss) return res.status(500).json({ error: '오늘의 보스 설정 없음' });
@@ -195,8 +196,9 @@ router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => 
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'character not found' });
 
+  // 일반 유저도 길드보스 접근 허용 — 길드 미가입자는 개인 run 진행만 가능
+  // (길드 누적·티어 상자·처치 보상은 길드 소속 시에만 반영)
   const guildId = await getCharacterGuildId(characterId);
-  if (!guildId) return res.status(403).json({ error: '길드 가입 필요' });
 
   const boss = await getTodaysBoss();
   if (!boss) return res.status(500).json({ error: '오늘의 보스 설정 없음' });
@@ -263,8 +265,9 @@ router.post('/practice/:characterId', async (req: AuthedRequest, res: Response) 
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'character not found' });
 
+  // 일반 유저도 길드보스 접근 허용 — 길드 미가입자는 개인 run 진행만 가능
+  // (길드 누적·티어 상자·처치 보상은 길드 소속 시에만 반영)
   const guildId = await getCharacterGuildId(characterId);
-  if (!guildId) return res.status(403).json({ error: '길드 가입 필요' });
 
   const boss = await getTodaysBoss();
   if (!boss) return res.status(500).json({ error: '오늘의 보스 설정 없음' });

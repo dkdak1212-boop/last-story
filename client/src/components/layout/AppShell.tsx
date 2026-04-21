@@ -25,6 +25,7 @@ const NAV: NavItem[] = [
   { to: '/marketplace', label: '거래소' },
   { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },
+  { to: '/guild-boss', label: '길드보스' },
   { to: '/pvp', label: 'PvP' },
   { to: '/mailbox', label: '우편함' },
   { to: '/ranking', label: '랭킹' },

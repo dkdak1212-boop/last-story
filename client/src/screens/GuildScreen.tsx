@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import { useMeStore } from '../stores/meStore';
 
 interface GuildSummary {
   id: number; name: string; description: string;
@@ -76,7 +75,6 @@ export function GuildScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
   const refresh = useCharacterStore((s) => s.refreshActive);
   const navigate = useNavigate();
-  const isAdmin = useMeStore((s) => s.me?.isAdmin ?? false);
   const [my, setMy] = useState<MyGuild | null>(null);
   const [guilds, setGuilds] = useState<GuildSummary[]>([]);
   const [creating, setCreating] = useState(false);
@@ -350,18 +348,16 @@ export function GuildScreen() {
 
   return (
     <div>
-      {/* 길드 보스 진입 — 테스트 중, 관리자만 */}
-      {isAdmin && (
-        <div style={{ marginBottom: 12 }}>
-          <button onClick={() => navigate('/guild-boss')} style={{
-            width: '100%', padding: 12, fontSize: 14, fontWeight: 700,
-            background: 'linear-gradient(90deg, #daa520, #ffd66b)',
-            color: '#000', border: 'none', cursor: 'pointer',
-          }}>
-            길드 보스 입장 → <span style={{ fontSize: 11, fontWeight: 400 }}>(관리자 테스트)</span>
-          </button>
-        </div>
-      )}
+      {/* 길드 보스 진입 — 전체 공개 */}
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => navigate('/guild-boss')} style={{
+          width: '100%', padding: 12, fontSize: 14, fontWeight: 700,
+          background: 'linear-gradient(90deg, #daa520, #ffd66b)',
+          color: '#000', border: 'none', cursor: 'pointer',
+        }}>
+          길드 보스 입장 →
+        </button>
+      </div>
       {/* 뷰 토글: 내 길드 ↔ 길드 랭킹 */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '2px solid var(--border)' }}>
         <button onClick={() => setView('my')} style={{
