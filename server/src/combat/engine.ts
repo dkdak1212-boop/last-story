@@ -328,7 +328,7 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
-// 길드 보스 데미지 버퍼 일괄 flush — 1초 주기 (이전엔 매 액션마다 flush 해서 DB 폭주)
+// 길드 보스 데미지 버퍼 일괄 flush — 5초 주기 (pool 포화 대응, UI 지연 허용치 내)
 setInterval(() => {
   (async () => {
     for (const [, s] of activeSessions) {
@@ -338,7 +338,7 @@ setInterval(() => {
       catch (e) { console.error('[guild-boss] interval flush err', s.characterId, e); }
     }
   })().catch(err => console.error('[guild-boss] flush loop err', err));
-}, 1000);
+}, 5000);
 
 // 세션 상태 DB 주기 저장 (30초) — Stage 2: last_tick_at + 소환수/쿨다운 전체 세션
 let lastSummonSave = 0;
