@@ -1340,8 +1340,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULTI_MULT = 1.8; // 2.0 → 1.8 (도적 중첩독 계수 하향)
       const dotDmg = Math.round(dotBase * POISON_MULTI_MULT);
+      // 암살자의 진수 키스톤 (chain_action_amp) — 연계 행동 증폭 +%
+      // multi_hit 케이스와 동일 패턴, 도적 multi_hit_poison 스킬에도 적용되도록
+      const chainAmp = getPassive(s, 'chain_action_amp');
       const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
-      const poisonHitMult = multiAmpPoison > 0 ? skill.damage_mult * (1 + multiAmpPoison / 100) : skill.damage_mult;
+      const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
+      const poisonHitMult = multiAmpPoison > 0 ? baseChain * (1 + multiAmpPoison / 100) : baseChain;
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, poisonHitMult, useMatk);
