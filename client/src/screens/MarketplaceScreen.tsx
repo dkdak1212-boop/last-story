@@ -547,20 +547,40 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
           <div style={{ marginBottom: 6 }}>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>아이템 스탯</div>
             <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} quality={a.quality || 0} />
-            {a.itemSlot && equipped && (equipped as any)[a.itemSlot] && (
-              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px dashed var(--border)' }}>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 2, fontWeight: 700 }}>
-                  vs 내 장착 {(equipped as any)[a.itemSlot].name}
-                  {(equipped as any)[a.itemSlot].enhanceLevel ? ` +${(equipped as any)[a.itemSlot].enhanceLevel}` : ''}
+            {a.itemSlot && equipped && (equipped as any)[a.itemSlot] && (() => {
+              const eq = (equipped as any)[a.itemSlot];
+              return (
+                <div style={{ marginTop: 8, padding: 8, background: 'rgba(218,165,32,0.05)', border: '1px solid rgba(218,165,32,0.25)', borderRadius: 4 }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>
+                    내 장착 중 · <span style={nameStyle(eq.grade, 11)}>{eq.name}</span>
+                    {eq.enhanceLevel ? <span style={{ color: 'var(--accent)', fontWeight: 700 }}> +{eq.enhanceLevel}</span> : ''}
+                    {eq.quality ? <span style={{ color: 'var(--text-dim)' }}> · 품질 {eq.quality}%</span> : ''}
+                  </div>
+                  {/* 내 장착 스탯 (base stats 에 강화·품질 적용) */}
+                  <ItemStatsBlock stats={eq.baseStats || eq.stats} enhanceLevel={eq.enhanceLevel || 0} quality={eq.quality || 0} />
+                  {/* 내 장착 접두사 */}
+                  {eq.prefixStats && Object.keys(eq.prefixStats).length > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      <PrefixDisplay prefixStats={eq.prefixStats} prefixTiers={eq.prefixTiers} />
+                    </div>
+                  )}
+                  {/* 매물 대비 내 장착 diff — 매물로 바꿨을 때 변화량 (+ 면 매물이 더 좋음) */}
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>
+                      매물 교체 시 변화량 (+ 증가 / − 감소)
+                    </div>
+                    <ItemComparison
+                      itemStats={a.itemStats}
+                      equippedStats={eq.baseStats || eq.stats}
+                      itemEnhance={el}
+                      equippedEnhance={eq.enhanceLevel || 0}
+                      itemQuality={a.quality || 0}
+                      equippedQuality={eq.quality || 0}
+                    />
+                  </div>
                 </div>
-                <ItemComparison
-                  itemStats={a.itemStats}
-                  equippedStats={(equipped as any)[a.itemSlot].stats}
-                  itemEnhance={el}
-                  equippedEnhance={(equipped as any)[a.itemSlot].enhanceLevel || 0}
-                />
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
         {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
