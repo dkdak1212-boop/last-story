@@ -2380,11 +2380,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   // 글로벌 이벤트 배율 (서버 전체 공용)
   const ge = await getActiveGlobalEvent();
+  // 오프라인 보정 배율 — 1초 tick 자연 효율 ~68% 을 보상 ×1.4 로 ~95% 도달
+  // 전투화면 활성 (hasSub=true → s.offline=false) 은 배율 없음 (기존 100% 유지)
+  const offlineMult = s.offline ? OFFLINE_REWARD_MULT : 1;
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
+  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold * offlineMult);
   const levelDiffMult = computeLevelDiffExpMult(charMetaLevel, m.level);
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult);
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult * offlineMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
@@ -2420,7 +2423,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트 + 레벨차 페널티
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult);
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult * offlineMult);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp);
@@ -2471,7 +2474,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     .catch(err => console.error('[combat] trackMonsterKill err', err));
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult * offlineMult);
   // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)
   if (!s.autoSellCache) {
     await loadAutoSellCache(s);
@@ -2779,6 +2782,9 @@ const TICK_TARGET_MS = 100;
 // 세션별 마지막 tick 시각 (백그라운드 세션 간격 조절용)
 const sessionLastTickAt = new Map<number, number>();
 const OFFLINE_TICK_INTERVAL_MS = 1000; // 구독자 없는 세션은 1초 간격 — 쿼리 분산 완충 역할
+// 오프라인 보상 보정 배율 — 1초 tick 자연 효율 ~68%(몬스터 리스폰 지연·액션 압축 등 손실분) 을
+// ×1.4 로 보정해 실질 ~95% 체감 효율 도달. EXP/골드/드랍 전부 적용. CPU 부하 변동 없음.
+const OFFLINE_REWARD_MULT = 1.4;
 
 async function combatTick(): Promise<void> {
   const now = Date.now();
