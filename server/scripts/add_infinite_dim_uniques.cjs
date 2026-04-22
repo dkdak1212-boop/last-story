@@ -53,12 +53,8 @@ const ARMOR_TEMPLATES = {
     { name: '차원 직조자의 의복',  stats: { hp: 1700, def: 175, matk: 100 },            uniq: { matk_pct: 14, hp_regen: 70 },            desc: '마법공격 +14%, HP 재생 +70' },
     { name: '영원불멸의 갑주',     stats: { hp: 2200, def: 190 },                       uniq: { hp_pct: 18, lifesteal_pct: 20 },         desc: '최대 HP +18%, 흡혈 +20%' },
   ],
-  legs: [
-    { name: '무한 도약의 각반',    stats: { hp: 1450, def: 150, spd: 50 },              uniq: { matk_pct: 8, atk_pct: 8 },               desc: '공격/마법공격 +8%' },
-    { name: '시공 보행의 각반',    stats: { hp: 1500, def: 155, dex: 18 },              uniq: { ambush_pct: 25, first_strike_pct: 20 }, desc: '각성 +25%, 약점간파 +20%' },
-    { name: '차원 균열의 각반',    stats: { hp: 1400, def: 145, vit: 22 },              uniq: { hp_pct: 12, hp_regen: 80 },              desc: '최대 HP +12%, HP 재생 +80' },
-    { name: '영원의 무릎보호대',   stats: { hp: 1550, def: 160, cri: 5 },               uniq: { crit_dmg_pct: 22, predator_pct: 15 },    desc: '치명타 데미지 +22%, 포식자 +15%' },
-  ],
+  // legs 유니크는 아직 미출시 — 제거됨 (migration 037)
+  legs: [],
   boots: [
     { name: '무한 질주의 신발',    stats: { hp: 1300, def: 130, spd: 70 },              uniq: { atk_pct: 10, matk_pct: 10 },             desc: '공격/마법공격 +10%' },
     { name: '시공 침투자의 부츠',  stats: { hp: 1350, def: 135, dex: 20 },              uniq: { first_strike_pct: 30, ambush_pct: 20 }, desc: '약점간파 +30%, 각성 +20%' },
