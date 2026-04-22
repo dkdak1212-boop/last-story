@@ -18,6 +18,24 @@ import {
 const router = Router();
 router.use(authRequired);
 
+// 길드 탈퇴 후 재가입·생성 쿨타임 체크 — 활성 시 남은 ms 반환, 아니면 0
+async function getGuildCooldownRemainingMs(characterId: number): Promise<number> {
+  const r = await query<{ until: string | null }>(
+    'SELECT guild_cooldown_until::text AS until FROM characters WHERE id = $1', [characterId]
+  );
+  const until = r.rows[0]?.until;
+  if (!until) return 0;
+  const diff = new Date(until).getTime() - Date.now();
+  return diff > 0 ? diff : 0;
+}
+
+function formatCooldownMsg(remainingMs: number): string {
+  const h = Math.floor(remainingMs / 3_600_000);
+  const m = Math.floor((remainingMs % 3_600_000) / 60_000);
+  if (h > 0) return `길드 탈퇴 쿨타임 중입니다 (${h}시간 ${m}분 남음)`;
+  return `길드 탈퇴 쿨타임 중입니다 (${m}분 남음)`;
+}
+
 const GUILD_COST = 100000;
 
 // 길드 목록
@@ -65,7 +83,11 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
      WHERE gm.character_id = $1`,
     [cid]
   );
-  if (r.rowCount === 0) return res.json({ guild: null });
+  if (r.rowCount === 0) {
+    // 길드 없음 — 탈퇴 쿨타임 정보 포함 (UI 카운트다운용)
+    const cdMs = await getGuildCooldownRemainingMs(cid);
+    return res.json({ guild: null, cooldownMs: cdMs });
+  }
   const g = r.rows[0];
 
   const mr = await query<{
@@ -295,6 +317,10 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   const exists = await query('SELECT 1 FROM guild_members WHERE character_id = $1', [char.id]);
   if (exists.rowCount && exists.rowCount > 0) return res.status(400).json({ error: 'already in guild' });
 
+  // 탈퇴 쿨타임 체크
+  const cdMs = await getGuildCooldownRemainingMs(char.id);
+  if (cdMs > 0) return res.status(400).json({ error: formatCooldownMsg(cdMs) });
+
   // 이름 중복
   const dup = await query('SELECT 1 FROM guilds WHERE name = $1', [parsed.data.name]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(409).json({ error: 'name taken' });
@@ -322,6 +348,10 @@ router.post('/:guildId/apply', async (req: AuthedRequest, res: Response) => {
 
   const ex = await query('SELECT 1 FROM guild_members WHERE character_id = $1', [char.id]);
   if (ex.rowCount && ex.rowCount > 0) return res.status(400).json({ error: '이미 길드에 가입되어 있습니다' });
+
+  // 탈퇴 쿨타임 체크
+  const cdMs = await getGuildCooldownRemainingMs(char.id);
+  if (cdMs > 0) return res.status(400).json({ error: formatCooldownMsg(cdMs) });
 
   const g = await query<{ max_members: number; count: string }>(
     `SELECT g.max_members, (SELECT COUNT(*) FROM guild_members WHERE guild_id=g.id)::text AS count
@@ -417,6 +447,13 @@ router.post('/applications/:appId/approve', async (req: AuthedRequest, res: Resp
     return res.status(400).json({ error: '신청자가 이미 다른 길드에 가입되어 있습니다' });
   }
 
+  // 신청자의 탈퇴 쿨타임 체크 (신청은 쿨타임 체크를 통과했으나 그 뒤 쿨타임이 새로 걸린 경우 방어)
+  const cdMs = await getGuildCooldownRemainingMs(app.character_id);
+  if (cdMs > 0) {
+    await query("UPDATE guild_applications SET status = 'rejected' WHERE id = $1", [appId]);
+    return res.status(400).json({ error: `신청자 ${formatCooldownMsg(cdMs)}` });
+  }
+
   await query('INSERT INTO guild_members (guild_id, character_id) VALUES ($1, $2)', [app.guild_id, app.character_id]);
   setMemberGuild(app.character_id, app.guild_id);
   await query("UPDATE guild_applications SET status = 'approved' WHERE id = $1", [appId]);
@@ -504,6 +541,11 @@ router.post('/leave/:characterId', async (req: AuthedRequest, res: Response) => 
   }
   await query('DELETE FROM guild_members WHERE character_id = $1', [cid]);
   clearMemberGuild(cid);
+  // 탈퇴 쿨타임 24시간 — 즉시 재가입/생성 방지
+  await query(
+    `UPDATE characters SET guild_cooldown_until = NOW() + INTERVAL '24 hours' WHERE id = $1`,
+    [cid]
+  );
   res.json({ ok: true });
 });
 
