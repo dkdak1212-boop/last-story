@@ -159,8 +159,12 @@ export async function applyDamageToRun(
 
   // 길드 일일 누적 — damage + hits 실시간 반영. (exit 시점까지 기다리지 않고
   // 진행 중에도 길드 누적 UI가 업데이트 되도록.)
-  if (run.guild_id && (finalEffective > 0 || hits > 0)) {
-    const today = await todayKst();
+  // todayKst() 는 호출당 1회만 (이전: 최대 2회 중복 SELECT)
+  const needGuildDaily = run.guild_id !== null && (finalEffective > 0 || hits > 0);
+  const needCharDaily = finalEffective > 0;
+  const today = (needGuildDaily || needCharDaily) ? await todayKst() : '';
+
+  if (needGuildDaily) {
     await query(
       `INSERT INTO guild_boss_guild_daily (guild_id, date, total_damage, total_hits)
        VALUES ($1, $2, $3, $4)
@@ -172,8 +176,7 @@ export async function applyDamageToRun(
   }
 
   // 캐릭터 일일 누적 — MVP 선정용 실시간 반영
-  if (finalEffective > 0) {
-    const today = await todayKst();
+  if (needCharDaily) {
     await query(
       `UPDATE guild_boss_daily SET daily_damage_total = daily_damage_total + $1
        WHERE character_id = $2 AND date = $3`,

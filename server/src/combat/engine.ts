@@ -207,6 +207,13 @@ interface ActiveSession {
   cachedBoosts: { name: string; until: string }[];
   cachedPotions: { small: number; mid: number; high: number; max: number };
   cachedGuildBuffs: { hp: number; gold: number; exp: number; drop: number };
+  // 킬 시 부스트/레벨 판정용 raw 캐시 — refreshSessionMeta 가 채움. null 이면 DB fallback.
+  cachedCharMeta: {
+    level: number;
+    expBoostUntilMs: number | null;
+    goldBoostUntilMs: number | null;
+    dropBoostUntilMs: number | null;
+  } | null;
   monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
   autoSellCache: {
     auto_dismantle_tiers: number;
@@ -329,9 +336,12 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
 
 // 길드 보스 데미지 버퍼 일괄 flush + milestone 실시간 판정 — 5초 주기
+// reentry guard: 한 사이클이 5초를 넘기면 다음 tick 스킵(풀 경합 완화)
+let guildBossFlushRunning = false;
 setInterval(() => {
+  if (guildBossFlushRunning) return;
+  guildBossFlushRunning = true;
   (async () => {
-    const guildIds = new Set<number>();
     for (const [, s] of activeSessions) {
       if (!s.guildBossRunId || s.guildBossPractice) continue;
       if (s.guildBossDmgBuffer > 0 || s.guildBossHitsBuffer > 0) {
@@ -360,7 +370,9 @@ setInterval(() => {
         }
       }
     } catch (e) { console.error('[guild-boss] realtime judge setup err', e); }
-  })().catch(err => console.error('[guild-boss] flush loop err', err));
+  })()
+    .catch(err => console.error('[guild-boss] flush loop err', err))
+    .finally(() => { guildBossFlushRunning = false; });
 }, 5000);
 
 // 세션 상태 DB 주기 저장 (30초) — Stage 2: last_tick_at + 소환수/쿨다운 전체 세션
@@ -2306,20 +2318,35 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
   }
 
-  // 접두사 + 프리미엄 부스터 + 레벨 (1 쿼리로 통합)
-  const charBoost = await query<{
-    gold_boost_until: string | null; drop_boost_until: string | null;
-    exp_boost_until: string | null; level: number;
-  }>(
-    'SELECT gold_boost_until, drop_boost_until, exp_boost_until, level FROM characters WHERE id = $1',
-    [s.characterId]
-  );
-  const charBoostRow = charBoost.rows[0];
+  // 접두사 + 프리미엄 부스터 + 레벨 — 세션 캐시(cachedCharMeta) 사용. 캐시 미스 시 1회 DB 폴백.
+  if (!s.cachedCharMeta) {
+    try {
+      const r = await query<{
+        gold_boost_until: string | null; drop_boost_until: string | null;
+        exp_boost_until: string | null; level: number;
+      }>(
+        'SELECT gold_boost_until, drop_boost_until, exp_boost_until, level FROM characters WHERE id = $1',
+        [s.characterId]
+      );
+      const row = r.rows[0];
+      if (row) {
+        s.cachedCharMeta = {
+          level: row.level,
+          expBoostUntilMs: row.exp_boost_until ? new Date(row.exp_boost_until).getTime() : null,
+          goldBoostUntilMs: row.gold_boost_until ? new Date(row.gold_boost_until).getTime() : null,
+          dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
+        };
+      }
+    } catch {}
+  }
+  const charMetaCached = s.cachedCharMeta;
+  const nowMs = Date.now();
   const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
   const expBonusPct = s.equipPrefixes.exp_bonus_pct || 0;
-  const goldBoostActive = charBoostRow?.gold_boost_until && new Date(charBoostRow.gold_boost_until) > new Date();
-  const dropBoostActive = charBoostRow?.drop_boost_until && new Date(charBoostRow.drop_boost_until) > new Date();
-  const isExpBoosted = charBoostRow?.exp_boost_until && new Date(charBoostRow.exp_boost_until) > new Date();
+  const goldBoostActive = !!(charMetaCached?.goldBoostUntilMs && charMetaCached.goldBoostUntilMs > nowMs);
+  const dropBoostActive = !!(charMetaCached?.dropBoostUntilMs && charMetaCached.dropBoostUntilMs > nowMs);
+  const isExpBoosted = !!(charMetaCached?.expBoostUntilMs && charMetaCached.expBoostUntilMs > nowMs);
+  const charMetaLevel = charMetaCached?.level ?? 1;
   // 길드 스킬 버프: 세션 캐시 재사용 (refreshSessionMeta가 이미 GUILD_SKILL_PCT 곱한 값을 저장)
   const guildGoldBonus = s.cachedGuildBuffs.gold;
   const guildExpBonus = s.cachedGuildBuffs.exp;
@@ -2333,14 +2360,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
-  const levelDiffMult = computeLevelDiffExpMult(charBoostRow?.level ?? 1, m.level);
+  const levelDiffMult = computeLevelDiffExpMult(charMetaLevel, m.level);
   const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
   }
   if (levelDiffMult < 1.0) {
-    addLog(s, `⚠️ 레벨차 -${charBoostRow!.level - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
+    addLog(s, `⚠️ 레벨차 -${charMetaLevel - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
   }
   // 부스트/접두사 보너스 표시 — 기본값 대비 추가분
   const baseExpRaw = Math.floor(m.exp_reward * ge.exp * levelDiffMult);
@@ -2939,6 +2966,13 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
     if (row) {
       s.cachedExp = Number(row.exp);
       s.cachedExpMax = expToNext(row.level);
+      // 킬 판정용 raw 캐시 — handleMonsterDeath 에서 SELECT 없이 재사용
+      s.cachedCharMeta = {
+        level: row.level,
+        expBoostUntilMs: row.exp_boost_until ? new Date(row.exp_boost_until).getTime() : null,
+        goldBoostUntilMs: row.gold_boost_until ? new Date(row.gold_boost_until).getTime() : null,
+        dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
+      };
       const now = new Date();
       const boosts: { name: string; until: string }[] = [];
       if (row.exp_boost_until && new Date(row.exp_boost_until) > now)
@@ -3355,6 +3389,7 @@ async function startCombatSessionInner(
     cachedBoosts: [],
     cachedPotions: { small: 0, mid: 0, high: 0, max: 0 },
     cachedGuildBuffs: { hp: 0, gold: 0, exp: 0, drop: 0 },
+    cachedCharMeta: null,
     monsterDef: null,
     autoSellCache: null,
     afkMode: false,
@@ -3448,6 +3483,10 @@ async function startCombatSessionInner(
   }
 
   activeSessions.set(characterId, session);
+
+  // 메타 캐시 선로드 — handleMonsterDeath 가 첫 킬부터 cache hit 되도록.
+  // 실패해도 handleMonsterDeath 에 null-safe 폴백 있음.
+  try { await refreshSessionMeta(session); } catch {}
 
   // 전투 루프 시작 (아직 안 돌고 있으면)
   ensureCombatLoop();

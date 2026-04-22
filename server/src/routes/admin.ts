@@ -6,7 +6,7 @@ import { adminRequired } from '../middleware/admin.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { getIo } from '../ws/io.js';
 import { getActiveEvent, finishEvent } from '../game/worldEvent.js';
-import { stopCombatSession, getKillStats } from '../combat/engine.js';
+import { stopCombatSession, getKillStats, invalidateSessionMeta } from '../combat/engine.js';
 import { CLASS_START, type ClassName } from '../game/classes.js';
 
 const router = Router();
@@ -1025,6 +1025,7 @@ router.post('/characters/:id/grant-boost', async (req: AuthedRequest, res: Respo
       [charId]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+    invalidateSessionMeta(charId);
     res.json({ ok: true, character: r.rows[0] });
   } catch (e) {
     console.error('[admin] grant-boost err', e);
@@ -1045,6 +1046,7 @@ router.post('/characters/:id/clear-boost', async (req: AuthedRequest, res: Respo
       [charId]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'character not found' });
+    invalidateSessionMeta(charId);
     res.json({ ok: true, character: r.rows[0] });
   } catch (e) {
     console.error('[admin] clear-boost err', e);

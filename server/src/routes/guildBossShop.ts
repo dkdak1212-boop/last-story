@@ -5,6 +5,7 @@ import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { addItemToInventory } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
+import { invalidateSessionMeta } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -269,6 +270,7 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
          WHERE id = $1`,
         [id]
       );
+      invalidateSessionMeta(id);
       rewardNote.push(`부스터 5종 ${minutes}분`);
       break;
     }
