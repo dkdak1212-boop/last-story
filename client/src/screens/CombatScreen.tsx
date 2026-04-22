@@ -859,17 +859,26 @@ function EffectIcons({ effects }: { effects: StatusEffect[] }) {
   const noSummon = effects.filter(e => (e.type as string) !== 'summon');
   if (noSummon.length === 0) return null;
 
-  // 독 스택 집계: 같은 source 의 독을 1개로 표시 (x스택 수)
-  const poisonEffects = noSummon.filter(e => e.type === 'poison');
-  const otherEffects = noSummon.filter(e => e.type !== 'poison');
-  const filtered: (StatusEffect & { stackCount?: number })[] = [...otherEffects];
-  if (poisonEffects.length > 0) {
-    const maxRem = Math.max(...poisonEffects.map(e => e.remainingActions));
-    filtered.push({
-      ...poisonEffects[0],
-      remainingActions: maxRem,
-      stackCount: poisonEffects.length,
-    });
+  // 타입별 스택 집계: 같은 타입 버프/디버프를 1개로 머지해 x스택 수로 표시.
+  // (독·확정치명 등 다수 스택으로 UI 도배되는 문제 해결)
+  // speed_mod 는 +/-가 다른 의미라 부호로 분리해서 집계.
+  const keyOf = (e: StatusEffect): string =>
+    e.type === 'speed_mod' ? `speed_mod:${e.value >= 0 ? '+' : '-'}` : e.type;
+  const byKey = new Map<string, StatusEffect[]>();
+  for (const e of noSummon) {
+    const k = keyOf(e);
+    const arr = byKey.get(k) || [];
+    arr.push(e);
+    byKey.set(k, arr);
+  }
+  const filtered: (StatusEffect & { stackCount?: number })[] = [];
+  for (const arr of byKey.values()) {
+    if (arr.length === 1) {
+      filtered.push(arr[0]);
+    } else {
+      const maxRem = Math.max(...arr.map(e => e.remainingActions));
+      filtered.push({ ...arr[0], remainingActions: maxRem, stackCount: arr.length });
+    }
   }
 
   const typeLabels: Record<string, string> = {
