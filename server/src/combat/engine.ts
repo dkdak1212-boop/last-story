@@ -2560,6 +2560,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
       atk: boss.base_atk, matk: boss.base_atk,
       def: boss.base_def, mdef: boss.base_mdef,
       dodge: boss.base_dodge, accuracy: 80,
+      unconditionalDodge: true,
     };
     s.monsterSpeed = 300; // 길드 보스는 일반보다 빠르게 (공격 빈도↑)
     s.monsterGauge = 0;
