@@ -66,20 +66,9 @@ const STAFF_TIERS = [
   '/images/items/staff/staff04.png',
   '/images/items/staff/staff04.png',
 ];
-// 소환사 무기 (구슬) — DCSS spell orb 픽셀 아이콘 재활용
-const ORB_TIERS = [
-  '/images/skills/spells/battlesphere.png',          // Lv 1-9
-  '/images/skills/spells/battlesphere.png',          // Lv 10-19
-  '/images/skills/spells/acid_ball.png',             // Lv 20-29
-  '/images/skills/spells/acid_ball.png',             // Lv 30-39
-  '/images/skills/spells/steam_ball.png',            // Lv 40-49
-  '/images/skills/spells/steam_ball.png',            // Lv 50-59
-  '/images/skills/spells/conjure_ball_lightning.png',// Lv 60-69
-  '/images/skills/spells/orb_of_electricity.png',    // Lv 70-79
-  '/images/skills/spells/orb_of_destruction.png',    // Lv 80-89
-  '/images/skills/spells/shadowball.png',            // Lv 90-99
-  '/images/skills/spells/shadowball.png',            // Lv 100+
-];
+// 소환사 무기 (구슬) — 모든 티어 흰색(배틀스피어) 단일 아이콘 통일
+const ORB_ICON = '/images/skills/spells/battlesphere.png';
+const ORB_TIERS = Array(11).fill(ORB_ICON);
 const MACE_TIERS = [
   '/images/items/weapon/morningstar1.png',
   '/images/items/weapon/morningstar1.png',
