@@ -858,6 +858,12 @@ function tickShield(s: ActiveSession) {
 // 계산식은 combat/shared.ts의 calcDotTickDamage에 있음 (레이드와 공유).
 // 여기서는 세션에서 컨텍스트(방어/증폭/저항)를 수집해서 호출하고, 결과를 HP에 반영한다.
 function processDots(s: ActiveSession, target: 'player' | 'monster') {
+  // 길드 보스 도트 면역 (예: 그림자 황제) — DoT 데미지 처리 전체 스킵.
+  // dealtThisAction 계산에서 자연 제외되어 guildBossDmgBuffer 에도 누적되지 않음.
+  // DoT 이펙트의 remainingActions 감소는 tickDownEffects 가 처리하므로 여기서 return 해도 만료 진행됨.
+  if (target === 'monster' && s.guildBossRunId && s.guildBossBoss?.dot_immune) {
+    return;
+  }
   const useMatk = MATK_CLASSES.has(s.className);
 
   let defenderDef: number;
