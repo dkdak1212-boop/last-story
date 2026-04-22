@@ -24,6 +24,8 @@ export function ChatPanel() {
   const [scopeIds, setScopeIds] = useState<{ guild: number | null; party: number | null }>({ guild: null, party: null });
   const socketRef = useRef<Socket | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef(channel);
+  useEffect(() => { channelRef.current = channel; }, [channel]);
 
   // 길드/파티 스코프 ID 가져오기 (활성 캐릭터 변경 또는 채팅 패널 열림 시 새로고침)
   const refreshScopes = async () => {
@@ -61,6 +63,16 @@ export function ChatPanel() {
       setMessages((m) => ({
         ...m,
         [msg.channel as Channel]: [...(m[msg.channel as Channel] || []), msg].slice(-100),
+      }));
+    });
+    // 서버 거절 사유를 현재 채널에 시스템 메시지로 표시 (channelRef 로 최신 탭 추적)
+    socket.on('chat:error', (err: { message: string }) => {
+      const ch = channelRef.current;
+      setMessages((m) => ({
+        ...m,
+        [ch]: [...(m[ch] || []), {
+          channel: ch, from: '⚠ 시스템', text: err.message, isAdmin: false,
+        }].slice(-100),
       }));
     });
     return () => { socket.disconnect(); socketRef.current = null; };

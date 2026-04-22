@@ -196,16 +196,25 @@ export function initWebSocket(httpServer: HttpServer) {
 
       let scopeId: number | null = null;
       if (channel === 'guild') {
-        if (!payload.characterId) return;
+        if (!payload.characterId) {
+          socket.emit('chat:error', { message: '캐릭터를 선택하세요.' });
+          return;
+        }
         const gr = await query<{ guild_id: number }>(
           'SELECT guild_id FROM guild_members WHERE character_id = $1', [payload.characterId]
         );
-        if (gr.rowCount === 0) return;
+        if (gr.rowCount === 0) {
+          socket.emit('chat:error', { message: '길드에 가입되어 있지 않습니다.' });
+          return;
+        }
         scopeId = gr.rows[0].guild_id;
       }
 
-      // chat_hidden 유저: 저장도 브로드캐스트도 안 함 (아예 없었던 것처럼)
-      if (socket.data.chatHidden) return;
+      // chat_hidden 유저: 저장도 브로드캐스트도 안 함 (운영 차단 — 본인에겐 일반 실패로 표시)
+      if (socket.data.chatHidden) {
+        socket.emit('chat:error', { message: '메시지 전송에 실패했습니다.' });
+        return;
+      }
 
       try {
         const isAdmin = !!socket.data.isAdmin;
