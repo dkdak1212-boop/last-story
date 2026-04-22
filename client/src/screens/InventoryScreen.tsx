@@ -678,7 +678,12 @@ export function InventoryScreen() {
                         )}
                         {s.quantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>x{s.quantity}</span>}
                       </div>
-                      {/* 접힌 상태: 스탯·비교·접두사는 숨김 — 클릭해서 펼칠 때만 표시 (목록 가독성) */}
+                      {/* 접힌 상태: 접두사 뱃지만 표시 (스탯/비교는 펼쳤을 때) */}
+                      {!isExpanded && s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
+                        <div style={{ marginTop: 2 }}>
+                          <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} />
+                        </div>
+                      )}
                     </div>
                     {isEquipment && (
                       <span style={{
