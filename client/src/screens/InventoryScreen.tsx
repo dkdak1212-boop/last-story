@@ -72,6 +72,11 @@ export function InventoryScreen() {
   const [storageOpen, setStorageOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'recent' | 'grade' | 'type' | 'level'>('recent');
   const [filterPanel, setFilterPanel] = useState<'sell' | 'drop' | null>(null);
+  // 거래소 등록 모달
+  const [listModal, setListModal] = useState<InventorySlot | null>(null);
+  const [listPrice, setListPrice] = useState('');
+  const [listBusy, setListBusy] = useState(false);
+  const [listQuota, setListQuota] = useState<{ active: number; max: number } | null>(null);
 
   async function refresh() {
     if (!active) return;
@@ -145,6 +150,53 @@ export function InventoryScreen() {
       await refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '창고 보관 실패');
+    }
+  }
+  async function openListModal(slot: InventorySlot, e: React.MouseEvent) {
+    e.stopPropagation();
+    setListModal(slot);
+    setListPrice('');
+    // 한도 현황 조회
+    try {
+      const q = await api<{ active: number; max: number }>('/marketplace/listings-quota');
+      setListQuota(q);
+    } catch { setListQuota(null); }
+  }
+  async function submitList() {
+    if (!active || !listModal) return;
+    const priceNum = Number(listPrice.replace(/,/g, ''));
+    if (!priceNum || priceNum <= 0 || !Number.isInteger(priceNum)) { setMsg('올바른 가격을 입력하세요'); return; }
+    // 고가치 템(유니크 / +5 이상 강화 / 3옵) 확인 다이얼로그
+    const grade = listModal.item.grade;
+    const el = listModal.enhanceLevel || 0;
+    const optCount = listModal.prefixIds ? listModal.prefixIds.length : 0;
+    const warnings: string[] = [];
+    if (grade === 'unique') warnings.push('유니크 장비');
+    if (el >= 5) warnings.push(`+${el} 강화`);
+    if (optCount >= 3) warnings.push('3옵 장비');
+    if (warnings.length > 0) {
+      const ok = confirm(
+        `⚠ ${warnings.join(' · ')}\n\n` +
+        `[${listModal.item.name}]\n` +
+        `등록가: ${priceNum.toLocaleString()} G\n` +
+        `수수료 10% 제외 후 실수령: ${Math.floor(priceNum * 0.9).toLocaleString()} G\n\n` +
+        `거래소에 등록하시겠습니까?`
+      );
+      if (!ok) return;
+    }
+    setListBusy(true); setMsg('');
+    try {
+      await api('/marketplace/list', {
+        method: 'POST',
+        body: JSON.stringify({ characterId: active.id, slotIndex: listModal.slotIndex, price: priceNum, quantity: 1 }),
+      });
+      setMsg(`${listModal.item.name} 거래소 등록 완료 (${priceNum.toLocaleString()} G)`);
+      setListModal(null); setListPrice('');
+      await refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '등록 실패');
+    } finally {
+      setListBusy(false);
     }
   }
   async function useUniqueTicket(e: React.MouseEvent) {
@@ -265,6 +317,55 @@ export function InventoryScreen() {
 
       {storageOpen && (
         <StorageModal inventory={inv} onClose={() => setStorageOpen(false)} onChange={refresh} />
+      )}
+
+      {/* 거래소 등록 모달 */}
+      {listModal && (
+        <div onClick={() => !listBusy && setListModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 20, maxWidth: 360, width: '100%' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: 'var(--accent)' }}>💰 거래소 등록</div>
+            <div style={{ fontSize: 12, marginBottom: 12, padding: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 4 }}>
+              <div style={nameStyle(listModal.item.grade, 13)}>
+                {listModal.item.name}
+                {listModal.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{listModal.enhanceLevel}</span>}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+                {GRADE_LABEL[listModal.item.grade as keyof typeof GRADE_LABEL]} · {SLOT_LABEL[listModal.item.slot || ''] || listModal.item.slot}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>
+              등록 한도: {listQuota ? `${listQuota.active} / ${listQuota.max}` : '조회 중…'}
+            </div>
+
+            <label style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', marginBottom: 4, marginTop: 8 }}>
+              가격 (Gold)
+            </label>
+            <input type="text" inputMode="numeric" value={listPrice}
+              onChange={(e) => setListPrice(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder="예: 10000"
+              autoFocus
+              style={{ width: '100%', padding: 10, fontSize: 14, background: 'rgba(0,0,0,0.4)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4, boxSizing: 'border-box' }} />
+            {listPrice && Number(listPrice) > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
+                수수료 10% 제외 실수령: <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{Math.floor(Number(listPrice) * 0.9).toLocaleString()} G</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+              <button onClick={() => !listBusy && setListModal(null)} disabled={listBusy}
+                style={{ flex: 1, padding: 10, background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border)', borderRadius: 4, cursor: listBusy ? 'not-allowed' : 'pointer' }}>
+                취소
+              </button>
+              <button onClick={submitList} disabled={listBusy || !listPrice || Number(listPrice) <= 0}
+                style={{ flex: 1, padding: 10, background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 4, fontWeight: 700, cursor: (listBusy || !listPrice) ? 'not-allowed' : 'pointer', opacity: (listBusy || !listPrice) ? 0.5 : 1 }}>
+                {listBusy ? '등록 중…' : '등록'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 메시지 */}
@@ -699,6 +800,10 @@ export function InventoryScreen() {
                         {isEquipment && !locked && (
                           <button onClick={(e) => depositToStorage(s.slotIndex, s.item.name, e)}
                             style={actionBtn('#66ccff')}>📦 창고 보관</button>
+                        )}
+                        {isEquipment && !locked && !s.soulbound && (
+                          <button onClick={(e) => openListModal(s, e)}
+                            style={actionBtn('#ffd66b')}>💰 거래소 등록</button>
                         )}
                         {isEquipment && !locked && (() => {
                           const eInfo = getEnhanceInfo(s.enhanceLevel || 0, active?.level || 1);

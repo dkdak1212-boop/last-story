@@ -154,13 +154,18 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
       return { error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다. (현재 ${activeCnt}개 활성)`, status: 400 };
     }
 
-    const inv = await tx.query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; soulbound: boolean }>(
-      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM character_inventory WHERE character_id = $1 AND slot_index = $2 FOR UPDATE',
+    const inv = await tx.query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; soulbound: boolean; item_slot: string | null }>(
+      `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
+              COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
+              i.slot AS item_slot
+       FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+       WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [characterId, slotIndex]
     );
     if (inv.rowCount === 0) return { error: 'item not in slot', status: 404 };
     if (inv.rows[0].quantity < quantity) return { error: 'insufficient quantity', status: 400 };
     if (inv.rows[0].soulbound) return { error: '착용한 적이 있는 장비는 거래소에 등록할 수 없습니다. (계정 귀속)', status: 400 };
+    if (!inv.rows[0].item_slot) return { error: '장비만 거래소에 등록할 수 있습니다.', status: 400 };
 
     const invRow = inv.rows[0];
 
@@ -343,6 +348,17 @@ router.post('/:auctionId/cancel', async (req: AuthedRequest, res: Response) => {
 
   if ('error' in result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
+});
+
+// 계정 등록 한도 현황 (인벤 등록 모달용)
+router.get('/listings-quota', async (req: AuthedRequest, res: Response) => {
+  const r = await query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt FROM auctions a
+     JOIN characters c ON c.id = a.seller_id
+     WHERE c.user_id = $1 AND a.settled = FALSE AND a.cancelled = FALSE AND a.ends_at > NOW()`,
+    [req.userId]
+  );
+  res.json({ active: Number(r.rows[0].cnt), max: MAX_LISTINGS_PER_ACCOUNT });
 });
 
 // 내 등록 목록
