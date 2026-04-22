@@ -119,7 +119,8 @@ export function initWebSocket(httpServer: HttpServer) {
   }
 
   io.on('connection', (socket) => {
-    console.log(`[ws] connected: ${socket.data.username}`);
+    // 연결/해제 로그는 Railway 로그 한도(500/sec) 초과 원인 — DEBUG_WS=1 일 때만 출력
+    if (process.env.DEBUG_WS === '1') console.log(`[ws] connected: ${socket.data.username}`);
     broadcastOnlineCount();
 
     // IP → userId 집계 (관리자 제외)
@@ -229,7 +230,7 @@ export function initWebSocket(httpServer: HttpServer) {
     });
 
     socket.on('disconnect', () => {
-      console.log(`[ws] disconnected: ${socket.data.username}`);
+      if (process.env.DEBUG_WS === '1') console.log(`[ws] disconnected: ${socket.data.username}`);
       broadcastOnlineCount();
 
       // IP → userId 집계 정리: 같은 userId의 다른 소켓이 없을 때만 제거
