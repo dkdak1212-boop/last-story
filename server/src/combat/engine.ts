@@ -213,6 +213,11 @@ interface ActiveSession {
     expBoostUntilMs: number | null;
     goldBoostUntilMs: number | null;
     dropBoostUntilMs: number | null;
+    // 이벤트 버프 (관리자 지급, 기존 +50% 부스터와 독립, 곱셈 적용)
+    eventExpPct: number;
+    eventExpUntilMs: number | null;
+    eventDropPct: number;
+    eventDropUntilMs: number | null;
   } | null;
   monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
   autoSellCache: {
@@ -546,14 +551,14 @@ export async function loadUniqueItemIds() {
   console.log(`[drop] 유니크 ${uniqueItemIds.size}개 캐시`);
 }
 
-function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0, globalDropMult: number = 1): { itemId: number; qty: number }[] {
+function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: number = 0, globalDropMult: number = 1, eventDropMult: number = 1): { itemId: number; qty: number }[] {
   const drops: { itemId: number; qty: number }[] = [];
   const boostMult = dropBoost ? 1.5 : 1.0;
   const guildMult = 1 + guildDropPct / 100;
   for (const d of m.drop_table || []) {
     // 유니크는 DROP_RATE_MULT 제외 (DB 확률 그대로)
     const rateMult = uniqueItemIds.has(d.itemId) ? 1.0 : DROP_RATE_MULT;
-    if (Math.random() < d.chance * rateMult * boostMult * guildMult * globalDropMult) {
+    if (Math.random() < d.chance * rateMult * boostMult * guildMult * globalDropMult * eventDropMult) {
       const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
       if (qty > 0) drops.push({ itemId: d.itemId, qty });
     }
@@ -2324,8 +2329,13 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const r = await query<{
         gold_boost_until: string | null; drop_boost_until: string | null;
         exp_boost_until: string | null; level: number;
+        event_exp_pct: number | null; event_exp_until: string | null;
+        event_drop_pct: number | null; event_drop_until: string | null;
       }>(
-        'SELECT gold_boost_until, drop_boost_until, exp_boost_until, level FROM characters WHERE id = $1',
+        `SELECT gold_boost_until, drop_boost_until, exp_boost_until, level,
+                COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
+                COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until
+         FROM characters WHERE id = $1`,
         [s.characterId]
       );
       const row = r.rows[0];
@@ -2335,6 +2345,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
           expBoostUntilMs: row.exp_boost_until ? new Date(row.exp_boost_until).getTime() : null,
           goldBoostUntilMs: row.gold_boost_until ? new Date(row.gold_boost_until).getTime() : null,
           dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
+          eventExpPct: row.event_exp_pct ?? 0,
+          eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
+          eventDropPct: row.event_drop_pct ?? 0,
+          eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
         };
       }
     } catch {}
@@ -2347,6 +2361,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const dropBoostActive = !!(charMetaCached?.dropBoostUntilMs && charMetaCached.dropBoostUntilMs > nowMs);
   const isExpBoosted = !!(charMetaCached?.expBoostUntilMs && charMetaCached.expBoostUntilMs > nowMs);
   const charMetaLevel = charMetaCached?.level ?? 1;
+  // 이벤트 버프 (관리자 지급, 기존 +50% 부스터와 독립 곱산)
+  const eventExpActive = !!(charMetaCached?.eventExpUntilMs && charMetaCached.eventExpUntilMs > nowMs);
+  const eventDropActive = !!(charMetaCached?.eventDropUntilMs && charMetaCached.eventDropUntilMs > nowMs);
+  const eventExpMult = eventExpActive ? 1 + (charMetaCached!.eventExpPct / 100) : 1;
+  const eventDropMult = eventDropActive ? 1 + (charMetaCached!.eventDropPct / 100) : 1;
   // 길드 스킬 버프: 세션 캐시 재사용 (refreshSessionMeta가 이미 GUILD_SKILL_PCT 곱한 값을 저장)
   const guildGoldBonus = s.cachedGuildBuffs.gold;
   const guildExpBonus = s.cachedGuildBuffs.exp;
@@ -2361,7 +2380,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold);
   const levelDiffMult = computeLevelDiffExpMult(charMetaLevel, m.level);
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult);
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
@@ -2397,7 +2416,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트 + 레벨차 페널티
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult);
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp);
@@ -2448,7 +2467,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     .catch(err => console.error('[combat] trackMonsterKill err', err));
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
-  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop);
+  let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult);
   // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)
   if (!s.autoSellCache) {
     await loadAutoSellCache(s);
@@ -2957,8 +2976,12 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
       level: number; exp: string;
       exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null;
       atk_boost_until: string | null; hp_boost_until: string | null;
+      event_exp_pct: number | null; event_exp_until: string | null;
+      event_drop_pct: number | null; event_drop_until: string | null;
     }>(
-      `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until, atk_boost_until, hp_boost_until
+      `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until, atk_boost_until, hp_boost_until,
+              COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
+              COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until
        FROM characters WHERE id = $1`,
       [s.characterId]
     );
@@ -2972,6 +2995,10 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         expBoostUntilMs: row.exp_boost_until ? new Date(row.exp_boost_until).getTime() : null,
         goldBoostUntilMs: row.gold_boost_until ? new Date(row.gold_boost_until).getTime() : null,
         dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
+        eventExpPct: row.event_exp_pct ?? 0,
+        eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
+        eventDropPct: row.event_drop_pct ?? 0,
+        eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
       };
       const now = new Date();
       const boosts: { name: string; until: string }[] = [];
@@ -2981,6 +3008,11 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         boosts.push({ name: '골드 +50%', until: row.gold_boost_until });
       if (row.drop_boost_until && new Date(row.drop_boost_until) > now)
         boosts.push({ name: '드롭률 +50%', until: row.drop_boost_until });
+      // 이벤트 버프 (관리자 지급) — UI 에 노출
+      if (row.event_exp_until && new Date(row.event_exp_until) > now && (row.event_exp_pct ?? 0) > 0)
+        boosts.push({ name: `이벤트 EXP +${row.event_exp_pct}%`, until: row.event_exp_until });
+      if (row.event_drop_until && new Date(row.event_drop_until) > now && (row.event_drop_pct ?? 0) > 0)
+        boosts.push({ name: `이벤트 드롭 +${row.event_drop_pct}%`, until: row.event_drop_until });
       if (row.atk_boost_until && new Date(row.atk_boost_until) > now)
         boosts.push({ name: '공격력 +50%', until: row.atk_boost_until });
       if (row.hp_boost_until && new Date(row.hp_boost_until) > now)
