@@ -547,6 +547,13 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
           <div style={{ marginBottom: 6 }}>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>아이템 스탯</div>
             <ItemStatsBlock stats={a.itemStats} enhanceLevel={el} quality={a.quality || 0} />
+            {/* 매물 접두사 — 스탯 바로 아래, 내 장착 비교 블록 위로 이동 (UX 피드백) */}
+            {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>접두사</div>
+                <PrefixDisplay prefixStats={a.prefixStats} prefixTiers={(a as any).prefixTiers} />
+              </div>
+            )}
             {a.itemSlot && equipped && (equipped as any)[a.itemSlot] && (() => {
               const eq = (equipped as any)[a.itemSlot];
               return (
@@ -581,12 +588,6 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
                 </div>
               );
             })()}
-          </div>
-        )}
-        {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>접두사</div>
-            <PrefixDisplay prefixStats={a.prefixStats} prefixTiers={(a as any).prefixTiers} />
           </div>
         )}
         {a.itemDescription && (
