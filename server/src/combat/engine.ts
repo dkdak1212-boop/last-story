@@ -1411,10 +1411,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         applyCritPostEffects(s, dmg, d.crit);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const DOT_SKILL_MULT = 2.0; // 화상 도트: 200% (1.56 → 2.0 상향)
-        const dotDmg = Math.round(dotBase * DOT_SKILL_MULT);
+        // 마법사 전용: DoT 전체 +50% (틱당 피해 1.5배)
+        const classDotBonus = s.className === 'mage' ? 1.5 : 1.0;
+        const effDotMult = DOT_SKILL_MULT * classDotBonus;
+        const dotDmg = Math.round(dotBase * effDotMult);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0;
         const dotDuration = skill.effect_duration + stormExt;
-        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: dotDuration, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
+        addEffect(s, { type: 'dot', value: dotDmg, remainingActions: dotDuration, source: 'player', dotMult: effDotMult, dotUseMatk: useMatk });
         addLog(s, `[${skill.name}] 도트 ${dotDmg}/행동 x${dotDuration}행동 (방어 50% 무시)`);
         // 마법사 전용: DoT 즉발화 — 총 도트 데미지의 50%를 즉시 추가 (실사냥 1타킬 대응)
         // 첫 타격이 crit 이면 즉발분도 ×2 (치명타 발동 표시인데 체감 데미지가 일반 수준이던 버그 수정)
@@ -1433,7 +1436,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             // one-shot(first_strike/ambush) 은 첫 타격에서 이미 소비
             const dmg2 = applyDamagePrefixes(s, d2.damage, d2.crit, { consumeOneShot: false, skillName: skill.name });
             s.monsterHp -= dmg2;
-            addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: DOT_SKILL_MULT, dotUseMatk: useMatk });
+            addEffect(s, { type: 'dot', value: dotDmg, remainingActions: skill.effect_duration + stormExt, source: 'player', dotMult: effDotMult, dotUseMatk: useMatk });
             addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''} +도트`);
           }
         }
