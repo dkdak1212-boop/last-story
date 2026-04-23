@@ -41,8 +41,8 @@ export function MapScreen() {
         {[...fields].sort((a, b) => {
           const aDummy = a.name.startsWith('허수아비');
           const bDummy = b.name.startsWith('허수아비');
-          if (aDummy && !bDummy) return 1;
-          if (!aDummy && bDummy) return -1;
+          if (aDummy && !bDummy) return -1;
+          if (!aDummy && bDummy) return 1;
           if (aDummy && bDummy) {
             const la = Number(a.name.match(/\d+/)?.[0] ?? 0);
             const lb = Number(b.name.match(/\d+/)?.[0] ?? 0);
