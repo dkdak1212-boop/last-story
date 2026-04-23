@@ -1715,7 +1715,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
       dealBuffSkillDamage(s, skill, useMatk);
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
-      const shieldAmp = getPassive(s, 'shield_amp');
+      const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
       addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
       addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);

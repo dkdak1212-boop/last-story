@@ -733,7 +733,9 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       // PvE 와 동일 공식: maxHp × effect_value%  (잘못된 damage_mult × matk 방식 교체)
       // skill.kind === 'damage' 인 쉴드 스킬(차원 붕괴 등)은 damage_mult > 0 이라 데미지도 처리
       const shieldPct = Math.max(skill.effect_value, skill.damage_mult * 10); // effect_value 0이면 damage_mult × 10 로 폴백
-      const amt = Math.round(self.maxHp * shieldPct / 100);
+      let amt = Math.round(self.maxHp * shieldPct / 100);
+      const shieldAmp = getFPassive(self, 'shield_amp') + (self.equipPrefixes.shield_amp || 0);
+      if (shieldAmp > 0) amt = Math.round(amt * (1 + shieldAmp / 100));
       self.shieldAmount = Math.max(self.shieldAmount, amt);
       // 데미지 동반 쉴드 스킬
       if (skill.kind === 'damage' && skill.damage_mult > 0) {
