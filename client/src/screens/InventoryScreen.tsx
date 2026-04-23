@@ -707,6 +707,22 @@ export function InventoryScreen() {
                         </div>
                       )}
                     </div>
+                    {(s.item.id === 843 || s.item.id === 844 || s.item.id === 845) && (
+                      <button
+                        onClick={(e) => openGuildBossChest(s.item.id === 843 ? 'gold' : s.item.id === 844 ? 'silver' : 'copper', e)}
+                        style={{
+                          padding: '6px 14px', fontSize: 12, fontWeight: 800,
+                          background: s.item.id === 843
+                            ? 'linear-gradient(180deg, #ffd66b, #daa520)'
+                            : s.item.id === 844
+                            ? 'linear-gradient(180deg, #e8e8e8, #a0a0a0)'
+                            : 'linear-gradient(180deg, #d89060, #a56030)',
+                          color: '#1a0f00', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
+                          boxShadow: '0 0 6px rgba(218,165,32,0.4)',
+                          flexShrink: 0,
+                        }}
+                      >개봉</button>
+                    )}
                     {isEquipment && (
                       <span style={{
                         fontSize: 9, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)',

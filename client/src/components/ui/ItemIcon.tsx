@@ -208,7 +208,20 @@ const CONSUMABLE_ICON: Record<string, string> = {
   '중급 마나 물약': '/images/items/potion/brilliant_blue.png',
   '고급 마나 물약': '/images/items/potion/brilliant_blue.png',
   '최상급 마나 물약': '/images/items/potion/brilliant_blue.png',
+  // 길드 보스 상자 3종 — 동일 체스트 PNG에 CSS filter로 티어별 색조 적용 (getChestFilter)
+  '길드 보스 황금빛 상자': '/images/items/misc/chest.png',
+  '길드 보스 은빛 상자': '/images/items/misc/chest.png',
+  '길드 보스 구리 상자': '/images/items/misc/chest.png',
 };
+
+// 상자 아이템 이름에 따른 색조 필터 (gold/silver/copper)
+function getChestFilter(itemName?: string): string | undefined {
+  if (!itemName) return undefined;
+  if (itemName.includes('황금빛 상자')) return 'sepia(1) saturate(5) hue-rotate(5deg) brightness(1.15)';
+  if (itemName.includes('은빛 상자'))   return 'grayscale(1) brightness(1.45) contrast(1.05)';
+  if (itemName.includes('구리 상자'))   return 'sepia(0.9) saturate(2.3) hue-rotate(-15deg) brightness(1.0)';
+  return undefined;
+}
 
 const FALLBACK = '/images/items/misc/scroll.png';
 
@@ -263,9 +276,15 @@ export function ItemIcon({ slot, grade, itemName, size = 28 }: {
   slot?: string | null; grade: string; itemName?: string; size?: number;
 }) {
   const src = getItemIconPath(slot, grade, itemName);
+  const chestFilter = getChestFilter(itemName);
   return (
     <img src={src} alt="" width={size} height={size}
-      style={{ imageRendering: 'pixelated', verticalAlign: 'middle', flexShrink: 0 }}
+      style={{
+        imageRendering: 'pixelated',
+        verticalAlign: 'middle',
+        flexShrink: 0,
+        ...(chestFilter ? { filter: chestFilter } : {}),
+      }}
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
     />
   );
