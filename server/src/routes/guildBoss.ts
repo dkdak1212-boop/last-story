@@ -2,7 +2,7 @@
 import { Router, type Response } from 'express';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned } from '../game/character.js';
+import { loadCharacterOwned, getEffectiveStats } from '../game/character.js';
 import { applyExpGain } from '../game/leveling.js';
 import { clampCharacterPoints } from '../game/pointClamper.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
@@ -237,14 +237,14 @@ router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => 
   );
   if (!r.rowCount) return res.status(400).json({ error: '키 차감 실패' });
 
-  // 입장 시 HP 풀피 회복 — 단, 성직자(cleric)는 자체 힐 설계상 제외
-  try {
-    await query(
-      `UPDATE characters SET hp = max_hp WHERE id = $1 AND class_name <> 'cleric'`,
-      [characterId]
-    );
-  } catch (e) {
-    console.error('[guild-boss] hp refill fail', e);
+  // 입장 시 HP 풀피 회복 (장비·패시브 포함 실효 max_hp) — 성직자(cleric)는 자체 힐 설계상 제외
+  if (char.class_name !== 'cleric') {
+    try {
+      const eff = await getEffectiveStats(char);
+      await query('UPDATE characters SET hp = $1 WHERE id = $2', [eff.maxHp, characterId]);
+    } catch (e) {
+      console.error('[guild-boss] hp refill fail', e);
+    }
   }
 
   // 실제 전투 세션 시작 — 보스를 가상 몬스터로 스폰
@@ -285,14 +285,14 @@ router.post('/practice/:characterId', async (req: AuthedRequest, res: Response) 
     return res.status(400).json({ error: '이미 진행 중인 입장 있음' });
   }
 
-  // HP 풀피 회복 (성직자 제외) — 입장 로직과 동일
-  try {
-    await query(
-      `UPDATE characters SET hp = max_hp WHERE id = $1 AND class_name <> 'cleric'`,
-      [characterId]
-    );
-  } catch (e) {
-    console.error('[guild-boss-practice] hp refill fail', e);
+  // HP 풀피 회복 (장비·패시브 포함 실효 max_hp, 성직자 제외) — 입장 로직과 동일
+  if (char.class_name !== 'cleric') {
+    try {
+      const eff = await getEffectiveStats(char);
+      await query('UPDATE characters SET hp = $1 WHERE id = $2', [eff.maxHp, characterId]);
+    } catch (e) {
+      console.error('[guild-boss-practice] hp refill fail', e);
+    }
   }
 
   // 실제 전투 세션 시작 — runId 는 메모리 한정 임시 UUID (DB 없음)
