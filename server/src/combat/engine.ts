@@ -3464,7 +3464,10 @@ async function startCombatSessionInner(
     monsterSpeed: 100,
     monsterGauge: 0,
     monsterStats: { str: 0, dex: 0, int: 0, vit: 0, spd: 100, cri: 0, maxHp: 0, atk: 0, matk: 0, def: 0, mdef: 0, dodge: 0, accuracy: 80 },
-    playerHp: Math.min(char.hp, eff.maxHp),
+    // 사냥터 입장 시 성직자 제외 풀피 복원 (길드보스는 제외 — 기존 HP 유지)
+    playerHp: (!guildBossOpts && char.class_name !== 'cleric')
+      ? eff.maxHp
+      : Math.min(char.hp, eff.maxHp),
     playerMaxHp: eff.maxHp,
     playerGauge: 0,
     playerSpeed: eff.spd,
