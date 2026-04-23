@@ -1316,8 +1316,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hitMult = multiAmp > 0 ? baseChain * (1 + multiAmp / 100) : baseChain;
       let firstLandedHit = true;
       let landedCount = 0;
-      // 신의 타격: 본인 최대 HP × 50 고정 피해 (각 타) — damage_mult=0 으로 DB 세팅, flat만 사용
-      const divineStrikeFlat = skill.name === '신의 타격' ? s.playerMaxHp * 50 : 0;
+      // 신의 타격: 본인 최대 HP × 50 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
+      let divineStrikeFlat = 0;
+      if (skill.name === '신의 타격') {
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
+      }
       const multiHitFlat = skillFlatWithInt(skill, s.playerStats.int || 0) + divineStrikeFlat;
       for (let i = 0; i < hits; i++) {
         const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
