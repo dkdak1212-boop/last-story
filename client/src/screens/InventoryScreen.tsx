@@ -714,7 +714,12 @@ export function InventoryScreen() {
                         )}
                         {s.quantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>x{s.quantity}</span>}
                       </div>
-                      {/* 접힌 상태: 접두사 뱃지만 표시 (스탯/비교는 펼쳤을 때) */}
+                      {/* 접힌 상태: 기본 스탯 요약 + 접두사 뱃지 (비교 블록은 펼쳤을 때) */}
+                      {!isExpanded && isEquipment && (
+                        <div style={{ marginTop: 2 }}>
+                          <StatSummary stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} quality={(s as any).quality || 0} />
+                        </div>
+                      )}
                       {!isExpanded && s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
                         <div style={{ marginTop: 2 }}>
                           <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} />
