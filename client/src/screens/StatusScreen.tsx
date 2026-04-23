@@ -140,12 +140,12 @@ const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
 // 전투 능력치 클릭 설명
 const COMBAT_STAT_DESC: Record<string, string> = {
-  'HP': '캐릭터의 생명력. 0이 되면 사망하여 HP 25% 회복 후 마을 귀환.',
-  '물리 공격': '물리 데미지 = 힘(STR) × 1.0 + 장비 ATK 보너스. 전사/도적이 사용.',
-  '마법 공격': '마법 데미지 = 지능(INT) × 1.2 + 장비 MATK 보너스. 마법사/성직자가 사용.',
+  'HP': '캐릭터의 생명력. 0이 되면 사망하여 HP 100% 회복 후 마을 귀환.',
+  '물리 공격': '물리 데미지 = 힘(STR) × 1.5 + 장비 ATK 보너스. 전사/도적이 사용.',
+  '마법 공격': '마법 데미지 = 지능(INT) × 1.5 + 장비 MATK 보너스. 마법사/성직자가 사용.',
   '방어력': '물리 피해 감소 = 체력(VIT) × 0.8 + 장비 DEF. 데미지 계산: ATK - 방어 × 0.5',
   '마법 방어': '마법 피해 감소 = 지능(INT) × 0.5 + 장비 MDEF. 데미지 계산: MATK - 마방 × 0.5',
-  '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 30%.',
+  '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 70%.',
   '명중률': '공격이 적중할 확률. 기본 80% + 민첩(DEX) × 0.3 + 장비. 상한 100%.',
   '스피드': '게이지 충전 스피드. 높을수록 빠르게 행동. 게이지 MAX=1000, 매 틱 SPD × 0.2 충전.',
   '치명타 확률': '크리티컬 발동 확률. 발동 시 데미지 2배. 상한 100%. 노드/장비로 상승.',
@@ -349,9 +349,9 @@ export function StatusScreen() {
       <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', fontSize: 12, color: 'var(--text-dim)' }}>
         <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 8, fontSize: 13 }}>스탯 안내</div>
         <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px 8px' }}>
-          <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.0 + 장비 ATK. 전사/도적 핵심 스탯</span>
-          <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 30%) · 명중률 = 80% + 민첩 × 0.3% (상한 100%)</span>
-          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.2 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF</span>
+          <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.5 + 장비 ATK. 전사/도적 핵심 스탯</span>
+          <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 70%) · 명중률 = 80% + 민첩 × 0.3% (상한 100%)</span>
+          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.5 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF</span>
           <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 + 장비 DEF · <span style={{ color: 'var(--danger)' }}>기본 14 고정</span> (노드/장비로만 상승)</span>
           <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 스피드 · <span style={{ color: 'var(--danger)' }}>기본 200 고정</span> (노드/장비로만 상승)</span>
           <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률 % (상한 100%). 발동 시 데미지 2배. <span style={{ color: 'var(--danger)' }}>기본 5% 고정</span> (노드/장비로만 상승)</span>
