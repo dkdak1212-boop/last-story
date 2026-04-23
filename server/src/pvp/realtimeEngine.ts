@@ -627,8 +627,8 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     return;
   }
 
-  // 쿨다운 등록 (마법사 마나 흐름 버스트 중엔 스킵)
-  const manaBurstActive = self.className === 'mage' && self.manaFlowActive > 0;
+  // 쿨다운 등록 (마법사 마나 흐름 버스트는 '공격 스킬'에 한해 쿨다운 무시 — 버프 남발 방지)
+  const manaBurstActive = self.className === 'mage' && self.manaFlowActive > 0 && skill.kind === 'damage';
   if (skill.cooldown_actions > 0 && !manaBurstActive) self.skillCooldowns.set(skill.id, skill.cooldown_actions);
   self.skillLastUsed.set(skill.id, s.tickCount);
 
@@ -759,6 +759,8 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     case 'stat_buff':
     case 'atk_buff':
     case 'crit_bonus': {
+      // 자기 공격 버프 중첩 금지 — 동일 캐스터의 기존 stat_buff 제거 후 신규 적용
+      self.statusEffects = self.statusEffects.filter(e => !(e.type === 'stat_buff' && e.source === side));
       self.statusEffects.push({ type: 'stat_buff', value: skill.effect_value, remainingActions: dur, source: side });
       s.log.push(`${self.name} [${skName}] 버프 +${skill.effect_value}% (${dur}행동)`);
       break;
