@@ -212,6 +212,28 @@ export function InventoryScreen() {
       setMsg(e instanceof Error ? e.message : '사용 실패');
     }
   }
+  async function openGuildBossChest(tier: 'gold' | 'silver' | 'copper', e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return; setMsg('');
+    const label = tier === 'gold' ? '황금빛 상자' : tier === 'silver' ? '은빛 상자' : '구리 상자';
+    if (!confirm(`${label}를 개봉하시겠습니까?\n개봉 시 골드/EXP/메달/부스터/잭팟이 지급됩니다.`)) return;
+    try {
+      const r = await api<{
+        ok: boolean; tier: string;
+        chestReward: { gold: number; medals: number; exp: number; items: { itemId: number; qty: number; name: string }[]; jackpots: string[] };
+      }>(`/guild-boss/open-chest/${active.id}`, { method: 'POST', body: JSON.stringify({ tier }) });
+      const parts = [
+        `골드 +${r.chestReward.gold.toLocaleString()}`,
+        `EXP +${r.chestReward.exp.toLocaleString()}`,
+        `메달 +${r.chestReward.medals}`,
+      ];
+      if (r.chestReward.items.length > 0) parts.push(r.chestReward.items.map(i => `${i.name}×${i.qty}`).join(', '));
+      if (r.chestReward.jackpots.length > 0) parts.push(`잭팟: ${r.chestReward.jackpots.join(', ')}`);
+      setMsg(`${label} 개봉! ${parts.join(' / ')}`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '개봉 실패');
+    }
+  }
   async function craftUniquePiece(e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return; setMsg('');
     if (!confirm('유니크 조각 3개를 소모해 유니크 1개로 합성합니다. 진행하시겠습니까?')) return;
@@ -773,6 +795,21 @@ export function InventoryScreen() {
                             color: '#1a0f00', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
                             boxShadow: '0 0 8px rgba(218,165,32,0.4)',
                           }}>유니크 뽑기</button>
+                        )}
+                        {(s.item.id === 843 || s.item.id === 844 || s.item.id === 845) && (
+                          <button
+                            onClick={(e) => openGuildBossChest(s.item.id === 843 ? 'gold' : s.item.id === 844 ? 'silver' : 'copper', e)}
+                            style={{
+                              padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                              background: s.item.id === 843
+                                ? 'linear-gradient(180deg, #ffd66b, #daa520)'
+                                : s.item.id === 844
+                                ? 'linear-gradient(180deg, #e8e8e8, #a0a0a0)'
+                                : 'linear-gradient(180deg, #d89060, #a56030)',
+                              color: '#1a0f00', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
+                              boxShadow: '0 0 8px rgba(218,165,32,0.4)',
+                            }}
+                          >개봉</button>
                         )}
                         {s.item.id === 842 && s.quantity >= 3 && (
                           <button onClick={craftUniquePiece} style={{

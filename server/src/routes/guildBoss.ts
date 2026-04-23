@@ -17,6 +17,13 @@ const ITEM_ENHANCE_SCROLL = 286;      // 강화 성공률 스크롤
 const ITEM_PREFIX_REROLL = 322;       // 접두사 수치 재굴림권
 const ITEM_QUALITY_REROLL = 476;      // 품질 재굴림권 (migration 031)
 const ITEM_UNIQUE_TICKET = 477;       // 유니크 무작위 추첨권 (migration 033)
+const ITEM_CHEST_GOLD = 843;          // 길드 보스 황금빛 상자 (migration 041)
+const ITEM_CHEST_SILVER = 844;        // 길드 보스 은빛 상자
+const ITEM_CHEST_COPPER = 845;        // 길드 보스 구리 상자
+
+function chestItemId(tier: 'gold' | 'silver' | 'copper'): number {
+  return tier === 'gold' ? ITEM_CHEST_GOLD : tier === 'silver' ? ITEM_CHEST_SILVER : ITEM_CHEST_COPPER;
+}
 
 // 캐릭 레벨 기준 유니크 풀에서 무작위 1개 선택
 export async function pickRandomUnique(characterLevel: number): Promise<number | null> {
@@ -311,6 +318,44 @@ router.post('/practice-exit/:characterId', async (req: AuthedRequest, res: Respo
 });
 
 // ============================================================
+// POST /guild-boss/open-chest/:characterId — 상자 아이템 개봉
+// body: { tier: 'gold'|'silver'|'copper' }
+// ============================================================
+router.post('/open-chest/:characterId', async (req: AuthedRequest, res: Response) => {
+  const characterId = Number(req.params.characterId);
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'character not found' });
+
+  const tier = (req.body as { tier?: string })?.tier;
+  if (tier !== 'gold' && tier !== 'silver' && tier !== 'copper') {
+    return res.status(400).json({ error: 'tier 는 gold|silver|copper 중 하나여야 합니다.' });
+  }
+
+  // 인벤에서 해당 상자 아이템 1개 조회
+  const itemId = chestItemId(tier);
+  const stackR = await query<{ id: number; quantity: number }>(
+    `SELECT id, quantity FROM character_inventory
+     WHERE character_id = $1 AND item_id = $2 AND quantity > 0
+     ORDER BY slot_index LIMIT 1`,
+    [characterId, itemId]
+  );
+  if (stackR.rowCount === 0) return res.status(400).json({ error: '해당 상자를 보유하고 있지 않습니다.' });
+  const stack = stackR.rows[0];
+
+  // 보상 지급 먼저 (실패 시 상자 소모 X — use-unique-ticket 패턴과 동일)
+  const chestReward = await grantChest(characterId, tier);
+
+  // 상자 1개 소모
+  if (stack.quantity <= 1) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [stack.id]);
+  } else {
+    await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [stack.id]);
+  }
+
+  res.json({ ok: true, tier, chestReward });
+});
+
+// ============================================================
 // PATCH /guild-boss/damage/:runId — 누적 데미지 업데이트 (10초 주기)
 // body: { damage, hits, damageType?, element?, isDot? }
 // ============================================================
@@ -501,10 +546,11 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     guildTiersGranted = judged.newlyPassed.filter(t => t !== 'kill') as ('copper'|'silver'|'gold')[];
   }
 
-  // 본인 상자 지급
-  let chestReward: ChestResult | null = null;
+  // 본인 상자 수령 — 아이템 형태로 우편 발송 (인벤에서 개봉)
+  let chestDelivered = false;
   if (rewardTier) {
-    chestReward = await grantChest(run.character_id, rewardTier);
+    await deliverChestItem(run.character_id, rewardTier, 'exit');
+    chestDelivered = true;
   }
 
   res.json({
@@ -512,11 +558,29 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     totalDamage: run.total_damage,
     rewardTier,
     thresholdsPassed,
-    chestReward,
+    chestDelivered,
     guildTiersGranted,
     reason,
   });
 });
+
+// 상자 아이템을 우편함으로 전달 (수령 후 인벤에서 개봉)
+async function deliverChestItem(
+  characterId: number,
+  tier: 'gold' | 'silver' | 'copper',
+  reason: 'exit' | 'guild-milestone' | 'admin',
+) {
+  const label = tierLabelKr(tier);
+  const subject =
+    reason === 'exit' ? `길드 보스 — ${label} 수령`
+    : reason === 'guild-milestone' ? `길드 보스 — ${label} (길드원 보상)`
+    : `운영자 — ${label} 지급`;
+  const body =
+    reason === 'exit' ? `입장 퇴장 보상으로 ${label}를 수령했습니다. 우편 수령 후 인벤에서 개봉하세요.`
+    : reason === 'guild-milestone' ? `길드 누적 데미지 임계값 달성으로 ${label}를 수령했습니다. 우편 수령 후 인벤에서 개봉하세요.`
+    : `운영자가 ${label}를 지급했습니다. 우편 수령 후 인벤에서 개봉하세요.`;
+  await deliverToMailbox(characterId, subject, body, chestItemId(tier), 1, 0);
+}
 
 // ============================================================
 // 상자 지급 헬퍼
@@ -608,13 +672,12 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
       [characterId]
     );
   } else {
-    // 5종 패키지 — EXP / 골드 / 드랍 / 공격력 / HP 각 1시간 연장
+    // 4종 패키지 — EXP / 골드 / 드랍 / HP 각 1시간 연장 (공격력 버프 삭제)
     await query(
       `UPDATE characters SET
          exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval},
          gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + ${interval},
          drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval},
-         atk_boost_until  = GREATEST(COALESCE(atk_boost_until, NOW()), NOW()) + ${interval},
          hp_boost_until   = GREATEST(COALESCE(hp_boost_until, NOW()), NOW()) + ${interval}
        WHERE id = $1`,
       [characterId]
@@ -671,10 +734,9 @@ export async function judgeAndGrantGuildMilestones(
   for (const m of newlyPassed) {
     for (const mb of members.rows) {
       try {
-        await grantChest(mb.character_id, m.tier);
-        await deliverToMailbox(mb.character_id, m.subject,
-          `${triggerCharId === mb.character_id ? '내가' : '길드원이'} ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 달성 — 길드 전원에게 ${tierLabelKr(m.tier)} 지급`,
-          0, 0, 0);
+        // 상자 아이템 자체를 우편 첨부로 발송 (개봉은 유저가 인벤에서 수행)
+        const body = `${triggerCharId === mb.character_id ? '내가' : '길드원이'} ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 달성 — 길드 전원에게 ${tierLabelKr(m.tier)} 지급. 우편 수령 후 인벤에서 개봉하세요.`;
+        await deliverToMailbox(mb.character_id, m.subject, body, chestItemId(m.tier), 1, 0);
       } catch (e) { console.error('[guild-boss] chest fail', guildId, mb.character_id, e); }
     }
   }
@@ -718,9 +780,7 @@ router.post('/admin/grant-guild-chest', async (req: AuthedRequest, res: Response
   let granted = 0;
   for (const m of members.rows) {
     try {
-      await grantChest(m.character_id, tier);
-      await deliverToMailbox(m.character_id, `운영자 — ${tierLabelKr(tier)} 지급`,
-        `운영자가 ${tierLabelKr(tier)}를 지급했습니다.`, 0, 0, 0);
+      await deliverChestItem(m.character_id, tier, 'admin');
       granted++;
     } catch (e) { console.error('[gb-manual-grant] fail', m.character_id, e); }
   }
@@ -754,16 +814,14 @@ router.post('/admin/backfill', async (req: AuthedRequest, res: Response) => {
     );
     if (members.rowCount === 0) continue;
 
-    // 티어 상자 (copper/silver/gold)
+    // 티어 상자 (copper/silver/gold) — 상자 아이템을 우편 첨부로 발송
     for (const m of GUILD_TIER_MILESTONES) {
       if (guildDamage >= m.damage && (milestones & m.bit) === 0) {
         milestones |= m.bit;
         for (const mb of members.rows) {
           try {
-            await grantChest(mb.character_id, m.tier);
-            await deliverToMailbox(mb.character_id, m.subject,
-              `[소급] ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 길드 달성 — 전원 지급`,
-              0, 0, 0);
+            const body = `[소급] ${tierLabelKr(m.tier)} 임계값(${formatNum(m.damage)}) 길드 달성 — 전원 지급. 우편 수령 후 인벤에서 개봉하세요.`;
+            await deliverToMailbox(mb.character_id, m.subject, body, chestItemId(m.tier), 1, 0);
           } catch (e) { console.error('[gb-backfill] chest fail', g.guild_id, mb.character_id, e); }
         }
         granted.push(m.tier);

@@ -46,13 +46,7 @@ interface ExitResult {
   totalDamage: string;
   rewardTier: 'gold' | 'silver' | 'copper' | null;
   thresholdsPassed: number;
-  chestReward: {
-    gold: number;
-    medals: number;
-    exp: number;
-    items: { itemId: number; qty: number; name: string }[];
-    jackpots: string[];
-  } | null;
+  chestDelivered: boolean;
   guildTiersGranted: ('copper' | 'silver' | 'gold')[];
   reason: string;
 }
@@ -610,24 +604,19 @@ export function GuildBossScreen() {
               입장 종료 — {exitResult.rewardTier ? tierLabel(exitResult.rewardTier) : '보상 없음'}
             </div>
             <div style={{ marginBottom: 8 }}>입힌 총 데미지: {fmt(exitResult.totalDamage)}</div>
-            {exitResult.chestReward && (
-              <div style={{ marginBottom: 8, padding: 12, background: '#0e0c0a', border: '1px solid #333' }}>
-                <div>골드 +{exitResult.chestReward.gold.toLocaleString()}</div>
-                <div>메달 +{exitResult.chestReward.medals}</div>
-                <div>EXP +{exitResult.chestReward.exp.toLocaleString()}</div>
-                {exitResult.chestReward.items.map((i, idx) => (
-                  <div key={idx}>{i.name} ×{i.qty}</div>
-                ))}
-                {exitResult.chestReward.jackpots.length > 0 && (
-                  <div style={{ marginTop: 8, color: '#ffe066', fontWeight: 700 }}>
-                    잭팟! {exitResult.chestReward.jackpots.join(', ')}
-                  </div>
-                )}
+            {exitResult.chestDelivered && exitResult.rewardTier && (
+              <div style={{ marginBottom: 8, padding: 12, background: '#0e0c0a', border: '1px solid #daa520' }}>
+                <div style={{ color: '#ffe066', fontWeight: 700, marginBottom: 6 }}>
+                  {tierLabel(exitResult.rewardTier)}가 우편함으로 전송되었습니다.
+                </div>
+                <div style={{ fontSize: 12, color: '#bbb' }}>
+                  우편함에서 수령 후 인벤토리에서 상자를 사용하면 보상이 지급됩니다.
+                </div>
               </div>
             )}
             {exitResult.guildTiersGranted.length > 0 && (
               <div style={{ color: '#66dd66', marginBottom: 8 }}>
-                길드 전원 지급 티어: {exitResult.guildTiersGranted.map(tierLabel).join(', ')}
+                길드 전원 지급 티어: {exitResult.guildTiersGranted.map(tierLabel).join(', ')} (우편함 확인)
               </div>
             )}
             <button onClick={() => setExitResult(null)} style={{ ...navButtonStyle(true), marginTop: 12, width: '100%' }}>
