@@ -93,6 +93,7 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
   const mr = await query<{
     character_id: number; role: string; name: string; level: number; class_name: string;
     last_online_at: string | null; gold_donated: string | null; today_donation: string | null;
+    gb_keys_remaining: number | null; gb_damage_today: string | null;
   }>(
     `SELECT gm.character_id, gm.role, c.name, c.level, c.class_name, c.last_online_at,
             COALESCE(gc.gold_donated, 0)::text AS gold_donated,
@@ -100,7 +101,16 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
               (SELECT amount FROM guild_donations_daily
                 WHERE character_id = gm.character_id AND date = CURRENT_DATE),
               0
-            )::text AS today_donation
+            )::text AS today_donation,
+            (SELECT keys_remaining FROM guild_boss_daily
+              WHERE character_id = gm.character_id
+                AND date = (NOW() AT TIME ZONE 'Asia/Seoul')::date) AS gb_keys_remaining,
+            COALESCE(
+              (SELECT daily_damage_total::text FROM guild_boss_daily
+                WHERE character_id = gm.character_id
+                  AND date = (NOW() AT TIME ZONE 'Asia/Seoul')::date),
+              '0'
+            ) AS gb_damage_today
      FROM guild_members gm
        JOIN characters c ON c.id = gm.character_id
        LEFT JOIN guild_contributions gc ON gc.guild_id = gm.guild_id AND gc.character_id = gm.character_id
@@ -150,12 +160,20 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
       skills,
       myDonationToday,
       dailyDonationCap: DAILY_DONATION_CAP,
-      members: mr.rows.map(m => ({
-        id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role,
-        lastOnlineAt: m.last_online_at,
-        goldDonated: Number(m.gold_donated || 0),
-        todayDonation: Number(m.today_donation || 0),
-      })),
+      members: mr.rows.map(m => {
+        // 일일 키 기본 2개 — 사용했거나 누적 데미지 > 0 이면 참여
+        const keysUsed = m.gb_keys_remaining === null ? 0 : (2 - m.gb_keys_remaining);
+        const gbDamage = Number(m.gb_damage_today || 0);
+        return {
+          id: m.character_id, name: m.name, level: m.level, className: m.class_name, role: m.role,
+          lastOnlineAt: m.last_online_at,
+          goldDonated: Number(m.gold_donated || 0),
+          todayDonation: Number(m.today_donation || 0),
+          gbParticipated: keysUsed > 0 || gbDamage > 0,
+          gbKeysUsed: keysUsed,
+          gbDamageToday: gbDamage,
+        };
+      }),
     },
   });
 });

@@ -672,13 +672,12 @@ async function grantBoosters(characterId: number, minutes: number, singleOnly = 
       [characterId]
     );
   } else {
-    // 4종 패키지 — EXP / 골드 / 드랍 / HP 각 1시간 연장 (공격력 버프 삭제)
+    // 3종 패키지 — EXP / 골드 / 드랍 각 1시간 연장 (공격력·HP 버프 삭제)
     await query(
       `UPDATE characters SET
          exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval},
          gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + ${interval},
-         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval},
-         hp_boost_until   = GREATEST(COALESCE(hp_boost_until, NOW()), NOW()) + ${interval}
+         drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval}
        WHERE id = $1`,
       [characterId]
     );

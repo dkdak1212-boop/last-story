@@ -264,13 +264,12 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
         `UPDATE characters SET
            exp_boost_until  = GREATEST(COALESCE(exp_boost_until, NOW()), NOW()) + ${interval},
            gold_boost_until = GREATEST(COALESCE(gold_boost_until, NOW()), NOW()) + ${interval},
-           drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval},
-           hp_boost_until   = GREATEST(COALESCE(hp_boost_until, NOW()), NOW()) + ${interval}
+           drop_boost_until = GREATEST(COALESCE(drop_boost_until, NOW()), NOW()) + ${interval}
          WHERE id = $1`,
         [id]
       );
       invalidateSessionMeta(id);
-      rewardNote.push(`부스터 4종 ${minutes}분`);
+      rewardNote.push(`부스터 3종 ${minutes}분`);
       break;
     }
     case 'exp_pct_of_level': {

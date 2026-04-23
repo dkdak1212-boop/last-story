@@ -10,13 +10,19 @@ interface GuildSummary {
   levelSum: number;
   skills: { gold: number; exp: number; drop: number; hp: number };
 }
-interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null; goldDonated?: number; todayDonation?: number }
+interface GuildMember { id: number; name: string; level: number; className: string; role: string; lastOnlineAt?: string | null; goldDonated?: number; todayDonation?: number; gbParticipated?: boolean; gbKeysUsed?: number; gbDamageToday?: number }
 interface GuildSkill {
   key: string; label: string;
   level: number; max: number;
   pctPerLevel: number; currentPct: number;
   nextCost: number; nextReqLevel: number;
 }
+function formatDamage(n: number): string {
+  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(n % 100_000_000 === 0 ? 0 : 1)}억`;
+  if (n >= 10_000) return `${(n / 10_000).toFixed(0)}만`;
+  return n.toLocaleString();
+}
+
 interface MyGuild {
   id: number; name: string; description: string; isLeader: boolean; role: string;
   maxMembers: number; statBuffPct: number; members: GuildMember[];
@@ -717,6 +723,19 @@ export function GuildScreen() {
                     <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2, display: 'flex', gap: 10 }}>
                       <span>오늘 <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{(m.todayDonation || 0).toLocaleString()}G</span></span>
                       <span>누적 <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{(m.goldDonated || 0).toLocaleString()}G</span></span>
+                      <span>
+                        길드보스 <span style={{
+                          color: m.gbParticipated ? 'var(--success)' : 'var(--danger)',
+                          fontWeight: 800,
+                        }}>
+                          {m.gbParticipated ? `참여 (${m.gbKeysUsed || 0}/2)` : '미참여'}
+                        </span>
+                        {m.gbParticipated && (m.gbDamageToday || 0) > 0 && (
+                          <span style={{ color: '#ffd66b', marginLeft: 4 }}>
+                            딜 {formatDamage(m.gbDamageToday || 0)}
+                          </span>
+                        )}
+                      </span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
