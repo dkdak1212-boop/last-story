@@ -1322,31 +1322,39 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
       }
       const multiHitFlat = skillFlatWithInt(skill, s.playerStats.int || 0) + divineStrikeFlat;
-      for (let i = 0; i < hits; i++) {
-        const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
-        const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, multiHitFlat);
-        if (d.miss) {
-          addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
-          s.missStack = Math.min(5, s.missStack + 1);
-        } else {
-          let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
-            consumeOneShot: firstLandedHit,
-            skillName: skill.name,
-          });
-          firstLandedHit = false;
-          landedCount++;
-          s.monsterHp -= dmg;
-          if (d.crit) {
-            const critDmgPct = 200 + getCritDmgBonus(s);
-            addLog(s, `[${skill.name}] ${i + 1}타 ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
+      // 무쌍난무: 25% / 전장의 광란: 50% 확률로 전체 타격 세트 2회 발동
+      const doubleActChance = skill.name === '무쌍난무' ? 0.25 : (skill.name === '전장의 광란' ? 0.50 : 0);
+      const passes = (doubleActChance > 0 && Math.random() < doubleActChance) ? 2 : 1;
+      if (passes === 2) addLog(s, `[${skill.name}] 2회 발동!`);
+      for (let pass = 0; pass < passes; pass++) {
+        if (pass > 0) { firstLandedHit = true; landedCount = 0; }
+        for (let i = 0; i < hits; i++) {
+          const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
+          const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, multiHitFlat);
+          const hitLabel = passes === 2 ? `${pass + 1}회차 ${i + 1}타` : `${i + 1}타`;
+          if (d.miss) {
+            addLog(s, `[${skill.name}] ${hitLabel} 빗나감!`);
+            s.missStack = Math.min(5, s.missStack + 1);
           } else {
-            addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}`);
-          }
-          // 치명타 후속 (재충전·흡혈) — 타격마다 적용
-          applyCritPostEffects(s, dmg, d.crit, `${i + 1}타`);
-          // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
-          if (s.className === 'warrior') {
-            s.rage = Math.min(100, s.rage + 5);
+            let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
+              consumeOneShot: firstLandedHit,
+              skillName: skill.name,
+            });
+            firstLandedHit = false;
+            landedCount++;
+            s.monsterHp -= dmg;
+            if (d.crit) {
+              const critDmgPct = 200 + getCritDmgBonus(s);
+              addLog(s, `[${skill.name}] ${hitLabel} ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
+            } else {
+              addLog(s, `[${skill.name}] ${hitLabel} ${dmg}`);
+            }
+            // 치명타 후속 (재충전·흡혈) — 타격마다 적용
+            applyCritPostEffects(s, dmg, d.crit, hitLabel);
+            // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
+            if (s.className === 'warrior') {
+              s.rage = Math.min(100, s.rage + 5);
+            }
           }
         }
       }
