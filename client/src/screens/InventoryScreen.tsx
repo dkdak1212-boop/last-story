@@ -428,11 +428,25 @@ export function InventoryScreen() {
                 {item ? <ItemIcon slot={slot} grade={item.grade} size={24} /> : <SlotIcon slot={slot} size={16} />}
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)' }}>{label}</span>
                 {item && (
-                  <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                  <span
                     onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
-                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                    style={{ width: 28, height: 28, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5, cursor: 'pointer', marginLeft: 'auto' }}
-                  />
+                    title={locked ? '잠금 해제' : '잠금'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      marginLeft: 'auto', padding: '1px 5px', borderRadius: 3,
+                      background: locked ? 'rgba(255,90,90,0.12)' : 'transparent',
+                      border: `1px solid ${locked ? '#ff5a5a' : '#555'}`,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
+                      style={{ width: 18, height: 18, imageRendering: 'pixelated', opacity: locked ? 1 : 0.6 }}
+                    />
+                    <span style={{ fontSize: 10, fontWeight: 800, color: locked ? '#ff6b6b' : '#888' }}>
+                      {locked ? '잠금' : '해제'}
+                    </span>
+                  </span>
                 )}
               </div>
               {item ? (
@@ -731,11 +745,25 @@ export function InventoryScreen() {
                     )}
                     <span style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
                     {isEquipment && (
-                      <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                      <span
                         onClick={(e) => toggleLock(s.slotIndex, e)}
-                        onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                        style={{ width: 32, height: 32, imageRendering: 'pixelated', opacity: locked ? 1 : 0.5, cursor: 'pointer', flexShrink: 0 }}
-                      />
+                        title={locked ? '잠금 해제' : '잠금'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          padding: '2px 6px', borderRadius: 3,
+                          background: locked ? 'rgba(255,90,90,0.12)' : 'transparent',
+                          border: `1px solid ${locked ? '#ff5a5a' : '#555'}`,
+                          cursor: 'pointer', flexShrink: 0,
+                        }}
+                      >
+                        <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                          onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
+                          style={{ width: 20, height: 20, imageRendering: 'pixelated', opacity: locked ? 1 : 0.6 }}
+                        />
+                        <span style={{ fontSize: 11, fontWeight: 800, color: locked ? '#ff6b6b' : '#888' }}>
+                          {locked ? '잠금' : '해제'}
+                        </span>
+                      </span>
                     )}
                   </div>
 
