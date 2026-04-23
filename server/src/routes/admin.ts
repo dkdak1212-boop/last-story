@@ -1772,4 +1772,37 @@ router.post('/system-message', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true });
 });
 
+// 신규 캐릭 EXP 이벤트 관리
+router.get('/new-char-event', async (_req, res) => {
+  const r = await query<{ key: string; value: string }>(
+    "SELECT key, value FROM server_settings WHERE key IN ('new_char_exp_pct','new_char_exp_until')"
+  );
+  const m: Record<string, string> = {};
+  for (const row of r.rows) m[row.key] = row.value;
+  const pct = Number(m['new_char_exp_pct'] || 0);
+  const untilStr = m['new_char_exp_until'] || '';
+  const until = untilStr ? new Date(untilStr) : null;
+  const active = pct > 0 && !!until && until.getTime() > Date.now();
+  res.json({ pct, until: untilStr, active });
+});
+
+router.post('/new-char-event', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    pct: z.number().int().min(0).max(10000),
+    hours: z.number().int().min(0).max(720),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'pct(0~10000), hours(0~720) 필수' });
+  const { pct, hours } = parsed.data;
+
+  if (pct <= 0 || hours <= 0) {
+    await query("UPDATE server_settings SET value='0', updated_at=NOW() WHERE key='new_char_exp_pct'");
+    await query("UPDATE server_settings SET value='', updated_at=NOW() WHERE key='new_char_exp_until'");
+    return res.json({ ok: true, cleared: true });
+  }
+  const until = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+  await query("UPDATE server_settings SET value=$1, updated_at=NOW() WHERE key='new_char_exp_pct'", [String(pct)]);
+  await query("UPDATE server_settings SET value=$1, updated_at=NOW() WHERE key='new_char_exp_until'", [until]);
+  res.json({ ok: true, pct, until, hours });
+});
+
 export default router;

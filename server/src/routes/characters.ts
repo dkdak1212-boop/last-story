@@ -115,6 +115,25 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
                user_id AS "userId"`,
     [req.userId, name, className, start.maxHp, start.stats]
   );
+  // 신규 캐릭 EXP 이벤트 (server_settings 기반) — pct > 0 && until 미도래 시 버프 부여
+  try {
+    const settR = await query<{ key: string; value: string }>(
+      "SELECT key, value FROM server_settings WHERE key IN ('new_char_exp_pct','new_char_exp_until')"
+    );
+    const m: Record<string, string> = {};
+    for (const row of settR.rows) m[row.key] = row.value;
+    const pct = Number(m['new_char_exp_pct'] || 0);
+    const untilStr = m['new_char_exp_until'] || '';
+    const until = untilStr ? new Date(untilStr) : null;
+    if (pct > 0 && until && until.getTime() > Date.now()) {
+      await query(
+        'UPDATE characters SET event_exp_pct = $1, event_exp_until = $2 WHERE id = $3',
+        [pct, until.toISOString(), r.rows[0].id]
+      );
+    }
+  } catch (e) {
+    console.error('[new-char-event] apply fail', e);
+  }
   res.json(r.rows[0]);
 });
 

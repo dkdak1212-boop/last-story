@@ -59,6 +59,7 @@ export function MarketplaceScreen() {
   const [qualityMax, setQualityMax] = useState<number>(100);
   const [prefixStatKey, setPrefixStatKey] = useState<string>('');
   const [prefixTier, setPrefixTier] = useState<number>(0); // 0=전체, 1~4
+  const [sortMode, setSortMode] = useState<'default' | 'latest'>('default'); // 레벨/가격 vs 최신순
 
   async function loadBrowse() {
     const params = new URLSearchParams();
@@ -196,12 +197,29 @@ export function MarketplaceScreen() {
               }}>{label}</button>
             ))}
           </div>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+            <button onClick={() => setSortMode('default')} style={{
+              fontSize: 11, padding: '4px 10px',
+              background: sortMode === 'default' ? 'var(--accent)' : 'var(--bg-panel)',
+              color: sortMode === 'default' ? '#000' : 'var(--text-dim)',
+              border: `1px solid ${sortMode === 'default' ? 'var(--accent)' : 'var(--border)'}`,
+              cursor: 'pointer', borderRadius: 3,
+            }}>레벨·가격순</button>
+            <button onClick={() => setSortMode('latest')} style={{
+              fontSize: 11, padding: '4px 10px',
+              background: sortMode === 'latest' ? 'var(--accent)' : 'var(--bg-panel)',
+              color: sortMode === 'latest' ? '#000' : 'var(--text-dim)',
+              border: `1px solid ${sortMode === 'latest' ? 'var(--accent)' : 'var(--border)'}`,
+              cursor: 'pointer', borderRadius: 3,
+            }}>최신순</button>
+          </div>
           <BrowseListings
             listings={listings}
             slotFilter={slotFilter}
             weaponClass={weaponClass}
             levelBracket={browseLevelBracket}
             equipped={equipped}
+            sortMode={sortMode}
             onBuy={(a) => buy(a)}
           />
         </>
@@ -417,9 +435,10 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
 }
 
 // 거래소 목록 (레벨 구간 탭 필터 — 유니크 탭과 동일 UI)
-function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equipped, onBuy }: {
+function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equipped, sortMode, onBuy }: {
   listings: Listing[]; slotFilter: string; weaponClass: string; levelBracket: string;
   equipped: Equipped;
+  sortMode: 'default' | 'latest';
   onBuy: (a: Listing) => void;
 }) {
   // 1. 무기 직업 필터
@@ -444,8 +463,9 @@ function BrowseListings({ listings, slotFilter, weaponClass, levelBracket, equip
     return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>해당 레벨 구간에 등록된 아이템이 없습니다</div>;
   }
 
-  // 3. 레벨 오름차순 (같은 레벨이면 가격순)
+  // 3. 정렬 — 기본(레벨·가격) 또는 최신순(id 내림차순)
   const sorted = [...filtered].sort((a, b) => {
+    if (sortMode === 'latest') return b.id - a.id;
     const la = a.requiredLevel || 1;
     const lb = b.requiredLevel || 1;
     if (la !== lb) return la - lb;

@@ -839,7 +839,7 @@ export function InventoryScreen() {
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, s.item.grade, e)}
                             style={actionBtn('#e0a040')}>폐기</button>
                         )}
-                        {isEquipment && !locked && (
+                        {isEquipment && (
                           <button onClick={(e) => depositToStorage(s.slotIndex, s.item.name, e)}
                             style={actionBtn('#66ccff')}>📦 창고 보관</button>
                         )}

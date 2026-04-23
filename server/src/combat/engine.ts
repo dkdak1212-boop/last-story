@@ -155,6 +155,19 @@ function skillFlatWithInt(skill: { name: string; flat_damage: number }, intStat:
   return skill.flat_damage + (perInt > 0 ? intStat * perInt : 0);
 }
 
+// 접두사 흡혈(lifesteal_pct) — 모든 타격 경로에서 공통 적용. 세션.playerHp 갱신 + 로그.
+// 반환: 회복량 (0이면 미적용)
+function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
+  const pct = s.equipPrefixes.lifesteal_pct || 0;
+  if (pct <= 0 || dmg <= 0) return 0;
+  let heal = Math.round(dmg * pct / 100);
+  const lsAmp = getPassive(s, 'lifesteal_amp');
+  if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
+  if (heal <= 0) return 0;
+  s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+  return heal;
+}
+
 // ── 활성 세션 관리 (인메모리) ──
 
 interface ActiveSession {
@@ -1212,14 +1225,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           s.rage = Math.min(100, s.rage + rageGain);
         }
 
-        // 접두사: 흡혈귀(lifesteal_pct) — 데미지의 N%를 회복
-        const prefixLifesteal = s.equipPrefixes.lifesteal_pct || 0;
-        if (prefixLifesteal > 0 && dmg > 0) {
-          const heal = Math.round(dmg * prefixLifesteal / 100);
-          if (heal > 0) {
-            s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-            addLog(s, `[흡혈] HP +${heal}`);
-          }
+        // 접두사: 흡혈귀(lifesteal_pct) — 공통 헬퍼로 위임
+        {
+          const heal = applyPrefixLifesteal(s, dmg);
+          if (heal > 0) addLog(s, `[흡혈] HP +${heal}`);
         }
 
         // 치명타 후속 (재충전·흡혈) — 모든 스킬 타입 공통
@@ -1241,6 +1250,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
           s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
           // 흡혈 참격: 흡수한 데미지만큼 추가 데미지
+          s.monsterHp -= heal;
+          addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
+        }
+        // 최후의 일격: 툴팁상 흡혈 50% + 흡수량만큼 추가 데미지 (effect_type='double_chance'라 위 분기 미히트)
+        if (skill.name === '최후의 일격' && dmg > 0) {
+          let heal = Math.round(dmg * 50 / 100);
+          const lsAmp = getPassive(s, 'lifesteal_amp');
+          if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
+          s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
           s.monsterHp -= heal;
           addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
         }
@@ -1272,6 +1290,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               }
               s.monsterHp -= dmg2;
               addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
+              // 최후의 일격: 2회차 타격에도 흡혈 적용
+              if (skill.name === '최후의 일격' && dmg2 > 0) {
+                let heal2 = Math.round(dmg2 * 50 / 100);
+                const lsAmp2 = getPassive(s, 'lifesteal_amp');
+                if (lsAmp2 > 0) heal2 = Math.round(heal2 * (1 + lsAmp2 / 100));
+                s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal2);
+                s.monsterHp -= heal2;
+                addLog(s, `[${skill.name}] 2회차 HP +${heal2} 흡혈, 추가 ${heal2}`);
+              }
             }
           }
         }
@@ -1351,6 +1378,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             }
             // 치명타 후속 (재충전·흡혈) — 타격마다 적용
             applyCritPostEffects(s, dmg, d.crit, hitLabel);
+            // 접두사 흡혈 — 타격마다 적용
+            const pLifesteal = applyPrefixLifesteal(s, dmg);
+            if (pLifesteal > 0) addLog(s, `[흡혈] HP +${pLifesteal}`);
             // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
             if (s.className === 'warrior') {
               s.rage = Math.min(100, s.rage + 5);
@@ -1395,6 +1425,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULTI_MULT, dotUseMatk: useMatk });
           // 치명타 후속 (재충전·흡혈) — 타격마다 적용
           applyCritPostEffects(s, dmg, d.crit, `${i + 1}타`);
+          const pLsPoison = applyPrefixLifesteal(s, dmg);
+          if (pLsPoison > 0) addLog(s, `[흡혈] HP +${pLsPoison}`);
         }
       }
       addLog(s, `[${skill.name}] 독 ${dotDmg}/행동 x3행동 (방어 50% 무시)`);
@@ -1409,6 +1441,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
         applyCritPostEffects(s, dmg, d.crit);
+        const pLsDot = applyPrefixLifesteal(s, dmg);
+        if (pLsDot > 0) addLog(s, `[흡혈] HP +${pLsDot}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const DOT_SKILL_MULT = 2.0; // 화상 도트: 200% (1.56 → 2.0 상향)
         // 마법사 전용: DoT 전체 +50% (틱당 피해 1.5배)
@@ -1453,6 +1487,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= dmg;
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
         applyCritPostEffects(s, dmg, d.crit);
+        const pLsP = applyPrefixLifesteal(s, dmg);
+        if (pLsP > 0) addLog(s, `[흡혈] HP +${pLsP}`);
       }
       const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
       const POISON_MULT = 1.8; // 2.0 → 1.8 (도적 독 스킬 계수 하향)
@@ -1545,6 +1581,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         // 치명타 후속 (재충전·흡혈)
         applyCritPostEffects(s, dmg, d.crit);
+        const pLsSt = applyPrefixLifesteal(s, dmg);
+        if (pLsSt > 0) addLog(s, `[흡혈] HP +${pLsSt}`);
         // 방패 강타: 자신 최대 HP의 15% 고정 추가 데미지
         if (skill.name === '방패 강타') {
           const bonus = Math.round(s.playerMaxHp * 0.15);
@@ -2101,6 +2139,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
   } else {
     s.monsterHp -= d.damage;
     addLog(s, `${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
+    const pLsBasic = applyPrefixLifesteal(s, d.damage);
+    if (pLsBasic > 0) addLog(s, `[흡혈] HP +${pLsBasic}`);
   }
 }
 
