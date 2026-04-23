@@ -140,6 +140,21 @@ export interface SkillDef {
   description?: string;
 }
 
+// 특정 스킬: INT 1당 N 고정 데미지 추가 (스킬명 → per-INT 배수)
+// calcDamage 의 flat_damage 인자에 더해져서 배수·증폭 영향 받음.
+const SKILL_INT_FLAT: Record<string, number> = {
+  '마나 폭주': 1000,  // 기존 — 유지
+  '운석 폭격': 1000,
+  '별의 종말': 2000,
+  '원소 대폭발': 3000,
+  '창세의 빛': 5000,
+};
+
+function skillFlatWithInt(skill: { name: string; flat_damage: number }, intStat: number): number {
+  const perInt = SKILL_INT_FLAT[skill.name] || 0;
+  return skill.flat_damage + (perInt > 0 ? intStat * perInt : 0);
+}
+
 // ── 활성 세션 관리 (인메모리) ──
 
 interface ActiveSession {
@@ -1092,9 +1107,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
         mdef: Math.round(s.monsterStats.mdef * (1 - totalDefReduce / 100)),
       } : s.monsterStats;
-      // 마나 폭주: INT 1당 1000 고정 데미지 추가 (증폭 대상 — flat_damage로 전달)
-      const manaOverloadFlat = skill.name === '마나 폭주' ? (s.playerStats.int || 0) * 1000 : 0;
-      const totalFlat = skill.flat_damage + manaOverloadFlat;
+      // INT 스케일링 고정 데미지 (마나폭주/별의종말/창세의빛 등) — SKILL_INT_FLAT 참조
+      const totalFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
       const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, totalFlat, criBonus);
       // 도적 기습: 치명타 확정 상태 — 원래 크리가 아니었다면 강제로 2배 + 크리 플래그
       const critGuaranteed = s.statusEffects.find(e => e.type === 'crit_guaranteed' && e.source === 'monster' && e.remainingActions > 0);
@@ -1302,9 +1316,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hitMult = multiAmp > 0 ? baseChain * (1 + multiAmp / 100) : baseChain;
       let firstLandedHit = true;
       let landedCount = 0;
+      const multiHitFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
       for (let i = 0; i < hits; i++) {
         const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
-        const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, skill.flat_damage);
+        const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, multiHitFlat);
         if (d.miss) {
           addLog(s, `[${skill.name}] ${i + 1}타 빗나감!`);
           s.missStack = Math.min(5, s.missStack + 1);
@@ -1374,7 +1389,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'dot': {
-      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+      const dotFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, dotFlat);
       if (!d.miss) {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
