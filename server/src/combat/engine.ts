@@ -937,8 +937,8 @@ function processSummons(s: ActiveSession) {
   if (summons.length === 0) return;
 
   const matk = s.playerStats.matk;
-  const summonAmp = getPassive(s, 'summon_amp');
-  const summonDouble = getPassive(s, 'summon_double_hit');
+  const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
+  const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
   // summon_buff 효과 (지휘/군주의 위엄)
   const buffEff = s.statusEffects.find(e => e.type === 'summon_buff_active' && e.remainingActions > 0);
   const buffMult = buffEff ? (1 + buffEff.value / 100) : 1.0;
@@ -1863,7 +1863,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addLog(s, `[${skill.name}] 같은 종류 교체!`);
       }
       // 전체 소환수 캡 (글로벌) — 다른 종류 보호: 가장 많이 차지한 종류부터 우선 제거
-      const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra');
+      const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra') + (s.equipPrefixes.summon_max_extra || 0);
       const activeSummons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
       if (activeSummons.length >= maxSummons) {
         // 종류별 카운트

@@ -39,6 +39,10 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   def_pierce_pct: v => `적 방어 ${v}% 추가 무시`,
   miss_combo_pct: v => `빗나감 1회당 다음 공격 +${v}% (5스택)`,
   evasion_burst_pct: v => `회피 성공 후 다음 공격 +${v}%`,
+  // 소환사 접두사 — engine.ts 에서 getPassive + equipPrefixes 합산
+  summon_amp: v => `소환수 데미지 ${v}% 증가`,
+  summon_double_hit: v => `소환수 2회 타격 ${v}%`,
+  summon_max_extra: v => `최대 소환수 +${v}`,
 };
 
 interface Props {
