@@ -248,7 +248,7 @@ export function MarketplaceScreen() {
               ['ring', '반지'],
               ['amulet', '목걸이'],
             ] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setSlotFilter(key)} style={{
+              <button key={key} onClick={() => { setSlotFilter(key); if (key !== 'weapon') setWeaponClass(''); }} style={{
                 fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
                 background: slotFilter === key ? 'var(--accent)' : 'var(--bg-panel)',
                 color: slotFilter === key ? '#000' : 'var(--text-dim)',
@@ -257,6 +257,29 @@ export function MarketplaceScreen() {
               }}>{label}</button>
             ))}
           </div>
+
+          {/* 유니크 · 무기 선택 시 직업별 서브 탭 */}
+          {slotFilter === 'weapon' && (
+            <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+              {([
+                ['', '전체', 'var(--accent)'],
+                ['warrior', '전사 (검/대검)', '#e04040'],
+                ['mage', '마법사 (지팡이)', '#4080e0'],
+                ['cleric', '성직자 (홀)', '#daa520'],
+                ['rogue', '도적 (단검)', '#a060c0'],
+                ['summoner', '소환사 (구슬)', '#44cc88'],
+              ] as const).map(([key, label, color]) => (
+                <button key={key} onClick={() => setWeaponClass(key)} style={{
+                  fontSize: 10, padding: '4px 9px', borderRadius: 3, cursor: 'pointer',
+                  background: weaponClass === key ? color : 'transparent',
+                  color: weaponClass === key ? '#000' : color,
+                  border: `1px solid ${color}`,
+                  fontWeight: 700,
+                }}>{label}</button>
+              ))}
+            </div>
+          )}
+
           <FilterPanel
             qualityMin={qualityMin} qualityMax={qualityMax}
             setQualityMin={setQualityMin} setQualityMax={setQualityMax}
@@ -295,9 +318,17 @@ export function MarketplaceScreen() {
               const [lo, hi] = uniqueLevelBracket.split('-').map(Number);
               return lv >= lo && lv <= hi;
             };
-            const filtered = listings.filter(a => inBracket(a.requiredLevel || 1));
+            let filtered = listings;
+            // 무기 + 직업 서브 필터
+            if (slotFilter === 'weapon' && weaponClass) {
+              filtered = filtered.filter(a => {
+                const cls = a.classRestriction || inferWeaponClass(a.baseItemName || a.itemName || '');
+                return cls === weaponClass;
+              });
+            }
+            filtered = filtered.filter(a => inBracket(a.requiredLevel || 1));
             if (filtered.length === 0) {
-              return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>해당 레벨 구간에 등록된 유니크 아이템이 없습니다</div>;
+              return <div style={{ color: 'var(--text-dim)', padding: 20, textAlign: 'center' }}>해당 조건에 등록된 유니크 아이템이 없습니다</div>;
             }
             const sorted = [...filtered].sort((a, b) => {
               const la = a.requiredLevel || 1;
