@@ -405,24 +405,7 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
       }
       break;
     }
-    case 'guild_storage_slot': {
-      // 길드 창고 슬롯 (시스템 미구현 — 컬럼만 증가)
-      const amount = Number(payload.amount) || 1;
-      const gr = await query<{ guild_id: number | null }>(
-        `SELECT guild_id FROM guild_members WHERE character_id = $1 LIMIT 1`, [id]
-      );
-      const gid = gr.rows[0]?.guild_id;
-      if (gid) {
-        await query(
-          `UPDATE guilds SET storage_slots_bonus = COALESCE(storage_slots_bonus, 0) + $1 WHERE id = $2`,
-          [amount, gid]
-        );
-        rewardNote.push(`길드 창고 슬롯 +${amount} (시스템 준비 중)`);
-      } else {
-        rewardNote.push('길드 미가입 — 지급되지 않음');
-      }
-      break;
-    }
+    // 'guild_storage_slot' 상품 제거됨 (2026-04-24)
     default:
       console.warn('[shop] unknown reward_type:', item.reward_type);
   }

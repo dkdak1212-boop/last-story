@@ -1948,7 +1948,7 @@ async function runEquipOverhaul() {
           { section: 'small', name: '일일임무 즉시 완료권', desc: '오늘 미완료 일일임무 중 가장 오래된 1개를 즉시 완료 처리', price: 250, scope: 'daily', count: 1, type: 'daily_quest_instant', payload: {}, order: 60, leader: false },
           // 길드 단위
           { section: 'guild', name: '길드 전체 +25% 24시간 버프', desc: '소속 길드 전원에게 24시간 EXP / 골드 / 드랍 +25% (중첩 시 연장)', price: 5000, scope: 'weekly', count: 1, type: 'guild_buff_24h_all', payload: { pct: 25, durationHours: 24 }, order: 20, leader: true },
-          { section: 'guild', name: '길드 창고 슬롯 +1', desc: '길드 창고 슬롯 영구 +1 (길드 창고 시스템용 — 계정 창고와 별개)', price: 8000, scope: 'monthly', count: 2, type: 'guild_storage_slot', payload: { amount: 1 }, order: 30, leader: true },
+          // 길드 창고 슬롯 +1 상품 제거 (길드 창고 시스템 미구현 + 컨텐츠 단순화, 2026-04-24)
         ];
         for (const s of newSeed) {
           await query(
