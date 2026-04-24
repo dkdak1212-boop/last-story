@@ -67,6 +67,11 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+  // 전투 중 노드 변경 차단 — 패시브/버프 상태 오염 방지
+  try {
+    const { activeSessions } = await import('../combat/engine.js');
+    if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드를 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
+  } catch {}
 
   const parsed = investSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
@@ -180,6 +185,10 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+  try {
+    const { activeSessions } = await import('../combat/engine.js');
+    if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드를 리셋할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
+  } catch {}
 
   const cost = 5000;
   if (char.gold < cost) return res.status(400).json({ error: 'not enough gold' });
@@ -245,6 +254,10 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   if (idx < 1 || idx > 3) return res.status(400).json({ error: 'invalid preset index' });
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+  try {
+    const { activeSessions } = await import('../combat/engine.js');
+    if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드 프리셋을 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
+  } catch {}
 
   const pr = await query<{ node_ids: number[] }>(
     'SELECT node_ids FROM character_node_presets WHERE character_id = $1 AND preset_idx = $2', [id, idx]
