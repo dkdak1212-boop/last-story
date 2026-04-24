@@ -12,10 +12,13 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 70,                        // Railway PG max_connections=100 고정 (증액 시도 거부 — 컨테이너 메모리 제한).
-                                  // 롤링 배포 시 2인스턴스 × 70 = 140 > 100 이지만, 구 인스턴스 drain 완료 후 신 인스턴스가 채우므로 대체로 안전.
-                                  // 연결수 늘리는 대신 OFFLINE_TICK_INTERVAL_MS 상향으로 쿼리 수 자체를 줄임 (engine.ts).
-  idleTimeoutMillis: 30_000,
+  max: 85,                        // Railway PG max_connections=100 고정. 70→85 (관리쿼리·마이그레이션 위해 15 헤드룸 유지).
+                                  // 985 세션 환경에서 waiting 큐 1000+ 까지 폭주 — 70→85 로 burst 흡수 21% 증가.
+                                  // 롤링 배포 시 2인스턴스 × 85 = 170 > 100 이지만 PG 가 새 연결 거부할 뿐 기존 연결 유지,
+                                  // 구 인스턴스 drain 완료 후 신 인스턴스가 점진 채움 — 일시적 503 가능하나 데이터 손실 없음.
+                                  // 본질 해결은 OFFLINE_TICK_INTERVAL_MS 상향 + 틱당 쿼리 수 절감 (engine.ts).
+  min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
+  idleTimeoutMillis: 15_000,      // 30s → 15s — idle 연결 빠르게 해제해 burst 대응 가용량 확보.
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
   query_timeout: 10_000,

@@ -293,6 +293,14 @@ interface CharWriteBatch {
   goldEarnedDelta: number;
 }
 const charBatch = new Map<number, CharWriteBatch>();
+
+// 업적 체크 last-run timestamps — 캐릭별 30s throttle (handleMonsterDeath 에서 사용).
+// 매 킬마다 3쿼리 (character/pvp_stats/achievements SELECT) 가 985 세션 환경에서 풀 고갈 주범.
+const lastAchievementCheckAt = new Map<number, number>();
+// 트랙 가능한 활성 퀘스트 몬스터 ID 캐시 — 세션 종료 시 정리, 30s TTL 으로 신규 퀘스트 수락 반영.
+// 캐시 hit & 빈 set 이면 trackMonsterKill 호출 자체를 스킵(SELECT/UPDATE 둘 다 절약).
+const questMonsterCache = new Map<number, { ids: Set<number>; loadedAt: number }>();
+const QUEST_MONSTER_CACHE_MS = 30_000;
 function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
   let b = charBatch.get(charId);
   if (!b) { b = { expDelta: 0, goldDelta: 0, killDelta: 0, goldEarnedDelta: 0 }; charBatch.set(charId, b); }
@@ -2510,8 +2518,16 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   batchAdd(s.characterId, { killDelta: 1, goldEarnedDelta: finalGold });
   trackDailyQuestProgress(s.characterId, 'kill_monsters', 1)
     .catch(err => console.error('[combat] trackDailyQuestProgress err', err));
-  checkAndUnlockAchievements(s.characterId)
-    .catch(err => console.error('[combat] checkAndUnlockAchievements err', err));
+  // 업적 체크는 캐릭당 30s throttle — 매 킬마다 3쿼리(SELECT char/pvp_stats/achievements)
+  // 발생해 985 세션 환경에서 풀 고갈의 주범. 임계 도달은 드물어 30s 주기로 충분.
+  // 레벨업 시 즉시 1회 체크 (level 임계 즉시 반영) — 아래 levelsGained 분기에서.
+  const nowKill = Date.now();
+  const lastChk = lastAchievementCheckAt.get(s.characterId) ?? 0;
+  if (nowKill - lastChk >= 30_000) {
+    lastAchievementCheckAt.set(s.characterId, nowKill);
+    checkAndUnlockAchievements(s.characterId)
+      .catch(err => console.error('[combat] checkAndUnlockAchievements err', err));
+  }
 
   // AFK 누적: 킬 + 골드 + 경험치
   if (s.afkMode) {
@@ -2535,6 +2551,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   if (result.levelsGained > 0) {
     addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
+    // 레벨업 → 업적 throttle 무시하고 즉시 1회 체크 (level 조건 즉시 반영)
+    lastAchievementCheckAt.set(s.characterId, Date.now());
+    checkAndUnlockAchievements(s.characterId)
+      .catch(err => console.error('[combat] level-up achievement check err', err));
     // 레벨업은 exp를 절대값으로 덮어쓰므로 pending batch를 먼저 flush
     await flushCharBatch(s.characterId);
     await query(
@@ -2581,8 +2601,32 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.cachedExp = result.newExp;
   }
 
-  trackMonsterKill(s.characterId, s.monsterId!)
-    .catch(err => console.error('[combat] trackMonsterKill err', err));
+  // 퀘스트 트래킹: 활성 퀘스트의 target_id 집합을 30s 캐시 — 매 킬마다 SELECT 절약.
+  // 캐시 hit 이면 monsterId in set 일 때만 호출 (대부분 빈 set → 호출 0회).
+  const qmCached = questMonsterCache.get(s.characterId);
+  const qmFresh = qmCached && (Date.now() - qmCached.loadedAt) < QUEST_MONSTER_CACHE_MS;
+  if (!qmFresh) {
+    // 비동기 갱신 후 일치 시 트래킹 — 첫 킬은 1쿼리(refresh) + 1쿼리(track) 발생 가능,
+    // 이후 30s 동안 캐시 사용. 신규 퀘스트 수락은 30s 내 반영.
+    (async () => {
+      try {
+        const r = await query<{ target_id: number }>(
+          `SELECT DISTINCT q.target_id
+             FROM character_quests cq JOIN quests q ON q.id = cq.quest_id
+            WHERE cq.character_id = $1 AND q.target_kind = 'monster' AND cq.completed = FALSE`,
+          [s.characterId]
+        );
+        const set = new Set<number>(r.rows.map(row => row.target_id));
+        questMonsterCache.set(s.characterId, { ids: set, loadedAt: Date.now() });
+        if (set.has(s.monsterId!)) {
+          await trackMonsterKill(s.characterId, s.monsterId!);
+        }
+      } catch (err) { console.error('[combat] questMonsterCache refresh err', err); }
+    })();
+  } else if (qmCached!.ids.has(s.monsterId!)) {
+    trackMonsterKill(s.characterId, s.monsterId!)
+      .catch(err => console.error('[combat] trackMonsterKill err', err));
+  }
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult * offlineMult);
@@ -3998,6 +4042,9 @@ setInterval(() => {
     }
   }
   if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} offline sessions (>24h, no subscriber, remaining=${activeSessions.size})`);
+  // 비활성 세션 캐시 정리 (메모리 누수 방지)
+  for (const id of lastAchievementCheckAt.keys()) if (!activeSessions.has(id)) lastAchievementCheckAt.delete(id);
+  for (const id of questMonsterCache.keys()) if (!activeSessions.has(id)) questMonsterCache.delete(id);
 }, 60_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
