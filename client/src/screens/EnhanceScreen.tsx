@@ -58,8 +58,8 @@ export function EnhanceScreen() {
   const [usingT3, setUsingT3] = useState(false);
   const [usingP3, setUsingP3] = useState(false);
 
-  async function load() {
-    if (!active) return;
+  async function load(): Promise<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] } | null> {
+    if (!active) return null;
     const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number; t3TicketCount?: number; p3TicketCount?: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     setScrollCount(d.scrollCount || 0);
@@ -67,6 +67,7 @@ export function EnhanceScreen() {
     setQualityRerollCount(d.qualityRerollCount || 0);
     setT3TicketCount(d.t3TicketCount || 0);
     setP3TicketCount(d.p3TicketCount || 0);
+    return { inventory: d.inventory, equipped: d.equipped };
   }
 
   async function useT3Ticket() {
@@ -209,11 +210,18 @@ export function EnhanceScreen() {
       );
       setResult({ success: r.success, newLevel: r.newLevel, cost: r.cost, destroyed: r.destroyed });
       await refreshActive();
-      await load();
+      const fresh = await load();
       if (r.destroyed) {
         setSelected(null);
       } else {
-        setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
+        // 강화 레벨 반영된 새 prefixStats(스케일) 로 selected 전체 갱신
+        const match = fresh && selected
+          ? (selected.kind === 'inventory'
+              ? fresh.inventory.find(x => x.slotIndex === selected.slotIndex)
+              : fresh.equipped.find(x => x.equipSlot === selected.equipSlot))
+          : undefined;
+        if (match) setSelected(match);
+        else setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
       }
       if (useScroll) setUseScroll(false);
     } catch (e) {
