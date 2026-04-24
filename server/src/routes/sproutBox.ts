@@ -35,10 +35,26 @@ const BOX_ITEM_SET = new Set<number>(Object.values(BOX_ITEM_IDS));
 export function isSproutBoxItem(id: number) { return BOX_ITEM_SET.has(id); }
 
 // 장비 아이템을 캐릭 인벤에 삽입 (품질 75, 3옵 T1~T2, soulbound). 자리 없으면 우편 발송.
+// 유니크 아이템의 경우 고정 옵션(unique_prefix_stats)을 prefix_stats 에 병합한다
+// — inventory.ts 의 드롭 경로와 동일 규칙.
 async function grantEquipmentBound(characterId: number, itemId: number): Promise<'inv' | 'mail'> {
-  const itemLvR = await query<{ required_level: number }>('SELECT COALESCE(required_level,1) AS required_level FROM items WHERE id = $1', [itemId]);
-  const itemLv = itemLvR.rows[0]?.required_level ?? 1;
+  const itemR = await query<{ required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null }>(
+    `SELECT COALESCE(required_level,1) AS required_level, grade, unique_prefix_stats FROM items WHERE id = $1`,
+    [itemId]
+  );
+  const itemLv = itemR.rows[0]?.required_level ?? 1;
+  const itemGrade = itemR.rows[0]?.grade ?? 'common';
+  const uniqueFixed = itemR.rows[0]?.unique_prefix_stats ?? null;
   const { prefixIds, bonusStats } = await generate3PrefixesT1T2(itemLv);
+
+  // 유니크는 고정 옵션 + 랜덤 롤 합산
+  let finalPrefixStats: Record<string, number> = { ...bonusStats };
+  if (itemGrade === 'unique' && uniqueFixed) {
+    finalPrefixStats = { ...uniqueFixed };
+    for (const [k, v] of Object.entries(bonusStats)) {
+      finalPrefixStats[k] = (finalPrefixStats[k] || 0) + v;
+    }
+  }
 
   const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]);
   const used = new Set<number>(usedR.rows.map(r => r.slot_index));
@@ -51,7 +67,7 @@ async function grantEquipmentBound(characterId: number, itemId: number): Promise
       '차원새싹상자 내용물 (인벤토리 가득)',
       '인벤토리가 가득 차 우편으로 지급되었습니다. 우편 수령 시 계정 귀속됩니다.',
       itemId, 1, 0,
-      { enhanceLevel: 0, prefixIds, prefixStats: bonusStats, quality: QUALITY_FIXED }
+      { enhanceLevel: 0, prefixIds, prefixStats: finalPrefixStats, quality: QUALITY_FIXED }
     );
     return 'mail';
   }
@@ -60,7 +76,7 @@ async function grantEquipmentBound(characterId: number, itemId: number): Promise
     `INSERT INTO character_inventory
        (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
      VALUES ($1, $2, $3, 1, 0, $4, $5::jsonb, $6, TRUE)`,
-    [characterId, itemId, freeSlot, prefixIds, JSON.stringify(bonusStats), QUALITY_FIXED]
+    [characterId, itemId, freeSlot, prefixIds, JSON.stringify(finalPrefixStats), QUALITY_FIXED]
   );
   return 'inv';
 }
