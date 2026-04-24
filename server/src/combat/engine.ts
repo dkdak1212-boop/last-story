@@ -246,6 +246,9 @@ interface ActiveSession {
     eventExpUntilMs: number | null;
     eventDropPct: number;
     eventDropUntilMs: number | null;
+    // 개인 EXP 배율 (레벨 기반 종료)
+    personalExpMult: number;
+    personalExpMultMaxLevel: number | null;
   } | null;
   monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
   autoSellCache: {
@@ -2413,10 +2416,14 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         exp_boost_until: string | null; level: number;
         event_exp_pct: number | null; event_exp_until: string | null;
         event_drop_pct: number | null; event_drop_until: string | null;
+        personal_exp_mult: string | number | null;
+        personal_exp_mult_max_level: number | null;
       }>(
         `SELECT gold_boost_until, drop_boost_until, exp_boost_until, level,
                 COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
-                COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until
+                COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until,
+                COALESCE(personal_exp_mult, 1.0) AS personal_exp_mult,
+                personal_exp_mult_max_level
          FROM characters WHERE id = $1`,
         [s.characterId]
       );
@@ -2431,6 +2438,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
           eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
           eventDropPct: row.event_drop_pct ?? 0,
           eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
+          personalExpMult: Number(row.personal_exp_mult ?? 1) || 1,
+          personalExpMultMaxLevel: row.personal_exp_mult_max_level,
         };
       }
     } catch {}
@@ -2448,6 +2457,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const eventDropActive = !!(charMetaCached?.eventDropUntilMs && charMetaCached.eventDropUntilMs > nowMs);
   const eventExpMult = eventExpActive ? 1 + (charMetaCached!.eventExpPct / 100) : 1;
   const eventDropMult = eventDropActive ? 1 + (charMetaCached!.eventDropPct / 100) : 1;
+  // 개인 EXP 배율 — 캐릭터 레벨이 max_level 미만일 때만 적용, 도달 시 자동 무효
+  const personalExpMult = (() => {
+    if (!charMetaCached) return 1;
+    const mult = charMetaCached.personalExpMult || 1;
+    if (mult <= 1) return 1;
+    const maxLv = charMetaCached.personalExpMultMaxLevel;
+    if (maxLv != null && charMetaCached.level >= maxLv) return 1;
+    return mult;
+  })();
   // 길드 스킬 버프: 세션 캐시 재사용 (refreshSessionMeta가 이미 GUILD_SKILL_PCT 곱한 값을 저장)
   const guildGoldBonus = s.cachedGuildBuffs.gold;
   const guildExpBonus = s.cachedGuildBuffs.exp;
@@ -2465,7 +2483,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold * offlineMult);
   const levelDiffMult = computeLevelDiffExpMult(charMetaLevel, m.level);
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult * offlineMult);
+  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult * personalExpMult * offlineMult);
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
@@ -2501,7 +2519,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트 + 레벨차 페널티
   const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult * offlineMult);
+  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult * personalExpMult * offlineMult);
   const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
   // 길드 EXP 5% 기여 (비동기 fire-and-forget)
   contributeGuildExp(s.characterId, boostedExp);
@@ -3066,10 +3084,14 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
       atk_boost_until: string | null; hp_boost_until: string | null;
       event_exp_pct: number | null; event_exp_until: string | null;
       event_drop_pct: number | null; event_drop_until: string | null;
+      personal_exp_mult: string | number | null;
+      personal_exp_mult_max_level: number | null;
     }>(
       `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until, atk_boost_until, hp_boost_until,
               COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
-              COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until
+              COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until,
+              COALESCE(personal_exp_mult, 1.0) AS personal_exp_mult,
+              personal_exp_mult_max_level
        FROM characters WHERE id = $1`,
       [s.characterId]
     );
@@ -3087,6 +3109,8 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
         eventDropPct: row.event_drop_pct ?? 0,
         eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
+        personalExpMult: Number(row.personal_exp_mult ?? 1) || 1,
+        personalExpMultMaxLevel: row.personal_exp_mult_max_level,
       };
       const now = new Date();
       const boosts: { name: string; until: string }[] = [];
@@ -3105,6 +3129,13 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         boosts.push({ name: '공격력 +50%', until: row.atk_boost_until });
       if (row.hp_boost_until && new Date(row.hp_boost_until) > now)
         boosts.push({ name: '최대 HP +50%', until: row.hp_boost_until });
+      // 개인 EXP 배율 (레벨 기반) — UI 에 노출
+      const personalMult = Number(row.personal_exp_mult ?? 1) || 1;
+      if (personalMult > 1 && (row.personal_exp_mult_max_level == null || row.level < row.personal_exp_mult_max_level)) {
+        const pct = Math.round((personalMult - 1) * 100);
+        const suffix = row.personal_exp_mult_max_level != null ? ` (Lv.${row.personal_exp_mult_max_level}까지)` : '';
+        boosts.push({ name: `특별 EXP +${pct}%${suffix}`, until: '' });
+      }
       s.cachedBoosts = boosts;
     }
   } catch {}
