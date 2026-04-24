@@ -193,6 +193,15 @@ router.post('/:id/skill-presets/:idx/load', async (req: AuthedRequest, res: Resp
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // 전투 중 프리셋 교체 차단 — 소환사 소환수 연결 끊김 등 상태 오염 방지
+  // 마을 귀환 (location != 'field:*') 상태에서만 변경 허용
+  try {
+    const { activeSessions } = await import('../combat/engine.js');
+    if (activeSessions.has(id)) {
+      return res.status(400).json({ error: '전투 중에는 프리셋을 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
+    }
+  } catch {}
+
   const presetR = await query<{ skill_ids: number[]; name: string }>(
     `SELECT skill_ids, name FROM character_skill_presets WHERE character_id = $1 AND preset_idx = $2`,
     [id, idx]
