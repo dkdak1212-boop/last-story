@@ -286,7 +286,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }}>
           🎉 {globalEvent.name} — EXP×{globalEvent.exp} 골드×{globalEvent.gold} 드랍×{globalEvent.drop}
           <span style={{ marginLeft: 12, fontSize: 11, color: '#ffaa00', fontWeight: 400 }}>
-            종료: {new Date(globalEvent.endsAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+            종료: {(() => {
+              const d = new Date(globalEvent.endsAt);
+              const mm = d.getMonth() + 1;
+              const dd = d.getDate();
+              const wd = ['일','월','화','수','목','금','토'][d.getDay()];
+              const hh = String(d.getHours()).padStart(2, '0');
+              const mn = String(d.getMinutes()).padStart(2, '0');
+              return `${mm}/${dd}(${wd}) ${hh}:${mn}`;
+            })()}
           </span>
         </div>
       )}
