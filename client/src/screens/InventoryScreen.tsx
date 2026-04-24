@@ -665,7 +665,9 @@ export function InventoryScreen() {
                 <div key={s.slotIndex}
                   onClick={() => setExpandedSlot(isExpanded ? null : s.slotIndex)}
                   style={{
+                    position: 'relative',
                     padding: isExpanded ? '10px 12px' : '8px 12px',
+                    paddingRight: isEquipment ? 86 : (isExpanded ? 12 : 12),
                     borderRadius: 4, cursor: 'pointer',
                     background: isUnique
                       ? 'linear-gradient(135deg, rgba(255,59,59,0.06), rgba(196,82,255,0.06))'
@@ -676,6 +678,17 @@ export function InventoryScreen() {
                     boxShadow: isUnique ? '0 0 8px rgba(255,140,42,0.25)' : 'none',
                   }}
                 >
+                  {/* 거래가능/불가 — 카드 우측 수직 중앙 고정 (높이 무관) */}
+                  {isEquipment && (
+                    <span style={{
+                      position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                      fontSize: 12, fontWeight: 900,
+                      color: s.soulbound ? '#ff5a5a' : '#4caf50',
+                      pointerEvents: 'none',
+                    }}>
+                      {s.soulbound ? '거래불가' : '거래가능'}
+                    </span>
+                  )}
                   {/* 헤더 행 */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
@@ -718,15 +731,6 @@ export function InventoryScreen() {
                             color: '#000', background: 'var(--accent)', padding: '0 4px',
                             borderRadius: 2, fontSize: 11, fontWeight: 900, lineHeight: '16px',
                           }}>+{s.enhanceLevel}</span>
-                        )}
-                        {isEquipment && (
-                          <span style={{
-                            fontSize: 13, fontWeight: 900,
-                            color: s.soulbound ? '#ff5a5a' : '#4caf50',
-                            marginLeft: 'auto',
-                          }}>
-                            {s.soulbound ? '거래불가' : '거래가능'}
-                          </span>
                         )}
                         {s.quantity > 1 && <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>x{s.quantity}</span>}
                       </div>
