@@ -746,10 +746,15 @@ export async function judgeAndGrantGuildMilestones(
         'UPDATE characters SET guild_boss_medals = guild_boss_medals + 1000 WHERE id = ANY($1::int[])',
         [ids]
       );
+      // 길드 풀에 길드 전용 메달 +1000 (50억 처치 보상, 개인 메달과 별개)
+      await query(
+        'UPDATE guilds SET guild_medals = guild_medals + 1000 WHERE id = $1',
+        [guildId]
+      );
       for (const mb of members.rows) {
         await deliverToMailbox(mb.character_id,
           '길드 보스 처치! 메달 1000 지급',
-          '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 메달 1000개가 지급되었습니다.',
+          '오늘의 길드 보스를 처치한 공적으로 전 길드원에게 개인 메달 1000개가 지급되었습니다.\n또한 길드 풀에 길드 전용 메달 1,000개가 적립되었습니다 (길드장/부길드장이 길드 상점에서 사용).',
           0, 0, 0);
       }
     } catch (e) { console.error('[guild-boss] kill reward fail', guildId, e); }

@@ -15,11 +15,14 @@ interface ShopItem {
   remaining: number; // -1 = 무제한
   leaderOnly: boolean;
   canBuy: boolean;
+  currency: 'medal' | 'guild_medal';
 }
 
 interface ShopState {
   medals: number;
+  guildMedals: number;
   isLeader: boolean;
+  isOfficer: boolean;
   items: ShopItem[];
 }
 
@@ -89,11 +92,12 @@ export function GuildBossShopScreen() {
       }
       option = norm;
     }
-    if (!confirm(`${item.name}${option ? ` (${option.toUpperCase()})` : ''} 구매하시겠습니까? (메달 ${item.price} 소모)`)) return;
+    const currencyLabel = item.currency === 'guild_medal' ? '길드 메달' : '메달';
+    if (!confirm(`${item.name}${option ? ` (${option.toUpperCase()})` : ''} 구매하시겠습니까? (${currencyLabel} ${item.price} 소모)`)) return;
     setBuyingId(item.id);
     setMsg(null);
     try {
-      const r = await api<{ itemName: string; rewards: string[]; medalsLeft: number }>(
+      const r = await api<{ itemName: string; rewards: string[]; medalsLeft: number; guildMedalsLeft: number; currency: string }>(
         `/guild-boss-shop/${active.id}/buy`,
         { method: 'POST', body: JSON.stringify({ itemId: item.id, option }) }
       );
@@ -118,8 +122,13 @@ export function GuildBossShopScreen() {
           <button onClick={() => navigate('/guild-boss')} style={{ padding: '6px 14px', background: '#2a2520', color: '#daa520', border: '1px solid #444', cursor: 'pointer', marginRight: 12 }}>← 돌아가기</button>
           <span style={{ fontSize: 20, fontWeight: 700, color: '#daa520' }}>길드 보스 메달 상점</span>
         </div>
-        <div style={{ padding: '8px 14px', background: '#1a1612', border: '1px solid #daa520', borderRadius: 4, fontSize: 15 }}>
-          보유 메달: <span style={{ color: '#daa520', fontWeight: 700 }}>{state.medals.toLocaleString()}</span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ padding: '8px 14px', background: '#1a1612', border: '1px solid #daa520', borderRadius: 4, fontSize: 14 }}>
+            개인 메달: <span style={{ color: '#daa520', fontWeight: 700 }}>{state.medals.toLocaleString()}</span>
+          </div>
+          <div style={{ padding: '8px 14px', background: '#1a1612', border: '1px solid #6a8fff', borderRadius: 4, fontSize: 14 }}>
+            길드 메달: <span style={{ color: '#6a8fff', fontWeight: 700 }}>{state.guildMedals.toLocaleString()}</span>
+          </div>
         </div>
       </div>
 
@@ -161,8 +170,14 @@ export function GuildBossShopScreen() {
         {filteredItems.map((it) => {
           const limitText = scopeLabel(it.limitScope, it.limitCount);
           const remainingText = it.limitCount > 0 ? `남은 횟수: ${it.remaining} / ${it.limitCount}` : '구매 제한 없음';
-          const leaderBlock = it.leaderOnly && !state.isLeader;
-          const notEnoughMedals = state.medals < it.price;
+          const isGuildCurrency = it.currency === 'guild_medal';
+          const permissionBlock = isGuildCurrency
+            ? !state.isOfficer
+            : (it.leaderOnly && !state.isLeader);
+          const balance = isGuildCurrency ? state.guildMedals : state.medals;
+          const notEnoughMedals = balance < it.price;
+          const currencyLabel = isGuildCurrency ? '길드 메달' : '메달';
+          const currencyColor = isGuildCurrency ? '#6a8fff' : '#daa520';
           return (
             <div
               key={it.id}
@@ -170,24 +185,25 @@ export function GuildBossShopScreen() {
                 padding: 14,
                 background: '#1a1612',
                 border: `1px solid ${SECTION_COLOR[it.section]}`,
-                opacity: it.remaining === 0 || leaderBlock ? 0.5 : 1,
+                opacity: it.remaining === 0 || permissionBlock ? 0.5 : 1,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: SECTION_COLOR[it.section] }}>{it.name}</div>
-                {it.leaderOnly && <span style={{ fontSize: 10, color: '#6a8fff', border: '1px solid #6a8fff', padding: '1px 4px' }}>길드장</span>}
+                {isGuildCurrency && <span style={{ fontSize: 10, color: '#6a8fff', border: '1px solid #6a8fff', padding: '1px 4px' }}>길드장/부길드장</span>}
+                {!isGuildCurrency && it.leaderOnly && <span style={{ fontSize: 10, color: '#6a8fff', border: '1px solid #6a8fff', padding: '1px 4px' }}>길드장</span>}
               </div>
               <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10, minHeight: 32 }}>{it.description}</div>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>제한: {limitText}</div>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>{remainingText}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontSize: 15, color: '#daa520', fontWeight: 700 }}>메달 {it.price.toLocaleString()}</div>
+                <div style={{ fontSize: 15, color: currencyColor, fontWeight: 700 }}>{currencyLabel} {it.price.toLocaleString()}</div>
                 <button
                   onClick={() => buy(it)}
                   disabled={!it.canBuy || buyingId === it.id}
                   style={{
                     padding: '6px 14px',
-                    background: it.canBuy ? '#daa520' : '#333',
+                    background: it.canBuy ? currencyColor : '#333',
                     color: it.canBuy ? '#000' : '#777',
                     border: 'none',
                     cursor: it.canBuy ? 'pointer' : 'not-allowed',
@@ -196,9 +212,9 @@ export function GuildBossShopScreen() {
                   }}
                 >
                   {buyingId === it.id ? '구매 중…' :
-                   leaderBlock ? '길드장만' :
+                   permissionBlock ? (isGuildCurrency ? '길마/부길마' : '길드장만') :
                    it.remaining === 0 ? '구매 제한' :
-                   notEnoughMedals ? '메달 부족' : '구매'}
+                   notEnoughMedals ? `${currencyLabel} 부족` : '구매'}
                 </button>
               </div>
             </div>

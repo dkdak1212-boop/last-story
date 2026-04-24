@@ -53,6 +53,7 @@ interface ShopItemRow {
   sort_order: number;
   leader_only: boolean;
   active: boolean;
+  currency: string;
 }
 
 // ============================================================
@@ -64,23 +65,28 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 보유 메달
+  // 보유 개인 메달
   const medalsR = await query<{ guild_boss_medals: number }>(
     'SELECT guild_boss_medals FROM characters WHERE id = $1', [id]
   );
   const medals = medalsR.rows[0]?.guild_boss_medals ?? 0;
 
-  // 길드장 여부 (leader_only 상품 노출 여부 판정)
-  const leaderR = await query<{ is_leader: boolean }>(
-    `SELECT (gm.role = 'leader') AS is_leader
-     FROM guild_members gm WHERE gm.character_id = $1 LIMIT 1`, [id]
+  // 길드 역할 + 길드 보유 메달 조회
+  const roleR = await query<{ role: string | null; guild_id: number | null; guild_medals: string | null }>(
+    `SELECT gm.role, gm.guild_id, g.guild_medals::text AS guild_medals
+       FROM guild_members gm
+       LEFT JOIN guilds g ON g.id = gm.guild_id
+      WHERE gm.character_id = $1 LIMIT 1`, [id]
   );
-  const isLeader = leaderR.rows[0]?.is_leader ?? false;
+  const role = roleR.rows[0]?.role ?? null;
+  const isLeader = role === 'leader';
+  const isOfficer = role === 'leader' || role === 'officer';
+  const guildMedals = Number(roleR.rows[0]?.guild_medals ?? 0);
 
   // 상품 전체
   const itemsR = await query<ShopItemRow>(
     `SELECT id, section, name, description, price, limit_scope, limit_count,
-            reward_type, reward_payload, sort_order, leader_only, active
+            reward_type, reward_payload, sort_order, leader_only, active, currency
      FROM guild_boss_shop_items
      WHERE active = TRUE
      ORDER BY
@@ -121,6 +127,11 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     }
     const remaining = it.limit_count > 0 ? Math.max(0, it.limit_count - purchased) : -1;
 
+    // 길드 전용 화폐(guild_medal) 상품: role leader/officer 만, 길드 풀에서 차감
+    // 그 외(medal) 상품: 기존 로직 (leader_only 있으면 leader 만, 개인 메달 차감)
+    const isGuildMedal = it.currency === 'guild_medal';
+    const authorized = isGuildMedal ? isOfficer : (!it.leader_only || isLeader);
+    const balance = isGuildMedal ? guildMedals : medals;
     out.push({
       id: it.id,
       section: it.section,
@@ -132,11 +143,12 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       purchased,
       remaining,  // -1 = 무제한
       leaderOnly: it.leader_only,
-      canBuy: (!it.leader_only || isLeader) && (remaining !== 0) && medals >= it.price,
+      currency: it.currency,
+      canBuy: authorized && (remaining !== 0) && balance >= it.price,
     });
   }
 
-  res.json({ medals, isLeader, items: out });
+  res.json({ medals, guildMedals, isLeader, isOfficer, items: out });
 });
 
 // ============================================================
@@ -158,20 +170,29 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
   // 상품 조회
   const itemR = await query<ShopItemRow>(
     `SELECT id, section, name, description, price, limit_scope, limit_count,
-            reward_type, reward_payload, sort_order, leader_only, active
+            reward_type, reward_payload, sort_order, leader_only, active, currency
      FROM guild_boss_shop_items WHERE id = $1`, [itemId]
   );
   if (!itemR.rowCount) return res.status(404).json({ error: 'item not found' });
   const item = itemR.rows[0];
   if (!item.active) return res.status(400).json({ error: 'inactive' });
 
-  // 길드장 여부 (leader_only 상품)
-  if (item.leader_only) {
-    const lr = await query<{ is_leader: boolean }>(
-      `SELECT (gm.role = 'leader') AS is_leader
-       FROM guild_members gm WHERE gm.character_id = $1 LIMIT 1`, [id]
-    );
-    if (!lr.rows[0]?.is_leader) return res.status(403).json({ error: 'leader only' });
+  const isGuildMedalItem = item.currency === 'guild_medal';
+
+  // 길드 역할 확인 (guild_medal 상품은 leader/officer, medal+leader_only 는 leader 만)
+  const roleR = await query<{ role: string | null; guild_id: number | null }>(
+    `SELECT gm.role, gm.guild_id FROM guild_members gm WHERE gm.character_id = $1 LIMIT 1`, [id]
+  );
+  const role = roleR.rows[0]?.role ?? null;
+  const guildId = roleR.rows[0]?.guild_id ?? null;
+
+  if (isGuildMedalItem) {
+    if (!guildId) return res.status(403).json({ error: '길드 미가입' });
+    if (role !== 'leader' && role !== 'officer') {
+      return res.status(403).json({ error: '길드 상점은 길드장/부길드장만 구매 가능합니다.' });
+    }
+  } else if (item.leader_only && role !== 'leader') {
+    return res.status(403).json({ error: 'leader only' });
   }
 
   // 구매 제한 체크
@@ -200,16 +221,28 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
   // 메달 차감 + 구매 기록 (원자적)
   try {
     await withTransaction(async (tx) => {
-      const mr = await tx.query<{ guild_boss_medals: number }>(
-        'SELECT guild_boss_medals FROM characters WHERE id = $1 FOR UPDATE', [id]
-      );
-      const curMedals = mr.rows[0]?.guild_boss_medals ?? 0;
-      if (curMedals < item.price) throw new Error('not enough medals');
-
-      await tx.query(
-        'UPDATE characters SET guild_boss_medals = guild_boss_medals - $1 WHERE id = $2',
-        [item.price, id]
-      );
+      if (isGuildMedalItem) {
+        // 길드 풀에서 차감
+        const gr = await tx.query<{ guild_medals: string }>(
+          'SELECT guild_medals::text FROM guilds WHERE id = $1 FOR UPDATE', [guildId]
+        );
+        const curGm = Number(gr.rows[0]?.guild_medals ?? 0);
+        if (curGm < item.price) throw new Error('not enough guild medals');
+        await tx.query(
+          'UPDATE guilds SET guild_medals = guild_medals - $1 WHERE id = $2',
+          [item.price, guildId]
+        );
+      } else {
+        const mr = await tx.query<{ guild_boss_medals: number }>(
+          'SELECT guild_boss_medals FROM characters WHERE id = $1 FOR UPDATE', [id]
+        );
+        const curMedals = mr.rows[0]?.guild_boss_medals ?? 0;
+        if (curMedals < item.price) throw new Error('not enough medals');
+        await tx.query(
+          'UPDATE characters SET guild_boss_medals = guild_boss_medals - $1 WHERE id = $2',
+          [item.price, id]
+        );
+      }
       await tx.query(
         `INSERT INTO guild_boss_shop_purchases (character_id, shop_item_id, scope_key)
          VALUES ($1, $2, $3)`,
@@ -217,7 +250,8 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
       );
     });
   } catch (e: any) {
-    if (e.message === 'not enough medals') return res.status(400).json({ error: 'not enough medals' });
+    if (e.message === 'not enough medals') return res.status(400).json({ error: '개인 메달이 부족합니다.' });
+    if (e.message === 'not enough guild medals') return res.status(400).json({ error: '길드 메달이 부족합니다.' });
     throw e;
   }
 
@@ -410,15 +444,22 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
       console.warn('[shop] unknown reward_type:', item.reward_type);
   }
 
-  // 남은 메달
+  // 남은 메달 (개인 + 길드)
   const mr = await query<{ guild_boss_medals: number }>('SELECT guild_boss_medals FROM characters WHERE id = $1', [id]);
   const medalsLeft = mr.rows[0]?.guild_boss_medals ?? 0;
+  let guildMedalsLeft = 0;
+  if (guildId) {
+    const gr = await query<{ guild_medals: string }>('SELECT guild_medals::text FROM guilds WHERE id = $1', [guildId]);
+    guildMedalsLeft = Number(gr.rows[0]?.guild_medals ?? 0);
+  }
 
   res.json({
     ok: true,
     itemName: item.name,
     rewards: rewardNote,
     medalsLeft,
+    guildMedalsLeft,
+    currency: item.currency,
   });
 });
 
