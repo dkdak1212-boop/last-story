@@ -55,11 +55,31 @@ interface Props {
   onChange: () => void; // 인벤토리 새로고침 콜백
 }
 
+type TabKey = 'all' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc';
+const TAB_DEFS: { key: TabKey; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'weapon', label: '무기' },
+  { key: 'helm', label: '투구' },
+  { key: 'chest', label: '갑옷' },
+  { key: 'boots', label: '신발' },
+  { key: 'ring', label: '반지' },
+  { key: 'amulet', label: '목걸이' },
+  { key: 'consumable', label: '소모품' },
+  { key: 'etc', label: '기타' },
+];
+function matchesTab(tab: TabKey, slot: string | null | undefined, type: string | undefined): boolean {
+  if (tab === 'all') return true;
+  if (tab === 'consumable') return type === 'consumable';
+  if (tab === 'etc') return !slot && type !== 'consumable';
+  return slot === tab;
+}
+
 export function StorageModal({ inventory, onClose, onChange }: Props) {
   const active = useCharacterStore((s) => s.activeCharacter);
   const [data, setData] = useState<StorageData | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [tab, setTab] = useState<TabKey>('all');
 
   async function load() {
     try {
@@ -112,17 +132,32 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
 
         {err && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{err}</div>}
 
+        {/* 카테고리 탭 */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+          {TAB_DEFS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 3, cursor: 'pointer',
+              background: tab === t.key ? 'var(--accent)' : 'var(--bg)',
+              color: tab === t.key ? '#000' : 'var(--text-dim)',
+              border: `1px solid ${tab === t.key ? 'var(--accent)' : 'var(--border)'}`,
+            }}>{t.label}</button>
+          ))}
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {/* 좌: 인벤토리 */}
           <div>
+            {(() => {
+              const filteredInv = inventory.filter(s => matchesTab(tab, s.item.slot, (s.item as any).type));
+              return <>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-              내 인벤토리 ({inventory.length})
+              내 인벤토리 ({filteredInv.length})
             </div>
             <div style={{ maxHeight: '50vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {inventory.length === 0 && (
-                <div style={{ color: 'var(--text-dim)', fontSize: 11, padding: 10 }}>인벤토리 비어있음</div>
+              {filteredInv.length === 0 && (
+                <div style={{ color: 'var(--text-dim)', fontSize: 11, padding: 10 }}>해당 카테고리 아이템 없음</div>
               )}
-              {inventory.map(s => {
+              {filteredInv.map(s => {
                 const q = (s as any).quality || 0;
                 const pName = (s as any).prefixName || '';
                 return (
@@ -159,18 +194,25 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
                 );
               })}
             </div>
+              </>;
+            })()}
           </div>
 
           {/* 우: 창고 */}
           <div>
+            {(() => {
+              const filteredStore = (data?.items ?? []).filter(s => matchesTab(tab, s.item.slot, s.item.type));
+              return <>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-              창고 ({data?.items.length ?? 0}/{data?.maxSlots ?? 60})
+              창고 ({filteredStore.length}/{data?.maxSlots ?? 60})
             </div>
             <div style={{ maxHeight: '50vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {(!data || data.items.length === 0) && (
-                <div style={{ color: 'var(--text-dim)', fontSize: 11, padding: 10 }}>창고 비어있음</div>
+              {filteredStore.length === 0 && (
+                <div style={{ color: 'var(--text-dim)', fontSize: 11, padding: 10 }}>
+                  {data && data.items.length > 0 ? '해당 카테고리 아이템 없음' : '창고 비어있음'}
+                </div>
               )}
-              {data?.items.map(s => (
+              {filteredStore.map(s => (
                 <div key={s.id} style={{
                   padding: '6px 8px', background: 'var(--bg)',
                   border: '1px solid var(--border)',
@@ -203,6 +245,8 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
                 </div>
               ))}
             </div>
+              </>;
+            })()}
           </div>
         </div>
       </div>
