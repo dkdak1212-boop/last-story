@@ -663,6 +663,7 @@ export function InventoryScreen() {
 
               return (
                 <div key={s.slotIndex}
+                  className="inv-item-card"
                   onClick={() => setExpandedSlot(isExpanded ? null : s.slotIndex)}
                   style={{
                     position: 'relative',
@@ -678,19 +679,23 @@ export function InventoryScreen() {
                     boxShadow: isUnique ? '0 0 8px rgba(255,140,42,0.25)' : 'none',
                   }}
                 >
-                  {/* 거래가능/불가 — 카드 우측 수직 중앙 고정 (높이 무관) */}
+                  {/* 거래가능/불가 — 카드 우측 수직 중앙 고정 (데스크탑) / 모바일은 색 점 */}
                   {isEquipment && (
-                    <span style={{
-                      position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      fontSize: 12, fontWeight: 900,
-                      color: s.soulbound ? '#ff5a5a' : '#4caf50',
-                      pointerEvents: 'none',
-                    }}>
+                    <span
+                      className="inv-item-tradeable"
+                      style={{
+                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                        fontSize: 12, fontWeight: 900,
+                        color: s.soulbound ? '#ff5a5a' : '#4caf50',
+                        pointerEvents: 'none',
+                      }}
+                      data-bound={s.soulbound ? '1' : '0'}
+                    >
                       {s.soulbound ? '거래불가' : '거래가능'}
                     </span>
                   )}
                   {/* 헤더 행 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className="inv-item-header" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
@@ -777,14 +782,15 @@ export function InventoryScreen() {
                       >개봉</button>
                     )}
                     {isEquipment && (
-                      <span style={{
+                      <span className="inv-item-level" style={{
                         fontSize: 9, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)',
                         opacity: 0.85, fontWeight: 700, flexShrink: 0,
                       }}>Lv.{requiredLevel}</span>
                     )}
-                    <span style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
+                    <span className="inv-item-grade" style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
                     {isEquipment && (
                       <span
+                        className="inv-item-lock"
                         onClick={(e) => toggleLock(s.slotIndex, e)}
                         title={locked ? '잠금 해제' : '잠금'}
                         style={{
@@ -799,7 +805,7 @@ export function InventoryScreen() {
                           onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
                           style={{ width: 20, height: 20, imageRendering: 'pixelated', opacity: locked ? 1 : 0.6 }}
                         />
-                        <span style={{ fontSize: 11, fontWeight: 800, color: locked ? '#ff6b6b' : '#888' }}>
+                        <span className="inv-item-lock-text" style={{ fontSize: 11, fontWeight: 800, color: locked ? '#ff6b6b' : '#888' }}>
                           {locked ? '잠금' : '해제'}
                         </span>
                       </span>

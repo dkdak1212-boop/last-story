@@ -193,6 +193,37 @@ h1, h2, h3, h4 {
     grid-template-columns: 1fr !important;
   }
 
+  /* ── 인벤토리 카드 모바일 압축 ── */
+  .inv-item-card {
+    padding-right: 28px !important;   /* 86 → 28, 거래 표시가 점으로 축소 */
+  }
+  /* 거래가능/불가 텍스트 → 작은 색 점으로 축소 */
+  .inv-item-tradeable {
+    font-size: 0 !important;
+    width: 10px !important; height: 10px !important;
+    border-radius: 50% !important;
+    background: currentColor !important;
+    right: 8px !important;
+    top: 10px !important;
+    transform: none !important;
+  }
+  /* Lv.xxx / 등급 라벨 숨김 (펼침 상세와 아이템명 색상으로 충분) */
+  .inv-item-level,
+  .inv-item-grade {
+    display: none !important;
+  }
+  /* 잠금 버튼 텍스트 숨김 — 아이콘만 */
+  .inv-item-lock-text {
+    display: none !important;
+  }
+  .inv-item-lock {
+    padding: 2px 4px !important;
+  }
+  /* 헤더 행 세로 정렬로 이름이 잘리지 않게 */
+  .inv-item-header {
+    align-items: flex-start !important;
+  }
+
   /* ── 채팅 ── */
   .chat-panel {
     right: 0 !important;
