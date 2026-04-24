@@ -213,8 +213,11 @@ export async function markRunEndedByEngine(runId: string, reason: 'death' | 'log
   if (totalDamage >= THRESHOLD_SILVER) thresholdsPassed |= 2;
   if (totalDamage >= THRESHOLD_GOLD) thresholdsPassed |= 4;
 
+  // 원자적 가드: ended_at IS NULL 일 때만 업데이트 성공.
+  // /exit 라우트와 이 엔진 핸들러가 레이스하면 한 쪽만 성공 → 중복 지급 차단.
   await query(
-    'UPDATE guild_boss_runs SET ended_at = NOW(), reward_tier = $1, thresholds_passed = $2, ended_reason = $3 WHERE id = $4',
+    `UPDATE guild_boss_runs SET ended_at = NOW(), reward_tier = $1, thresholds_passed = $2, ended_reason = $3
+      WHERE id = $4 AND ended_at IS NULL`,
     [tier, thresholdsPassed, reason, runId]
   );
   return { totalDamage, tier, thresholdsPassed };

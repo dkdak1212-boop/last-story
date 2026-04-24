@@ -528,11 +528,16 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
   if (totalDamage >= BigInt(THRESHOLD_SILVER)) thresholdsPassed |= 2;
   if (totalDamage >= BigInt(THRESHOLD_GOLD)) thresholdsPassed |= 4;
 
-  // run 종료
-  await query(
-    'UPDATE guild_boss_runs SET ended_at = NOW(), reward_tier = $1, thresholds_passed = $2, ended_reason = $3 WHERE id = $4',
+  // run 종료 — 원자적 가드: ended_at IS NULL 조건으로 중복 호출 차단.
+  // 동시 호출/재시도/death 핸들러 선행 시 rowCount=0 → 상자 발송 없이 종료 응답.
+  const endR = await query(
+    `UPDATE guild_boss_runs SET ended_at = NOW(), reward_tier = $1, thresholds_passed = $2, ended_reason = $3
+      WHERE id = $4 AND ended_at IS NULL`,
     [rewardTier, thresholdsPassed, reason, runId]
   );
+  if (endR.rowCount === 0) {
+    return res.status(400).json({ error: '이미 종료된 입장입니다.' });
+  }
 
   // 전투 세션 종료 (버퍼 flush 후 세션 제거)
   try { await endGuildBossCombatSession(run.character_id); } catch (e) { console.error('[guild-boss] endSession fail', e); }
