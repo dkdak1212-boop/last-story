@@ -363,15 +363,20 @@ export function EnhanceScreen() {
                     </div>
                   </div>
 
-                  {/* 스크롤 사용 옵션 */}
+                  {/* 스크롤 사용 옵션 — 체크박스 자체만 클릭 가능. 라벨 텍스트로 토글 방지 (강화 연타 중 오작동 방지) */}
                   {scrollCount > 0 && (
-                    <label style={{
+                    <div style={{
                       display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-                      fontSize: 12, color: 'var(--text-dim)', cursor: 'pointer',
+                      fontSize: 12, color: 'var(--text-dim)',
                     }}>
-                      <input type="checkbox" checked={useScroll} onChange={e => setUseScroll(e.target.checked)} />
-                      강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개
-                    </label>
+                      <input
+                        type="checkbox"
+                        checked={useScroll}
+                        onChange={e => setUseScroll(e.target.checked)}
+                        style={{ cursor: 'pointer', width: 16, height: 16 }}
+                      />
+                      <span style={{ userSelect: 'none' }}>강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개</span>
+                    </div>
                   )}
 
                   <button className="primary" onClick={attempt} disabled={busy} style={{ width: '100%' }}>
