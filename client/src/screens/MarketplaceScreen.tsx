@@ -386,6 +386,23 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
   prefixStatKey: string; setPrefixStatKey: (s: string) => void;
   prefixTier: number; setPrefixTier: (n: number) => void;
 }) {
+  // 편집 중 문자열 상태 — blur/Enter 에만 부모 숫자 상태에 반영. 입력 중 빈 값/중간 값 허용.
+  const [minDraft, setMinDraft] = useState<string | null>(null);
+  const [maxDraft, setMaxDraft] = useState<string | null>(null);
+  const minDisplay = minDraft !== null ? minDraft : String(qualityMin);
+  const maxDisplay = maxDraft !== null ? maxDraft : String(qualityMax);
+  function commitMin() {
+    if (minDraft === null) return;
+    const n = Number(minDraft);
+    const final = !minDraft || Number.isNaN(n) ? 0 : Math.max(0, Math.min(100, Math.floor(n)));
+    setQualityMin(final); setMinDraft(null);
+  }
+  function commitMax() {
+    if (maxDraft === null) return;
+    const n = Number(maxDraft);
+    const final = !maxDraft || Number.isNaN(n) ? 100 : Math.max(0, Math.min(100, Math.floor(n)));
+    setQualityMax(final); setMaxDraft(null);
+  }
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center',
@@ -394,12 +411,20 @@ function FilterPanel({ qualityMin, qualityMax, setQualityMin, setQualityMax, pre
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ color: 'var(--text-dim)' }}>품질</span>
-        <input type="number" min={0} max={100} value={qualityMin}
-          onChange={e => setQualityMin(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+        <input type="text" inputMode="numeric" pattern="[0-9]*"
+          value={minDisplay}
+          onChange={e => setMinDraft(e.target.value.replace(/[^0-9]/g, ''))}
+          onFocus={e => e.target.select()}
+          onBlur={commitMin}
+          onKeyDown={e => { if (e.key === 'Enter') { commitMin(); (e.target as HTMLInputElement).blur(); } }}
           style={{ width: 50, padding: '3px 5px', fontSize: 11 }} />
         <span style={{ color: 'var(--text-dim)' }}>~</span>
-        <input type="number" min={0} max={100} value={qualityMax}
-          onChange={e => setQualityMax(Math.max(0, Math.min(100, Number(e.target.value) || 100)))}
+        <input type="text" inputMode="numeric" pattern="[0-9]*"
+          value={maxDisplay}
+          onChange={e => setMaxDraft(e.target.value.replace(/[^0-9]/g, ''))}
+          onFocus={e => e.target.select()}
+          onBlur={commitMax}
+          onKeyDown={e => { if (e.key === 'Enter') { commitMax(); (e.target as HTMLInputElement).blur(); } }}
           style={{ width: 50, padding: '3px 5px', fontSize: 11 }} />
         <span style={{ color: 'var(--text-dim)' }}>%</span>
       </div>
