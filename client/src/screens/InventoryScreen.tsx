@@ -668,7 +668,8 @@ export function InventoryScreen() {
                   style={{
                     position: 'relative',
                     padding: isExpanded ? '10px 12px' : '8px 12px',
-                    paddingRight: isEquipment ? 86 : (isExpanded ? 12 : 12),
+                    paddingRight: isEquipment ? 100 : (isExpanded ? 12 : 12),
+                    paddingBottom: isEquipment && !isExpanded && (s.item as any).classRestriction ? 22 : undefined,
                     borderRadius: 4, cursor: 'pointer',
                     background: isUnique
                       ? 'linear-gradient(135deg, rgba(255,59,59,0.06), rgba(196,82,255,0.06))'
@@ -694,6 +695,38 @@ export function InventoryScreen() {
                       {s.soulbound ? '거래불가' : '거래가능'}
                     </span>
                   )}
+                  {/* 품질 — 카드 우상단 고정 */}
+                  {(s as any).quality !== undefined && (s.item as any).slot && (() => {
+                    const q = (s as any).quality;
+                    const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
+                    return (
+                      <span style={{
+                        position: 'absolute', top: 8, right: 10,
+                        fontSize: 11, padding: '2px 7px', borderRadius: 3,
+                        background: color + '22',
+                        border: `1px solid ${color}`, color, fontWeight: 700,
+                        pointerEvents: 'none',
+                      }}>품질 {q}%</span>
+                    );
+                  })()}
+                  {/* 클래스 전용 — 카드 우하단 고정 텍스트 */}
+                  {(s.item as any).classRestriction && (() => {
+                    const cls = (s.item as any).classRestriction;
+                    const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
+                    const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0', summoner: '#44cc88' };
+                    const charClass = active?.className;
+                    const wrong = charClass && cls !== charClass;
+                    return (
+                      <span style={{
+                        position: 'absolute', right: 10, bottom: 6,
+                        fontSize: 10, fontWeight: 700,
+                        color: wrong ? 'var(--danger)' : colorMap[cls],
+                        pointerEvents: 'none',
+                      }}>
+                        {krMap[cls] || cls} 전용{wrong ? ' ✗' : ''}
+                      </span>
+                    );
+                  })()}
                   {/* 헤더 행 */}
                   <div className="inv-item-header" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
@@ -703,34 +736,7 @@ export function InventoryScreen() {
                           <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
                         )}
                         <span style={nameStyle(s.item.grade, 13)}>{(s.item as any).baseName || s.item.name}</span>
-                        {(s as any).quality !== undefined && (s.item as any).slot && (() => {
-                          const q = (s as any).quality;
-                          const color = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
-                          return (
-                            <span style={{
-                              fontSize: 11, padding: '2px 7px', borderRadius: 3,
-                              background: color + '22',
-                              border: `1px solid ${color}`, color, fontWeight: 700,
-                            }}>품질 {q}%</span>
-                          );
-                        })()}
-                        {(s.item as any).classRestriction && (() => {
-                          const cls = (s.item as any).classRestriction;
-                          const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
-                          const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0' };
-                          const charClass = active?.className;
-                          const wrong = charClass && cls !== charClass;
-                          return (
-                            <span style={{
-                              fontSize: 9, padding: '1px 5px', borderRadius: 2,
-                              border: `1px solid ${colorMap[cls]}`,
-                              color: wrong ? 'var(--danger)' : colorMap[cls],
-                              fontWeight: 700,
-                            }}>
-                              {krMap[cls] || cls} 전용{wrong ? ' ✗' : ''}
-                            </span>
-                          );
-                        })()}
+                        {/* 품질/클래스 전용은 카드 우측 절대 위치로 이동 */}
                         {s.enhanceLevel > 0 && (
                           <span style={{
                             color: '#000', background: 'var(--accent)', padding: '0 4px',
@@ -781,13 +787,14 @@ export function InventoryScreen() {
                         }}
                       >개봉</button>
                     )}
-                    {isEquipment && (
+                    {/* Lv/등급 라벨은 접힘 상태에서 숨김 — 펼침 상세에서 확인 가능 */}
+                    {isEquipment && isExpanded && (
                       <span className="inv-item-level" style={{
                         fontSize: 9, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)',
                         opacity: 0.85, fontWeight: 700, flexShrink: 0,
                       }}>Lv.{requiredLevel}</span>
                     )}
-                    <span className="inv-item-grade" style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>
+                    {isExpanded && <span className="inv-item-grade" style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>}
                     {isEquipment && (
                       <span
                         className="inv-item-lock"
