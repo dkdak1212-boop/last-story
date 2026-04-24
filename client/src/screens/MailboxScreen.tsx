@@ -26,7 +26,6 @@ export function MailboxScreen() {
 
   async function claim(mailId: number) {
     if (!active) return;
-    setMsg('');
     try {
       await api(`/characters/${active.id}/mailbox/${mailId}/claim`, { method: 'POST' });
       setMsg('수령 완료!');
@@ -36,6 +35,13 @@ export function MailboxScreen() {
       setMsg(e instanceof Error ? e.message : '수령 실패');
     }
   }
+
+  // 수령/발송 메시지 1.5초 후 자동 클리어
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(''), 1500);
+    return () => clearTimeout(t);
+  }, [msg]);
 
   async function del(mailId: number) {
     if (!active) return;
@@ -88,7 +94,18 @@ export function MailboxScreen() {
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <button className={tab === 'inbox' ? 'primary' : ''} onClick={() => setTab('inbox')}>받은 우편</button>
       </div>
-      {msg && <div style={{ color: msg.includes('실패') || msg.includes('찾을') || msg.includes('부족') || msg.includes('full') ? 'var(--danger)' : 'var(--success)', marginBottom: 12, fontSize: 13 }}>{msg}</div>}
+      {/* 수령 완료 등 메시지 — 플로팅(고정 위치)이라 메일 목록 레이아웃을 밀지 않음 */}
+      {msg && (
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 1100,
+          padding: '8px 14px', borderRadius: 4, fontSize: 13, fontWeight: 700,
+          background: 'var(--bg-panel)',
+          border: `1px solid ${msg.includes('실패') || msg.includes('찾을') || msg.includes('부족') || msg.includes('full') ? 'var(--danger)' : 'var(--success)'}`,
+          color: msg.includes('실패') || msg.includes('찾을') || msg.includes('부족') || msg.includes('full') ? 'var(--danger)' : 'var(--success)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          pointerEvents: 'none',
+        }}>{msg}</div>
+      )}
 
       {tab === 'send' && (
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginBottom: 14 }}>
