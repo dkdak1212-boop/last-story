@@ -86,12 +86,22 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   // 캐릭터 슬롯 한도 — 기본 2개. 어드민 무제한. users.max_character_slots 컬럼으로
   // 유저별 오버라이드 가능 (운영자가 특정 계정에 더 많은 슬롯 부여).
-  const userR = await query<{ is_admin: boolean; max_character_slots: number | null }>(
-    'SELECT is_admin, max_character_slots FROM users WHERE id = $1', [req.userId]
+  const userR = await query<{ is_admin: boolean; max_character_slots: number | null; last_char_deleted_at: string | null }>(
+    'SELECT is_admin, max_character_slots, last_char_deleted_at FROM users WHERE id = $1', [req.userId]
   );
   const isAdmin = !!userR.rows[0]?.is_admin;
   const slotCap = userR.rows[0]?.max_character_slots ?? 2;
   if (!isAdmin) {
+    // 삭제 후 8시간 생성 제한
+    const lastDel = userR.rows[0]?.last_char_deleted_at ? new Date(userR.rows[0].last_char_deleted_at).getTime() : 0;
+    const COOLDOWN_MS = 8 * 60 * 60 * 1000;
+    const elapsed = Date.now() - lastDel;
+    if (lastDel > 0 && elapsed < COOLDOWN_MS) {
+      const remainingMs = COOLDOWN_MS - elapsed;
+      const h = Math.floor(remainingMs / 3600000);
+      const m = Math.floor((remainingMs % 3600000) / 60000);
+      return res.status(429).json({ error: `캐릭터 삭제 후 8시간 동안 생성 불가. 남은 시간: ${h}시간 ${m}분` });
+    }
     const curCount = await query<{ cnt: string }>(
       'SELECT COUNT(*)::text AS cnt FROM characters WHERE user_id = $1',
       [req.userId]
@@ -191,6 +201,8 @@ router.delete('/:characterId', async (req: AuthedRequest, res: Response) => {
 
   await query('DELETE FROM characters WHERE id = $1', [cid]);
   deleteTimestamps.set(req.userId!, Date.now());
+  // 삭제 후 8시간 생성 쿨다운을 위해 영속 저장
+  await query('UPDATE users SET last_char_deleted_at = NOW() WHERE id = $1', [req.userId]);
   res.json({ ok: true });
 });
 
