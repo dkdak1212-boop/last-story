@@ -88,6 +88,24 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
             [id, m.item_id, freeSlot, enhLv, pIds, pStatsJson, qual]
           );
         }
+      } else if (m.item_id >= 846 && m.item_id <= 851) {
+        // 차원새싹상자 (소비형) — 거래불가 플래그 TRUE 로 인벤 삽입
+        let remaining = m.item_quantity;
+        while (remaining > 0) {
+          const usedR = await tx.query<{ slot_index: number }>(
+            'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
+          );
+          const used = new Set(usedR.rows.map(r => r.slot_index));
+          let freeSlot = -1;
+          for (let s = 0; s < 300; s++) if (!used.has(s)) { freeSlot = s; break; }
+          if (freeSlot < 0) return { error: 'inventory full', status: 400 };
+          await tx.query(
+            `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
+             VALUES ($1, $2, $3, 1, TRUE)`,
+            [id, m.item_id, freeSlot]
+          );
+          remaining -= 1;
+        }
       } else {
         let remaining = m.item_quantity;
 

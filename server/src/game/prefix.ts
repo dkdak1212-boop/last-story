@@ -119,6 +119,32 @@ export async function generateSinglePrefixOfTier(
   return { prefixId: picked.id, statKey: picked.stat_key, value };
 }
 
+// 차원새싹상자 전용 — T1 또는 T2 랜덤, 중복 없는 3옵 강제 생성
+export async function generate3PrefixesT1T2(
+  itemLevel: number,
+): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
+  const prefixes = await loadPrefixes();
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  const prefixIds: number[] = [];
+  const bonusStats: Record<string, number> = {};
+  const usedStatKeys = new Set<string>();
+  let maxTier = 0;
+  for (let i = 0; i < 3; i++) {
+    const tier = Math.random() < 0.5 ? 1 : 2;
+    let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
+    if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+    if (candidates.length === 0) continue;
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+    const value = Math.max(1, Math.round(baseValue * levelScale));
+    prefixIds.push(picked.id);
+    bonusStats[picked.stat_key] = (bonusStats[picked.stat_key] ?? 0) + value;
+    usedStatKeys.add(picked.stat_key);
+    if (picked.tier > maxTier) maxTier = picked.tier;
+  }
+  return { prefixIds, bonusStats, maxTier };
+}
+
 // 3옵 보장 — 지정된 stat_key 중복 없이 새 prefix 3개 생성 (tier는 정상 확률 분포)
 export async function generateGuaranteed3Prefixes(
   itemLevel: number,

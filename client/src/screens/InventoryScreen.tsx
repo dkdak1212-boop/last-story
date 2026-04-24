@@ -234,6 +234,22 @@ export function InventoryScreen() {
       setMsg(e instanceof Error ? e.message : '개봉 실패');
     }
   }
+  async function openSproutBox(boxLevel: number, e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return; setMsg('');
+    if (!confirm(`차원새싹상자 (Lv.${boxLevel})를 개봉하시겠습니까?\n장비 + 골드가 지급됩니다. (계정 귀속)`)) return;
+    try {
+      const r = await api<{
+        ok: boolean;
+        reward: { gold: number; items: { itemId: number }[]; invCount: number; mailCount: number };
+      }>(`/sprout-box/open/${active.id}`, { method: 'POST', body: JSON.stringify({ boxLevel }) });
+      const parts = [`골드 +${r.reward.gold.toLocaleString()}`, `장비 ${r.reward.items.length}종`];
+      if (r.reward.mailCount > 0) parts.push(`우편 ${r.reward.mailCount}건`);
+      setMsg(`차원새싹상자 (Lv.${boxLevel}) 개봉! ${parts.join(' / ')}`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '개봉 실패');
+    }
+  }
   async function craftUniquePiece(e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return; setMsg('');
     if (!confirm('유니크 조각 3개를 소모해 유니크 1개로 합성합니다. 진행하시겠습니까?')) return;
@@ -726,6 +742,20 @@ export function InventoryScreen() {
                         </div>
                       )}
                     </div>
+                    {s.item.id >= 846 && s.item.id <= 851 && (
+                      <button
+                        onClick={(e) => openSproutBox(
+                          s.item.id === 846 ? 1 : s.item.id === 847 ? 10 : s.item.id === 848 ? 30
+                          : s.item.id === 849 ? 50 : s.item.id === 850 ? 70 : 90, e)}
+                        style={{
+                          padding: '6px 14px', fontSize: 12, fontWeight: 800,
+                          background: 'linear-gradient(180deg, #6bdc6b, #2ea82e)',
+                          color: '#052005', border: '1px solid #6bdc6b', cursor: 'pointer', borderRadius: 4,
+                          boxShadow: '0 0 6px rgba(46,168,46,0.4)',
+                          flexShrink: 0,
+                        }}
+                      >개봉</button>
+                    )}
                     {(s.item.id === 843 || s.item.id === 844 || s.item.id === 845) && (
                       <button
                         onClick={(e) => openGuildBossChest(s.item.id === 843 ? 'gold' : s.item.id === 844 ? 'silver' : 'copper', e)}
@@ -844,6 +874,19 @@ export function InventoryScreen() {
                             color: '#1a0f00', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
                             boxShadow: '0 0 8px rgba(218,165,32,0.4)',
                           }}>유니크 뽑기</button>
+                        )}
+                        {s.item.id >= 846 && s.item.id <= 851 && (
+                          <button
+                            onClick={(e) => openSproutBox(
+                              s.item.id === 846 ? 1 : s.item.id === 847 ? 10 : s.item.id === 848 ? 30
+                              : s.item.id === 849 ? 50 : s.item.id === 850 ? 70 : 90, e)}
+                            style={{
+                              padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                              background: 'linear-gradient(180deg, #6bdc6b, #2ea82e)',
+                              color: '#052005', border: '1px solid #6bdc6b', cursor: 'pointer', borderRadius: 4,
+                              boxShadow: '0 0 8px rgba(46,168,46,0.4)',
+                            }}
+                          >개봉</button>
                         )}
                         {(s.item.id === 843 || s.item.id === 844 || s.item.id === 845) && (
                           <button

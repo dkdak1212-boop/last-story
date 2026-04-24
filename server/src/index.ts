@@ -64,6 +64,7 @@ import nodeRoutes from './routes/nodes.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import guildBossRoutes from './routes/guildBoss.js';
 import guildBossShopRoutes from './routes/guildBossShop.js';
+import sproutBoxRoutes from './routes/sproutBox.js';
 import guildStorageRoutes from './routes/guildStorage.js';
 import achievementRoutes from './routes/achievements.js';
 import { restoreCombatSessions, loadUniqueItemIds } from './combat/engine.js';
@@ -191,6 +192,7 @@ app.use('/api/characters', nodeRoutes);
 app.use('/api/characters', dailyQuestRoutes);
 app.use('/api/guild-boss', guildBossRoutes);
 app.use('/api/guild-boss-shop', guildBossShopRoutes);
+app.use('/api/sprout-box', sproutBoxRoutes);
 app.use('/api/guild-storage', guildStorageRoutes);
 app.use('/api/characters', achievementRoutes);
 

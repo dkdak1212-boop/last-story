@@ -2548,6 +2548,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
        result.statPointsGained]
     );
     clampCharacterPoints(s.characterId).catch(() => {});
+    // 차원새싹상자 마일스톤 체크 — oldLevel < L <= newLevel 인 L 에 대해 발송
+    (async () => {
+      try {
+        const { checkSproutMilestones } = await import('../routes/sproutBox.js');
+        await checkSproutMilestones(s.characterId, char.level, result.newLevel);
+      } catch (e) { console.error('[sprout-box] milestone fail', e); }
+    })();
+    // 캐시된 레벨도 즉시 갱신 (다음 킬의 개인 EXP 배율 상한 체크 정확도 개선)
+    if (s.cachedCharMeta) s.cachedCharMeta.level = result.newLevel;
     // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
     const updatedChar = await loadCharacter(s.characterId);
     const newEff = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);

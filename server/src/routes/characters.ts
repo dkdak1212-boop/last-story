@@ -134,6 +134,13 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   } catch (e) {
     console.error('[new-char-event] apply fail', e);
   }
+  // 차원새싹상자 Lv.1 자동 발송 (항상)
+  try {
+    const { sendSproutBoxMail } = await import('./sproutBox.js');
+    await sendSproutBoxMail(r.rows[0].id, 1);
+  } catch (e) {
+    console.error('[sprout-box] lv1 send fail', e);
+  }
   res.json(r.rows[0]);
 });
 
