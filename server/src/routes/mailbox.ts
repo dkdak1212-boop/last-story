@@ -164,6 +164,20 @@ router.post('/:id/mailbox/:mailId/delete', async (req: AuthedRequest, res: Respo
   const mailId = Number(req.params.mailId);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 미수령 보상(아이템/골드) 포함 우편은 삭제 차단
+  const r = await query<{ read_at: string | null; item_id: number | null; item_quantity: number | null; gold: string | null }>(
+    'SELECT read_at, item_id, item_quantity, gold FROM mailbox WHERE id = $1 AND character_id = $2',
+    [mailId, id]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'not found' });
+  const m = r.rows[0];
+  const unclaimed = !m.read_at;
+  const hasReward = (m.item_id && (m.item_quantity ?? 0) > 0) || Number(m.gold || 0) > 0;
+  if (unclaimed && hasReward) {
+    return res.status(400).json({ error: '미수령 보상이 있는 우편은 삭제할 수 없습니다. 먼저 수령해주세요.' });
+  }
+
   await query('DELETE FROM mailbox WHERE id = $1 AND character_id = $2', [mailId, id]);
   res.json({ ok: true });
 });

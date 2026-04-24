@@ -45,8 +45,12 @@ export function MailboxScreen() {
 
   async function del(mailId: number) {
     if (!active) return;
-    await api(`/characters/${active.id}/mailbox/${mailId}/delete`, { method: 'POST' });
-    refresh();
+    try {
+      await api(`/characters/${active.id}/mailbox/${mailId}/delete`, { method: 'POST' });
+      refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '삭제 실패');
+    }
   }
 
   const unclaimedCount = mails.filter(m => !m.claimed).length;
@@ -169,7 +173,22 @@ export function MailboxScreen() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {!m.claimed && <button className="primary" onClick={() => claim(m.id)}>수령</button>}
-                <button onClick={() => del(m.id)} style={{ fontSize: 12 }}>삭제</button>
+                {(() => {
+                  const hasReward = (m.itemId && (m.itemQuantity ?? 0) > 0) || m.gold > 0;
+                  const blockDelete = !m.claimed && hasReward;
+                  return (
+                    <button
+                      onClick={() => !blockDelete && del(m.id)}
+                      disabled={blockDelete}
+                      title={blockDelete ? '미수령 보상이 있어 삭제할 수 없습니다. 먼저 수령하세요.' : ''}
+                      style={{
+                        fontSize: 12,
+                        opacity: blockDelete ? 0.35 : 1,
+                        cursor: blockDelete ? 'not-allowed' : 'pointer',
+                      }}
+                    >삭제</button>
+                  );
+                })()}
               </div>
             </div>
           </div>
