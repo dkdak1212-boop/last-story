@@ -70,11 +70,36 @@ export function ShopScreen() {
     const clamped = Math.max(1, Math.min(99, Math.floor(v) || 1));
     setQty((q) => ({ ...q, [itemId]: clamped }));
   }
+  // 편집 중 임시 문자열 상태 — 포커스 해제/구매 시에만 clamp
+  const [qtyDraft, setQtyDraft] = useState<Record<number, string>>({});
+  function onQtyInput(itemId: number, raw: string) {
+    // 숫자만 허용, 빈 문자열 허용(입력 중)
+    const cleaned = raw.replace(/[^0-9]/g, '');
+    setQtyDraft(d => ({ ...d, [itemId]: cleaned }));
+  }
+  function commitQty(itemId: number) {
+    const draft = qtyDraft[itemId];
+    if (draft === undefined) return;
+    const n = Number(draft);
+    const final = !draft || n < 1 ? 1 : Math.min(99, n);
+    setQty(q => ({ ...q, [itemId]: final }));
+    setQtyDraft(d => {
+      const next = { ...d }; delete next[itemId]; return next;
+    });
+  }
+  function qtyDisplay(itemId: number): string {
+    return qtyDraft[itemId] !== undefined ? qtyDraft[itemId] : String(getQty(itemId));
+  }
 
   async function buy(itemId: number) {
     if (!active) return;
     setMsg('');
-    const quantity = getQty(itemId);
+    // 편집 중 draft 가 있으면 먼저 반영
+    commitQty(itemId);
+    const draft = qtyDraft[itemId];
+    const quantity = draft !== undefined
+      ? (!draft || Number(draft) < 1 ? 1 : Math.min(99, Number(draft)))
+      : getQty(itemId);
     try {
       await api(`/characters/${active.id}/shop/buy`, {
         method: 'POST',
@@ -157,8 +182,12 @@ export function ShopScreen() {
                   style={{ padding: '4px 10px', border: 'none' }}
                 >−</button>
                 <input
-                  type="number" min="1" max="99" value={getQty(e.item.id)}
-                  onChange={(ev) => setItemQty(e.item.id, Number(ev.target.value))}
+                  type="text" inputMode="numeric" pattern="[0-9]*"
+                  value={qtyDisplay(e.item.id)}
+                  onChange={(ev) => onQtyInput(e.item.id, ev.target.value)}
+                  onFocus={(ev) => ev.target.select()}
+                  onBlur={() => commitQty(e.item.id)}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter') { commitQty(e.item.id); (ev.target as HTMLInputElement).blur(); } }}
                   style={{ width: 48, textAlign: 'center', border: 'none', padding: '4px' }}
                 />
                 <button
