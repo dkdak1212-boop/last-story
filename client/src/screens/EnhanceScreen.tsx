@@ -223,7 +223,8 @@ export function EnhanceScreen() {
         if (match) setSelected(match);
         else setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
       }
-      if (useScroll) setUseScroll(false);
+      // 스크롤 체크 상태는 유지 — 유저가 직접 해제할 때까지 지속 (연속 강화 편의)
+      // 스크롤 소진 시 (scrollCount=0) 체크박스 자체가 숨겨지므로 자동 비활성화 효과는 보장됨
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setBusy(false); }
