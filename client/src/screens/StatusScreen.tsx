@@ -27,9 +27,19 @@ const CLASS_LABEL: Record<string, string> = {
 };
 
 const PREFIX_LABEL: Record<string, string> = {
+  // 기본 스탯 접두사 (접두사 롤에 붙을 수 있음)
+  str: '힘',
+  dex: '민첩',
+  int: '지능',
+  vit: '체력',
+  spd: '스피드',
+  cri: '치명타 확률',
+  accuracy: '명중',
+  dodge: '회피',
+  // 특수 접두사
   berserk_pct: '광폭 (데미지 +%)',
   first_strike_pct: '약점간파 (첫 공격 +%)',
-  ambush_pct: '각성 (5초 미피격 시 +%)',
+  ambush_pct: '기습 (5초 미피격 시 +%)',
   crit_dmg_pct: '치명타 데미지 +%',
   lifesteal_pct: '생명력 흡수 %',
   gauge_on_crit_pct: '치명타 시 게이지 +%',
@@ -39,18 +49,24 @@ const PREFIX_LABEL: Record<string, string> = {
   predator_pct: '포식 (처치 시 HP회복 %)',
   hp_regen: 'HP 재생 (/초)',
   slow_pct: '저주 (몬스터 속도 -%)',
-  def_reduce_pct: '방어 관통 %',
+  def_reduce_pct: '몬스터 방어력 감소 %',
   dot_amp_pct: '도트 데미지 +%',
   gold_bonus_pct: '골드 획득 +%',
   exp_bonus_pct: '경험치 획득 +%',
   atk_pct: '물리 공격 +%',
   matk_pct: '마법 공격 +%',
+  hp_pct: '최대 HP +%',
   max_hp_pct: '최대 HP +%',
   drop_rate_pct: '드랍률 +%',
   multi_hit_amp_pct: '다단 타격 데미지 +%',
   def_pierce_pct: '방어 추가 무시 %',
   miss_combo_pct: '빗나감 누적 보너스 +%',
   evasion_burst_pct: '회피 직후 다음 공격 +%',
+  // 유니크 전용
+  shield_amp: '실드 효과 +%',
+  summon_amp: '소환수 데미지 +%',
+  summon_double_hit: '소환수 2회 타격 %',
+  summon_max_extra: '최대 소환수 +',
 };
 
 const PASSIVE_LABEL: Record<string, string> = {
