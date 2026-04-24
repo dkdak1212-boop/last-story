@@ -127,7 +127,7 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
     const until = untilStr ? new Date(untilStr) : null;
     if (pct > 0 && until && until.getTime() > Date.now()) {
       await query(
-        'UPDATE characters SET event_exp_pct = $1, event_exp_until = $2 WHERE id = $3',
+        'UPDATE characters SET event_exp_pct = $1, event_exp_until = $2, event_exp_max_level = 95 WHERE id = $3',
         [pct, until.toISOString(), r.rows[0].id]
       );
     }

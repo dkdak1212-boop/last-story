@@ -244,6 +244,7 @@ interface ActiveSession {
     // 이벤트 버프 (관리자 지급, 기존 +50% 부스터와 독립, 곱셈 적용)
     eventExpPct: number;
     eventExpUntilMs: number | null;
+    eventExpMaxLevel: number | null;
     eventDropPct: number;
     eventDropUntilMs: number | null;
     // 개인 EXP 배율 (레벨 기반 종료)
@@ -2415,12 +2416,13 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         gold_boost_until: string | null; drop_boost_until: string | null;
         exp_boost_until: string | null; level: number;
         event_exp_pct: number | null; event_exp_until: string | null;
+        event_exp_max_level: number | null;
         event_drop_pct: number | null; event_drop_until: string | null;
         personal_exp_mult: string | number | null;
         personal_exp_mult_max_level: number | null;
       }>(
         `SELECT gold_boost_until, drop_boost_until, exp_boost_until, level,
-                COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
+                COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until, event_exp_max_level,
                 COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until,
                 COALESCE(personal_exp_mult, 1.0) AS personal_exp_mult,
                 personal_exp_mult_max_level
@@ -2436,6 +2438,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
           dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
           eventExpPct: row.event_exp_pct ?? 0,
           eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
+          eventExpMaxLevel: row.event_exp_max_level,
           eventDropPct: row.event_drop_pct ?? 0,
           eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
           personalExpMult: Number(row.personal_exp_mult ?? 1) || 1,
@@ -2453,7 +2456,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const isExpBoosted = !!(charMetaCached?.expBoostUntilMs && charMetaCached.expBoostUntilMs > nowMs);
   const charMetaLevel = charMetaCached?.level ?? 1;
   // 이벤트 버프 (관리자 지급, 기존 +50% 부스터와 독립 곱산)
-  const eventExpActive = !!(charMetaCached?.eventExpUntilMs && charMetaCached.eventExpUntilMs > nowMs);
+  const eventExpActive = !!(
+    charMetaCached?.eventExpUntilMs && charMetaCached.eventExpUntilMs > nowMs
+    && (charMetaCached.eventExpMaxLevel == null || charMetaCached.level < charMetaCached.eventExpMaxLevel)
+  );
   const eventDropActive = !!(charMetaCached?.eventDropUntilMs && charMetaCached.eventDropUntilMs > nowMs);
   const eventExpMult = eventExpActive ? 1 + (charMetaCached!.eventExpPct / 100) : 1;
   const eventDropMult = eventDropActive ? 1 + (charMetaCached!.eventDropPct / 100) : 1;
@@ -3083,12 +3089,13 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
       exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null;
       atk_boost_until: string | null; hp_boost_until: string | null;
       event_exp_pct: number | null; event_exp_until: string | null;
+      event_exp_max_level: number | null;
       event_drop_pct: number | null; event_drop_until: string | null;
       personal_exp_mult: string | number | null;
       personal_exp_mult_max_level: number | null;
     }>(
       `SELECT level, exp, exp_boost_until, gold_boost_until, drop_boost_until, atk_boost_until, hp_boost_until,
-              COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until,
+              COALESCE(event_exp_pct, 0) AS event_exp_pct, event_exp_until, event_exp_max_level,
               COALESCE(event_drop_pct, 0) AS event_drop_pct, event_drop_until,
               COALESCE(personal_exp_mult, 1.0) AS personal_exp_mult,
               personal_exp_mult_max_level
@@ -3107,6 +3114,7 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         dropBoostUntilMs: row.drop_boost_until ? new Date(row.drop_boost_until).getTime() : null,
         eventExpPct: row.event_exp_pct ?? 0,
         eventExpUntilMs: row.event_exp_until ? new Date(row.event_exp_until).getTime() : null,
+        eventExpMaxLevel: row.event_exp_max_level,
         eventDropPct: row.event_drop_pct ?? 0,
         eventDropUntilMs: row.event_drop_until ? new Date(row.event_drop_until).getTime() : null,
         personalExpMult: Number(row.personal_exp_mult ?? 1) || 1,
@@ -3120,9 +3128,12 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
         boosts.push({ name: '골드 +50%', until: row.gold_boost_until });
       if (row.drop_boost_until && new Date(row.drop_boost_until) > now)
         boosts.push({ name: '드롭률 +50%', until: row.drop_boost_until });
-      // 이벤트 버프 (관리자 지급) — UI 에 노출
-      if (row.event_exp_until && new Date(row.event_exp_until) > now && (row.event_exp_pct ?? 0) > 0)
-        boosts.push({ name: `이벤트 EXP +${row.event_exp_pct}%`, until: row.event_exp_until });
+      // 이벤트 버프 (관리자 지급) — UI 에 노출. 레벨 상한 도달 시 표시 안 함
+      if (row.event_exp_until && new Date(row.event_exp_until) > now && (row.event_exp_pct ?? 0) > 0
+          && (row.event_exp_max_level == null || row.level < row.event_exp_max_level)) {
+        const lvSuffix = row.event_exp_max_level != null ? ` · Lv.${row.event_exp_max_level}까지` : '';
+        boosts.push({ name: `이벤트 EXP +${row.event_exp_pct}%${lvSuffix}`, until: row.event_exp_until });
+      }
       if (row.event_drop_until && new Date(row.event_drop_until) > now && (row.event_drop_pct ?? 0) > 0)
         boosts.push({ name: `이벤트 드롭 +${row.event_drop_pct}%`, until: row.event_drop_until });
       if (row.atk_boost_until && new Date(row.atk_boost_until) > now)
