@@ -20,12 +20,12 @@ export const BOX_ITEM_IDS: Record<BoxLevel, number> = {
 
 interface BoxConfig { commonLv: number; uniqueLv: number | null; gold: number; }
 const BOX_CONFIG: Record<BoxLevel, BoxConfig> = {
-  1:  { commonLv: 1,  uniqueLv: null, gold:    500_000 },
-  10: { commonLv: 10, uniqueLv: null, gold:  1_000_000 },
-  30: { commonLv: 30, uniqueLv: 35,   gold:  3_000_000 },
-  50: { commonLv: 50, uniqueLv: 55,   gold:  5_000_000 },
-  70: { commonLv: 70, uniqueLv: 75,   gold: 10_000_000 },
-  90: { commonLv: 90, uniqueLv: 95,   gold: 20_000_000 },
+  1:  { commonLv: 1,  uniqueLv: null, gold:    50_000 },
+  10: { commonLv: 10, uniqueLv: null, gold:   100_000 },
+  30: { commonLv: 30, uniqueLv: 35,   gold:   300_000 },
+  50: { commonLv: 50, uniqueLv: 55,   gold:   500_000 },
+  70: { commonLv: 70, uniqueLv: 75,   gold: 1_000_000 },
+  90: { commonLv: 90, uniqueLv: 95,   gold: 2_000_000 },
 };
 
 const QUALITY_FIXED = 75;
