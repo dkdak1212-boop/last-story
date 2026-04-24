@@ -189,7 +189,7 @@ const STAT_ORDER: (keyof Stats)[] = ['str', 'dex', 'int', 'vit', 'spd', 'cri'];
 const COMBAT_STAT_DESC: Record<string, string> = {
   'HP': '캐릭터의 생명력. 0이 되면 사망하여 HP 100% 회복 후 마을 귀환.',
   '물리 공격': '물리 데미지 = 힘(STR) × 1.5 + 장비 ATK 보너스. 전사/도적이 사용.',
-  '마법 공격': '마법 데미지 = 지능(INT) × 1.5 + 장비 MATK 보너스. 마법사/성직자가 사용.',
+  '마법 공격': '마법 데미지 = 지능(INT) × 1.5 + 장비 MATK 보너스. 마법사/성직자/소환사가 사용.',
   '방어력': '물리 피해 감소 = 체력(VIT) × 0.8 + 장비 DEF. 데미지 계산: ATK - 방어 × 0.5',
   '마법 방어': '마법 피해 감소 = 지능(INT) × 0.5 + 장비 MDEF. 데미지 계산: MATK - 마방 × 0.5',
   '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 70%.',
@@ -398,14 +398,14 @@ export function StatusScreen() {
         <div className="stat-guide-grid" style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px 8px' }}>
           <span style={{ color: 'var(--text)' }}>힘 (STR)</span><span>물리 공격력 = 힘 × 1.5 + 장비 ATK. 전사/도적 핵심 스탯</span>
           <span style={{ color: 'var(--text)' }}>민첩 (DEX)</span><span>회피율 = 민첩 × 0.2% (상한 70%) · 명중률 = 80% + 민첩 × 0.3% (상한 100%)</span>
-          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.5 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF</span>
+          <span style={{ color: 'var(--text)' }}>지능 (INT)</span><span>마법 공격 = 지능 × 1.5 + 장비 MATK · 마법 방어 = 지능 × 0.5 + 장비 MDEF · 마법사/성직자/소환사 핵심 스탯</span>
           <span style={{ color: 'var(--text)' }}>체력 (VIT)</span><span>방어력 = 체력 × 0.8 + 장비 DEF · <span style={{ color: 'var(--danger)' }}>기본 14 고정</span> (노드/장비로만 상승)</span>
           <span style={{ color: 'var(--text)' }}>스피드 (SPD)</span><span>게이지 충전 스피드 · <span style={{ color: 'var(--danger)' }}>기본 200 고정</span> (노드/장비로만 상승)</span>
           <span style={{ color: 'var(--text)' }}>치명타 (CRI)</span><span>크리 확률 % (상한 100%). 발동 시 데미지 2배. <span style={{ color: 'var(--danger)' }}>기본 5% 고정</span> (노드/장비로만 상승)</span>
         </div>
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
           <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>전투 팁</div>
-          <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 ATK(물리), <span style={{ color: 'var(--text)' }}>마법사/성직자</span>는 MATK(마법) 고정 사용</div>
+          <div>· <span style={{ color: 'var(--text)' }}>전사/도적</span>은 ATK(물리), <span style={{ color: 'var(--text)' }}>마법사/성직자/소환사</span>는 MATK(마법) 고정 사용</div>
           <div>· 데미지 공식: <span style={{ color: 'var(--text)' }}>(ATK/MATK) × 스킬배율 − (DEF/MDEF × 0.5) + 고정피해 ± 10%</span></div>
           <div>· 게이지 MAX = 1000 · SPD 300 → 약 1.7초 주기 · 자동/수동 전환 가능</div>
           <div>· <span style={{ color: 'var(--text)' }}>레벨업</span>: HP +25, 노드포인트 +1, 스탯포인트 +2 (힘/민첩/지능만 수동 분배 — 체력/스피드/치명타는 고정)</div>
