@@ -2892,7 +2892,8 @@ let lastTickAt = 0;
 const TICK_TARGET_MS = 100;
 // 세션별 마지막 tick 시각 (백그라운드 세션 간격 조절용)
 const sessionLastTickAt = new Map<number, number>();
-const OFFLINE_TICK_INTERVAL_MS = 1000; // 구독자 없는 세션은 1초 간격 — 쿼리 분산 완충 역할
+const OFFLINE_TICK_INTERVAL_MS = 3000; // 구독자 없는 세션은 3초 간격 — 970+ 세션 DB 부하 감경 (1000→3000).
+                                        // Railway PG max_connections=100 고정이라 쿼리 수 자체를 줄이는 방향.
 // 오프라인 보상 보정 배율 — 1초 tick 자연 효율 ~68%(몬스터 리스폰 지연·액션 압축 등 손실분) 을
 // ×1.4 로 보정해 실질 ~95% 체감 효율 도달. EXP/골드/드랍 전부 적용. CPU 부하 변동 없음.
 const OFFLINE_REWARD_MULT = 1.4;

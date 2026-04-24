@@ -12,9 +12,9 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 70,                        // 50으로 줄인 뒤 waiting=496 피크 발생 → 70으로 복구.
-                                  // 롤링 배포 순간에는 PG max_connections=100을 넘길 수 있음
-                                  // (대응책: Railway PG MAX_CONNECTIONS 증액 예정)
+  max: 70,                        // Railway PG max_connections=100 고정 (증액 시도 거부 — 컨테이너 메모리 제한).
+                                  // 롤링 배포 시 2인스턴스 × 70 = 140 > 100 이지만, 구 인스턴스 drain 완료 후 신 인스턴스가 채우므로 대체로 안전.
+                                  // 연결수 늘리는 대신 OFFLINE_TICK_INTERVAL_MS 상향으로 쿼리 수 자체를 줄임 (engine.ts).
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
