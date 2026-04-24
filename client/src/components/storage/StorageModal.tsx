@@ -137,6 +137,11 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
                           {pName && <span style={{ color: '#aaa' }}>{pName}</span>}
                         </div>
                       )}
+                      {s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
+                        <div style={{ fontSize: 8, color: '#6a6', marginTop: 1 }}>
+                          {Object.entries(s.prefixStats).map(([k, v]) => `${STAT_LABEL[k] || k}+${v}`).join(' ')}
+                        </div>
+                      )}
                     </div>
                     <button onClick={() => deposit(s.slotIndex)} disabled={busy} style={{ fontSize: 10, padding: '4px 10px', whiteSpace: 'nowrap' }}>
                       입고 →
