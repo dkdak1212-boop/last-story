@@ -6,13 +6,22 @@ import { GRADE_COLOR } from '../ui/ItemStats';
 import { ItemIcon } from '../ui/ItemIcon';
 
 const STAT_LABEL: Record<string, string> = {
-  str: 'STR', dex: 'DEX', int: 'INT', vit: 'VIT', spd: 'SPD', cri: 'CRI',
-  crit_dmg_pct: '치명뎀', dodge: '회피', accuracy: '명중',
+  // 기본 스탯
+  str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명',
+  accuracy: '명중', dodge: '회피',
+  // % 계열 유니크/접두사
+  atk_pct: '공격%', matk_pct: '마공%', hp_pct: 'HP%', max_hp_pct: 'HP%',
+  crit_dmg_pct: '치명뎀', def_reduce_pct: '방관', def_pierce_pct: '방무',
+  damage_taken_down_pct: '피감', drop_rate_pct: '드랍',
+  multi_hit_amp_pct: '다단', miss_combo_pct: '빗맞', evasion_burst_pct: '회피폭',
+  shield_amp: '실드',
+  // 소환사
+  summon_amp: '소환뎀', summon_double_hit: '소환2타', summon_max_extra: '소환+',
+  // 기존 접두사
   lifesteal_pct: '흡혈', dot_amp_pct: '도트', exp_bonus_pct: '경험치',
   gold_bonus_pct: '골드', guardian_pct: '방어', gauge_on_crit_pct: '게이지',
-  first_strike_pct: '선제', berserk_pct: '광전사', ambush_pct: '각성',
-  predator_pct: '포식', def_reduce_pct: '방관', hp_regen: '재생',
-  slow_pct: '감속', thorns_pct: '반사',
+  first_strike_pct: '선제', berserk_pct: '광전사', ambush_pct: '기습',
+  predator_pct: '포식', hp_regen: '재생', slow_pct: '감속', thorns_pct: '반사',
 };
 
 interface StorageItem {
