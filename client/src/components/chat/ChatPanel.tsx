@@ -75,6 +75,39 @@ export function ChatPanel() {
         }].slice(-100),
       }));
     });
+    // WebSocket 연결 실패 시지 노출 (기존엔 침묵 → 유저는 채팅 안되는 이유 몰랐음)
+    socket.on('connect_error', (err: Error) => {
+      const ch = channelRef.current;
+      const msg = err?.message || '연결 실패';
+      const userMsg = msg.includes('invalid token') || msg.includes('no token')
+        ? '인증 만료 — 다시 로그인해주세요.'
+        : msg.includes('동일 IP')
+        ? '동일 IP에서 다른 계정이 접속 중 — 기존 창 종료 후 재시도.'
+        : msg.includes('too many')
+        ? '연결 과다 — 잠시 후 재시도.'
+        : msg.includes('점검')
+        ? '서버 점검 중입니다.'
+        : `연결 실패: ${msg}`;
+      setMessages((m) => ({
+        ...m,
+        [ch]: [...(m[ch] || []), {
+          channel: ch, from: '⚠ 시스템', text: userMsg, isAdmin: false,
+        }].slice(-100),
+      }));
+    });
+    socket.on('disconnect', (reason: string) => {
+      // 서버 재시작/네트워크 끊김 등 — 클라는 자동 재연결 시도. reason 이 io server disconnect 인 경우만 안내.
+      if (reason === 'io server disconnect') {
+        const ch = channelRef.current;
+        setMessages((m) => ({
+          ...m,
+          [ch]: [...(m[ch] || []), {
+            channel: ch, from: '⚠ 시스템', text: '서버에서 연결이 끊겼습니다. 새로고침 또는 재로그인을 시도해주세요.',
+            isAdmin: false,
+          }].slice(-100),
+        }));
+      }
+    });
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [token, scopeIds.guild, scopeIds.party]);
 
@@ -83,8 +116,21 @@ export function ChatPanel() {
   }, [messages, channel, open]);
 
   function send() {
-    if (!input.trim() || !socketRef.current) return;
-    socketRef.current.emit('chat', { channel, text: input.trim(), characterId: activeId });
+    if (!input.trim()) return;
+    const sock = socketRef.current;
+    if (!sock || !sock.connected) {
+      // 소켓 미연결 상태 가시화 — 조용한 실패 방지
+      const ch = channelRef.current;
+      setMessages((m) => ({
+        ...m,
+        [ch]: [...(m[ch] || []), {
+          channel: ch, from: '⚠ 시스템', text: '채팅 서버에 연결되지 않았습니다. 새로고침 또는 재로그인을 시도해주세요.',
+          isAdmin: false,
+        }].slice(-100),
+      }));
+      return;
+    }
+    sock.emit('chat', { channel, text: input.trim(), characterId: activeId });
     setInput('');
   }
 
