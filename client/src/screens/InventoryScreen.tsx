@@ -680,20 +680,38 @@ export function InventoryScreen() {
                     boxShadow: isUnique ? '0 0 8px rgba(255,140,42,0.25)' : 'none',
                   }}
                 >
-                  {/* 거래가능/불가 — 카드 우측 수직 중앙 고정 (데스크탑) / 모바일은 색 점 */}
+                  {/* 우측 중앙 — 잠금 버튼 + 거래 표시 (색 점). 단일 row 에 정렬해 겹침 방지 */}
                   {isEquipment && (
-                    <span
-                      className="inv-item-tradeable"
-                      style={{
-                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                        fontSize: 12, fontWeight: 900,
-                        color: s.soulbound ? '#ff5a5a' : '#4caf50',
-                        pointerEvents: 'none',
-                      }}
-                      data-bound={s.soulbound ? '1' : '0'}
-                    >
-                      {s.soulbound ? '거래불가' : '거래가능'}
-                    </span>
+                    <div style={{
+                      position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span
+                        className="inv-item-lock"
+                        onClick={(e) => toggleLock(s.slotIndex, e)}
+                        title={locked ? '잠금 해제' : '잠금'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center',
+                          padding: '2px 4px', borderRadius: 3,
+                          background: locked ? 'rgba(255,90,90,0.12)' : 'transparent',
+                          border: `1px solid ${locked ? '#ff5a5a' : '#555'}`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
+                          onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
+                          style={{ width: 18, height: 18, imageRendering: 'pixelated', opacity: locked ? 1 : 0.6 }}
+                        />
+                      </span>
+                      <span
+                        title={s.soulbound ? '거래불가' : '거래가능'}
+                        style={{
+                          width: 10, height: 10, borderRadius: '50%',
+                          background: s.soulbound ? '#ff5a5a' : '#4caf50',
+                          boxShadow: `0 0 4px ${s.soulbound ? '#ff5a5a' : '#4caf50'}`,
+                        }}
+                      />
+                    </div>
                   )}
                   {/* 품질 — 카드 우상단 고정 */}
                   {(s as any).quality !== undefined && (s.item as any).slot && (() => {
@@ -795,28 +813,7 @@ export function InventoryScreen() {
                       }}>Lv.{requiredLevel}</span>
                     )}
                     {isExpanded && <span className="inv-item-grade" style={{ fontSize: 9, color: gradeClr, opacity: 0.6 }}>{GRADE_LABEL[s.item.grade]}</span>}
-                    {isEquipment && (
-                      <span
-                        className="inv-item-lock"
-                        onClick={(e) => toggleLock(s.slotIndex, e)}
-                        title={locked ? '잠금 해제' : '잠금'}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 3,
-                          padding: '2px 6px', borderRadius: 3,
-                          background: locked ? 'rgba(255,90,90,0.12)' : 'transparent',
-                          border: `1px solid ${locked ? '#ff5a5a' : '#555'}`,
-                          cursor: 'pointer', flexShrink: 0,
-                        }}
-                      >
-                        <img src={locked ? '/images/slots/lock.png' : '/images/slots/unlock.png'} alt=""
-                          onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }}
-                          style={{ width: 20, height: 20, imageRendering: 'pixelated', opacity: locked ? 1 : 0.6 }}
-                        />
-                        <span className="inv-item-lock-text" style={{ fontSize: 11, fontWeight: 800, color: locked ? '#ff6b6b' : '#888' }}>
-                          {locked ? '잠금' : '해제'}
-                        </span>
-                      </span>
-                    )}
+                    {/* 잠금/거래표시는 카드 우측 절대 위치로 이동됨 */}
                   </div>
 
                   {/* ── 펼침 상세 ── */}
