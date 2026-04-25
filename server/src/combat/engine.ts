@@ -113,6 +113,18 @@ export function computeLevelDiffExpMult(charLevel: number, monsterLevel: number)
 
 // SessionRow removed — in-memory only now
 
+// 몬스터 스킬 정의 (monsters.skills JSONB)
+//   id: 식별자, cooldown(s): 발동 주기 (초), trigger: 'cooldown' | 'hp_below_N'(예: hp_below_40)
+//   effect: dim_burst | heal_seal | time_warp | rage | phase2_summon
+interface MonsterSkillDef {
+  id: string;
+  name: string;
+  cooldown?: number;     // 초 단위
+  trigger?: string;      // 'hp_below_40' 같은 트리거 (cooldown 대신)
+  effect: string;
+  atk_mult?: number;
+}
+
 interface MonsterDef {
   id: number;
   name: string;
@@ -120,8 +132,9 @@ interface MonsterDef {
   max_hp: number;
   exp_reward: number;
   gold_reward: number;
-  stats: Stats;
+  stats: Stats & { def?: number; mdef?: number; dr_pct?: number; cc_immune?: boolean };
   drop_table: { itemId: number; chance: number; minQty: number; maxQty: number }[];
+  skills?: MonsterSkillDef[];
 }
 
 export interface SkillDef {
@@ -163,6 +176,8 @@ function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
   let heal = Math.round(dmg * pct / 100);
   const lsAmp = getPassive(s, 'lifesteal_amp');
   if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
+  // 110 몬스터 heal_seal — 회복·흡혈 -70% (8초)
+  if (s.healBlockUntilMs > Date.now()) heal = Math.round(heal * 0.3);
   if (heal <= 0) return 0;
   s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
   return heal;
@@ -231,6 +246,15 @@ interface ActiveSession {
   // 다단히트가 매 타마다 gauge_on_crit_pct 로 게이지 충전을 누적해 가우지가 영구 100% 정체되는 버그 차단.
   // runPlayerAction 시작 시 false 로 리셋, 첫 크리 후 true. 액션당 1회만 적용.
   gaugeOnCritUsedThisAction: boolean;
+  // ── 110 몬스터 스킬 시스템 ──
+  monsterSkillCooldowns: Map<string, number>; // key=skill.id, value=남은 액션 수 (0 시 발동 가능)
+  monsterDrPct: number;                       // 현재 몬스터 받는 데미지 감쇠 % (0~100)
+  monsterCcImmune: boolean;                   // CC 면역 플래그
+  monsterRageActivated: boolean;              // 분노 패시브 1회 발동 플래그
+  bossPhase2Triggered: boolean;               // 보스 페이즈2 (HP 50% 소환) 1회 발동
+  healBlockUntilMs: number;                   // 치유 봉쇄 만료 시각 (ms)
+  // 110 신규 prefix
+  shieldOnLowHpUsedAt: number;                // shield_on_low_hp 마지막 발동 시각 (30s 쿨)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
   recentKillTimes: number[]; // 최근 10킬의 처치 시간 (초)
   userId: number;
@@ -469,13 +493,16 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
   const s = m.stats;
   // 레벨 50 이상 몬스터는 공격력/방어력 3배 (난이도 상향)
   const highTierMult = m.level >= 50 ? 3.0 : 1.0;
+  // 몬스터 stats 에 직접 def/mdef 가 명시되면 (110 몬스터 등) 그대로 사용.
+  const explicitDef = (s as any).def;
+  const explicitMdef = (s as any).mdef;
   return {
     str: s.str, dex: s.dex, int: s.int, vit: s.vit, spd: s.spd, cri: s.cri,
     maxHp: m.max_hp,
     atk: s.str * 1.0 * highTierMult,
     matk: s.int * 1.2 * highTierMult,
-    def: s.vit * 0.8 * highTierMult,
-    mdef: s.int * 0.5 * highTierMult,
+    def: typeof explicitDef === 'number' ? explicitDef : s.vit * 0.8 * highTierMult,
+    mdef: typeof explicitMdef === 'number' ? explicitMdef : s.int * 0.5 * highTierMult,
     dodge: s.dex * 0.4,
     // 몬스터 accuracy 고정 80 — 플레이어 dodge 를 accBonus 로 깎지 않음.
     // 결과: 플레이어 dodge 표기 70% = 실전 70% (dodge = effectiveDodge).
@@ -661,6 +688,11 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
       return; // 적용 없이 조용히 무시
     }
   }
+  // 110 몬스터: cc_immune 플래그 — 플레이어가 건 CC/슬로우 무시
+  if (s.monsterCcImmune && effect.source === 'player') {
+    const isSlow = effect.type === 'speed_mod' && effect.value < 0;
+    if (CC_EFFECT_TYPES.has(effect.type) || isSlow) return;
+  }
   // 길드 보스: 플레이어 자가 무적 버프 지속시간 상한 (1분 환산 ~30행동)
   if (s.guildBossRunId && effect.type === 'invincible' && effect.source === 'monster') {
     if (effect.remainingActions > GUILD_BOSS_INVINCIBLE_MAX_ACTIONS) {
@@ -838,6 +870,10 @@ function applyDamagePrefixes(
   if (executePct > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.20) {
     dmg = Math.round(dmg * (1 + executePct / 100));
   }
+  // 110 몬스터 dr_pct — 받는 데미지 감쇠 (마지막 단계에 적용)
+  if (s.monsterDrPct > 0) {
+    dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
+  }
   // combo_kill_bonus: 연속킬 데미지 보너스 (최대 5중첩)
   const comboBonus = getPassive(s, 'combo_kill_bonus');
   if (comboBonus > 0 && s.comboKills > 0) {
@@ -961,7 +997,9 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
   }
   const critLifesteal = getPassive(s, 'crit_lifesteal');
   if (critLifesteal > 0 && dmg > 0) {
-    const critHeal = Math.round(dmg * critLifesteal / 100);
+    let critHeal = Math.round(dmg * critLifesteal / 100);
+    // 110 heal_seal — 흡혈 -70%
+    if (s.healBlockUntilMs > Date.now()) critHeal = Math.round(critHeal * 0.3);
     if (critHeal > 0) {
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + critHeal);
       addLog(s, `치명 흡혈 HP +${critHeal}`);
@@ -2295,6 +2333,78 @@ async function autoAction(s: ActiveSession): Promise<void> {
   }
 }
 
+// ── 110 몬스터 스킬 처리 ──
+// 반환 { skillMult, defPierce, replaceBasic, bonusName }
+//   skillMult: 데미지 배수 (기본 1.0)
+//   defPierce: 방어 % 무시 (dim_burst 50)
+//   replaceBasic: true 면 이 스킬이 기본 공격 대체
+//   bonusName: 로그 표기용
+function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPierce: number; bonusName: string | null } {
+  const mDef = s.monsterDef as MonsterDef | null;
+  if (!mDef || !Array.isArray(mDef.skills) || mDef.skills.length === 0) {
+    return { skillMult: 1.0, defPierce: 0, bonusName: null };
+  }
+
+  // 1) 모든 cooldown 카운터 -1 (액션 단위)
+  for (const [k, v] of Array.from(s.monsterSkillCooldowns.entries())) {
+    if (v > 1) s.monsterSkillCooldowns.set(k, v - 1);
+    else s.monsterSkillCooldowns.delete(k);
+  }
+
+  let skillMult = 1.0;
+  let defPierce = 0;
+  let bonusName: string | null = null;
+
+  // 2) 트리거 스킬 (1회성, 쿨다운 무관)
+  for (const sk of mDef.skills) {
+    if (sk.trigger === 'hp_below_40' && !s.monsterRageActivated && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.4) {
+      // 분노 모드 — 자체 atk +80%, spd +50% (몬스터 stats 영구 부스트, 1회만)
+      s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 1.8), spd: Math.round(s.monsterStats.spd * 1.5) };
+      s.monsterSpeed = s.monsterStats.spd;
+      s.monsterRageActivated = true;
+      addLog(s, `[${sk.name}] 몬스터가 분노 — 공격력 +80% / 스피드 +50%`);
+    }
+    if (sk.trigger === 'hp_below_50' && !s.bossPhase2Triggered && sk.effect === 'summon_grunts_3' && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.5) {
+      s.bossPhase2Triggered = true;
+      // 페이즈 2 — 분노형 stats 부스트 + 시간 가속 (실제 추가 소환 메커니즘은 1v1 엔진 한계로 atk +30% / spd +30% 로 근사)
+      s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 1.3), spd: Math.round(s.monsterStats.spd * 1.3) };
+      s.monsterSpeed = s.monsterStats.spd;
+      addLog(s, `[${sk.name}] 페이즈 2 진입 — 균열의 군주가 강해진다!`);
+    }
+  }
+
+  // 3) cooldown 스킬 — 우선순위: dim_burst > heal_seal > time_warp
+  const orderedEffects = ['dim_burst', 'heal_seal', 'time_warp'];
+  for (const targetEffect of orderedEffects) {
+    const sk = mDef.skills.find(x => x.effect === targetEffect && typeof x.cooldown === 'number');
+    if (!sk || typeof sk.cooldown !== 'number') continue;
+    if ((s.monsterSkillCooldowns.get(sk.id) ?? 0) > 0) continue; // 쿨
+
+    if (targetEffect === 'dim_burst') {
+      // 대체 공격: atk × atk_mult (보통 2.0~2.5), 방어 50% 무시
+      skillMult = sk.atk_mult ?? 2.0;
+      defPierce = 50;
+      bonusName = sk.name;
+      // cooldown 은 초 → 액션 환산. 몬스터 스킬은 평균 1.5s/액션 가정 → cooldown_actions = round(cooldown / 1.5)
+      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+      return { skillMult, defPierce, bonusName }; // dim_burst 발동 시 아래 다른 스킬 검사 스킵
+    } else if (targetEffect === 'heal_seal') {
+      s.healBlockUntilMs = Date.now() + 8000;
+      addLog(s, `[${sk.name}] 8초간 회복·흡혈 -70%`);
+      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+      // continue — basic attack 도 진행
+    } else if (targetEffect === 'time_warp') {
+      // 강제 슬로우 (CC 면역 우회 — 직접 push)
+      s.statusEffects.push({
+        id: `time_warp_${Date.now()}`, type: 'speed_mod', value: -40, remainingActions: 5, source: 'monster',
+      });
+      addLog(s, `[${sk.name}] 플레이어 스피드 -40% (5행동)`);
+      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+    }
+  }
+  return { skillMult, defPierce, bonusName };
+}
+
 // ── 몬스터 행동 ──
 // tickDownEffects(s, 'player')는 monsterAction 외부(메인 루프)에서 처리.
 // 도트가 먼저 적용된 뒤 카운트가 감소하도록 순서 조정 — 마지막 1틱이 사라지지 않게.
@@ -2310,6 +2420,10 @@ function monsterAction(s: ActiveSession): void {
     addLog(s, '몬스터가 동결 상태!');
     return;
   }
+
+  // 110 몬스터 스킬 사이클 (dim_burst / heal_seal / time_warp / rage / phase2_summon)
+  // dim_burst 발동 시 이번 턴 공격을 대체 (강한 데미지 + 방어 50% 무시)
+  const riftSkill = tryRift110MonsterSkills(s);
 
   // 패시브: guard_instinct (HP 40% 이하 시 방어 증가)
   let playerDefStats = s.playerStats;
@@ -2352,6 +2466,19 @@ function monsterAction(s: ActiveSession): void {
       bossAttackName = '강타';
     }
   }
+
+  // 110 몬스터 dim_burst — skillMult / defPierce 적용
+  if (riftSkill.skillMult > 1.0) {
+    skillMultForAttack *= riftSkill.skillMult;
+  }
+  if (riftSkill.defPierce > 0) {
+    playerDefStats = {
+      ...playerDefStats,
+      def: Math.round(playerDefStats.def * (1 - riftSkill.defPierce / 100)),
+      mdef: Math.round(playerDefStats.mdef * (1 - riftSkill.defPierce / 100)),
+    };
+  }
+  if (riftSkill.bonusName) addLog(s, `[${riftSkill.bonusName}] 몬스터 스킬 발동!`);
 
   const d = calcDamage(s.monsterStats, playerDefStats, skillMultForAttack, false);
 
@@ -2451,6 +2578,28 @@ function monsterAction(s: ActiveSession): void {
       addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? '!' : ''} (방어 ${defUsed})`);
       // 피격 → 각성 카운터 리셋
       s.ticksSinceLastHit = 0;
+
+      // 110 prefix: shield_on_low_hp — HP 30% 이하 시 자동 쉴드 (30초 쿨)
+      const slh = s.equipPrefixes.shield_on_low_hp || 0;
+      if (slh > 0 && s.playerHp > 0 && s.playerHp / s.playerMaxHp <= 0.30
+          && Date.now() - s.shieldOnLowHpUsedAt >= 30_000) {
+        const shieldAmt = Math.round(s.playerMaxHp * slh / 100);
+        s.statusEffects.push({
+          id: `slh_${Date.now()}`, type: 'shield', value: shieldAmt, remainingActions: 5, source: 'monster',
+        });
+        s.shieldOnLowHpUsedAt = Date.now();
+        addLog(s, `[저체력 쉴드] HP ${slh}% 보호막 발동 (${shieldAmt})`);
+      }
+
+      // 110 prefix: reflect_skill — 몬스터 스킬 (riftSkill.bonusName 존재) 피격 시 50% 반사
+      const reflectSkill = s.equipPrefixes.reflect_skill || 0;
+      if (reflectSkill > 0 && riftSkill.bonusName) {
+        const reflectDmg = Math.round(dmg * reflectSkill / 100);
+        if (reflectDmg > 0) {
+          s.monsterHp -= reflectDmg;
+          addLog(s, `[스킬 반사] ${reflectDmg} 데미지`);
+        }
+      }
     }
 
     // 접두사: 가시 반사 (thorns_pct)
@@ -2944,6 +3093,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterHp = m.max_hp;
   s.monsterMaxHp = m.max_hp;
   s.monsterStats = monsterToEffective(m);
+  // 110 몬스터: dr_pct / cc_immune / 스킬 시스템 초기화
+  const ms = m.stats as Stats & { dr_pct?: number; cc_immune?: boolean };
+  s.monsterDrPct = typeof ms.dr_pct === 'number' ? ms.dr_pct : 0;
+  s.monsterCcImmune = ms.cc_immune === true;
+  s.monsterSkillCooldowns = new Map<string, number>();
+  s.monsterRageActivated = false;
+  s.bossPhase2Triggered = false;
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
@@ -3792,6 +3948,13 @@ async function startCombatSessionInner(
     paragonCrystalActive: false,
     paragonSelfDotTickAt: 0,
     gaugeOnCritUsedThisAction: false,
+    monsterSkillCooldowns: new Map<string, number>(),
+    monsterDrPct: 0,
+    monsterCcImmune: false,
+    monsterRageActivated: false,
+    bossPhase2Triggered: false,
+    healBlockUntilMs: 0,
+    shieldOnLowHpUsedAt: 0,
     monsterSpawnAt: Date.now(),
     recentKillTimes: [],
     lastPushAt: 0,
