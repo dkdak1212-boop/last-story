@@ -1,11 +1,23 @@
 // 길드 보스 공용 헬퍼 — 엔진 + 라우트에서 공유
 import { query } from '../db/pool.js';
+import { deliverToMailbox } from '../game/inventory.js';
 
 export const ELEMENTS = ['fire', 'frost', 'lightning', 'earth', 'holy', 'dark'];
 
 export const THRESHOLD_COPPER = 100_000_000n;
 export const THRESHOLD_SILVER = 500_000_000n;
 export const THRESHOLD_GOLD = 1_000_000_000n;
+
+// 상자 아이템 ID — routes/guildBoss.ts 와 중복되지만 helper 가 직접 발송할 때 필요
+const ITEM_CHEST_GOLD = 843;
+const ITEM_CHEST_SILVER = 844;
+const ITEM_CHEST_COPPER = 845;
+function chestItemIdLocal(tier: 'gold' | 'silver' | 'copper'): number {
+  return tier === 'gold' ? ITEM_CHEST_GOLD : tier === 'silver' ? ITEM_CHEST_SILVER : ITEM_CHEST_COPPER;
+}
+function tierLabelKrLocal(tier: 'gold' | 'silver' | 'copper'): string {
+  return tier === 'gold' ? '황금빛 상자' : tier === 'silver' ? '은빛 상자' : '구리 상자';
+}
 
 // 단일 run이 임계값을 돌파 → 길드원 전원에게 해당 티어 상자 배포 (일일 1회 per tier)
 export const GUILD_TIER_MILESTONES: { bit: number; damage: bigint; tier: 'copper' | 'silver' | 'gold'; subject: string }[] = [
@@ -197,11 +209,12 @@ export async function applyDamageToRun(
 export async function markRunEndedByEngine(runId: string, reason: 'death' | 'logout'): Promise<{ totalDamage: bigint; tier: 'gold' | 'silver' | 'copper' | null; thresholdsPassed: number }> {
   // 연습 모드 세션은 DB run 이 없는 임시 ID ('practice-<char>-<ts>') — 스킵.
   if (runId.startsWith('practice-')) return { totalDamage: 0n, tier: null, thresholdsPassed: 0 };
-  const runR = await query<{ total_damage: string; ended_at: string | null }>(
-    'SELECT total_damage::text, ended_at FROM guild_boss_runs WHERE id = $1', [runId]
+  const runR = await query<{ character_id: number; total_damage: string; ended_at: string | null }>(
+    'SELECT character_id, total_damage::text, ended_at FROM guild_boss_runs WHERE id = $1', [runId]
   );
   if (!runR.rowCount || runR.rows[0].ended_at) return { totalDamage: 0n, tier: null, thresholdsPassed: 0 };
 
+  const characterId = runR.rows[0].character_id;
   const totalDamage = BigInt(runR.rows[0].total_damage);
   let tier: 'gold' | 'silver' | 'copper' | null = null;
   if (totalDamage >= THRESHOLD_GOLD) tier = 'gold';
@@ -215,10 +228,21 @@ export async function markRunEndedByEngine(runId: string, reason: 'death' | 'log
 
   // 원자적 가드: ended_at IS NULL 일 때만 업데이트 성공.
   // /exit 라우트와 이 엔진 핸들러가 레이스하면 한 쪽만 성공 → 중복 지급 차단.
-  await query(
+  const upd = await query(
     `UPDATE guild_boss_runs SET ended_at = NOW(), reward_tier = $1, thresholds_passed = $2, ended_reason = $3
       WHERE id = $4 AND ended_at IS NULL`,
     [tier, thresholdsPassed, reason, runId]
   );
+  // 이 호출이 실제로 종료시킨 경우(rowCount=1)에만 상자 지급 — /exit 와 레이스 시 중복 차단.
+  // 사망/로그아웃 경로 솔로·길드원 모두 임계값 통과 시 상자 수령 가능.
+  if (upd.rowCount && tier) {
+    const label = tierLabelKrLocal(tier);
+    const subject = `길드 보스 — ${label} 수령 (${reason === 'death' ? '사망' : '로그아웃'})`;
+    const body = reason === 'death'
+      ? `사망으로 입장이 종료됐지만 데미지 임계값 통과로 ${label}를 수령했습니다. 우편 수령 후 인벤에서 개봉하세요.`
+      : `로그아웃으로 입장이 종료됐지만 데미지 임계값 통과로 ${label}를 수령했습니다.`;
+    await deliverToMailbox(characterId, subject, body, chestItemIdLocal(tier), 1, 0)
+      .catch(e => console.error('[guild-boss] death-chest fail', characterId, e));
+  }
   return { totalDamage, tier, thresholdsPassed };
 }
