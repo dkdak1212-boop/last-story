@@ -62,7 +62,11 @@ export function EnhanceScreen() {
     if (!active) return null;
     const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number; t3TicketCount?: number; p3TicketCount?: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
-    setScrollCount(d.scrollCount || 0);
+    const newScrollCount = d.scrollCount || 0;
+    setScrollCount(newScrollCount);
+    // 스크롤 소진 시 useScroll 자동 해제 — UI 의 (+10%) 표기 + useScroll=true 전송으로
+    // "스크롤이 없습니다" 400 발생하던 버그 차단.
+    if (newScrollCount === 0) setUseScroll(false);
     setRerollCount(d.rerollCount || 0);
     setQualityRerollCount(d.qualityRerollCount || 0);
     setT3TicketCount(d.t3TicketCount || 0);
