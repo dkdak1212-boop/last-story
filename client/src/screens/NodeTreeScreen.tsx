@@ -179,6 +179,9 @@ export function NodeTreeScreen() {
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [treeState, setTreeState] = useState<NodeTreeState | null>(null);
   const [activeZone, setActiveZone] = useState('core');
+  // 차원의 정수 (Paragon) 상태 — paragon_points 보유량 + 키스톤 활성 수
+  const [paragonState, setParagonState] = useState<{ paragonPoints: number; keystonesActive: number; keystonesCap: number; eligible: boolean; expCurrent: string; expPerPoint: string; pointsAvailable: number } | null>(null);
+  const [buying, setBuying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [selected, setSelected] = useState<NodeDefinition | null>(null);
@@ -200,7 +203,34 @@ export function NodeTreeScreen() {
     if (!active) return;
     const data = await api<NodeTreeState>(`/characters/${active.id}/nodes`);
     setTreeState(data);
+    // 차원의 정수 — Lv.100 캐릭만 의미 있음. 그 외에도 호출해도 OK (state 만 표시).
+    try {
+      const ps = await api<typeof paragonState>(`/paragon/${active.id}/state`);
+      setParagonState(ps);
+    } catch { setParagonState(null); }
   }, [active?.id]);
+
+  async function buyParagonPoint(amount: number) {
+    if (!active || buying) return;
+    setBuying(true);
+    try {
+      await api(`/paragon/${active.id}/buy`, { method: 'POST', body: JSON.stringify({ amount }) });
+      await fetchNodes();
+      await refreshActive();
+      setMsg(`차원 포인트 +${amount} 구매`);
+    } catch (e: any) {
+      setMsg(e?.message || 'EXP 부족');
+    } finally { setBuying(false); }
+  }
+  async function resetParagon() {
+    if (!active) return;
+    if (!confirm('차원의 정수 노드를 모두 리셋합니다 (포인트는 보존). 진행?')) return;
+    try {
+      await api(`/paragon/${active.id}/reset`, { method: 'POST' });
+      await fetchNodes();
+      setMsg('차원의 정수 리셋 완료');
+    } catch (e: any) { setMsg(e?.message || '리셋 실패'); }
+  }
 
   useEffect(() => { fetchNodes(); }, [fetchNodes]);
   useEffect(() => {
@@ -460,11 +490,61 @@ export function NodeTreeScreen() {
           border: isMobile ? '1px solid var(--border)' : 'none',
         }}>
           <span style={{ fontSize: isMobile ? 18 : 15, fontWeight: 900, color: 'var(--accent)' }}>
-            {treeState.availablePoints}
+            {activeZone === 'paragon' ? (paragonState?.paragonPoints ?? 0) : treeState.availablePoints}
           </span>
-          <span style={{ color: 'var(--text-dim)', fontSize: isMobile ? 12 : 14 }}> / {treeState.totalPoints} pt</span>
+          <span style={{ color: 'var(--text-dim)', fontSize: isMobile ? 12 : 14 }}>
+            {activeZone === 'paragon'
+              ? ` 차원pt · 키스톤 ${paragonState?.keystonesActive ?? 0}/${paragonState?.keystonesCap ?? 2}`
+              : ` / ${treeState.totalPoints} pt`}
+          </span>
         </div>
       </div>
+
+      {/* 차원의 정수 패널 — paragon 탭일 때만 */}
+      {activeZone === 'paragon' && paragonState && (
+        <div style={{
+          padding: 10, marginBottom: 12,
+          background: 'linear-gradient(135deg, #1a0f2e 0%, #0a0a1a 100%)',
+          border: '1px solid #6b5bff', borderRadius: 4,
+          fontSize: isMobile ? 12 : 13,
+        }}>
+          {!paragonState.eligible ? (
+            <div style={{ color: '#ff8888' }}>⚠ Lv.100 도달 후 진입 가능합니다 (현재 미달)</div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 6, color: '#c8b8ff' }}>
+                보유 EXP: <strong>{Number(paragonState.expCurrent).toLocaleString()}</strong>
+                {' '}· 환율: <strong>{Number(paragonState.expPerPoint).toLocaleString()} EXP / 1pt</strong>
+                {' '}· 즉시 구매 가능: <strong>{paragonState.pointsAvailable}pt</strong>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button disabled={buying || paragonState.pointsAvailable < 1}
+                  onClick={() => buyParagonPoint(1)}
+                  style={{ padding: '6px 12px', background: '#6b5bff', color: '#fff', border: 'none', borderRadius: 3, fontWeight: 700, cursor: 'pointer' }}>
+                  +1pt 구매
+                </button>
+                <button disabled={buying || paragonState.pointsAvailable < 5}
+                  onClick={() => buyParagonPoint(5)}
+                  style={{ padding: '6px 12px', background: '#6b5bff', color: '#fff', border: 'none', borderRadius: 3, fontWeight: 700, cursor: 'pointer' }}>
+                  +5pt
+                </button>
+                <button disabled={buying || paragonState.pointsAvailable < 10}
+                  onClick={() => buyParagonPoint(Math.min(10, paragonState.pointsAvailable))}
+                  style={{ padding: '6px 12px', background: '#6b5bff', color: '#fff', border: 'none', borderRadius: 3, fontWeight: 700, cursor: 'pointer' }}>
+                  +최대 10pt
+                </button>
+                <button onClick={resetParagon}
+                  style={{ marginLeft: 'auto', padding: '6px 12px', background: 'transparent', color: '#ff8888', border: '1px solid #ff8888', borderRadius: 3, cursor: 'pointer' }}>
+                  차원 노드 리셋
+                </button>
+              </div>
+              <div style={{ marginTop: 6, color: 'var(--text-dim)', fontSize: 11 }}>
+                키스톤(거대 노드)은 캐릭당 최대 2개. 작은 노드는 자유. 리셋 시 포인트는 보존됩니다.
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 구역 탭 */}
       {!isSingleZone && (

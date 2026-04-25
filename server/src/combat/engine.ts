@@ -712,6 +712,14 @@ function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string)
   return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
 }
 
+// 플레이어 빗맞 시 후처리 — missStack 증가 + paragon_failure_glory 펜딩 세팅
+function onPlayerMiss(s: ActiveSession) {
+  s.missStack = Math.min(5, s.missStack + 1);
+  if (getPassive(s, 'paragon_failure_glory') > 0) {
+    s.paragonFailurePending = true;
+  }
+}
+
 // 데미지 스킬 공통 접두사 파이프라인 — atk_buff/damage_taken_up/광전사/약점간파/각성/치명 데미지를 일괄 적용
 // consumeOneShot=false 면 first_strike / ambush 소비를 건너뜀 (multi_hit 후속 타격용)
 function applyDamagePrefixes(
@@ -860,7 +868,7 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
   if (d.miss) {
     addLog(s, `[${skill.name}] 빗나감!`);
-    s.missStack = Math.min(5, s.missStack + 1);
+    onPlayerMiss(s);
     return true;
   }
   let dmg = d.damage;
@@ -1233,7 +1241,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       }
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
-        s.missStack = Math.min(5, s.missStack + 1);
+        onPlayerMiss(s);
       } else {
         let dmg = d.damage;
         // 디버프: damage_taken_up (방패 강타 등 — 적이 받는 데미지 증가)
@@ -1473,7 +1481,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const hitLabel = passes === 2 ? `${pass + 1}회차 ${i + 1}타` : (isAscensionFinal ? '폭격' : `${i + 1}타`);
           if (d.miss) {
             addLog(s, `[${skill.name}] ${hitLabel} 빗나감!`);
-            s.missStack = Math.min(5, s.missStack + 1);
+            onPlayerMiss(s);
           } else {
             let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
               consumeOneShot: firstLandedHit,
@@ -1866,7 +1874,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (d.miss) {
         addLog(s, `[${skill.name}] 빗나감!`);
-        s.missStack = Math.min(5, s.missStack + 1);
+        onPlayerMiss(s);
       } else {
         const parts: string[] = [];
         // 베이스 데미지 + 실드 보너스 + HP% 보너스 — 증폭 전에 모두 합산
@@ -2261,7 +2269,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
   if (d.miss) {
     addLog(s, '기본 공격 빗나감!');
-    s.missStack = Math.min(5, s.missStack + 1);
+    onPlayerMiss(s);
   } else {
     s.monsterHp -= d.damage;
     addLog(s, `${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
@@ -2407,6 +2415,11 @@ function monsterAction(s: ActiveSession): void {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraDef = getPassive(s, 'aura_def') * auraMul;
       if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
+    }
+
+    // #10 paragon_dim_chain — 받는 데미지 +30%
+    if (getPassive(s, 'paragon_dim_chain') > 0 && dmg > 0) {
+      dmg = Math.round(dmg * 1.3);
     }
 
     // 데미지 감소 총합 한계 70% — 최종 데미지는 원본의 30% 이상 보장
@@ -3154,8 +3167,10 @@ async function combatTick(): Promise<void> {
       }
 
       // 게이지 충전 (GAUGE_FILL_RATE로 스케일링, 경과시간 반영)
+      // #6 paragon_time_master — 게이지 충전 ×0.6 (−40% 페널티)
+      const gaugeFillMul = getPassive(s, 'paragon_time_master') > 0 ? 0.6 : 1.0;
       if (!s.waitingInput) {
-        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE * tickScale;
+        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE * tickScale * gaugeFillMul;
       }
 
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
