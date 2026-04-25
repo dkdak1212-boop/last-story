@@ -8,6 +8,7 @@ export interface CachedItem {
   required_level: number;
   grade: string;
   unique_prefix_stats: Record<string, number> | null;
+  bound_on_pickup: boolean;
 }
 
 const cache = new Map<number, CachedItem>();
@@ -17,7 +18,8 @@ export async function loadItemsCache(): Promise<void> {
   const r = await query<CachedItem>(
     `SELECT id, name, stack_size, slot,
             COALESCE(required_level, 1) AS required_level,
-            grade, unique_prefix_stats
+            grade, unique_prefix_stats,
+            COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup
        FROM items`
   );
   cache.clear();

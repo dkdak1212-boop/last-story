@@ -826,6 +826,11 @@ function applyDamagePrefixes(
   if (s.paragonCrystalActive) {
     dmg = Math.round(dmg * 3);
   }
+  // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N%
+  const executePct = s.equipPrefixes.execute_pct || 0;
+  if (executePct > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.20) {
+    dmg = Math.round(dmg * (1 + executePct / 100));
+  }
   // combo_kill_bonus: 연속킬 데미지 보너스 (최대 5중첩)
   const comboBonus = getPassive(s, 'combo_kill_bonus');
   if (comboBonus > 0 && s.comboKills > 0) {

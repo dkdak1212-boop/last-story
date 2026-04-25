@@ -39,6 +39,7 @@ export async function addItemToInventory(
   let itemGrade: string;
   let uniquePrefixStats: Record<string, number> | null;
   let itemName: string;
+  let boundOnPickup: boolean;
   const cached = getCachedItem(itemId);
   if (cached) {
     stackSize = cached.stack_size;
@@ -47,10 +48,11 @@ export async function addItemToInventory(
     itemGrade = cached.grade;
     uniquePrefixStats = cached.unique_prefix_stats;
     itemName = cached.name;
+    boundOnPickup = cached.bound_on_pickup;
   } else {
     // 캐시 미스 (아직 로드 전 or 신규 아이템) → DB 폴백
-    const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string }>(
-      'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name FROM items WHERE id = $1',
+    const itemR = await query<{ stack_size: number; slot: string | null; required_level: number; grade: string; unique_prefix_stats: Record<string, number> | null; name: string; bound_on_pickup: boolean }>(
+      'SELECT stack_size, slot, COALESCE(required_level, 1) AS required_level, grade, unique_prefix_stats, name, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup FROM items WHERE id = $1',
       [itemId]
     );
     if (itemR.rowCount === 0) return { added: 0, overflow: quantity };
@@ -60,6 +62,7 @@ export async function addItemToInventory(
     itemGrade = itemR.rows[0].grade;
     uniquePrefixStats = itemR.rows[0].unique_prefix_stats;
     itemName = itemR.rows[0].name;
+    boundOnPickup = !!itemR.rows[0].bound_on_pickup;
   }
   const isUnique = itemGrade === 'unique';
 
@@ -120,11 +123,12 @@ export async function addItemToInventory(
       }
 
       // ON CONFLICT — 동시 인서트(상점 구매·드랍·우편 수령 등) 레이스 방어. 충돌 시 다음 슬롯 재시도.
+      // bound_on_pickup=TRUE 아이템(110제 등)은 드롭 시 즉시 soulbound=TRUE 로 귀속
       const ins = await query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
          ON CONFLICT (character_id, slot_index) DO NOTHING`,
-        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(finalPrefixStats), quality]
+        [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(finalPrefixStats), quality, boundOnPickup]
       );
       if (!ins.rowCount) continue; // 슬롯 충돌 — preroll/카운트 변경 없이 다음 슬롯 시도
       if (usePreroll) prerollUsed = true;
@@ -151,9 +155,9 @@ export async function addItemToInventory(
       }
     } else {
       const ins = await query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound) VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (character_id, slot_index) DO NOTHING`,
-        [characterId, itemId, slot, qty]
+        [characterId, itemId, slot, qty, boundOnPickup]
       );
       if (!ins.rowCount) continue;
     }

@@ -194,6 +194,11 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
   if (equipPrefixes.max_hp_pct) eff.maxHp = Math.round(eff.maxHp * (1 + equipPrefixes.max_hp_pct / 100));
+  if (equipPrefixes.spd_pct) eff.spd = Math.round(eff.spd * (1 + equipPrefixes.spd_pct / 100));
+  // 110제 신규 옵션: def_convert_atk — 방어력의 N% 를 공격력에 추가
+  if (equipPrefixes.def_convert_atk) {
+    eff.atk += Math.round(eff.def * equipPrefixes.def_convert_atk / 100);
+  }
 
   // ── 차원의 정수 (Paragon) — 작은 노드 1% 스탯 보강 + 키스톤 변환 ──
   // 작은 노드: paragon_*_pct 합산해서 적용

@@ -35,6 +35,14 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: '길드 보스는 길드 메뉴에서만 진입 가능합니다.' });
   }
 
+  // 시공의 균열 (id=23) — 어드민 베타 테스트 중. 어드민 외 진입 차단.
+  if (fieldId === 23) {
+    const adm = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
+    if (!adm.rows[0]?.is_admin) {
+      return res.status(403).json({ error: '시공의 균열은 어드민 베타 테스트 중입니다. 곧 정식 오픈 예정.' });
+    }
+  }
+
   const fr = await query<{ required_level: number }>('SELECT required_level FROM fields WHERE id = $1', [fieldId]);
   if (fr.rowCount === 0) return res.status(404).json({ error: 'field not found' });
   if (char.level < fr.rows[0].required_level) {
