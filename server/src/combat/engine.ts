@@ -2732,9 +2732,13 @@ async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   s.guildBossDmgBuffer = 0;
   s.guildBossHitsBuffer = 0;
   try {
-    // Phase 4b MVP: 메커닉의 damageType/element/isDot 메타는 알 수 없어 physical/no-element/non-dot로 가정.
-    // 공통 메커닉 (약점시간대 / 누적디버프 / HP회복)은 정상 작동. 특정 보스 원소·도트·페이즈 면역은 추후 개선.
-    const r = await applyDamageToRun(s.guildBossRunId, dmg, hits, { damageType: 'physical', element: null, isDot: false });
+    // damageType — 클래스 기반 분류. 차원의 지배자 ATK/MATK 교대 면역 메커닉이 의도대로 작동하도록.
+    //   mage/cleric/summoner = magical (INT 베이스 / 소환수 INT 기반 데미지)
+    //   warrior/rogue = physical (STR/DEX 베이스)
+    // (스킬 단위 분류는 추후 개선 — 도적 일부 마법 도트 / 전사 일부 마법 효과 등)
+    const dmgType: 'physical' | 'magical' =
+      (s.className === 'mage' || s.className === 'cleric' || s.className === 'summoner') ? 'magical' : 'physical';
+    const r = await applyDamageToRun(s.guildBossRunId, dmg, hits, { damageType: dmgType, element: null, isDot: false });
     if (r.applied.length > 0) {
       addLog(s, `[보스] ${r.applied.join(' · ')} → ${r.effective}`);
     }
