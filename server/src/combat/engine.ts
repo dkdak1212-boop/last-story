@@ -488,7 +488,14 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   if (fr.rowCount === 0) return null;
   const pool = fr.rows[0].monster_pool;
   if (pool.length === 0) return null;
-  const mid = pool[Math.floor(Math.random() * pool.length)];
+  let mid: number;
+  // 시공의 균열 (id=23) — 가중 등장 (공몹 80% / 엘리트 19% / 보스 1%)
+  if (fieldId === 23 && pool.includes(500) && pool.includes(501) && pool.includes(502)) {
+    const r = Math.random() * 100;
+    mid = r < 80 ? 500 : (r < 99 ? 501 : 502);
+  } else {
+    mid = pool[Math.floor(Math.random() * pool.length)];
+  }
   const mr = await query<MonsterDef>(
     `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table
      FROM monsters WHERE id = $1`, [mid]
@@ -4202,14 +4209,23 @@ export function sessionHasSubscriber(characterId: number): boolean {
   return false;
 }
 const SESSION_MAX_MS = 24 * 60 * 60_000; // 최대 24시간 연속 시뮬레이션
+const RIFT_110_FIELD_ID = 23;
+const RIFT_110_TIMEOUT_MS = 60 * 60_000; // 시공의 균열 — 입장 후 1시간 만료 (구독 무관)
 setInterval(() => {
   const io = getIo();
   if (!io) return;
   const now = Date.now();
   let cleaned = 0;
+  let riftKicked = 0;
   for (const charId of activeSessions.keys()) {
     const s = activeSessions.get(charId);
     if (!s) continue;
+    // 시공의 균열: 입장 후 1시간 무조건 만료 (구독자 유무 무관, 마을 귀환)
+    if (s.fieldId === RIFT_110_FIELD_ID && now - s.enteredFieldAt > RIFT_110_TIMEOUT_MS) {
+      riftKicked++;
+      stopCombatSession(charId, { keepLocation: false }).catch(e => console.error('[rift-110] timeout err', charId, e));
+      continue;
+    }
     // 세션 시작 시각 기록 (초회)
     if (!sessionStartedMap.has(charId)) {
       sessionStartedMap.set(charId, now);
@@ -4229,6 +4245,7 @@ setInterval(() => {
     }
   }
   if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} offline sessions (>24h, no subscriber, remaining=${activeSessions.size})`);
+  if (riftKicked > 0) console.log(`[rift-110] timed-out ${riftKicked} sessions (1h limit, kicked to village)`);
   // 비활성 세션 캐시 정리 (메모리 누수 방지)
   for (const id of lastAchievementCheckAt.keys()) if (!activeSessions.has(id)) lastAchievementCheckAt.delete(id);
   for (const id of questMonsterCache.keys()) if (!activeSessions.has(id)) questMonsterCache.delete(id);
