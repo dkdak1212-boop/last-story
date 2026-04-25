@@ -223,6 +223,11 @@ interface ActiveSession {
   guildBossStartedAt: number; // 광분 타이머 기준 (unix ms, 0이면 미사용)
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
+  // ── 차원의 정수 (Paragon) 키스톤 상태 ──
+  paragonFailurePending: boolean; // #17 실패의 영광: 직전 빗맞 펜딩 (다음 공격 ×3)
+  paragonActionCount: number; // #13 시간의 결정: 누적 행동 수 (10번째 ×3)
+  paragonCrystalActive: boolean; // #13 시간의 결정: 현재 액션이 10번째 (applyDamagePrefixes 가 ×3 적용)
+  paragonSelfDotTickAt: number; // #14 고통의 군주: 자가 도트 직전 적용 시각 (ms)
   monsterSpawnAt: number; // 현재 몬스터 스폰 시각 ms (처치 시간 측정용)
   recentKillTimes: number[]; // 최근 10킬의 처치 시간 (초)
   userId: number;
@@ -690,6 +695,17 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   if (s.className === 'rogue' && effect.type === 'poison' && effect.source === 'player') {
     s.poisonResonance = Math.min(10, s.poisonResonance + 1);
   }
+  // #18 paragon_ice_tongue — 도트/독 부여 시 적에게 동결 1턴 자동 부여 (보스 면역 적용)
+  if ((effect.type === 'dot' || effect.type === 'poison') && effect.source === 'player'
+      && getPassive(s, 'paragon_ice_tongue') > 0
+      && !hasEffect(s, 'monster', 'gauge_freeze')) {
+    if (!s.guildBossRunId || !s.guildBossBoss) {
+      s.statusEffects.push({
+        id: `ice_tongue_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'gauge_freeze', value: 0, remainingActions: 1, source: 'player',
+      });
+    }
+  }
 }
 
 function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string): boolean {
@@ -755,6 +771,49 @@ function applyDamagePrefixes(
       s.hasFirstSkill = false;
       addLog(s, `[그림자 일격] 첫 스킬 +${shadowStrike}%`);
     }
+  }
+  // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 ──
+  // #5 무거운 검 — 데미지 ×2.5
+  if (getPassive(s, 'paragon_heavy_blade') > 0) {
+    dmg = Math.round(dmg * 2.5);
+  }
+  // #3 고통의 조율 — HP 35% 이하 시 +50%
+  if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
+    dmg = Math.round(dmg * 1.5);
+  }
+  // #8 암살자의 역설 — 적 HP 100% ×3, 50% 이하 ×0.3
+  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0) {
+    const ratio = s.monsterHp / s.monsterMaxHp;
+    if (ratio >= 1.0) dmg = Math.round(dmg * 3);
+    else if (ratio <= 0.5) dmg = Math.round(dmg * 0.3);
+  }
+  // #9 잠재된 폭발 — 5초(50tick) 미피격 시 다음 공격 ×3
+  if (consume && getPassive(s, 'paragon_dormant_burst') > 0 && s.ticksSinceLastHit >= 50) {
+    dmg = Math.round(dmg * 3);
+    s.ticksSinceLastHit = 0;
+    addLog(s, '[잠재된 폭발] 다음 공격 ×3!');
+  }
+  // #12 광기의 슬라이드 — HP 100% 시 −50%, HP 0%로 갈수록 +200% 선형 보간
+  if (getPassive(s, 'paragon_madness_slide') > 0) {
+    const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
+    // ratio=1 → ×0.5, ratio=0 → ×3.0 (선형: mult = 0.5 + 2.5 × (1−ratio))
+    const mult = 0.5 + 2.5 * (1 - hpRatio);
+    dmg = Math.round(dmg * mult);
+  }
+  // #15 빠른 결단 — 데미지 −30%
+  if (getPassive(s, 'paragon_quick_decision') > 0) {
+    dmg = Math.round(dmg * 0.7);
+  }
+  // #17 실패의 영광 — 직전 빗맞 펜딩 시 ×3
+  if (consume && getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
+    dmg = Math.round(dmg * 3);
+    s.paragonFailurePending = false;
+    addLog(s, '[실패의 영광] ×3!');
+  }
+  // #10 차원의 결박 — (받는 데미지 +30% 는 receivedDmg 쪽에서 처리됨)
+  // #13 시간의 결정 — 10번째 액션 ×3 (paragonCrystalActive 가 액션 동안 true)
+  if (s.paragonCrystalActive) {
+    dmg = Math.round(dmg * 3);
   }
   // combo_kill_bonus: 연속킬 데미지 보너스 (최대 5중첩)
   const comboBonus = getPassive(s, 'combo_kill_bonus');
@@ -943,12 +1002,24 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     dotResistPct = getPassive(s, 'dot_resist');
   }
 
+  // #14 paragon_pain_lord — 자신 도트 데미지 ×2 (대상 monster 일 때만)
+  if (target === 'monster' && getPassive(s, 'paragon_pain_lord') > 0) {
+    dotAmpPct += 100; // ×2 = +100%
+  }
   const result = calcDotTickDamage(s.statusEffects, target, { defenderDef, dotAmpPct, dotResistPct });
   if (result.totalDamage <= 0) return;
 
   if (target === 'monster') {
     s.monsterHp -= result.totalDamage;
     addLog(s, `[도트] 몬스터에게 ${result.totalDamage} 데미지 (${result.count}중첩, 방어 50% 무시)`);
+    // #4 paragon_dot_burst — 도트 합산의 50% 를 추가로 즉시 직접 데미지로 변환
+    if (getPassive(s, 'paragon_dot_burst') > 0) {
+      const burst = Math.round(result.totalDamage * 0.5);
+      if (burst > 0) {
+        s.monsterHp -= burst;
+        addLog(s, `[연쇄 진동] 즉시 폭발 ${burst} 추가 데미지`);
+      }
+    }
   } else {
     s.playerHp -= result.totalDamage;
     addLog(s, `[도트] ${result.totalDamage} 데미지를 받았다 (${result.count}중첩, 방어 50% 무시)`);
@@ -2886,6 +2957,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.rogueDotCarry = [];
   }
   addLog(s, `${m.name}이(가) 나타났다!`);
+  // #10 paragon_dim_chain — 적 첫 행동 시 자동 동결 1턴 (보스 무효)
+  if (getPassive(s, 'paragon_dim_chain') > 0 && !s.guildBossRunId) {
+    s.statusEffects.push({
+      id: `dim_chain_${Date.now()}`, type: 'gauge_freeze', value: 0, remainingActions: 1, source: 'player',
+    });
+    addLog(s, '[차원의 결박] 적 첫 행동 동결!');
+  }
 }
 
 // ── 플레이어 사망 ──
@@ -3118,18 +3196,40 @@ async function combatTick(): Promise<void> {
           }
           return 'break'; // 수동 모드 추가 처리 없음
         }
-        s.playerGauge -= GAUGE_MAX;
+        // #15 paragon_quick_decision — 게이지 50% 만 차감
+        const gaugeCost = getPassive(s, 'paragon_quick_decision') > 0 ? GAUGE_MAX * 0.5 : GAUGE_MAX;
+        s.playerGauge -= gaugeCost;
         s.actionCount++;
+        s.paragonActionCount++;
+        // #13 paragon_time_crystal — 매 10번째 행동 ×3 데미지 + 추가 1회 행동
+        const crystalActive = getPassive(s, 'paragon_time_crystal') > 0 && s.paragonActionCount % 10 === 0;
+        // #6 paragon_time_master — 쿨다운 −70% (감소량 +1, +2 추가). 매 액션마다 추가 감소.
+        const cdBoost = getPassive(s, 'paragon_time_master') > 0 ? 1 : 0;
         const newCd = new Map<number, number>();
         for (const [skId, cd] of s.skillCooldowns) {
-          const next = cd - 1;
+          const next = cd - 1 - cdBoost;
           if (next > 0) newCd.set(skId, next);
         }
         s.skillCooldowns = newCd;
         if (s.potionCooldown > 0) s.potionCooldown--;
         const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
         const hpBeforePl = s.monsterHp;
+        if (crystalActive) addLog(s, '[시간의 결정] 10번째 행동 ×3 + 추가 행동!');
+        // crystal flag 임시 토글 (applyDamagePrefixes 가 판독)
+        const prevCrystal = s.paragonCrystalActive;
+        s.paragonCrystalActive = crystalActive;
         await autoAction(s);
+        // #13 paragon_time_crystal — 추가 행동 1회 (재발동)
+        if (crystalActive && s.monsterHp > 0 && s.playerHp > 0) {
+          await autoAction(s);
+        }
+        s.paragonCrystalActive = prevCrystal;
+        // #14 paragon_pain_lord — 자가 도트 매 행동 max_hp 15%
+        if (getPassive(s, 'paragon_pain_lord') > 0) {
+          const selfDmg = Math.round(s.playerMaxHp * 0.15);
+          s.playerHp = Math.max(0, s.playerHp - selfDmg);
+          addLog(s, `[고통의 군주] 자가 도트 −${selfDmg}`);
+        }
         processDots(s, 'monster');
         tickDownEffects(s, 'player', preAutoIds);
         tickShield(s);
@@ -3653,6 +3753,10 @@ async function startCombatSessionInner(
     poisonResonance: 0,
     comboKills: 0,
     hasFirstSkill: true,
+    paragonFailurePending: false,
+    paragonActionCount: 0,
+    paragonCrystalActive: false,
+    paragonSelfDotTickAt: 0,
     monsterSpawnAt: Date.now(),
     recentKillTimes: [],
     lastPushAt: 0,

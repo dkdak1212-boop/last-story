@@ -84,6 +84,24 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   if (nodeR.rowCount === 0) return res.status(404).json({ error: 'node not found' });
   const node = nodeR.rows[0];
 
+  // 차원의 정수 (paragon) 노드 — Lv.100 + 키스톤 cap 2 + paragon_points 사용
+  const isParagon = node.zone === 'paragon';
+  if (isParagon) {
+    if (char.level < 100) return res.status(400).json({ error: 'Lv.100 도달 후 투자 가능' });
+    if (node.tier === 'huge') {
+      // 키스톤 cap (huge tier 만 카운트)
+      const ksR = await query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n
+           FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+          WHERE cn.character_id = $1 AND nd.zone = 'paragon' AND nd.tier = 'huge'`,
+        [id]
+      );
+      if ((ksR.rows[0]?.n ?? 0) >= 2) {
+        return res.status(400).json({ error: '키스톤은 캐릭당 최대 2개만 투자 가능' });
+      }
+    }
+  }
+
   // hidden 노드는 어드민만 투자 가능
   if (node.hidden) {
     const admR = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
@@ -165,14 +183,26 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   toInvest.set(nodeId, node.cost);
 
   const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
-  if (char.node_points < totalCost) {
-    return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
+  // paragon 노드: paragon_points 풀 사용. 일반 노드: node_points 풀.
+  if (isParagon) {
+    const ppR = await query<{ paragon_points: number }>('SELECT COALESCE(paragon_points, 0) AS paragon_points FROM characters WHERE id = $1', [id]);
+    const pp = ppR.rows[0]?.paragon_points ?? 0;
+    if (pp < totalCost) {
+      return res.status(400).json({ error: `paragon 포인트 부족 (필요: ${totalCost}, 보유: ${pp}). EXP 250억 = 1pt 구매 가능.` });
+    }
+    for (const [nid] of toInvest) {
+      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+    }
+    await query('UPDATE characters SET paragon_points = paragon_points - $1 WHERE id = $2', [totalCost, id]);
+  } else {
+    if (char.node_points < totalCost) {
+      return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
+    }
+    for (const [nid] of toInvest) {
+      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+    }
+    await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
   }
-
-  for (const [nid] of toInvest) {
-    await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
-  }
-  await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
 
   // 전투 중 노드 투자 시 인메모리 세션 갱신 (패시브/스탯 즉시 반영)
   await refreshSessionStats(id).catch(() => {});

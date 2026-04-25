@@ -195,6 +195,66 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
   if (equipPrefixes.max_hp_pct) eff.maxHp = Math.round(eff.maxHp * (1 + equipPrefixes.max_hp_pct / 100));
 
+  // ── 차원의 정수 (Paragon) — 작은 노드 1% 스탯 보강 + 키스톤 변환 ──
+  // 작은 노드: paragon_*_pct 합산해서 적용
+  const ppHp = pMap.get('paragon_hp_pct') || 0;
+  const ppDef = pMap.get('paragon_def_pct') || 0;
+  const ppMdef = pMap.get('paragon_mdef_pct') || 0;
+  const ppAtk = pMap.get('paragon_atk_pct') || 0;
+  const ppMatk = pMap.get('paragon_matk_pct') || 0;
+  const ppSpd = pMap.get('paragon_spd_pct') || 0;
+  const ppAcc = pMap.get('paragon_accuracy_pct') || 0;
+  const ppDodge = pMap.get('paragon_dodge_pct') || 0;
+  const ppCri = pMap.get('paragon_cri_pct') || 0; // value 1 = +0.5%
+  if (ppHp)  eff.maxHp = Math.round(eff.maxHp * (1 + ppHp / 100));
+  if (ppDef) eff.def = Math.round(eff.def * (1 + ppDef / 100));
+  if (ppMdef) eff.mdef = Math.round(eff.mdef * (1 + ppMdef / 100));
+  if (ppAtk) eff.atk = Math.round(eff.atk * (1 + ppAtk / 100));
+  if (ppMatk) eff.matk = Math.round(eff.matk * (1 + ppMatk / 100));
+  if (ppSpd) eff.spd = Math.round(eff.spd * (1 + ppSpd / 100));
+  if (ppAcc) eff.accuracy = Math.min(200, eff.accuracy + ppAcc);
+  if (ppDodge) eff.dodge = Math.min(80, eff.dodge + ppDodge);
+  if (ppCri) eff.cri = Math.min(100, eff.cri + ppCri * 0.5);
+
+  // 키스톤 #7 반대의 균형 — STR↔INT, DEX↔VIT 교체 + 교체 후 ×1.5
+  if (pMap.has('paragon_balance_inversion')) {
+    const swapStr = eff.int, swapInt = eff.str;
+    const swapDex = eff.vit, swapVit = eff.dex;
+    eff.str = Math.round(swapStr * 1.5);
+    eff.int = Math.round(swapInt * 1.5);
+    eff.dex = Math.round(swapDex * 1.5);
+    eff.vit = Math.round(swapVit * 1.5);
+  }
+  // 키스톤 #1 철의 반사 — 회피 0, 회피 1 = 방어 1
+  if (pMap.has('paragon_iron_reflexes')) {
+    eff.def += eff.dodge;
+    eff.dodge = 0;
+  }
+  // 키스톤 #11 방패의 분노 — 방어 0, 잃은 방어 1당 공격 +0.5
+  if (pMap.has('paragon_shield_wrath')) {
+    eff.atk += Math.round(eff.def * 0.5);
+    eff.def = 0;
+  }
+  // 키스톤 #5 무거운 검 — 속도 −50%
+  if (pMap.has('paragon_heavy_blade')) {
+    eff.spd = Math.round(eff.spd * 0.5);
+  }
+  // 키스톤 #16 확률의 군주 — 치명·회피 ×2 (cap 100/80)
+  if (pMap.has('paragon_chance_lord')) {
+    eff.cri = Math.min(100, eff.cri * 2);
+    eff.dodge = Math.min(80, eff.dodge * 2);
+    eff.accuracy = Math.min(200, eff.accuracy * 2);
+  }
+  // 키스톤 #2 운명의 결박 — 회피·치명 0
+  if (pMap.has('paragon_fate_lock')) {
+    eff.cri = 0;
+    eff.dodge = 0;
+  }
+  // 키스톤 #17 실패의 영광 — 빗맞 +30% (회피 받는 입장에서 명중 -30 효과)
+  if (pMap.has('paragon_failure_glory')) {
+    eff.accuracy = Math.max(0, eff.accuracy - 30);
+  }
+
   // 마법사 클래스 패시브: INT 1당 마법 데미지 +0.5%
   if (char.class_name === 'mage') {
     eff.matk = Math.round(eff.matk * (1 + eff.int * 0.005));
