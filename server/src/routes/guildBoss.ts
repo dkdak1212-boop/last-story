@@ -553,9 +553,20 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
 
   // 본인 상자 수령 — 아이템 형태로 우편 발송 (인벤에서 개봉)
   let chestDelivered = false;
+  let passDelivered = false;
   if (rewardTier) {
     await deliverChestItem(run.character_id, rewardTier, 'exit');
     chestDelivered = true;
+  }
+  // 차원의 통행증 (item 855) — gold 티어(10억 데미지) 달성 시 1장 추가 발송 (Lv.100 캐릭만)
+  if (rewardTier === 'gold' && run.character_id) {
+    const lvR = await query<{ level: number }>('SELECT level FROM characters WHERE id = $1', [run.character_id]);
+    if ((lvR.rows[0]?.level ?? 0) >= 100) {
+      await deliverToMailbox(run.character_id, '차원의 통행증 — 길드 보스 보상',
+        '길드 보스 10억 데미지 달성 보상. 시공의 균열 입장권 1장.', 855, 1, 0)
+        .catch(e => console.error('[guild-boss] pass deliver fail', e));
+      passDelivered = true;
+    }
   }
 
   res.json({
@@ -564,6 +575,7 @@ router.post('/exit/:runId', async (req: AuthedRequest, res: Response) => {
     rewardTier,
     thresholdsPassed,
     chestDelivered,
+    passDelivered,
     guildTiersGranted,
     reason,
   });

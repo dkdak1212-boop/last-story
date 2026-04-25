@@ -77,10 +77,22 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
 
   // 레시피 조회
   const recipeR = await query<{
-    material_item_id: number; material_qty: number; result_item_ids: number[];
-  }>('SELECT material_item_id, material_qty, result_item_ids FROM craft_recipes WHERE id = $1', [recipeId]);
+    material_item_id: number; material_qty: number; result_item_ids: number[]; result_type: string;
+  }>('SELECT material_item_id, material_qty, result_item_ids, result_type FROM craft_recipes WHERE id = $1', [recipeId]);
   if (recipeR.rowCount === 0) return res.status(404).json({ error: 'recipe not found' });
   const recipe = recipeR.rows[0];
+
+  // class_locked 레시피 (110제 무기 등) — 캐릭 직업 무기만 선택지에 남김
+  let candidateIds = recipe.result_item_ids;
+  if (recipe.result_type === 'class_locked') {
+    const cR = await query<{ id: number; class_restriction: string | null }>(
+      `SELECT id, class_restriction FROM items WHERE id = ANY($1::int[])`, [recipe.result_item_ids]
+    );
+    candidateIds = cR.rows.filter(r => !r.class_restriction || r.class_restriction === char.class_name).map(r => r.id);
+    if (candidateIds.length === 0) {
+      return res.status(400).json({ error: '직업에 해당하는 결과 아이템이 없습니다.' });
+    }
+  }
 
   // 재료 보유 확인
   const matR = await query<{ total: string }>(
@@ -110,12 +122,12 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     remaining -= take;
   }
 
-  // 랜덤 결과 아이템 선택
-  const resultItemId = recipe.result_item_ids[Math.floor(Math.random() * recipe.result_item_ids.length)];
+  // 랜덤 결과 아이템 선택 (class_locked 시 직업 필터된 후보에서)
+  const resultItemId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
 
-  // 아이템 종류 확인 (장비 vs 소비)
-  const itemInfoR = await query<{ name: string; slot: string | null; type: string }>(
-    'SELECT name, slot, type FROM items WHERE id = $1', [resultItemId]
+  // 아이템 종류 확인 (장비 vs 소비) + bound_on_pickup
+  const itemInfoR = await query<{ name: string; slot: string | null; type: string; bound_on_pickup: boolean }>(
+    'SELECT name, slot, type, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup FROM items WHERE id = $1', [resultItemId]
   );
   const itemInfo = itemInfoR.rows[0];
   if (!itemInfo) return res.status(500).json({ error: 'item not found' });
@@ -137,10 +149,11 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
 
+    // bound_on_pickup → soulbound=TRUE 즉시 귀속 (110제 등 거래 불가)
     await query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats)
-       VALUES ($1, $2, $3, 1, $4, $5::jsonb)`,
-      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats)]
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, soulbound)
+       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6)`,
+      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats), itemInfo.bound_on_pickup]
     );
     res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, message: `${itemInfo.name} 제작 성공! (3옵 부여)` });
   } else {

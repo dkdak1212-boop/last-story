@@ -35,11 +35,26 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: '길드 보스는 길드 메뉴에서만 진입 가능합니다.' });
   }
 
-  // 시공의 균열 (id=23) — 어드민 베타 테스트 중. 어드민 외 진입 차단.
+  // 시공의 균열 (id=23) — 어드민은 무료, 일반 유저는 「차원의 통행증」 (item 855) 1장 소모.
+  // 통행증 발급은 제한적 (일일 임무 / 길드보스 보상) — 신규/입문 유저 출입 게이팅.
   if (fieldId === 23) {
     const adm = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
-    if (!adm.rows[0]?.is_admin) {
-      return res.status(403).json({ error: '시공의 균열은 어드민 베타 테스트 중입니다. 곧 정식 오픈 예정.' });
+    const isAdmin = adm.rows[0]?.is_admin === true;
+    if (!isAdmin) {
+      // 통행증 1장 원자적 차감 — 같은 캐릭의 통행증 stack 1개 소모
+      const passR = await query<{ id: number; quantity: number }>(
+        `SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = 855 AND quantity > 0 ORDER BY slot_index LIMIT 1`,
+        [id]
+      );
+      if (passR.rowCount === 0) {
+        return res.status(403).json({ error: '시공의 균열 입장 — 「차원의 통행증」 이 필요합니다. (일일 임무·길드보스 보상)' });
+      }
+      const stack = passR.rows[0];
+      if (stack.quantity <= 1) {
+        await query('DELETE FROM character_inventory WHERE id = $1', [stack.id]);
+      } else {
+        await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [stack.id]);
+      }
     }
   }
 
