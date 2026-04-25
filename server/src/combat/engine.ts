@@ -2377,33 +2377,35 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
     }
   }
 
-  // 3) cooldown 스킬 — 우선순위: dim_burst > heal_seal > time_warp
-  const orderedEffects = ['dim_burst', 'heal_seal', 'time_warp'];
-  for (const targetEffect of orderedEffects) {
-    const sk = mDef.skills.find(x => x.effect === targetEffect && typeof x.cooldown === 'number');
+  // 3) cooldown 스킬 — 우선순위: dim_burst > heal_seal > time_warp (id 기반 매칭)
+  const orderedIds = ['dim_burst', 'heal_seal', 'time_warp'];
+  for (const targetId of orderedIds) {
+    const sk = mDef.skills.find(x => x.id === targetId && typeof x.cooldown === 'number');
     if (!sk || typeof sk.cooldown !== 'number') continue;
     if ((s.monsterSkillCooldowns.get(sk.id) ?? 0) > 0) continue; // 쿨
 
-    if (targetEffect === 'dim_burst') {
+    // cooldown 은 초 → 액션 환산. 몬스터 스킬은 평균 1.5s/액션 가정 → cooldown_actions = round(cooldown / 1.5)
+    const cdActions = Math.max(1, Math.round(sk.cooldown / 1.5));
+
+    if (targetId === 'dim_burst') {
       // 대체 공격: atk × atk_mult (보통 2.0~2.5), 방어 50% 무시
       skillMult = sk.atk_mult ?? 2.0;
       defPierce = 50;
       bonusName = sk.name;
-      // cooldown 은 초 → 액션 환산. 몬스터 스킬은 평균 1.5s/액션 가정 → cooldown_actions = round(cooldown / 1.5)
-      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+      s.monsterSkillCooldowns.set(sk.id, cdActions);
       return { skillMult, defPierce, bonusName }; // dim_burst 발동 시 아래 다른 스킬 검사 스킵
-    } else if (targetEffect === 'heal_seal') {
+    } else if (targetId === 'heal_seal') {
       s.healBlockUntilMs = Date.now() + 8000;
       addLog(s, `[${sk.name}] 8초간 회복·흡혈 -70%`);
-      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+      s.monsterSkillCooldowns.set(sk.id, cdActions);
       // continue — basic attack 도 진행
-    } else if (targetEffect === 'time_warp') {
+    } else if (targetId === 'time_warp') {
       // 강제 슬로우 (CC 면역 우회 — 직접 push)
       s.statusEffects.push({
         id: `time_warp_${Date.now()}`, type: 'speed_mod', value: -40, remainingActions: 5, source: 'monster',
       });
       addLog(s, `[${sk.name}] 플레이어 스피드 -40% (5행동)`);
-      s.monsterSkillCooldowns.set(sk.id, Math.max(1, Math.round(sk.cooldown / 1.5)));
+      s.monsterSkillCooldowns.set(sk.id, cdActions);
     }
   }
   return { skillMult, defPierce, bonusName };
