@@ -301,6 +301,9 @@ const lastAchievementCheckAt = new Map<number, number>();
 // 캐시 hit & 빈 set 이면 trackMonsterKill 호출 자체를 스킵(SELECT/UPDATE 둘 다 절약).
 const questMonsterCache = new Map<number, { ids: Set<number>; loadedAt: number }>();
 const QUEST_MONSTER_CACHE_MS = 30_000;
+// pushCombatState 에서 metaDirty 시 refreshSessionMeta 호출을 30s 로 throttle.
+// 매 킬 metaDirty=true 로 설정되면 push 마다 3쿼리 발생 → 53300 too-many-clients 주범.
+const lastMetaRefreshAt = new Map<number, number>();
 function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
   let b = charBatch.get(charId);
   if (!b) { b = { expDelta: 0, goldDelta: 0, killDelta: 0, goldEarnedDelta: 0 }; charBatch.set(charId, b); }
@@ -3320,8 +3323,16 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     s.lastPushAt = Date.now();
   }
 
+  // metaDirty refresh 30s throttle — handleMonsterDeath 가 매 킬 metaDirty=true 로
+  // 설정해 985 세션 환경에서 push 마다 3쿼리(character/potions/guild)가 발생,
+  // 53300 too-many-clients 의 주범. exp 는 cachedExp 로컬 갱신이 있고 boost 타이머는
+  // 30s 지연 표시 허용. invalidateAutoSellCache 등 명시적 트리거는 즉시 반영.
   if (s.metaDirty) {
-    await refreshSessionMeta(s);
+    const lastMeta = lastMetaRefreshAt.get(s.characterId) ?? 0;
+    if (Date.now() - lastMeta >= 30_000) {
+      await refreshSessionMeta(s);
+      lastMetaRefreshAt.set(s.characterId, Date.now());
+    }
   }
 
   const snapshot: CombatSnapshot = {
@@ -4045,6 +4056,7 @@ setInterval(() => {
   // 비활성 세션 캐시 정리 (메모리 누수 방지)
   for (const id of lastAchievementCheckAt.keys()) if (!activeSessions.has(id)) lastAchievementCheckAt.delete(id);
   for (const id of questMonsterCache.keys()) if (!activeSessions.has(id)) questMonsterCache.delete(id);
+  for (const id of lastMetaRefreshAt.keys()) if (!activeSessions.has(id)) lastMetaRefreshAt.delete(id);
 }, 60_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
