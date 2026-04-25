@@ -2359,18 +2359,18 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
   let defPierce = 0;
   let bonusName: string | null = null;
 
-  // 2) 트리거 스킬 (1회성, 쿨다운 무관)
+  // 2) 트리거 스킬 (1회성, 쿨다운 무관) — id 기반 분기 (모든 110 몬스터 hp_below_50 → 광폭화)
   for (const sk of mDef.skills) {
-    if (sk.trigger === 'hp_below_40' && !s.monsterRageActivated && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.4) {
-      // 분노 모드 — 자체 atk +80%, spd +50% (몬스터 stats 영구 부스트, 1회만)
-      s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 1.8), spd: Math.round(s.monsterStats.spd * 1.5) };
+    if (sk.id === 'rage' && !s.monsterRageActivated && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.5) {
+      // 광폭화 — atk ×2, spd ×2 (게이지 충전 속도 2배). 1회만 발동.
+      s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 2.0), spd: Math.round(s.monsterStats.spd * 2.0) };
       s.monsterSpeed = s.monsterStats.spd;
       s.monsterRageActivated = true;
-      addLog(s, `[${sk.name}] 몬스터가 분노 — 공격력 +80% / 스피드 +50%`);
+      addLog(s, `[${sk.name}] HP 50% 이하 — 공격력 ×2 / 게이지 ×2!`);
     }
-    if (sk.trigger === 'hp_below_50' && !s.bossPhase2Triggered && sk.effect === 'summon_grunts_3' && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.5) {
+    if (sk.id === 'phase2_summon' && !s.bossPhase2Triggered && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.5) {
       s.bossPhase2Triggered = true;
-      // 페이즈 2 — 분노형 stats 부스트 + 시간 가속 (실제 추가 소환 메커니즘은 1v1 엔진 한계로 atk +30% / spd +30% 로 근사)
+      // 페이즈 2 — 분노형 stats 부스트 (1v1 엔진 한계로 추가 소환 대신 atk +30% / spd +30% 로 근사)
       s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 1.3), spd: Math.round(s.monsterStats.spd * 1.3) };
       s.monsterSpeed = s.monsterStats.spd;
       addLog(s, `[${sk.name}] 페이즈 2 진입 — 균열의 군주가 강해진다!`);
