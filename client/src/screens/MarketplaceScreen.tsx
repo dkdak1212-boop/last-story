@@ -779,6 +779,8 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
                       <span style={{
                         color: '#000', background: 'var(--accent)', padding: '0 4px',
                         borderRadius: 2, fontSize: 10, fontWeight: 900, marginLeft: 4,
+                        // 유니크 그라데이션의 WebkitTextFillColor:transparent 상속 차단 — 100제 유니크에서 +N 글자 안 보이는 버그 수정
+                        WebkitTextFillColor: '#000', backgroundClip: 'border-box', WebkitBackgroundClip: 'border-box',
                       }}>+{s.enhanceLevel}</span>
                     )}
                   </div>
@@ -809,6 +811,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
                   <span style={{
                     color: '#000', background: 'var(--accent)', padding: '0 5px',
                     borderRadius: 2, fontSize: 11, fontWeight: 900, marginLeft: 6,
+                    WebkitTextFillColor: '#000', WebkitBackgroundClip: 'border-box',
                   }}>+{sel.enhanceLevel}</span>
                 )}
               </div>

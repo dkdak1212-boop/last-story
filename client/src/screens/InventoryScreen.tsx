@@ -367,7 +367,9 @@ export function InventoryScreen() {
             <div style={{ fontSize: 12, marginBottom: 12, padding: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 4 }}>
               <div style={nameStyle(listModal.item.grade, 13)}>
                 {listModal.item.name}
-                {listModal.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{listModal.enhanceLevel}</span>}
+                {listModal.enhanceLevel > 0 && (
+                  <span style={{ color: 'var(--accent)', WebkitTextFillColor: 'var(--accent)' }}> +{listModal.enhanceLevel}</span>
+                )}
               </div>
               <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
                 {GRADE_LABEL[listModal.item.grade as keyof typeof GRADE_LABEL]} · {SLOT_LABEL[listModal.item.slot || ''] || listModal.item.slot}
