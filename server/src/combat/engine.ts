@@ -524,7 +524,8 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
     mid = pool[Math.floor(Math.random() * pool.length)];
   }
   const mr = await query<MonsterDef>(
-    `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table
+    `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table,
+            COALESCE(skills, '[]'::jsonb) AS skills
      FROM monsters WHERE id = $1`, [mid]
   );
   return mr.rows[0] || null;
