@@ -1373,9 +1373,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       let firstLandedHit = true;
       let landedCount = 0;
       // 신의 타격: 본인 최대 HP × 50 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
+      // 천상 강림: 본인 최대 HP × 40 × N연타 + 마지막 1타 추가 max_hp × 200 폭격 (강제 치명).
       let divineStrikeFlat = 0;
+      let ascensionFinalFlat = 0;
+      let ascensionForceCritOnLast = false;
       if (skill.name === '신의 타격') {
         divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
+      } else if (skill.name === '천상 강림') {
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 40 - s.monsterStats.mdef * 0.5));
+        ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 200 - s.monsterStats.mdef * 0.5));
+        ascensionForceCritOnLast = true;
+        addLog(s, `[${skill.name}] 천상의 빛이 강림한다…`);
       }
       const multiHitFlat = skillFlatWithInt(skill, s.playerStats.int || 0) + divineStrikeFlat;
       // 무쌍난무: 25% / 전장의 광란: 50% 확률로 전체 타격 세트 2회 발동
@@ -1386,8 +1394,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (pass > 0) { firstLandedHit = true; landedCount = 0; }
         for (let i = 0; i < hits; i++) {
           const stormMult = bladeStormAmp > 0 ? hitMult * (1 + (bladeStormAmp * landedCount) / 100) : hitMult;
-          const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, multiHitFlat);
-          const hitLabel = passes === 2 ? `${pass + 1}회차 ${i + 1}타` : `${i + 1}타`;
+          const isAscensionFinal = ascensionForceCritOnLast && i === hits - 1;
+          const flatThisHit = isAscensionFinal ? multiHitFlat + ascensionFinalFlat : multiHitFlat;
+          // 천상 강림 마지막 1타 강제 치명 — criBonus 1000 으로 사실상 100% 발동
+          const criBonus = isAscensionFinal ? 1000 : 0;
+          const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, flatThisHit, criBonus);
+          const hitLabel = passes === 2 ? `${pass + 1}회차 ${i + 1}타` : (isAscensionFinal ? '폭격' : `${i + 1}타`);
           if (d.miss) {
             addLog(s, `[${skill.name}] ${hitLabel} 빗나감!`);
             s.missStack = Math.min(5, s.missStack + 1);
@@ -1424,6 +1436,20 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (skId !== skill.id) s.skillCooldowns.delete(skId);
         }
         addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
+      }
+      // 신의 타격 사용 시 천상 강림 쿨다운 -1 행동 (성직자 콤보)
+      if (skill.name === '신의 타격') {
+        for (const sk of s.skills) {
+          if (sk.name !== '천상 강림') continue;
+          const cur = s.skillCooldowns.get(sk.id) || 0;
+          if (cur > 0) {
+            const next = cur - 1;
+            if (next <= 0) s.skillCooldowns.delete(sk.id);
+            else s.skillCooldowns.set(sk.id, next);
+            addLog(s, `[${skill.name}] 천상 강림 쿨다운 -1 (남은 ${next})`);
+          }
+          break;
+        }
       }
       break;
     }
