@@ -108,7 +108,6 @@ export async function addItemToInventory(
         : await generatePrefixes(itemRequiredLevel);
       const { prefixIds, bonusStats, maxTier } = rolled;
       const quality = usePreroll ? preroll!.quality : Math.floor(Math.random() * 101); // 0~100
-      if (usePreroll) prerollUsed = true;
       let finalPrefixStats: Record<string, number> = bonusStats;
 
       if (isUnique) {
@@ -120,11 +119,15 @@ export async function addItemToInventory(
         }
       }
 
-      await query(
+      // ON CONFLICT — 동시 인서트(상점 구매·드랍·우편 수령 등) 레이스 방어. 충돌 시 다음 슬롯 재시도.
+      const ins = await query(
         `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+         ON CONFLICT (character_id, slot_index) DO NOTHING`,
         [characterId, itemId, slot, qty, prefixIds.length > 0 ? prefixIds : [], JSON.stringify(finalPrefixStats), quality]
       );
+      if (!ins.rowCount) continue; // 슬롯 충돌 — preroll/카운트 변경 없이 다음 슬롯 시도
+      if (usePreroll) prerollUsed = true;
 
       // 축하 드롭 로그: 유니크 / 품질 100% / 3옵 / T4 접두사
       const isQualityMax = quality >= 100;
@@ -147,10 +150,12 @@ export async function addItemToInventory(
         );
       }
     } else {
-      await query(
-        'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
+      const ins = await query(
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (character_id, slot_index) DO NOTHING`,
         [characterId, itemId, slot, qty]
       );
+      if (!ins.rowCount) continue;
     }
     remaining -= qty;
   }
@@ -231,10 +236,13 @@ export async function addItemToInventoryPlain(
     if (freeSlot < 0) break;
     used.add(freeSlot);
     const qty = Math.min(remaining, stackSize);
-    await query(
-      'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
+    // ON CONFLICT — 동시 경로(드랍·상점 등) 레이스 방어. 충돌 시 다음 슬롯 재시도.
+    const ins = await query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (character_id, slot_index) DO NOTHING`,
       [characterId, itemId, freeSlot, qty]
     );
+    if (!ins.rowCount) continue;
     remaining -= qty;
   }
 
