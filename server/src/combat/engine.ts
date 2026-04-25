@@ -654,12 +654,14 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   }
   // speed_mod 머지 정책
   //  - source='player' (몬스터에게 건 디버프): 같은 부호끼리 갱신 (AOE 중첩 방지)
-  //  - source='monster' (플레이어 자가 버프/자해 페널티): 머지하지 않고 모두 stack
-  //    → 마력집중(+)과 마력과부하(−) 공존, 서로 다른 자가 버프 복수 공존 허용
-  if (effect.type === 'speed_mod' && effect.source === 'player') {
+  //  - source='monster' (플레이어 자가 버프/자해 페널티): 같은 부호끼리 갱신 — 마력집중(+) 과
+  //    마력과부하(−) 공존하지만 동일 부호는 stack 금지. (이전: 모두 stack → 신성 사슬 등
+  //    재시전 시 speed_mod 곱연산으로 +73% 속도 가속 사고 + 치게 직자 chain crit 시 자가 버프
+  //    decrement 가 monster 턴에만 발생해 stack 누적)
+  if (effect.type === 'speed_mod') {
     const sameSign = (a: number, b: number) => (a >= 0) === (b >= 0);
     const existing = s.statusEffects.find(e =>
-      e.type === 'speed_mod' && e.source === 'player' &&
+      e.type === 'speed_mod' && e.source === effect.source &&
       sameSign(e.value, effect.value) && e.remainingActions > 0
     );
     if (existing) {
@@ -667,6 +669,18 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
         existing.value = effect.value;
         existing.remainingActions = Math.max(existing.remainingActions, effect.remainingActions);
       }
+      return;
+    }
+  }
+  // atk_buff / damage_reduce 자가 버프 (source='monster') — 동일 타입 재시전 시 갱신, stack 금지.
+  // (UI 에 stack 누적되는 시각 버그 + 치게 직자 chain crit 시 미만료 stack 누적 차단.)
+  if ((effect.type === 'atk_buff' || effect.type === 'damage_reduce') && effect.source === 'monster') {
+    const existing = s.statusEffects.find(e =>
+      e.type === effect.type && e.source === 'monster' && e.remainingActions > 0
+    );
+    if (existing) {
+      if (effect.value >= existing.value) existing.value = effect.value;
+      existing.remainingActions = Math.max(existing.remainingActions, effect.remainingActions);
       return;
     }
   }
