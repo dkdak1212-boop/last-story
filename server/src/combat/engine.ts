@@ -171,6 +171,8 @@ function skillFlatWithInt(skill: { name: string; flat_damage: number }, intStat:
 // 접두사 흡혈(lifesteal_pct) — 모든 타격 경로에서 공통 적용. 세션.playerHp 갱신 + 로그.
 // 반환: 회복량 (0이면 미적용)
 function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
+  // 110 몬스터 — 피흡 면역 (대상 몬스터에게서 흡혈 시도 시 0)
+  if (s.monsterLifestealImmune) return 0;
   const pct = s.equipPrefixes.lifesteal_pct || 0;
   if (pct <= 0 || dmg <= 0) return 0;
   let heal = Math.round(dmg * pct / 100);
@@ -250,6 +252,7 @@ interface ActiveSession {
   monsterSkillCooldowns: Map<string, number>; // key=skill.id, value=남은 액션 수 (0 시 발동 가능)
   monsterDrPct: number;                       // 현재 몬스터 받는 데미지 감쇠 % (0~100)
   monsterCcImmune: boolean;                   // CC 면역 플래그
+  monsterLifestealImmune: boolean;            // 피흡 면역 (110 몬스터 — 흡혈/회복 0)
   monsterRageActivated: boolean;              // 분노 패시브 1회 발동 플래그
   bossPhase2Triggered: boolean;               // 보스 페이즈2 (HP 50% 소환) 1회 발동
   healBlockUntilMs: number;                   // 치유 봉쇄 만료 시각 (ms)
@@ -997,7 +1000,7 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
     addLog(s, `[재충전] ${hitLabel ? hitLabel + ' ' : ''}게이지 +${Math.min(50, gaugeOnCrit)}%`);
   }
   const critLifesteal = getPassive(s, 'crit_lifesteal');
-  if (critLifesteal > 0 && dmg > 0) {
+  if (critLifesteal > 0 && dmg > 0 && !s.monsterLifestealImmune) {
     let critHeal = Math.round(dmg * critLifesteal / 100);
     // 110 heal_seal — 흡혈 -70%
     if (s.healBlockUntilMs > Date.now()) critHeal = Math.round(critHeal * 0.3);
@@ -1178,8 +1181,8 @@ function processSummons(s: ActiveSession) {
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
     }
   }
-  // 흡혈 회복
-  if (totalLifesteal > 0) {
+  // 흡혈 회복 — 110 몬스터는 피흡 면역
+  if (totalLifesteal > 0 && !s.monsterLifestealImmune) {
     s.playerHp = Math.min(s.playerMaxHp, s.playerHp + totalLifesteal);
   }
   // 치유 오오라: 소환수 공격 당 플레이어 HP 회복 (% of max)
@@ -1408,7 +1411,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
 
 
-        if (skill.effect_type === 'lifesteal') {
+        if (skill.effect_type === 'lifesteal' && !s.monsterLifestealImmune) {
           let heal = Math.round(dmg * skill.effect_value / 100);
           const lsAmp = getPassive(s, 'lifesteal_amp');
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
@@ -1418,7 +1421,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
         }
         // 최후의 일격: 툴팁상 흡혈 50% + 흡수량만큼 추가 데미지 (effect_type='double_chance'라 위 분기 미히트)
-        if (skill.name === '최후의 일격' && dmg > 0) {
+        if (skill.name === '최후의 일격' && dmg > 0 && !s.monsterLifestealImmune) {
           let heal = Math.round(dmg * 50 / 100);
           const lsAmp = getPassive(s, 'lifesteal_amp');
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
@@ -1454,8 +1457,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               }
               s.monsterHp -= dmg2;
               addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
-              // 최후의 일격: 2회차 타격에도 흡혈 적용
-              if (skill.name === '최후의 일격' && dmg2 > 0) {
+              // 최후의 일격: 2회차 타격에도 흡혈 적용 — 110 몬스터는 피흡 면역
+              if (skill.name === '최후의 일격' && dmg2 > 0 && !s.monsterLifestealImmune) {
                 let heal2 = Math.round(dmg2 * 50 / 100);
                 const lsAmp2 = getPassive(s, 'lifesteal_amp');
                 if (lsAmp2 > 0) heal2 = Math.round(heal2 * (1 + lsAmp2 / 100));
@@ -3094,10 +3097,11 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.monsterHp = m.max_hp;
   s.monsterMaxHp = m.max_hp;
   s.monsterStats = monsterToEffective(m);
-  // 110 몬스터: dr_pct / cc_immune / 스킬 시스템 초기화
-  const ms = m.stats as Stats & { dr_pct?: number; cc_immune?: boolean };
+  // 110 몬스터: dr_pct / cc_immune / lifesteal_immune / 스킬 시스템 초기화
+  const ms = m.stats as Stats & { dr_pct?: number; cc_immune?: boolean; lifesteal_immune?: boolean };
   s.monsterDrPct = typeof ms.dr_pct === 'number' ? ms.dr_pct : 0;
   s.monsterCcImmune = ms.cc_immune === true;
+  s.monsterLifestealImmune = ms.lifesteal_immune === true;
   s.monsterSkillCooldowns = new Map<string, number>();
   s.monsterRageActivated = false;
   s.bossPhase2Triggered = false;
@@ -3952,6 +3956,7 @@ async function startCombatSessionInner(
     monsterSkillCooldowns: new Map<string, number>(),
     monsterDrPct: 0,
     monsterCcImmune: false,
+    monsterLifestealImmune: false,
     monsterRageActivated: false,
     bossPhase2Triggered: false,
     healBlockUntilMs: 0,
