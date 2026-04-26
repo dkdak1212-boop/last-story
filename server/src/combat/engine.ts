@@ -4068,18 +4068,30 @@ async function startCombatSessionInner(
   const char = await loadCharacter(characterId);
   if (!char) throw new Error('character not found');
 
-  // 오프라인 모드 가드 — last_offline_at IS NOT NULL 이면 silently abort.
+  // 오프라인 모드 가드 — last_offline_at IS NOT NULL 이면 처리.
   // /combat/state auto-restart, /enter-field, /offline/resume 등 모든 진입 경로에서
   // 의도치 않은 전투 시작 차단. 정상 flow 는 명시 정산(settleOfflineRewards)이
   // last_offline_at = NULL 로 만든 후 호출하므로 영향 없음.
   // restore 시에는 skip — 재시작 복원 케이스는 last_offline_at 검증 의미 없음.
+  // 길드보스(guildBossOpts) 진입은 별도 컨텐츠 — 사용자가 명시적으로 길드보스 입장
+  // 의도이므로 오프라인 보상을 자동 정산한 후 진입 허용 ("적을 찾는 중" 무한 표시 방지).
   if (!opts?.skipMultiCharCleanup) {
     const offCheck = await query<{ last_offline_at: string | null }>(
       'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
     );
     if (offCheck.rows[0]?.last_offline_at) {
-      console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
-      return;
+      if (guildBossOpts) {
+        try {
+          const { settleOfflineRewards } = await import('./offlineSettle.js');
+          await settleOfflineRewards(characterId);
+          console.log('[combat] guildBoss 진입 — 오프라인 보상 자동 정산', characterId);
+        } catch (e) {
+          console.error('[combat] guildBoss 진입 시 오프라인 정산 실패', characterId, e);
+        }
+      } else {
+        console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
+        return;
+      }
     }
   }
 
