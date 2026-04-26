@@ -17,6 +17,7 @@ export function CombatScreen() {
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const token = useAuthStore((s) => s.token);
   const [state, setState] = useState<CombatSnapshot | null>(null);
+  const [offlinePreview, setOfflinePreview] = useState<any>(null);
   const [damagePopups, setDamagePopups] = useState<{ id: number; value: number; crit: boolean; x: number }[]>([]);
   const [skillFlash, setSkillFlash] = useState<{ icon: string; color: string } | null>(null);
   const skillFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -282,49 +283,21 @@ export function CombatScreen() {
     nav('/village');
   }
 
-  // 오프라인 전환 — 명시적 클릭 시 EMA 정산 대기. 계정당 최대 2캐릭.
-  // 클릭 직전 현재 EMA + 예상 보상 미리보기 → 보상 없는 케이스 사용자 혼동 방지.
+  // 오프라인 전환 — 명시적 클릭 시 커스텀 모달로 미리보기 표시 후 진행/취소.
   async function goOffline() {
     if (!active) return;
-    let preview: any = null;
     try {
-      preview = await api(`/characters/${active.id}/combat/offline-preview`);
-    } catch { /* ignore — fallback to plain confirm */ }
-
-    const fmt = (n: number) => Math.round(n).toLocaleString();
-    let message: string;
-    if (preview) {
-      const eligibleLine = preview.eligible
-        ? '✓ 정산 가능'
-        : `✗ 보상 없음 (누적 ${preview.totalKills}/${preview.minKillsRequired}킬 또는 평균 효율 0)`;
-      message =
-        `오프라인 전환 — 정산 미리보기\n\n` +
-        `상태: ${eligibleLine}\n` +
-        `누적 처치: ${fmt(preview.totalKills)}킬\n\n` +
-        `현재 평균 효율 (최근 100초):\n` +
-        `· 경험치 ${preview.rates.expPerSec}/초\n` +
-        `· 골드   ${preview.rates.goldPerSec}/초\n` +
-        `· 처치   ${preview.rates.killsPerSec}/초\n` +
-        `· 드랍   ${preview.rates.dropsPerSec}/초\n\n` +
-        `예상 보상 (시간당):\n` +
-        `  EXP +${fmt(preview.perHour.exp)}, 골드 +${fmt(preview.perHour.gold)}, 처치 ${fmt(preview.perHour.kills)}\n` +
-        `8시간 누적: EXP +${fmt(preview.cap8h.exp)}, 골드 +${fmt(preview.cap8h.gold)}\n` +
-        `24시간 누적(상한): EXP +${fmt(preview.cap24h.exp)}, 골드 +${fmt(preview.cap24h.gold)}\n\n` +
-        `· 계정당 최대 2캐릭만 오프라인 가능\n` +
-        `· 부스트 적용 중엔 EMA 정지 (위 수치는 base 효율)\n` +
-        `· 사냥터 이동 시 EMA 리셋 — 새 사냥터에서 측정해야 함\n\n` +
-        (preview.eligible ? `진행하시겠습니까?` : `⚠️ 지금 전환 시 보상 0 — 그래도 진행하시겠습니까?`);
-    } else {
-      message =
-        `오프라인 전환 — 이 캐릭은 사냥을 중단하고 최근 100초 평균 효율로\n` +
-        `다음 진입 시 자동 정산받습니다 (최대 24시간).\n\n` +
-        `· 계정당 최대 2캐릭만 오프라인 가능\n` +
-        `· 부스트는 정산 시점 활성 상태만 적용\n` +
-        `· 누적 300킬 미만 신규 캐릭은 정산 0\n\n` +
-        `진행하시겠습니까?`;
+      const preview: any = await api(`/characters/${active.id}/combat/offline-preview`);
+      setOfflinePreview(preview);
+    } catch (e: any) {
+      // preview 실패 시에도 진행 가능하도록 fallback 모달
+      setOfflinePreview({ failed: true });
     }
-    if (!confirm(message)) return;
+  }
 
+  async function confirmGoOffline() {
+    if (!active) return;
+    setOfflinePreview(null);
     try {
       await api(`/characters/${active.id}/combat/go-offline`, { method: 'POST' });
       await refreshActive();
@@ -501,6 +474,121 @@ export function CombatScreen() {
 
   return (
     <div>
+      {/* 오프라인 전환 미리보기 모달 */}
+      {offlinePreview && (() => {
+        const p = offlinePreview;
+        const failed = !!p.failed;
+        const eligible = !failed && p.eligible;
+        const fmt = (n: number) => Math.round(n).toLocaleString();
+        const accent = eligible ? '#3ddc84' : '#ff4444';
+        const accentBg = eligible ? 'rgba(61,220,132,0.12)' : 'rgba(255,68,68,0.12)';
+        const accentBorder = eligible ? 'rgba(61,220,132,0.5)' : 'rgba(255,68,68,0.5)';
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 9998,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}>
+            <div style={{
+              maxWidth: 520, width: '100%',
+              background: 'var(--bg-panel)', border: `2px solid ${accent}`,
+              boxShadow: `0 0 30px ${accentBg}`,
+              borderRadius: 8, padding: '22px 24px',
+            }}>
+              <h3 style={{ margin: 0, marginBottom: 12, color: 'var(--accent)', fontSize: 18 }}>
+                오프라인 전환 — 정산 미리보기
+              </h3>
+
+              {failed ? (
+                <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 16, lineHeight: 1.7 }}>
+                  현재 EMA 조회 실패 — 그래도 진행 가능합니다.
+                </div>
+              ) : (
+                <>
+                  {/* 상태 강조 박스 */}
+                  <div style={{
+                    padding: '12px 14px', marginBottom: 14,
+                    background: accentBg,
+                    border: `2px solid ${accent}`,
+                    borderRadius: 6,
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: accent, letterSpacing: 1 }}>
+                      {eligible ? '✓ 정산 가능' : '✗ 보상 없음'}
+                    </div>
+                    <div style={{ fontSize: 12, color: accent, marginTop: 4, opacity: 0.9 }}>
+                      {eligible
+                        ? `최소 ${p.minKillsRequired}킬 충족 · 평균 효율 측정됨`
+                        : `최소 ${p.minKillsRequired}킬 미달 또는 평균 효율 0 — 지금 전환 시 보상 0`}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 10 }}>
+                    누적 처치: <span style={{ color: 'var(--text)', fontWeight: 700 }}>{fmt(p.totalKills)}킬</span>
+                    {' '}/ 최소 {p.minKillsRequired}킬
+                  </div>
+
+                  <div style={{
+                    background: 'var(--bg)', border: '1px solid var(--border)',
+                    padding: '10px 12px', borderRadius: 4, marginBottom: 10, fontSize: 12, lineHeight: 1.7,
+                  }}>
+                    <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>현재 평균 효율 (최근 100초)</div>
+                    <div>· 경험치 {p.rates.expPerSec}/초</div>
+                    <div>· 골드 {p.rates.goldPerSec}/초</div>
+                    <div>· 처치 {p.rates.killsPerSec}/초</div>
+                    <div>· 드랍 {p.rates.dropsPerSec}/초</div>
+                  </div>
+
+                  <div style={{
+                    background: 'var(--bg)', border: '1px solid var(--border)',
+                    padding: '10px 12px', borderRadius: 4, marginBottom: 10, fontSize: 12, lineHeight: 1.7,
+                  }}>
+                    <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>예상 보상</div>
+                    <div>시간당: EXP +{fmt(p.perHour.exp)}, 골드 +{fmt(p.perHour.gold)}</div>
+                    <div>8시간: EXP +{fmt(p.cap8h.exp)}, 골드 +{fmt(p.cap8h.gold)}</div>
+                    <div style={{ color: '#ffcc00', fontWeight: 700 }}>
+                      24시간(상한): EXP +{fmt(p.cap24h.exp)}, 골드 +{fmt(p.cap24h.gold)}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 16 }}>
+                    · 계정당 최대 2캐릭만 오프라인 가능<br/>
+                    · 부스트 적용 중엔 EMA 정지 (위 수치는 base 효율)<br/>
+                    · 사냥터 이동 시 EMA 리셋 — 새 사냥터에서 다시 측정 필요
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setOfflinePreview(null)}
+                  style={{
+                    padding: '10px 22px', fontSize: 13, fontWeight: 700,
+                    background: 'transparent', color: 'var(--text-dim)',
+                    border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 4,
+                  }}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={confirmGoOffline}
+                  style={{
+                    padding: '10px 22px', fontSize: 14, fontWeight: 800,
+                    background: accent, color: '#000',
+                    border: 'none', cursor: 'pointer', borderRadius: 4,
+                    letterSpacing: 1,
+                    boxShadow: `0 2px 12px ${accentBorder}`,
+                  }}
+                >
+                  {failed || eligible ? '오프라인 전환' : '그래도 진행'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ color: 'var(--accent)' }}>{state.fieldName || '전투 중'}</h2>
