@@ -262,13 +262,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 전환 중...
               </div>
             )}
-            {characters.length < 2 && (
-              <button onClick={() => { setCharSwitchOpen(false); nav('/characters'); }} style={{
-                marginTop: 10, padding: '8px', width: '100%', fontSize: 12,
-                background: 'var(--bg)', color: 'var(--accent)',
-                border: '1px dashed var(--accent)', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
-              }}>+ 새 캐릭터 생성 ({characters.length}/2)</button>
-            )}
+            <button onClick={() => { setCharSwitchOpen(false); nav('/characters'); }} style={{
+              marginTop: 10, padding: '8px', width: '100%', fontSize: 12,
+              background: 'var(--bg)', color: 'var(--accent)',
+              border: '1px dashed var(--accent)', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
+            }}>+ 새 캐릭터 생성 ({characters.length}/3)</button>
           </div>
         </div>
       )}
