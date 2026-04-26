@@ -252,8 +252,8 @@ interface ActiveSession {
   paragonCrystalActive: boolean; // #13 시간의 결정: 현재 액션이 10번째 (applyDamagePrefixes 가 ×3 적용)
   paragonSelfDotTickAt: number; // #14 고통의 군주: 자가 도트 직전 적용 시각 (ms)
   // 다단히트가 매 타마다 gauge_on_crit_pct 로 게이지 충전을 누적해 가우지가 영구 100% 정체되는 버그 차단.
-  // 한 액션 내 누적 게이지 회수량을 추적해 GAUGE_MAX*0.5 (=500) 상한 도달 시 차단.
-  // 다단히트도 매 hit 발동 가능 — 단 50% cap 으로 정체 불가능.
+  // 한 액션 내 누적 게이지 회수량을 추적해 GAUGE_MAX*0.75 (=750) 상한 도달 시 차단.
+  // 다단히트도 매 hit 발동 가능 — 단 75% cap 으로 정체 불가능.
   gaugeOnCritGainedThisAction: number;
   // ── 110 몬스터 스킬 시스템 ──
   monsterSkillCooldowns: Map<string, number>; // key=skill.id, value=남은 액션 수 (0 시 발동 가능)
@@ -1032,11 +1032,11 @@ function getCritDmgBonus(s: ActiveSession): number {
 // hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
 function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
   if (!crit) return;
-  // gauge_on_crit_pct — 다단히트도 매 hit 발동 허용. 단 한 액션 내 누적 회수량 cap 50%.
+  // gauge_on_crit_pct — 다단히트도 매 hit 발동 허용. 단 한 액션 내 누적 회수량 cap 75%.
   // 영구 100% 정체 버그 방지(상한 < 100%) + 다단히트 보너스 보존.
   const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
   if (gaugeOnCrit > 0) {
-    const cap = GAUGE_MAX * 0.5; // 500
+    const cap = GAUGE_MAX * 0.75; // 750
     const remaining = cap - s.gaugeOnCritGainedThisAction;
     if (remaining > 0) {
       const want = GAUGE_MAX * gaugeOnCrit / 100;
@@ -3505,7 +3505,7 @@ async function combatTick(): Promise<void> {
         s.playerGauge -= gaugeCost;
         s.actionCount++;
         s.paragonActionCount++;
-        // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 50% cap 다시 적용)
+        // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 75% cap 다시 적용)
         s.gaugeOnCritGainedThisAction = 0;
         // 길드보스 element 추적 리셋 — 매 액션 첫 스킬 element 만 사용
         s.currentActionElement = null;

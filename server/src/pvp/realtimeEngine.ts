@@ -670,7 +670,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     if (d.crit) {
       const gaugeOnCrit = self.equipPrefixes.gauge_on_crit_pct || 0;
       if (gaugeOnCrit > 0) {
-        const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCrit / 100);
+        const gain = Math.min(GAUGE_MAX * 0.75, GAUGE_MAX * gaugeOnCrit / 100);
         self.gauge = Math.min(GAUGE_MAX, self.gauge + gain);
       }
     }
