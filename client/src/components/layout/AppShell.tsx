@@ -253,23 +253,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사',
                 };
                 const cls = (c as any).className || (c as any).class_name || '';
+                const offlineAt = (c as any).lastOfflineAt as string | null | undefined;
+                const offlineLabel = offlineAt ? (() => {
+                  const ms = Date.now() - new Date(offlineAt).getTime();
+                  const totalMin = Math.max(0, Math.floor(ms / 60000));
+                  const h = Math.floor(totalMin / 60);
+                  const m = totalMin % 60;
+                  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+                })() : '';
                 return (
                   <button key={c.id} disabled={switching || isActive} onClick={() => switchTo(c.id)} style={{
                     padding: '10px 12px',
                     background: isActive ? 'rgba(218,165,32,0.12)' : 'var(--bg)',
                     border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
-                    borderLeft: `3px solid ${classColor[cls] || 'var(--border)'}`,
+                    borderLeft: `3px solid ${offlineAt ? '#88c8ff' : (classColor[cls] || 'var(--border)')}`,
                     borderRadius: 3, cursor: isActive || switching ? 'default' : 'pointer',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
                     textAlign: 'left',
                   }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         {c.name}
-                        {isActive && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)' }}>● 현재</span>}
+                        {isActive && <span style={{ fontSize: 10, color: 'var(--accent)' }}>● 현재</span>}
+                        {offlineAt && (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700,
+                            padding: '1px 6px',
+                            background: 'rgba(136,200,255,0.15)',
+                            color: '#88c8ff',
+                            border: '1px solid #88c8ff',
+                            borderRadius: 2,
+                            letterSpacing: 0.3,
+                          }}>
+                            오프라인 사냥중
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
                         Lv.{c.level} {classLabel[cls] || cls}
+                        {offlineAt && (
+                          <span style={{ marginLeft: 6, color: '#88c8ff' }}>· {offlineLabel} 경과</span>
+                        )}
                       </div>
                     </div>
                     {!isActive && <span style={{ fontSize: 10, color: 'var(--accent)' }}>전환 →</span>}
