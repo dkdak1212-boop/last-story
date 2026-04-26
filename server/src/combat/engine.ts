@@ -380,16 +380,35 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
   }
   try {
     if (onIds.length > 0) {
+      // 부스트 적용 중인 EMA 갱신은 정지 — 부스트 받은 비율로 EMA 가 부풀려져
+      // 부스트 만료 후 8h 정산 시 +30~50% 오버 보상 발생하는 문제 차단.
+      // 부스트 만료 후엔 자연스레 다시 갱신되어 base 효율로 수렴.
       await query(
         `UPDATE characters c SET
            exp = c.exp + v.exp_d,
            gold = c.gold + v.gold_d,
            total_kills = c.total_kills + v.kill_d,
            total_gold_earned = c.total_gold_earned + v.earned_d,
-           online_exp_rate  = c.online_exp_rate  * 0.99 + v.exp_d::numeric    * 0.01,
-           online_gold_rate = c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01,
-           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01,
-           online_drop_rate = c.online_drop_rate * 0.99 + v.drop_d::numeric   * 0.01
+           online_exp_rate = CASE
+             WHEN c.exp_boost_until > NOW()
+               OR c.event_exp_until > NOW()
+               OR (COALESCE(c.personal_exp_mult, 1) > 1
+                   AND (c.personal_exp_mult_max_level IS NULL OR c.level < c.personal_exp_mult_max_level))
+             THEN c.online_exp_rate
+             ELSE c.online_exp_rate * 0.99 + v.exp_d::numeric * 0.01
+           END,
+           online_gold_rate = CASE
+             WHEN c.gold_boost_until > NOW()
+             THEN c.online_gold_rate
+             ELSE c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01
+           END,
+           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric * 0.01,
+           online_drop_rate = CASE
+             WHEN c.drop_boost_until > NOW()
+               OR c.event_drop_until > NOW()
+             THEN c.online_drop_rate
+             ELSE c.online_drop_rate * 0.99 + v.drop_d::numeric * 0.01
+           END
          FROM (
            SELECT
              unnest($1::int[])    AS id,
