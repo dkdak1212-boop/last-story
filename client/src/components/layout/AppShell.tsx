@@ -47,6 +47,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const fetchCharacters = useCharacterStore((s) => s.fetchCharacters);
   const [onlineCount, setOnlineCount] = useState(0);
   const [broadcast, setBroadcast] = useState<string | null>(null);
+  // 오프라인 사냥중 헤더 표시 — 매 30초 dummy 업데이트로 elapsed 시간 갱신
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(x => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const [globalEvent, setGlobalEvent] = useState<{ name: string; exp: number; gold: number; drop: number; endsAt: string } | null>(null);
   const [charSwitchOpen, setCharSwitchOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -156,7 +162,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span style={{ color: 'var(--success)', fontWeight: 700 }}>HP {active.hp}/{active.maxHp}</span>
             <span style={{ color: '#e0a040', fontWeight: 700 }}>{active.gold.toLocaleString()}G</span>
             <span style={{ color: '#8b8bef', fontWeight: 700 }}>NP {active.nodePoints ?? 0}</span>
-            {active.location?.startsWith('field:') ? (
+            {(active as any).lastOfflineAt ? (
+              <span style={{
+                color: '#88c8ff', fontWeight: 700, fontSize: 13,
+                animation: 'blink-status 1.5s ease-in-out infinite',
+              }}>
+                오프라인 사냥중 — {(() => {
+                  const ms = Date.now() - new Date((active as any).lastOfflineAt).getTime();
+                  if (ms <= 0) return '방금';
+                  const totalMin = Math.floor(ms / 60000);
+                  const h = Math.floor(totalMin / 60);
+                  const m = totalMin % 60;
+                  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+                })()} 경과
+              </span>
+            ) : active.location?.startsWith('field:') ? (
               <span style={{
                 color: '#ff6b6b', fontWeight: 700, fontSize: 13,
                 animation: 'blink-status 1s ease-in-out infinite',
