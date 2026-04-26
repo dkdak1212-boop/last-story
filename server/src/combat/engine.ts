@@ -869,6 +869,15 @@ function applyDamagePrefixes(
       addLog(s, `[그림자 일격] 첫 스킬 +${shadowStrike}%`);
     }
   }
+  // judge_amp / holy_judge (성직자 공격 노드 — 심판의 대천사 / 신의 심판 등)
+  // case 'damage' 단일 hit 은 별도 곱연산되지만 multi_hit / multi_hit_poison / dot 등
+  // applyDamagePrefixes 호출 케이스에선 누락되어 있던 버그. 천상 강림 / 신의 타격 정상화.
+  {
+    const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
+    if (judgeAmp > 0 && s.className === 'cleric') {
+      dmg = Math.round(dmg * (1 + judgeAmp / 100));
+    }
+  }
   // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 ──
   // #5 무거운 검 — 데미지 ×2.5
   if (getPassive(s, 'paragon_heavy_blade') > 0) {
