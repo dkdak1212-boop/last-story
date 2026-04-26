@@ -3340,15 +3340,23 @@ const sessionLastTickAt = new Map<number, number>();
 // 오프라인 보상은 EMA 정산(offlineSettle.ts)으로 분리됨 — 시뮬레이션 폐지.
 // OFFLINE_TICK_INTERVAL_MS / OFFLINE_REWARD_MULT 는 정산 모듈로 이전.
 
-async function onSessionGoOffline(s: ActiveSession): Promise<void> {
+// onSessionGoOffline — WS 구독 끊김 시 호출되는 자연 정리.
+//   * recordOfflineRewards=false (기본): 세션 메모리/DB 정리만, last_offline_at 기록 X = 보상 없음
+//   * recordOfflineRewards=true: 세션 정리 + last_offline_at 기록 = 다음 진입 시 정산
+// 사용자가 명시적으로 "오프라인 전환" 버튼 누른 경우에만 recordOfflineRewards=true.
+// WS 자연 disconnect 등은 false 로 보상 없이 정리.
+export async function onSessionGoOffline(
+  s: ActiveSession,
+  opts: { recordOfflineRewards?: boolean } = {}
+): Promise<void> {
   const charId = s.characterId;
   if (!activeSessions.has(charId)) return; // 이미 정리됨 — 멱등
   const fieldId = s.fieldId;
+  const record = !!opts.recordOfflineRewards;
   // 누적 배치 먼저 flush — 마지막 100ms 분량의 exp/gold/kill/drop 누락 방지
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
 
   // 소환사: 소환수/쿨다운 보존 — startCombatSession 이 다음 진입 시 status_effects 에서 복원함
-  // (combat_sessions 행 유지, status_effects 만 갱신)
   if (s.className === 'summoner') {
     try {
       const summons = s.statusEffects.filter(e =>
@@ -3370,7 +3378,6 @@ async function onSessionGoOffline(s: ActiveSession): Promise<void> {
       console.error('[offline-go] summon persist err', charId, e);
     }
   } else {
-    // 비소환사: 세션 행 정리
     try {
       await query(`DELETE FROM combat_sessions WHERE character_id = $1`, [charId]);
     } catch (e) {
@@ -3382,16 +3389,19 @@ async function onSessionGoOffline(s: ActiveSession): Promise<void> {
   sessionStartedMap.delete(charId);
   sessionLastTickAt.delete(charId);
 
-  try {
-    await query(
-      `UPDATE characters
-          SET last_offline_at = NOW(),
-              last_field_id_offline = $2
-        WHERE id = $1`,
-      [charId, fieldId]
-    );
-  } catch (e) {
-    console.error('[offline-go] persist err', charId, e);
+  // last_offline_at 기록은 명시적 오프라인 전환 시에만.
+  if (record) {
+    try {
+      await query(
+        `UPDATE characters
+            SET last_offline_at = NOW(),
+                last_field_id_offline = $2
+          WHERE id = $1`,
+        [charId, fieldId]
+      );
+    } catch (e) {
+      console.error('[offline-go] persist err', charId, e);
+    }
   }
 }
 

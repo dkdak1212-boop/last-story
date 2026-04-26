@@ -282,6 +282,26 @@ export function CombatScreen() {
     nav('/village');
   }
 
+  // 오프라인 전환 — 명시적 클릭 시 EMA 정산 대기. 계정당 최대 2캐릭.
+  async function goOffline() {
+    if (!active) return;
+    if (!confirm(
+      `오프라인 전환 — 이 캐릭은 사냥을 중단하고 최근 100초 평균 효율로\n` +
+      `다음 진입 시 자동 정산받습니다 (최대 8시간).\n\n` +
+      `· 계정당 최대 2캐릭만 오프라인 가능\n` +
+      `· 부스트는 정산 시점 활성 상태만 적용\n` +
+      `· 100킬 미만 신규 캐릭은 정산 0\n\n` +
+      `진행하시겠습니까?`
+    )) return;
+    try {
+      await api(`/characters/${active.id}/combat/go-offline`, { method: 'POST' });
+      await refreshActive();
+      nav('/village');
+    } catch (e: any) {
+      alert(e?.message || '오프라인 전환 실패');
+    }
+  }
+
   if (!state || !state.inCombat) {
     return <div style={{ color: 'var(--text-dim)' }}>전투 준비 중...</div>;
   }
@@ -374,6 +394,20 @@ export function CombatScreen() {
           >
             {state.autoMode ? '자동' : '수동'}
           </button>
+          {!state.guildBossRunId && (
+            <button
+              onClick={goOffline}
+              title="오프라인 보상 누적 시작 (계정당 최대 2캐릭)"
+              style={{
+                background: 'transparent',
+                color: '#88c8ff',
+                border: '1px solid #88c8ff',
+                fontWeight: 700,
+              }}
+            >
+              오프라인 전환
+            </button>
+          )}
           <button onClick={leave} style={state.guildBossRunId ? {
             background: 'var(--danger)', color: '#fff', border: 'none', fontWeight: 700,
           } : undefined}>

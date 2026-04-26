@@ -84,13 +84,13 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
 
   const { name, className } = parsed.data;
 
-  // 캐릭터 슬롯 한도 — 기본 2개. 어드민 무제한. users.max_character_slots 컬럼으로
+  // 캐릭터 슬롯 한도 — 기본 3개. 어드민 무제한. users.max_character_slots 컬럼으로
   // 유저별 오버라이드 가능 (운영자가 특정 계정에 더 많은 슬롯 부여).
   const userR = await query<{ is_admin: boolean; max_character_slots: number | null; last_char_deleted_at: string | null }>(
     'SELECT is_admin, max_character_slots, last_char_deleted_at FROM users WHERE id = $1', [req.userId]
   );
   const isAdmin = !!userR.rows[0]?.is_admin;
-  const slotCap = userR.rows[0]?.max_character_slots ?? 2;
+  const slotCap = userR.rows[0]?.max_character_slots ?? 3;
   if (!isAdmin) {
     // 삭제 후 8시간 생성 제한
     const lastDel = userR.rows[0]?.last_char_deleted_at ? new Date(userR.rows[0].last_char_deleted_at).getTime() : 0;

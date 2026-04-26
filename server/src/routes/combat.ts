@@ -13,6 +13,8 @@ import {
   getAutoPotionConfig,
   resetDummyTracking,
   setAfkMode,
+  activeSessions,
+  onSessionGoOffline,
 } from '../combat/engine.js';
 import { settleOfflineRewards } from '../combat/offlineSettle.js';
 
@@ -169,6 +171,59 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
     return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp }, offlineReward });
   }
   res.json({ ...snapshot, offlineReward });
+});
+
+// 오프라인 전환 — 사용자가 명시적으로 클릭 시 호출.
+// last_offline_at = NOW() 기록 + 세션 정리 → 다음 진입 시 EMA 정산.
+// 계정당 오프라인 모드 캐릭 최대 2개 제한.
+router.post('/:id/combat/go-offline', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const sess = activeSessions.get(id);
+  if (!sess) return res.status(400).json({ error: '전투 중이 아닙니다.' });
+
+  // 계정당 오프라인 모드 캐릭 갯수 체크 (자기 자신 제외, max 2)
+  const cntR = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+       FROM characters
+      WHERE user_id = $1 AND last_offline_at IS NOT NULL AND id <> $2`,
+    [req.userId, id]
+  );
+  if ((cntR.rows[0]?.n ?? 0) >= 2) {
+    return res.status(400).json({ error: '오프라인 보상은 계정당 최대 2캐릭까지만 가능합니다.' });
+  }
+
+  await onSessionGoOffline(sess, { recordOfflineRewards: true });
+  res.json({ ok: true });
+});
+
+// 오프라인 전환 취소 — 보상 포기 후 다시 사냥. last_offline_at 즉시 NULL.
+router.post('/:id/combat/cancel-offline', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  await query(
+    `UPDATE characters
+        SET last_offline_at = NULL, last_field_id_offline = NULL
+      WHERE id = $1`,
+    [id]
+  );
+  res.json({ ok: true });
+});
+
+// 오프라인 모드 캐릭 목록 (UI 표기용 — 어느 캐릭이 정산 대기인지)
+router.get('/account/offline-list', async (req: AuthedRequest, res: Response) => {
+  const r = await query<{ id: number; name: string; level: number; last_offline_at: string; last_field_id_offline: number | null }>(
+    `SELECT id, name, level, last_offline_at, last_field_id_offline
+       FROM characters
+      WHERE user_id = $1 AND last_offline_at IS NOT NULL
+      ORDER BY last_offline_at`,
+    [req.userId]
+  );
+  res.json({ list: r.rows, max: 2 });
 });
 
 export default router;
