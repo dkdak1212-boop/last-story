@@ -259,6 +259,15 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // 오프라인 모드 캐릭은 장비 해제 차단 — 본캐 오프라인 누적 중에 장비를
+  // 부캐로 옮겨 빠른 속도내는 어뷰즈 방지.
+  const offR = await query<{ last_offline_at: string | null }>(
+    `SELECT last_offline_at FROM characters WHERE id = $1`, [id]
+  );
+  if (offR.rows[0]?.last_offline_at) {
+    return res.status(400).json({ error: '오프라인 모드 중에는 장비를 해제할 수 없습니다.' });
+  }
+
   const parsed = z.object({ slot: z.string() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
