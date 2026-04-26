@@ -868,6 +868,10 @@ function applyDamagePrefixes(
   if (getPassive(s, 'paragon_heavy_blade') > 0) {
     dmg = Math.round(dmg * 2.5);
   }
+  // #2 운명의 결박 — cri/dodge 0 페널티 보상으로 균일 데미지 ×1.75
+  if (getPassive(s, 'paragon_fate_lock') > 0) {
+    dmg = Math.round(dmg * 1.75);
+  }
   // #3 고통의 조율 — HP 35% 이하 시 +50%
   if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
     dmg = Math.round(dmg * 1.5);
