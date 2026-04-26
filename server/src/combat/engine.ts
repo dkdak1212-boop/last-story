@@ -4076,6 +4076,21 @@ async function startCombatSessionInner(
   const char = await loadCharacter(characterId);
   if (!char) throw new Error('character not found');
 
+  // 오프라인 모드 가드 — last_offline_at IS NOT NULL 이면 silently abort.
+  // /combat/state auto-restart, /enter-field, /offline/resume 등 모든 진입 경로에서
+  // 의도치 않은 전투 시작 차단. 정상 flow 는 명시 정산(settleOfflineRewards)이
+  // last_offline_at = NULL 로 만든 후 호출하므로 영향 없음.
+  // restore 시에는 skip — 재시작 복원 케이스는 last_offline_at 검증 의미 없음.
+  if (!opts?.skipMultiCharCleanup) {
+    const offCheck = await query<{ last_offline_at: string | null }>(
+      'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
+    );
+    if (offCheck.rows[0]?.last_offline_at) {
+      console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
+      return;
+    }
+  }
+
   // 같은 계정의 다른 캐릭 정리 — 한 시점에 한 캐릭만 EXP 누적 (이중 보상 어뷰즈 차단).
   // 어뷰즈 시나리오: 본캐 오프라인 모드 → 부캐로 전투 → 본캐 정산 시 부캐 전투 시간이
   // 본캐 last_offline_at ~ NOW 구간에 그대로 누적되어 동일 wall clock 시간에 두 캐릭이

@@ -218,6 +218,10 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const lvRes = applyExpGain(c.level, c.exp, expInt, c.class_name);
 
     // 6) characters UPDATE — 레벨업 시 hp 회복까지 처리
+    // 정산 후 location='village' — 클라이언트 폴링 시 /combat/state 의 auto-restart
+    // 로직(field:X + last_offline_at NULL → startCombatSession) 으로 의도치 않게
+    // 전투 화면이 자동 진입되는 것 차단. 명시 정산(/combat/resume-from-offline) flow 는
+    // settleOfflineRewards 호출 전 char.location 을 캡처하므로 영향 없음.
     if (lvRes.levelsGained > 0) {
       await client.query(
         `UPDATE characters SET
@@ -227,6 +231,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             stat_points = COALESCE(stat_points, 0) + $6,
             total_kills = total_kills + $7,
             total_gold_earned = total_gold_earned + $3,
+            location = 'village',
             last_offline_at = NULL,
             last_offline_settled_at = NOW()
           WHERE id = $8`,
@@ -239,6 +244,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             exp = $1, gold = gold + $2,
             total_kills = total_kills + $3,
             total_gold_earned = total_gold_earned + $2,
+            location = 'village',
             last_offline_at = NULL,
             last_offline_settled_at = NOW()
           WHERE id = $4`,
