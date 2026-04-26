@@ -219,6 +219,58 @@ router.post('/:id/combat/resume-from-offline', async (req: AuthedRequest, res: R
   res.json({ ok: true, offlineReward });
 });
 
+// 오프라인 전환 미리보기 — 현재 EMA + 시간당 / 8시간 / 24시간 예상 보상.
+// 사용자가 보상 없는 상태로 전환하는 혼동 방지.
+router.get('/:id/combat/offline-preview', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const r = await query<{
+    total_kills: number;
+    online_exp_rate: number;
+    online_gold_rate: number;
+    online_kill_rate: number;
+    online_drop_rate: number;
+  }>(
+    `SELECT total_kills,
+            COALESCE(online_exp_rate, 0)::float8  AS online_exp_rate,
+            COALESCE(online_gold_rate, 0)::float8 AS online_gold_rate,
+            COALESCE(online_kill_rate, 0)::float8 AS online_kill_rate,
+            COALESCE(online_drop_rate, 0)::float8 AS online_drop_rate
+       FROM characters WHERE id = $1`,
+    [id]
+  );
+  const row = r.rows[0];
+  if (!row) return res.status(404).json({ error: 'not found' });
+
+  const MIN_KILLS = 300;
+  const eligible = row.total_kills >= MIN_KILLS
+    && (row.online_exp_rate > 0 || row.online_gold_rate > 0 || row.online_kill_rate > 0);
+
+  const previewFor = (sec: number) => ({
+    exp:    Math.floor(row.online_exp_rate  * sec),
+    gold:   Math.floor(row.online_gold_rate * sec),
+    kills:  Math.floor(row.online_kill_rate * sec),
+    drops:  Math.floor(row.online_kill_rate * sec * (row.online_drop_rate > 0 ? 0.08 : 0)), // 추정
+  });
+
+  res.json({
+    eligible,
+    totalKills: row.total_kills,
+    minKillsRequired: MIN_KILLS,
+    rates: {
+      expPerSec:  Number(row.online_exp_rate.toFixed(2)),
+      goldPerSec: Number(row.online_gold_rate.toFixed(2)),
+      killsPerSec: Number(row.online_kill_rate.toFixed(3)),
+      dropsPerSec: Number(row.online_drop_rate.toFixed(3)),
+    },
+    perHour: previewFor(3600),
+    cap8h:   previewFor(8 * 3600),
+    cap24h:  previewFor(24 * 3600),
+  });
+});
+
 // 오프라인 전환 — 사용자가 명시적으로 클릭 시 호출.
 // last_offline_at = NOW() 기록 + 세션 정리 → 다음 진입 시 EMA 정산.
 // 계정당 오프라인 모드 캐릭 최대 2개 제한.

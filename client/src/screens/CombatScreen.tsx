@@ -283,16 +283,48 @@ export function CombatScreen() {
   }
 
   // 오프라인 전환 — 명시적 클릭 시 EMA 정산 대기. 계정당 최대 2캐릭.
+  // 클릭 직전 현재 EMA + 예상 보상 미리보기 → 보상 없는 케이스 사용자 혼동 방지.
   async function goOffline() {
     if (!active) return;
-    if (!confirm(
-      `오프라인 전환 — 이 캐릭은 사냥을 중단하고 최근 100초 평균 효율로\n` +
-      `다음 진입 시 자동 정산받습니다 (최대 24시간).\n\n` +
-      `· 계정당 최대 2캐릭만 오프라인 가능\n` +
-      `· 부스트는 정산 시점 활성 상태만 적용\n` +
-      `· 누적 300킬 미만 신규 캐릭은 정산 0\n\n` +
-      `진행하시겠습니까?`
-    )) return;
+    let preview: any = null;
+    try {
+      preview = await api(`/characters/${active.id}/combat/offline-preview`);
+    } catch { /* ignore — fallback to plain confirm */ }
+
+    const fmt = (n: number) => Math.round(n).toLocaleString();
+    let message: string;
+    if (preview) {
+      const eligibleLine = preview.eligible
+        ? '✓ 정산 가능'
+        : `✗ 보상 없음 (누적 ${preview.totalKills}/${preview.minKillsRequired}킬 또는 평균 효율 0)`;
+      message =
+        `오프라인 전환 — 정산 미리보기\n\n` +
+        `상태: ${eligibleLine}\n` +
+        `누적 처치: ${fmt(preview.totalKills)}킬\n\n` +
+        `현재 평균 효율 (최근 100초):\n` +
+        `· 경험치 ${preview.rates.expPerSec}/초\n` +
+        `· 골드   ${preview.rates.goldPerSec}/초\n` +
+        `· 처치   ${preview.rates.killsPerSec}/초\n` +
+        `· 드랍   ${preview.rates.dropsPerSec}/초\n\n` +
+        `예상 보상 (시간당):\n` +
+        `  EXP +${fmt(preview.perHour.exp)}, 골드 +${fmt(preview.perHour.gold)}, 처치 ${fmt(preview.perHour.kills)}\n` +
+        `8시간 누적: EXP +${fmt(preview.cap8h.exp)}, 골드 +${fmt(preview.cap8h.gold)}\n` +
+        `24시간 누적(상한): EXP +${fmt(preview.cap24h.exp)}, 골드 +${fmt(preview.cap24h.gold)}\n\n` +
+        `· 계정당 최대 2캐릭만 오프라인 가능\n` +
+        `· 부스트 적용 중엔 EMA 정지 (위 수치는 base 효율)\n` +
+        `· 사냥터 이동 시 EMA 리셋 — 새 사냥터에서 측정해야 함\n\n` +
+        (preview.eligible ? `진행하시겠습니까?` : `⚠️ 지금 전환 시 보상 0 — 그래도 진행하시겠습니까?`);
+    } else {
+      message =
+        `오프라인 전환 — 이 캐릭은 사냥을 중단하고 최근 100초 평균 효율로\n` +
+        `다음 진입 시 자동 정산받습니다 (최대 24시간).\n\n` +
+        `· 계정당 최대 2캐릭만 오프라인 가능\n` +
+        `· 부스트는 정산 시점 활성 상태만 적용\n` +
+        `· 누적 300킬 미만 신규 캐릭은 정산 0\n\n` +
+        `진행하시겠습니까?`;
+    }
+    if (!confirm(message)) return;
+
     try {
       await api(`/characters/${active.id}/combat/go-offline`, { method: 'POST' });
       await refreshActive();
