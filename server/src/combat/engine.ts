@@ -4007,14 +4007,57 @@ export function invalidateOfflineCharLimitCache(userId?: number): void {
 // 공유해 한 번만 실행.
 const startInFlight = new Map<number, Promise<void>>();
 
+// 같은 user 의 다른 캐릭 정리 — 한 계정 한 캐릭만 EXP 누적 강제.
+// 1) active 전투 세션은 보상 기록 없이 종료 (실시간 누적은 이미 DB 반영됨).
+// 2) last_offline_at 이 set 된 캐릭은 즉시 정산하여 누적 종료.
+async function endOtherCharsForUser(userId: number, currentCharId: number): Promise<void> {
+  // 1) 같은 user 의 active 전투 세션 자연 종료
+  const others: ActiveSession[] = [];
+  for (const [otherCharId, sess] of activeSessions) {
+    if (otherCharId === currentCharId) continue;
+    if (sess.userId !== userId) continue;
+    others.push(sess);
+  }
+  for (const sess of others) {
+    try {
+      await onSessionGoOffline(sess, { recordOfflineRewards: false });
+    } catch (e) {
+      console.error('[start-combat] end-other-active err', userId, sess.characterId, e);
+    }
+  }
+
+  // 2) 같은 user 의 오프라인 모드 캐릭 자동 정산
+  try {
+    const r = await query<{ id: number }>(
+      `SELECT id FROM characters
+        WHERE user_id = $1 AND id <> $2 AND last_offline_at IS NOT NULL`,
+      [userId, currentCharId]
+    );
+    if (r.rowCount && r.rowCount > 0) {
+      const { settleOfflineRewards } = await import('./offlineSettle.js');
+      for (const row of r.rows) {
+        try {
+          await settleOfflineRewards(row.id);
+        } catch (e) {
+          console.error('[start-combat] settle-other err', userId, row.id, e);
+        }
+      }
+      invalidateOfflineCharLimitCache(userId);
+    }
+  } catch (e) {
+    console.error('[start-combat] settle-others query err', userId, e);
+  }
+}
+
 export async function startCombatSession(
   characterId: number,
   fieldId: number,
-  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean }
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean },
+  opts?: { skipMultiCharCleanup?: boolean }
 ): Promise<void> {
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
-  const p = startCombatSessionInner(characterId, fieldId, guildBossOpts).finally(() => {
+  const p = startCombatSessionInner(characterId, fieldId, guildBossOpts, opts).finally(() => {
     startInFlight.delete(characterId);
   });
   startInFlight.set(characterId, p);
@@ -4024,13 +4067,24 @@ export async function startCombatSession(
 async function startCombatSessionInner(
   characterId: number,
   fieldId: number,
-  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean }
+  guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean },
+  opts?: { skipMultiCharCleanup?: boolean }
 ): Promise<void> {
   // 기존 세션 정리
   activeSessions.delete(characterId);
 
   const char = await loadCharacter(characterId);
   if (!char) throw new Error('character not found');
+
+  // 같은 계정의 다른 캐릭 정리 — 한 시점에 한 캐릭만 EXP 누적 (이중 보상 어뷰즈 차단).
+  // 어뷰즈 시나리오: 본캐 오프라인 모드 → 부캐로 전투 → 본캐 정산 시 부캐 전투 시간이
+  // 본캐 last_offline_at ~ NOW 구간에 그대로 누적되어 동일 wall clock 시간에 두 캐릭이
+  // 모두 EXP/골드를 받음. 새 전투 시작 시 (a) 같은 user 의 다른 active 세션 자연 종료,
+  // (b) 다른 캐릭의 last_offline_at 즉시 정산하여 NULL 로.
+  // restore (서버 재시작 복원) 호출은 skip — 의도적 다중 세션 복원이라 정리하면 안 됨.
+  if (!opts?.skipMultiCharCleanup) {
+    await endOtherCharsForUser(char.user_id, characterId);
+  }
 
   const fr = await query<{ name: string }>('SELECT name FROM fields WHERE id = $1', [fieldId]);
   const fieldName = fr.rows[0]?.name || '알 수 없는 필드';
@@ -4656,7 +4710,7 @@ export async function restoreCombatSessions(): Promise<void> {
       for (const row of active.rows) {
         try {
           if (activeSessions.has(row.character_id)) continue;
-          await startCombatSession(row.character_id, row.field_id);
+          await startCombatSession(row.character_id, row.field_id, undefined, { skipMultiCharCleanup: true });
           restored++;
         } catch (e) {
           failed++;
