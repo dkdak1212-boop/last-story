@@ -2350,8 +2350,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
   // 오프라인 시뮬 폐지 후 항상 onLine — 소환사 70% 분기는 사문화. threshold 그대로 사용.
   const healThresholdPct = s.autoPotionThreshold || 50;
   if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
-    const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
-    const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
+    const potionHealPct: Record<number, number> = { 108: 100, 106: 80, 104: 60, 102: 40, 100: 20 };
+    const pot = await getPotionInInventory(s.characterId, [108, 106, 104, 102, 100]);
     if (pot) {
       const pct = potionHealPct[pot.item_id] || 20;
       const heal = Math.round(s.playerMaxHp * pct / 100);
