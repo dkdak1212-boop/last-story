@@ -240,6 +240,18 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     }
     await client.query('COMMIT');
 
+    // 6.5) 레벨업 시 차원새싹상자 마일스톤 체크 (Lv.10/30/50/70/90/100).
+    //      온라인 사냥(engine.ts handleMonsterDeath) 과 동일 처리.
+    //      트랜잭션 밖에서 fire-and-forget — 우편 발송이라 멱등 가드(sprout_boxes_sent) 있음.
+    if (lvRes.levelsGained > 0) {
+      (async () => {
+        try {
+          const { checkSproutMilestones } = await import('../routes/sproutBox.js');
+          await checkSproutMilestones(charId, c.level, lvRes.newLevel);
+        } catch (e) { console.error('[offline-settle] sprout milestone fail', charId, e); }
+      })();
+    }
+
     // 7) 드랍 인벤 적재 — 트랜잭션 밖 (인벤토리 함수가 자체 트랜잭션 사용)
     //    온라인 시뮬과 동일한 드랍필터(common/티어/3옵 보호/접두사 보호) 적용.
     const filterRow = await query<{
