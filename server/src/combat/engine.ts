@@ -4007,18 +4007,26 @@ export function invalidateOfflineCharLimitCache(userId?: number): void {
 // 공유해 한 번만 실행.
 const startInFlight = new Map<number, Promise<void>>();
 
-// 같은 user 의 다른 active 전투 세션 종료 — 한 계정 동시 두 캐릭 active 사냥 차단.
-// 오프라인 모드 캐릭은 건드리지 않음 (계정당 최대 2캐릭 오프라인 누적 정책 보존).
+// 같은 user 의 동시 online 세션 상한 — 계정당 최대 3캐릭 active 허용.
+// 4번째 진입 시 가장 오래된 세션부터 종료 (recordOfflineRewards: false → 단순 정리).
+// 오프라인 모드 캐릭(last_offline_at SET) 은 active session 이 아니므로 영향 없음
+// (계정당 최대 2캐릭 오프라인 정책 별개로 보존).
 // 어뷰즈(본캐 오프라인 + 부캐 active 사냥) 차단은 settleOfflineRewards 가
-// active overlap 시간을 차감하는 방식으로 처리.
+// active overlap 시간을 차감하는 방식으로 처리 (active 가 여러 개여도 동시간 max 1개분 차감).
+const MAX_ONLINE_CHARS_PER_USER = 3;
 async function endOtherCharsForUser(userId: number, currentCharId: number): Promise<void> {
-  const others: ActiveSession[] = [];
+  const others: { sess: ActiveSession; startedAt: number }[] = [];
   for (const [otherCharId, sess] of activeSessions) {
     if (otherCharId === currentCharId) continue;
     if (sess.userId !== userId) continue;
-    others.push(sess);
+    others.push({ sess, startedAt: sessionStartedMap.get(otherCharId) ?? 0 });
   }
-  for (const sess of others) {
+  // 현재 char 포함 시 active 수가 상한을 넘으면 가장 오래된 것부터 종료.
+  const overflow = others.length + 1 - MAX_ONLINE_CHARS_PER_USER;
+  if (overflow <= 0) return;
+  others.sort((a, b) => a.startedAt - b.startedAt);
+  for (let i = 0; i < overflow; i++) {
+    const sess = others[i].sess;
     try {
       await onSessionGoOffline(sess, { recordOfflineRewards: false });
     } catch (e) {
@@ -4095,11 +4103,9 @@ async function startCombatSessionInner(
     }
   }
 
-  // 같은 계정의 다른 캐릭 정리 — 한 시점에 한 캐릭만 EXP 누적 (이중 보상 어뷰즈 차단).
-  // 어뷰즈 시나리오: 본캐 오프라인 모드 → 부캐로 전투 → 본캐 정산 시 부캐 전투 시간이
-  // 본캐 last_offline_at ~ NOW 구간에 그대로 누적되어 동일 wall clock 시간에 두 캐릭이
-  // 모두 EXP/골드를 받음. 새 전투 시작 시 (a) 같은 user 의 다른 active 세션 자연 종료,
-  // (b) 다른 캐릭의 last_offline_at 즉시 정산하여 NULL 로.
+  // 같은 계정의 동시 online 캐릭 상한 적용 — 최대 3캐릭까지 동시 active 허용.
+  // 초과 시 endOtherCharsForUser 가 가장 오래된 세션부터 정리.
+  // 본캐 오프라인 + 부캐 active 어뷰즈는 settleOfflineRewards 의 overlap 차감으로 처리.
   // restore (서버 재시작 복원) 호출은 skip — 의도적 다중 세션 복원이라 정리하면 안 됨.
   if (!opts?.skipMultiCharCleanup) {
     await endOtherCharsForUser(char.user_id, characterId);
