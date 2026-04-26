@@ -38,6 +38,7 @@ export interface OfflineRewardResult {
   goldGain?: number;
   killsInc?: number;
   drops?: { itemId: number; qty: number; itemName?: string }[];
+  filteredCount?: number;                    // 드랍필터로 자동 폐기된 장비 수
   newLevel?: number;
   levelsGained?: number;
 }
@@ -398,6 +399,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       goldGain,
       killsInc,
       drops: appliedDrops,
+      filteredCount,
       newLevel: lvRes.newLevel,
       levelsGained: lvRes.levelsGained,
     };
