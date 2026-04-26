@@ -21,9 +21,9 @@ import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
 // 시뮬 시절의 1.4 보정(자연효율 68% → 95%)을 그대로 적용하면 +40% 오버 인플레이션.
 // "딱 사냥속도에 맞게" 원칙 → 1.0 (정확 환산).
 const MULT = 1.0;
-const OFFLINE_CAP_SEC = 8 * 60 * 60;        // 8시간 상한
+const OFFLINE_CAP_SEC = 24 * 60 * 60;       // 24시간 상한
 const MIN_ELAPSED_SEC = 60;                 // 1분 미만은 스킵 (노이즈)
-const MIN_TOTAL_KILLS = 300;                // 표본 기준 — 100 은 1~2분 만에 채워지는 신규 캐릭이 들쭉날쭉 EMA 로 8h 정산받는 문제로 300 으로 상향
+const MIN_TOTAL_KILLS = 300;                // 표본 기준 — 100 은 1~2분 만에 채워지는 신규 캐릭이 들쭉날쭉 EMA 로 정산받는 문제로 300 으로 상향
 const MAX_DROP_COUNT = 50000;               // 드랍 추첨 폭주 가드
 const DROP_RATE_MULT = 0.1;                 // engine.ts 와 동일 (비유니크 기본 배율)
 

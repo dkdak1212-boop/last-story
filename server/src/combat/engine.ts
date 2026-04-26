@@ -388,7 +388,7 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
   try {
     if (onIds.length > 0) {
       // 부스트 적용 중인 EMA 갱신은 정지 — 부스트 받은 비율로 EMA 가 부풀려져
-      // 부스트 만료 후 8h 정산 시 +30~50% 오버 보상 발생하는 문제 차단.
+      // 부스트 만료 후 정산 시 +30~50% 오버 보상 발생하는 문제 차단.
       // 부스트 만료 후엔 자연스레 다시 갱신되어 base 효율로 수렴.
       await query(
         `UPDATE characters c SET
