@@ -15,7 +15,7 @@
 import { query, pool } from '../db/pool.js';
 import { applyExpGain } from '../game/leveling.js';
 import { addItemToInventory, type EquipPreroll } from '../game/inventory.js';
-import { getItemDef } from '../game/contentCache.js';
+import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
 
 // EMA 는 100ms tick 실측 기반이라 자체 효율 100%.
 // 시뮬 시절의 1.4 보정(자연효율 68% → 95%)을 그대로 적용하면 +40% 오버 인플레이션.
@@ -225,7 +225,29 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     await client.query('COMMIT');
 
     // 7) 드랍 인벤 적재 — 트랜잭션 밖 (인벤토리 함수가 자체 트랜잭션 사용)
+    //    온라인 시뮬과 동일한 드랍필터(common/티어/3옵 보호/접두사 보호) 적용.
+    const filterRow = await query<{
+      drop_filter_tiers: number;
+      drop_filter_common: boolean;
+      drop_filter_protect_prefixes: string[];
+      drop_filter_protect_3opt: boolean;
+    }>(
+      `SELECT COALESCE(drop_filter_tiers, 0)              AS drop_filter_tiers,
+              COALESCE(drop_filter_common, FALSE)         AS drop_filter_common,
+              COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
+              COALESCE(drop_filter_protect_3opt, TRUE)    AS drop_filter_protect_3opt
+         FROM characters WHERE id = $1`,
+      [charId]
+    );
+    const f = filterRow.rows[0];
+    const dfTiers   = f?.drop_filter_tiers ?? 0;
+    const dfCommon  = !!f?.drop_filter_common;
+    const dfProtect = new Set(f?.drop_filter_protect_prefixes ?? []);
+    const dfProtect3opt = f?.drop_filter_protect_3opt ?? true;
+    const hasDropFilter = dfTiers > 0 || dfCommon;
+
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
+    let filteredCount = 0;
     for (const d of drops) {
       try {
         const item = await getItemDef(d.itemId);
@@ -236,6 +258,27 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
           const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level || 1);
           const quality = Math.floor(Math.random() * 101);
           preroll = { prefixIds, bonusStats, maxTier, quality };
+
+          // 드랍필터 — 시뮬과 동일 로직. 유니크는 항상 통과.
+          if (hasDropFilter) {
+            // 일반등급 자동 버림
+            if (dfCommon && item.grade === 'common') { filteredCount++; continue; }
+            // 티어 필터 — 비트마스크 (1=T1, 2=T2, 4=T3, 8=T4)
+            if (dfTiers > 0) {
+              const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+              const dfTierMatch = (dfTiers & tierBit) !== 0;
+              const is3Options = prefixIds.length >= 3;
+              const protected3opt = is3Options && dfProtect3opt;
+              // 보호 접두사 검사
+              let protectStats: Set<string> | null = null;
+              if (prefixIds.length > 0 && dfProtect.size > 0) {
+                const keys = await getPrefixStatKeys(prefixIds);
+                protectStats = new Set(keys);
+              }
+              const dfHasProtected = !!(protectStats && [...protectStats].some(st => dfProtect.has(st)));
+              if (!protected3opt && !dfHasProtected && dfTierMatch) { filteredCount++; continue; }
+            }
+          }
         }
         const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined, preroll);
         if (overflow < d.qty) {
@@ -244,6 +287,9 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       } catch (e) {
         console.error('[offline-settle] drop apply err', charId, d, e);
       }
+    }
+    if (filteredCount > 0) {
+      console.log(`[offline-settle] char ${charId}: 드랍필터로 ${filteredCount}개 자동 버림`);
     }
 
     return {
