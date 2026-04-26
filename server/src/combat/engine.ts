@@ -2539,7 +2539,15 @@ function monsterAction(s: ActiveSession): void {
       return;
     }
 
-    // 실드 체크 — 여러 실드가 중첩된 경우 순차 흡수
+    // 시공의 균열(field 23) + 성직자 한정: 데미지의 50% 는 쉴드 무시 본체 직격.
+    // 무한 쉴드 빌드로 무적이 되는 문제 방지. 나머지 50% 만 정상 쉴드 흡수 흐름.
+    let bypassShieldDmg = 0;
+    if (s.fieldId === 23 && s.className === 'cleric' && dmg > 0) {
+      bypassShieldDmg = Math.ceil(dmg * 0.5);
+      dmg -= bypassShieldDmg;
+    }
+
+    // 실드 체크 — 여러 실드가 중첩된 경우 순차 흡수 (균열-cleric 시 쉴드 통과분만)
     const shields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
     if (shields.length > 0 && dmg > 0) {
       let absorbed = 0;
@@ -2562,6 +2570,12 @@ function monsterAction(s: ActiveSession): void {
       } else {
         addLog(s, `실드 ${absorbed} 흡수 후 파괴! 잔여 ${dmg} 데미지`);
       }
+    }
+
+    // 균열-cleric 본체 직격분을 데미지에 합산 (쉴드 처리 이후)
+    if (bypassShieldDmg > 0) {
+      dmg += bypassShieldDmg;
+      addLog(s, `[균열 보정] 본체 ${bypassShieldDmg} 직격 (쉴드 무시 50%)`);
     }
 
     // 감소 전 원본 데미지 기억 — 총 감소율 70% 상한 (= 최소 원본의 30% 피해)
