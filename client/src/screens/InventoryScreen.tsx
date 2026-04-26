@@ -747,8 +747,8 @@ export function InventoryScreen() {
                       </span>
                     );
                   })()}
-                  {/* 헤더 행 */}
-                  <div className="inv-item-header" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {/* 헤더 행 — 우측 absolute 라벨(품질·잠금) 영역 확보용 paddingRight */}
+                  <div className="inv-item-header" style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 80 }}>
                     <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
@@ -824,8 +824,21 @@ export function InventoryScreen() {
                     return (
                     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                       {isEquipment && (
-                        <div style={{ fontSize: 10, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)', marginBottom: 6 }}>
-                          {SLOT_LABEL[s.item.slot!]} · Lv.{requiredLevel}{levelTooLow ? ' (레벨 부족)' : ''}
+                        <div style={{ fontSize: 10, color: levelTooLow ? 'var(--danger)' : 'var(--text-dim)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span>{SLOT_LABEL[s.item.slot!]} · Lv.{requiredLevel}{levelTooLow ? ' (레벨 부족)' : ''}</span>
+                          <span style={{
+                            padding: '1px 6px',
+                            background: (GRADE_COLOR as any)[s.item.grade] + '22',
+                            border: `1px solid ${(GRADE_COLOR as any)[s.item.grade]}`,
+                            color: (GRADE_COLOR as any)[s.item.grade],
+                            borderRadius: 2,
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: 0.3,
+                          }}>{(GRADE_LABEL as any)[s.item.grade] || s.item.grade}</span>
+                          {(s as any).quality !== undefined && (
+                            <span style={{ color: '#aaccff' }}>· 품질 {(s as any).quality}%</span>
+                          )}
                         </div>
                       )}
 
