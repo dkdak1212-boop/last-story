@@ -354,10 +354,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             }
           }
         }
-        // mailOnOverflow 설정 — 인벤 가득 시 overflow 분이 그냥 사라지지 않도록
-        // 우편으로 자동 발송. (이전엔 undefined 라 잃어버림)
-        const mailOpt = { subject: '오프라인 보상 (인벤토리 가득)', body: '인벤토리에 들어가지 못한 보상입니다.' };
-        const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, mailOpt, preroll);
+        const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined, preroll);
         if (overflow < d.qty) {
           appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item?.name });
         }
