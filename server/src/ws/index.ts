@@ -133,8 +133,28 @@ export function initWebSocket(httpServer: HttpServer) {
     // 전투 채널 구독 — 세션 없으면 자동 복원 (배포 후 재접속 시 세션 휘발 복구).
     // 단, 오프라인 모드(last_offline_at != NULL) 인 캐릭은 자동 시작 안 함 — 사용자가
     // "오프라인 사냥 중단" 버튼으로 명시 정산해야 사냥 재개.
+    //
+    // [한 캐릭 동시 접속 차단] 같은 characterId 로 다른 소켓이 이미 subscribe 중이면
+    // 이전 소켓들을 강제 disconnect ("최후 접속 우선" 정책). 여러 브라우저/탭으로
+    // 같은 캐릭 동시 접속해 사냥 중복하는 어뷰즈 차단. 자기 자신(같은 socket id)
+    // 은 제외. 같은 user 가 다른 캐릭(부캐) 으로 subscribe 하는 건 정상이므로
+    // characterId 가 동일할 때만 disconnect.
     socket.on('combat:subscribe', async (characterId: number) => {
+      // 같은 캐릭으로 subscribe 한 다른 소켓 정리
+      for (const [, other] of io.sockets.sockets) {
+        if (other.id === socket.id) continue;
+        if (other.data.subscribedCharId === characterId) {
+          try {
+            other.emit('session:kicked', {
+              reason: '같은 캐릭터로 다른 곳에서 접속하여 이 세션이 종료되었습니다.',
+            });
+          } catch {}
+          other.disconnect(true);
+        }
+      }
+      socket.data.subscribedCharId = characterId;
       socket.join(`combat:${characterId}`);
+
       try {
         const { activeSessions, startCombatSession } = await import('../combat/engine.js');
         if (activeSessions.has(characterId)) return;
@@ -157,6 +177,9 @@ export function initWebSocket(httpServer: HttpServer) {
 
     socket.on('combat:unsubscribe', (characterId: number) => {
       socket.leave(`combat:${characterId}`);
+      if (socket.data.subscribedCharId === characterId) {
+        socket.data.subscribedCharId = undefined;
+      }
     });
 
     // 전투 자동/수동 토글
