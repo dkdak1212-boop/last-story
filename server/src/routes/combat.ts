@@ -282,6 +282,15 @@ router.post('/:id/combat/go-offline', async (req: AuthedRequest, res: Response) 
   const sess = activeSessions.get(id);
   if (!sess) return res.status(400).json({ error: '전투 중이 아닙니다.' });
 
+  // 시공의 균열(23) 은 입장권(1시간) 기반 컨텐츠 — 오프라인 누적 불가
+  if (sess.fieldId === 23) {
+    return res.status(400).json({ error: '시공의 균열에서는 오프라인 전환이 불가능합니다.' });
+  }
+  // 길드보스도 시간 제한 컨텐츠 — 오프라인 불가
+  if (sess.guildBossRunId) {
+    return res.status(400).json({ error: '길드 보스에서는 오프라인 전환이 불가능합니다.' });
+  }
+
   // 계정당 오프라인 모드 캐릭 갯수 체크 (자기 자신 제외, max 2)
   const cntR = await query<{ n: number }>(
     `SELECT COUNT(*)::int AS n

@@ -608,7 +608,7 @@ export function CombatScreen() {
           >
             {state.autoMode ? '자동' : '수동'}
           </button>
-          {!state.guildBossRunId && (
+          {!state.guildBossRunId && state.fieldName !== '시공의 균열' && (
             <button
               onClick={goOffline}
               title="오프라인 보상 누적 시작 (계정당 최대 2캐릭)"
