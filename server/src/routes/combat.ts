@@ -186,7 +186,26 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
     const fieldId = parseInt(char.location.slice(6), 10);
     if (!Number.isNaN(fieldId) && fieldId > 0) {
       try {
-        await startCombatSession(id, fieldId);
+        // 길드보스(field 999)는 일반 startCombatSession 이 아닌 active run 기반 복원.
+        // 일반 호출 시 999의 monster_pool 비어 monster=null 로 "적을 찾는 중" 무한 표시.
+        if (fieldId === 999) {
+          const runR = await query<{ id: string; boss_id: number }>(
+            `SELECT id::text, boss_id FROM guild_boss_runs
+              WHERE character_id = $1 AND ended_at IS NULL
+              ORDER BY started_at DESC LIMIT 1`,
+            [id]
+          );
+          if (runR.rowCount) {
+            const { startGuildBossCombatSession } = await import('../combat/engine.js');
+            const { getBossById } = await import('../combat/guildBossHelpers.js');
+            const boss = await getBossById(runR.rows[0].boss_id);
+            if (boss) {
+              await startGuildBossCombatSession(id, runR.rows[0].id, boss);
+            }
+          }
+        } else {
+          await startCombatSession(id, fieldId);
+        }
         snapshot = await getCombatSnapshot(id);
       } catch (e) { console.error('[combat] auto-restart fail', id, e); }
     }
