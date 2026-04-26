@@ -130,19 +130,21 @@ export function initWebSocket(httpServer: HttpServer) {
       ipToUserIds.get(ip)!.add(socket.data.userId);
     }
 
-    // 전투 채널 구독 — 세션 없으면 자동 복원 (배포 후 재접속 시 세션 휘발 복구)
+    // 전투 채널 구독 — 세션 없으면 자동 복원 (배포 후 재접속 시 세션 휘발 복구).
+    // 단, 오프라인 모드(last_offline_at != NULL) 인 캐릭은 자동 시작 안 함 — 사용자가
+    // "오프라인 사냥 중단" 버튼으로 명시 정산해야 사냥 재개.
     socket.on('combat:subscribe', async (characterId: number) => {
       socket.join(`combat:${characterId}`);
       try {
         const { activeSessions, startCombatSession } = await import('../combat/engine.js');
-        // 이미 세션 있으면 재구독 DB 쿼리 스킵 (재연결 스톰 시 부하 감소)
         if (activeSessions.has(characterId)) return;
-        // 캐릭터가 여전히 field:X 에 있으면 세션 복원
-        const r = await query<{ user_id: number; location: string }>(
-          'SELECT user_id, location FROM characters WHERE id = $1', [characterId]
+        const r = await query<{ user_id: number; location: string; last_offline_at: string | null }>(
+          'SELECT user_id, location, last_offline_at FROM characters WHERE id = $1', [characterId]
         );
         const row = r.rows[0];
-        if (row && row.user_id === socket.data.userId && row.location && row.location.startsWith('field:')) {
+        if (!row || row.user_id !== socket.data.userId) return;
+        if (row.last_offline_at) return; // 오프라인 모드 — 자동 세션 시작 차단
+        if (row.location && row.location.startsWith('field:')) {
           const fid = parseInt(row.location.slice(6), 10);
           if (!Number.isNaN(fid) && fid > 0) {
             await startCombatSession(characterId, fid);
