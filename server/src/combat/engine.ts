@@ -3306,9 +3306,42 @@ async function onSessionGoOffline(s: ActiveSession): Promise<void> {
   const fieldId = s.fieldId;
   // 누적 배치 먼저 flush — 마지막 100ms 분량의 exp/gold/kill/drop 누락 방지
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
+
+  // 소환사: 소환수/쿨다운 보존 — startCombatSession 이 다음 진입 시 status_effects 에서 복원함
+  // (combat_sessions 행 유지, status_effects 만 갱신)
+  if (s.className === 'summoner') {
+    try {
+      const summons = s.statusEffects.filter(e =>
+        e.type === 'summon' && e.source === 'player' && e.remainingActions > 0
+      );
+      const cooldowns: Record<string, number> = {};
+      for (const [skId, cd] of s.skillCooldowns) {
+        if (cd > 0) cooldowns[String(skId)] = cd;
+      }
+      await query(
+        `UPDATE combat_sessions
+            SET status_effects = $1::jsonb,
+                skill_cooldowns = $2::jsonb,
+                last_tick_at = NOW()
+          WHERE character_id = $3`,
+        [JSON.stringify(summons), JSON.stringify(cooldowns), charId]
+      );
+    } catch (e) {
+      console.error('[offline-go] summon persist err', charId, e);
+    }
+  } else {
+    // 비소환사: 세션 행 정리
+    try {
+      await query(`DELETE FROM combat_sessions WHERE character_id = $1`, [charId]);
+    } catch (e) {
+      console.error('[offline-go] delete err', charId, e);
+    }
+  }
+
   activeSessions.delete(charId);
   sessionStartedMap.delete(charId);
   sessionLastTickAt.delete(charId);
+
   try {
     await query(
       `UPDATE characters
@@ -3317,7 +3350,6 @@ async function onSessionGoOffline(s: ActiveSession): Promise<void> {
         WHERE id = $1`,
       [charId, fieldId]
     );
-    await query(`DELETE FROM combat_sessions WHERE character_id = $1`, [charId]);
   } catch (e) {
     console.error('[offline-go] persist err', charId, e);
   }
