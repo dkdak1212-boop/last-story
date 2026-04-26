@@ -35,7 +35,8 @@ export function applyExpGain(
   currentLevel: number,
   currentExp: number,
   expGained: number,
-  _className: string = 'warrior'
+  _className: string = 'warrior',
+  maxLevelCap: number = 100,
 ): LevelUpResult {
   let level = currentLevel;
   let exp = currentExp + expGained;
@@ -43,13 +44,16 @@ export function applyExpGain(
   let nodePointsGained = 0;
   let statPointsGained = 0;
 
-  while (level < 100 && exp >= expToNext(level)) {
+  // maxLevelCap: 일반 사냥은 100, 오프라인 정산의 신규 이벤트 캐릭은 95(이벤트 max_level)
+  // cap 도달 시 잔여 EXP 버림 (cap 레벨에서 멈춤).
+  while (level < maxLevelCap && exp >= expToNext(level)) {
     exp -= expToNext(level);
     level += 1;
     hpGained += HP_PER_LEVEL;
     nodePointsGained += 1;
     statPointsGained += STAT_POINTS_PER_LEVEL;
   }
+  if (level >= maxLevelCap) exp = 0; // cap 시 exp 0 으로 잘라
 
   return {
     newLevel: level,

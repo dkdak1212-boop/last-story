@@ -211,9 +211,13 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       ? await sampleDropsFromField(c.last_field_id_offline, killsInc, dropMult)
       : [];
 
-    // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용)
+    // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용).
+    //    신규 이벤트 캐릭(event_exp_max_level set, 보통 95)은 오프라인 정산에서
+    //    그 레벨까지만 cap. 이후 레벨은 사용자가 직접 사냥하도록 (이벤트 종료 후 EMA 재측정).
     const expInt = Math.floor(expGainRaw);
-    const lvRes = applyExpGain(c.level, c.exp, expInt, c.class_name);
+    const eventCap = (c.event_exp_max_level !== null && c.level < c.event_exp_max_level)
+      ? c.event_exp_max_level : 100;
+    const lvRes = applyExpGain(c.level, c.exp, expInt, c.class_name, eventCap);
 
     // 6) characters UPDATE — 레벨업 시 hp 회복까지 처리
     if (lvRes.levelsGained > 0) {
