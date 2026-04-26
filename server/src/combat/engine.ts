@@ -3532,9 +3532,9 @@ async function combatTick(): Promise<void> {
           await autoAction(s);
         }
         s.paragonCrystalActive = prevCrystal;
-        // #14 paragon_pain_lord — 자가 도트 매 행동 max_hp 15%
+        // #14 paragon_pain_lord — 자가 도트 매 행동 max_hp 8% (15 → 8 완화)
         if (getPassive(s, 'paragon_pain_lord') > 0) {
-          const selfDmg = Math.round(s.playerMaxHp * 0.15);
+          const selfDmg = Math.round(s.playerMaxHp * 0.08);
           s.playerHp = Math.max(0, s.playerHp - selfDmg);
           addLog(s, `[고통의 군주] 자가 도트 −${selfDmg}`);
         }
