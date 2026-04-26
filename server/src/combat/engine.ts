@@ -235,8 +235,14 @@ interface ActiveSession {
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
   guildBossPractice: boolean; // true면 연습 모드 — 딜 누적/보상 스킵, 규칙(디버프 면역 등)은 동일 적용
-  guildBossDmgBuffer: number; // flush 전 누적 raw 데미지
-  guildBossHitsBuffer: number; // flush 전 누적 타격 수
+  guildBossDmgBuffer: number; // flush 전 누적 raw 데미지 (element 무관 합산 — 호환용)
+  guildBossHitsBuffer: number; // flush 전 누적 타격 수 (element 무관 합산 — 호환용)
+  // Element 별 데미지 분리 누적 — 화염의 군주 element_immune / 천공의 용 random_weakness
+  // 등 element 메커닉이 정확히 동작하도록. flush 시 element 별 applyDamageToRun 호출.
+  guildBossDmgByElement: Record<string, { dmg: number; hits: number }>;
+  // 현재 액션의 주력 element — runPlayerAction 진입 시 null 리셋, 첫 executeSkill 의
+  // skill.element 로 set. 그 액션 안의 multi_hit / 추가 발동 도 같은 element 로 누적.
+  currentActionElement: string | null;
   guildBossStartedAt: number; // 광분 타이머 기준 (unix ms, 0이면 미사용)
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
@@ -1261,6 +1267,11 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
 
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
+
+  // 길드 보스 — 현재 액션의 주력 element 추적 (첫 스킬만, 이후 추가 발동은 동일 처리)
+  if (s.guildBossRunId && s.currentActionElement === null && skill.element) {
+    s.currentActionElement = skill.element;
+  }
 
   tryPoisonResonanceBurst(s);
 
@@ -3063,30 +3074,43 @@ function isDummyMonster(s: ActiveSession): boolean {
   return !!s.monsterName && s.monsterName.startsWith('허수아비');
 }
 
-// 길드 보스 데미지 flush — 버퍼를 DB에 반영하고 메커닉 적용
+// 길드 보스 데미지 flush — element 별 분리 누적을 element 별로 applyDamageToRun 호출.
+// 화염의 군주 fire 면역 / 천공의 용 random_weakness / 차원의 지배자 ATK/MATK 페이즈 등
+// 모든 메커닉이 element 인자를 통해 정확히 적용되도록.
 async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   if (!s.guildBossRunId) return;
   // 연습 모드: 딜 집계·DB 반영 전부 스킵 (버퍼만 초기화)
   if (s.guildBossPractice) {
     s.guildBossDmgBuffer = 0;
     s.guildBossHitsBuffer = 0;
+    s.guildBossDmgByElement = {};
     return;
   }
   if (s.guildBossDmgBuffer <= 0 && s.guildBossHitsBuffer <= 0) return;
-  const dmg = s.guildBossDmgBuffer;
-  const hits = s.guildBossHitsBuffer;
+
+  const byElement = s.guildBossDmgByElement;
   s.guildBossDmgBuffer = 0;
   s.guildBossHitsBuffer = 0;
+  s.guildBossDmgByElement = {};
+
+  // damageType — 클래스 기반 분류. 차원의 지배자 ATK/MATK 교대 면역 메커닉.
+  //   mage/cleric/summoner = magical, warrior/rogue = physical
+  const dmgType: 'physical' | 'magical' =
+    (s.className === 'mage' || s.className === 'cleric' || s.className === 'summoner') ? 'magical' : 'physical';
+
   try {
-    // damageType — 클래스 기반 분류. 차원의 지배자 ATK/MATK 교대 면역 메커닉이 의도대로 작동하도록.
-    //   mage/cleric/summoner = magical (INT 베이스 / 소환수 INT 기반 데미지)
-    //   warrior/rogue = physical (STR/DEX 베이스)
-    // (스킬 단위 분류는 추후 개선 — 도적 일부 마법 도트 / 전사 일부 마법 효과 등)
-    const dmgType: 'physical' | 'magical' =
-      (s.className === 'mage' || s.className === 'cleric' || s.className === 'summoner') ? 'magical' : 'physical';
-    const r = await applyDamageToRun(s.guildBossRunId, dmg, hits, { damageType: dmgType, element: null, isDot: false });
-    if (r.applied.length > 0) {
-      addLog(s, `[보스] ${r.applied.join(' · ')} → ${r.effective}`);
+    for (const [elKey, buf] of Object.entries(byElement)) {
+      if (buf.dmg <= 0 && buf.hits <= 0) continue;
+      const element: string | null = elKey === 'neutral' ? null : elKey;
+      const r = await applyDamageToRun(
+        s.guildBossRunId,
+        buf.dmg,
+        buf.hits,
+        { damageType: dmgType, element, isDot: false }
+      );
+      if (r.applied.length > 0) {
+        addLog(s, `[보스] ${r.applied.join(' · ')} → ${r.effective}`);
+      }
     }
   } catch (e) {
     console.error('[guild-boss] flush fail', e);
@@ -3474,6 +3498,8 @@ async function combatTick(): Promise<void> {
         s.paragonActionCount++;
         // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 50% cap 다시 적용)
         s.gaugeOnCritGainedThisAction = 0;
+        // 길드보스 element 추적 리셋 — 매 액션 첫 스킬 element 만 사용
+        s.currentActionElement = null;
         // #13 paragon_time_crystal — 매 10번째 행동 ×3 데미지 + 추가 1회 행동
         const crystalActive = getPassive(s, 'paragon_time_crystal') > 0 && s.paragonActionCount % 10 === 0;
         // #6 paragon_time_master — 쿨다운 −70% (감소량 +1, +2 추가). 매 액션마다 추가 감소.
@@ -3510,7 +3536,12 @@ async function combatTick(): Promise<void> {
         const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
         if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
         if (s.guildBossRunId && dealtThisAction > 0) {
-          // 버퍼만 누적, flush 는 1초 interval(아래 setInterval)이 담당해 DB 쓰기 부하 낮춤
+          // 버퍼 누적 — element 별 분리 + 호환용 합산 둘 다 갱신.
+          // flush 는 1초 interval(아래 setInterval)이 담당해 DB 쓰기 부하 낮춤.
+          const elKey = s.currentActionElement || 'neutral';
+          if (!s.guildBossDmgByElement[elKey]) s.guildBossDmgByElement[elKey] = { dmg: 0, hits: 0 };
+          s.guildBossDmgByElement[elKey].dmg += dealtThisAction;
+          s.guildBossDmgByElement[elKey].hits += 1;
           s.guildBossDmgBuffer += dealtThisAction;
           s.guildBossHitsBuffer += 1;
         }
@@ -4067,6 +4098,8 @@ async function startCombatSessionInner(
     guildBossPractice: guildBossOpts?.practice ?? false,
     guildBossDmgBuffer: 0,
     guildBossHitsBuffer: 0,
+    guildBossDmgByElement: {},
+    currentActionElement: null,
     guildBossStartedAt: guildBossOpts ? Date.now() : 0,
   };
 
