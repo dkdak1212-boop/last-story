@@ -1555,7 +1555,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const bladeStormAmp = getPassive(s, 'blade_storm_amp');
       const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
-      const hitMult = multiAmp > 0 ? baseChain * (1 + multiAmp / 100) : baseChain;
+      // multi_hit_amp_pct 는 hit_mult 가 아니라 최종 데미지에 적용 (아래 dmg × (1+multiAmp/100)).
+      // 이전엔 damage_mult 에만 곱해져 신의 타격/천상 강림처럼 damage_mult=0 + flat 베이스인
+      // 스킬에 효과가 없었음. 이제 mult/flat 모두 동일하게 +multiAmp% 보강.
+      const hitMult = baseChain;
       let firstLandedHit = true;
       let landedCount = 0;
       // 신의 타격: 본인 최대 HP × 50 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
@@ -1594,6 +1597,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               consumeOneShot: firstLandedHit,
               skillName: skill.name,
             });
+            // 다단 효과 강화 — damage_mult 와 flat 데미지 모두에 동일 비율로 적용
+            if (multiAmp > 0) dmg = Math.round(dmg * (1 + multiAmp / 100));
             firstLandedHit = false;
             landedCount++;
             s.monsterHp -= dmg;
