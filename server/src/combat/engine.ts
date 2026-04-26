@@ -246,8 +246,9 @@ interface ActiveSession {
   paragonCrystalActive: boolean; // #13 시간의 결정: 현재 액션이 10번째 (applyDamagePrefixes 가 ×3 적용)
   paragonSelfDotTickAt: number; // #14 고통의 군주: 자가 도트 직전 적용 시각 (ms)
   // 다단히트가 매 타마다 gauge_on_crit_pct 로 게이지 충전을 누적해 가우지가 영구 100% 정체되는 버그 차단.
-  // runPlayerAction 시작 시 false 로 리셋, 첫 크리 후 true. 액션당 1회만 적용.
-  gaugeOnCritUsedThisAction: boolean;
+  // 한 액션 내 누적 게이지 회수량을 추적해 GAUGE_MAX*0.5 (=500) 상한 도달 시 차단.
+  // 다단히트도 매 hit 발동 가능 — 단 50% cap 으로 정체 불가능.
+  gaugeOnCritGainedThisAction: number;
   // ── 110 몬스터 스킬 시스템 ──
   monsterSkillCooldowns: Map<string, number>; // key=skill.id, value=남은 액션 수 (0 시 발동 가능)
   monsterDrPct: number;                       // 현재 몬스터 받는 데미지 감쇠 % (0~100)
@@ -1021,13 +1022,19 @@ function getCritDmgBonus(s: ActiveSession): number {
 // hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
 function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
   if (!crit) return;
-  // gauge_on_crit_pct — 액션당 1회만 발동 (다단히트 모든 타에서 누적되어 게이지 영구 100% 정체 버그 차단)
+  // gauge_on_crit_pct — 다단히트도 매 hit 발동 허용. 단 한 액션 내 누적 회수량 cap 50%.
+  // 영구 100% 정체 버그 방지(상한 < 100%) + 다단히트 보너스 보존.
   const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
-  if (gaugeOnCrit > 0 && !s.gaugeOnCritUsedThisAction) {
-    const gain = Math.min(GAUGE_MAX * 0.5, GAUGE_MAX * gaugeOnCrit / 100);
-    s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-    s.gaugeOnCritUsedThisAction = true;
-    addLog(s, `[재충전] ${hitLabel ? hitLabel + ' ' : ''}게이지 +${Math.min(50, gaugeOnCrit)}%`);
+  if (gaugeOnCrit > 0) {
+    const cap = GAUGE_MAX * 0.5; // 500
+    const remaining = cap - s.gaugeOnCritGainedThisAction;
+    if (remaining > 0) {
+      const want = GAUGE_MAX * gaugeOnCrit / 100;
+      const gain = Math.min(remaining, want);
+      s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
+      s.gaugeOnCritGainedThisAction += gain;
+      addLog(s, `[재충전] ${hitLabel ? hitLabel + ' ' : ''}게이지 +${Math.round(gain / GAUGE_MAX * 100)}%`);
+    }
   }
   const critLifesteal = getPassive(s, 'crit_lifesteal');
   if (critLifesteal > 0 && dmg > 0 && !s.monsterLifestealImmune) {
@@ -3465,8 +3472,8 @@ async function combatTick(): Promise<void> {
         s.playerGauge -= gaugeCost;
         s.actionCount++;
         s.paragonActionCount++;
-        // gauge_on_crit_pct: 액션당 1회만 발동 — 시작 시 플래그 리셋
-        s.gaugeOnCritUsedThisAction = false;
+        // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 50% cap 다시 적용)
+        s.gaugeOnCritGainedThisAction = 0;
         // #13 paragon_time_crystal — 매 10번째 행동 ×3 데미지 + 추가 1회 행동
         const crystalActive = getPassive(s, 'paragon_time_crystal') > 0 && s.paragonActionCount % 10 === 0;
         // #6 paragon_time_master — 쿨다운 −70% (감소량 +1, +2 추가). 매 액션마다 추가 감소.
@@ -4023,7 +4030,7 @@ async function startCombatSessionInner(
     paragonActionCount: 0,
     paragonCrystalActive: false,
     paragonSelfDotTickAt: 0,
-    gaugeOnCritUsedThisAction: false,
+    gaugeOnCritGainedThisAction: 0,
     monsterSkillCooldowns: new Map<string, number>(),
     monsterDrPct: 0,
     monsterCcImmune: false,
