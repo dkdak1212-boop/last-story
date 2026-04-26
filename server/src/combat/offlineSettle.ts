@@ -51,6 +51,17 @@ interface CharRates {
   online_drop_rate: number;
   last_offline_at: string | null;
   last_field_id_offline: number | null;
+  // 부스트 (정산 시점 active 면 곱연산 적용 — EMA 는 base 효율 보존 정책)
+  exp_boost_until: string | null;
+  gold_boost_until: string | null;
+  drop_boost_until: string | null;
+  event_exp_until: string | null;
+  event_exp_pct: number;
+  event_exp_max_level: number | null;
+  event_drop_until: string | null;
+  event_drop_pct: number;
+  personal_exp_mult: number;
+  personal_exp_mult_max_level: number | null;
 }
 
 // 필드 몬스터·드랍 캐시 (60초 TTL).
@@ -97,8 +108,9 @@ async function getFieldMonsters(fieldId: number): Promise<FieldMonsterCache | nu
 
 // killsInc 번의 가상 킬을 시뮬레이션하여 드랍 추출.
 // 원본 rollDrops 와 동일한 multi-Bernoulli — 비유니크 ×0.1, 유니크 그대로.
+// dropMult: 정산 시점 active 인 드랍부스트/이벤트 합산 배율 (chance 에 곱연산).
 // 균등 몬스터 추첨(필드 monster_pool 1/N) 가정.
-async function sampleDropsFromField(fieldId: number, killsInc: number): Promise<{ itemId: number; qty: number }[]> {
+async function sampleDropsFromField(fieldId: number, killsInc: number, dropMult: number = 1): Promise<{ itemId: number; qty: number }[]> {
   if (killsInc <= 0) return [];
   const cache = await getFieldMonsters(fieldId);
   if (!cache || cache.monsters.length === 0) return [];
@@ -110,7 +122,9 @@ async function sampleDropsFromField(fieldId: number, killsInc: number): Promise<
     for (const d of m.drop_table) {
       const isUnique = uniques.has(d.itemId);
       const rateMult = isUnique ? 1.0 : DROP_RATE_MULT;
-      if (Math.random() < d.chance * rateMult) {
+      // chance × rateMult × dropMult 가 1 초과 시 1 로 cap (확률 의미 보존)
+      const prob = Math.min(1, d.chance * rateMult * dropMult);
+      if (Math.random() < prob) {
         const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
         if (qty > 0) out.set(d.itemId, (out.get(d.itemId) ?? 0) + qty);
       }
@@ -123,14 +137,18 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // 1) row lock + 현재 상태 조회
+    // 1) row lock + 현재 상태 조회 (부스트 컬럼 포함)
     const r = await client.query<CharRates>(
       `SELECT id, level, exp, class_name, total_kills,
               COALESCE(online_exp_rate, 0)::float8  AS online_exp_rate,
               COALESCE(online_gold_rate, 0)::float8 AS online_gold_rate,
               COALESCE(online_kill_rate, 0)::float8 AS online_kill_rate,
               COALESCE(online_drop_rate, 0)::float8 AS online_drop_rate,
-              last_offline_at, last_field_id_offline
+              last_offline_at, last_field_id_offline,
+              exp_boost_until, gold_boost_until, drop_boost_until,
+              event_exp_until, COALESCE(event_exp_pct, 0)::int AS event_exp_pct, event_exp_max_level,
+              event_drop_until, COALESCE(event_drop_pct, 0)::int AS event_drop_pct,
+              COALESCE(personal_exp_mult, 1)::float8 AS personal_exp_mult, personal_exp_mult_max_level
          FROM characters WHERE id = $1 FOR UPDATE`,
       [charId]
     );
@@ -162,15 +180,30 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
 
     const elapsedCapped = Math.min(elapsedSec, OFFLINE_CAP_SEC);
 
-    // 3) 산정
-    const expGainRaw  = c.online_exp_rate  * elapsedCapped * MULT;
-    const goldGain    = Math.floor(c.online_gold_rate * elapsedCapped * MULT);
-    const killsInc    = Math.floor(c.online_kill_rate * elapsedCapped);
+    // 3) 정산 시점 부스트 곱연산 (EMA 가 base 효율이라 부스트 active 시 별도 적용)
+    const nowMs = Date.now();
+    const isActiveAt = (s: string | null) => !!(s && new Date(s).getTime() > nowMs);
+    const expBoostMul   = isActiveAt(c.exp_boost_until)  ? 1.5 : 1;
+    const goldBoostMul  = isActiveAt(c.gold_boost_until) ? 1.5 : 1;
+    const dropBoostMul  = isActiveAt(c.drop_boost_until) ? 1.5 : 1;
+    const eventExpActive = isActiveAt(c.event_exp_until)
+      && (c.event_exp_max_level == null || c.level < c.event_exp_max_level);
+    const eventExpMul    = eventExpActive ? 1 + c.event_exp_pct / 100 : 1;
+    const eventDropMul   = isActiveAt(c.event_drop_until) ? 1 + c.event_drop_pct / 100 : 1;
+    const personalExpActive = (c.personal_exp_mult || 1) > 1
+      && (c.personal_exp_mult_max_level == null || c.level < c.personal_exp_mult_max_level);
+    const personalExpMul = personalExpActive ? c.personal_exp_mult : 1;
 
-    // 4) 드랍 — killsInc 가상 킬 시뮬 (multi-Bernoulli, 원본 rollDrops 와 동일 분포)
+    // 4) 산정
+    const expGainRaw  = c.online_exp_rate  * elapsedCapped * MULT * expBoostMul * eventExpMul * personalExpMul;
+    const goldGain    = Math.floor(c.online_gold_rate * elapsedCapped * MULT * goldBoostMul);
+    const killsInc    = Math.floor(c.online_kill_rate * elapsedCapped);
+    const dropMult    = dropBoostMul * eventDropMul;
+
+    // 5) 드랍 — killsInc 가상 킬 시뮬 (multi-Bernoulli, 원본 rollDrops 와 동일 분포)
     //    online_drop_rate 는 EMA 통계용으로만 유지, 정산 추첨엔 사용 안 함 (인플레 방지).
     const drops = c.last_field_id_offline
-      ? await sampleDropsFromField(c.last_field_id_offline, killsInc)
+      ? await sampleDropsFromField(c.last_field_id_offline, killsInc, dropMult)
       : [];
 
     // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용)
