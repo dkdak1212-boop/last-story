@@ -312,6 +312,14 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const dfProtect3opt = f?.drop_filter_protect_3opt ?? true;
     const hasDropFilter = dfTiers > 0 || dfCommon;
 
+    // drops 처리 순서를 random shuffle — Map.entries() 순서대로 처리하면
+    // 첫 itemId 가 인벤 free space 를 다 차지해 다른 itemId 들이 못 들어가는
+    // 편향 발생. shuffle 로 매 정산마다 들어가는 itemId 가 random 균등.
+    for (let i = drops.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [drops[i], drops[j]] = [drops[j], drops[i]];
+    }
+
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
     let filteredCount = 0;
     for (const d of drops) {
@@ -346,7 +354,10 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             }
           }
         }
-        const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined, preroll);
+        // mailOnOverflow 설정 — 인벤 가득 시 overflow 분이 그냥 사라지지 않도록
+        // 우편으로 자동 발송. (이전엔 undefined 라 잃어버림)
+        const mailOpt = { subject: '오프라인 보상 (인벤토리 가득)', body: '인벤토리에 들어가지 못한 보상입니다.' };
+        const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, mailOpt, preroll);
         if (overflow < d.qty) {
           appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item?.name });
         }
