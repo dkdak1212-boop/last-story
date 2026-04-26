@@ -9,6 +9,10 @@ const KEYWORD_MAP: [string[], string][] = [
   [['시계태엽 거인'], 'stone_giant'],
   [['천공의 용'], 'golden_dragon'],
   [['차원의 지배자'], 'ancient_lich'],
+  // 시공의 균열 (Lv.110) — 정확 이름 매칭. '수호자'/'군주' 키워드 충돌 방지.
+  [['차원의 잔재'], 'hellion'],
+  [['시공의 수호자'], 'raid_titan'],
+  [['균열의 군주'], 'kraken'],
   // 일반 몬스터
   [['들쥐'], 'rat'],
   [['고블린'], 'goblin'],
