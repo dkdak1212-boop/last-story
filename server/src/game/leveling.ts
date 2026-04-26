@@ -44,8 +44,10 @@ export function applyExpGain(
   let nodePointsGained = 0;
   let statPointsGained = 0;
 
-  // maxLevelCap: 일반 사냥은 100, 오프라인 정산의 신규 이벤트 캐릭은 95(이벤트 max_level)
-  // cap 도달 시 잔여 EXP 버림 (cap 레벨에서 멈춤).
+  // maxLevelCap: 일반 사냥은 100, 다른 컨텐츠 호출 시 별도 cap 가능.
+  // while 루프 자연 종료 (level >= cap 시 멈춤), 잔여 EXP 는 그대로 보존.
+  // exp = 0 강제 잘라내기 코드 제거 — handleMonsterDeath 의 expDelta = newExp-char.exp 가
+  // 큰 음수가 되어 online_exp_rate EMA 가 음수로 폭발하는 버그 발생.
   while (level < maxLevelCap && exp >= expToNext(level)) {
     exp -= expToNext(level);
     level += 1;
@@ -53,7 +55,6 @@ export function applyExpGain(
     nodePointsGained += 1;
     statPointsGained += STAT_POINTS_PER_LEVEL;
   }
-  if (level >= maxLevelCap) exp = 0; // cap 시 exp 0 으로 잘라
 
   return {
     newLevel: level,
