@@ -44,6 +44,7 @@ export interface OfflineRewardResult {
 
 interface CharRates {
   id: number;
+  user_id: number;
   level: number;
   exp: number;
   class_name: string;
@@ -143,7 +144,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     await client.query('BEGIN');
     // 1) row lock + 현재 상태 조회 (부스트 컬럼 포함)
     const r = await client.query<CharRates>(
-      `SELECT id, level, exp, class_name, total_kills,
+      `SELECT id, user_id, level, exp, class_name, total_kills,
               COALESCE(current_field_kills, 0) AS current_field_kills,
               COALESCE(online_exp_rate, 0)::float8  AS online_exp_rate,
               COALESCE(online_gold_rate, 0)::float8 AS online_gold_rate,
@@ -162,8 +163,32 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       return { applied: false, reason: 'no_offline' };
     }
     const c = r.rows[0];
-    const elapsedMs = Date.now() - new Date(c.last_offline_at as string).getTime();
-    const elapsedSec = Math.max(0, elapsedMs / 1000);
+    const offlineStartMs = new Date(c.last_offline_at as string).getTime();
+    const nowMsForElapsed = Date.now();
+    const elapsedMs = nowMsForElapsed - offlineStartMs;
+    let elapsedSec = Math.max(0, elapsedMs / 1000);
+
+    // 어뷰즈 차단: 본캐 오프라인 구간에 같은 user 의 다른 캐릭이 active 사냥 진행
+    // 중이었다면 그 시간만큼 elapsed 차감. 부캐도 오프라인 모드(active session 없음)
+    // 면 차감 0 → 본캐 정상 누적. 부캐 active session 시작이 본캐 last_offline_at
+    // 보다 이후면 (NOW - 부캐 startedAt), 이전이면 (NOW - 본캐 last_offline_at) 차감.
+    // 동시간 active 세션이 여러개여도 max 1개분만 차감 (병행 active 시 시간은 같음).
+    try {
+      const { getOtherActiveSessionStartsForUser } = await import('./engine.js');
+      const otherStarts = getOtherActiveSessionStartsForUser(c.user_id, charId);
+      let overlapMs = 0;
+      for (const startMs of otherStarts) {
+        const overlapStart = Math.max(offlineStartMs, startMs);
+        const overlap = nowMsForElapsed - overlapStart;
+        if (overlap > overlapMs) overlapMs = overlap;
+      }
+      if (overlapMs > 0) {
+        elapsedSec = Math.max(0, elapsedSec - overlapMs / 1000);
+        console.log(`[offline-settle] char ${charId}: 다른 active 사냥 ${(overlapMs/1000).toFixed(1)}s 차감`);
+      }
+    } catch (e) {
+      console.error('[offline-settle] overlap calc err', charId, e);
+    }
 
     // 2) 표본 부족 / 너무 짧음
     if (elapsedSec < MIN_ELAPSED_SEC) {

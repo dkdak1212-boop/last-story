@@ -4007,11 +4007,11 @@ export function invalidateOfflineCharLimitCache(userId?: number): void {
 // 공유해 한 번만 실행.
 const startInFlight = new Map<number, Promise<void>>();
 
-// 같은 user 의 다른 캐릭 정리 — 한 계정 한 캐릭만 EXP 누적 강제.
-// 1) active 전투 세션은 보상 기록 없이 종료 (실시간 누적은 이미 DB 반영됨).
-// 2) last_offline_at 이 set 된 캐릭은 즉시 정산하여 누적 종료.
+// 같은 user 의 다른 active 전투 세션 종료 — 한 계정 동시 두 캐릭 active 사냥 차단.
+// 오프라인 모드 캐릭은 건드리지 않음 (계정당 최대 2캐릭 오프라인 누적 정책 보존).
+// 어뷰즈(본캐 오프라인 + 부캐 active 사냥) 차단은 settleOfflineRewards 가
+// active overlap 시간을 차감하는 방식으로 처리.
 async function endOtherCharsForUser(userId: number, currentCharId: number): Promise<void> {
-  // 1) 같은 user 의 active 전투 세션 자연 종료
   const others: ActiveSession[] = [];
   for (const [otherCharId, sess] of activeSessions) {
     if (otherCharId === currentCharId) continue;
@@ -4025,28 +4025,20 @@ async function endOtherCharsForUser(userId: number, currentCharId: number): Prom
       console.error('[start-combat] end-other-active err', userId, sess.characterId, e);
     }
   }
+}
 
-  // 2) 같은 user 의 오프라인 모드 캐릭 자동 정산
-  try {
-    const r = await query<{ id: number }>(
-      `SELECT id FROM characters
-        WHERE user_id = $1 AND id <> $2 AND last_offline_at IS NOT NULL`,
-      [userId, currentCharId]
-    );
-    if (r.rowCount && r.rowCount > 0) {
-      const { settleOfflineRewards } = await import('./offlineSettle.js');
-      for (const row of r.rows) {
-        try {
-          await settleOfflineRewards(row.id);
-        } catch (e) {
-          console.error('[start-combat] settle-other err', userId, row.id, e);
-        }
-      }
-      invalidateOfflineCharLimitCache(userId);
-    }
-  } catch (e) {
-    console.error('[start-combat] settle-others query err', userId, e);
+// 같은 user 의 다른 캐릭 active session 시작 시각(ms) 배열 반환.
+// settleOfflineRewards 가 본캐 오프라인 구간에 부캐 active 사냥한 시간을
+// elapsed 에서 차감하는 데 사용.
+export function getOtherActiveSessionStartsForUser(userId: number, exceptCharId: number): number[] {
+  const out: number[] = [];
+  for (const [charId, sess] of activeSessions) {
+    if (charId === exceptCharId) continue;
+    if (sess.userId !== userId) continue;
+    const t = sessionStartedMap.get(charId);
+    if (t) out.push(t);
   }
+  return out;
 }
 
 export async function startCombatSession(
