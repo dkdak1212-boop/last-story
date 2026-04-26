@@ -23,7 +23,10 @@ import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
 const MULT = 1.0;
 const OFFLINE_CAP_SEC = 24 * 60 * 60;       // 24시간 상한
 const MIN_ELAPSED_SEC = 60;                 // 1분 미만은 스킵 (노이즈)
-const MIN_TOTAL_KILLS = 300;                // 표본 기준 — 100 은 1~2분 만에 채워지는 신규 캐릭이 들쭉날쭉 EMA 로 정산받는 문제로 300 으로 상향
+// 정산 가능 floor — 현재 사냥터에서 잡은 킬 수 (current_field_kills) 기준.
+// 사냥터 이동 시 0 리셋 → 새 사냥터에서 20킬 이상 잡아야 정산 가능.
+// 누적 total_kills 가 아니라 현재 사냥터 카운트라 더 정확.
+const MIN_CURRENT_FIELD_KILLS = 20;
 const MAX_DROP_COUNT = 50000;               // 드랍 추첨 폭주 가드
 const DROP_RATE_MULT = 0.1;                 // engine.ts 와 동일 (비유니크 기본 배율)
 
@@ -45,6 +48,7 @@ interface CharRates {
   exp: number;
   class_name: string;
   total_kills: number;
+  current_field_kills: number;
   online_exp_rate: number;
   online_gold_rate: number;
   online_kill_rate: number;
@@ -140,6 +144,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     // 1) row lock + 현재 상태 조회 (부스트 컬럼 포함)
     const r = await client.query<CharRates>(
       `SELECT id, level, exp, class_name, total_kills,
+              COALESCE(current_field_kills, 0) AS current_field_kills,
               COALESCE(online_exp_rate, 0)::float8  AS online_exp_rate,
               COALESCE(online_gold_rate, 0)::float8 AS online_gold_rate,
               COALESCE(online_kill_rate, 0)::float8 AS online_kill_rate,
@@ -169,7 +174,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       await client.query('COMMIT');
       return { applied: false, reason: 'too_short', elapsedSec };
     }
-    if (c.total_kills < MIN_TOTAL_KILLS) {
+    if (c.current_field_kills < MIN_CURRENT_FIELD_KILLS) {
       await client.query(
         `UPDATE characters SET last_offline_at = NULL, last_offline_settled_at = NOW() WHERE id = $1`,
         [charId]

@@ -61,9 +61,10 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   if (existing && char.location === locStr) {
     return res.json({ ok: true, resumed: true });
   }
-  // 사냥터 변경 감지: 이전 필드와 다른 필드 진입 시 EMA 리셋.
+  // 사냥터 변경 감지: 이전 필드와 다른 필드 진입 시 EMA 및 사냥터 킬카운트 리셋.
   // 이전 사냥터에서 쌓인 평균 효율(킬속도/드랍률 등)이 새 사냥터의
   // last_field_id_offline 풀에서 잘못 정산되는 버그 차단.
+  // current_field_kills 도 0 으로 리셋 — 정산 floor(20킬) 새로 누적.
   const prevField = char.location?.startsWith('field:')
     ? parseInt(char.location.slice(6), 10) : null;
   if (prevField !== null && !Number.isNaN(prevField) && prevField !== fieldId) {
@@ -72,7 +73,8 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
           online_exp_rate = 0,
           online_gold_rate = 0,
           online_kill_rate = 0,
-          online_drop_rate = 0
+          online_drop_rate = 0,
+          current_field_kills = 0
         WHERE id = $1`,
       [id]
     );
@@ -227,13 +229,13 @@ router.get('/:id/combat/offline-preview', async (req: AuthedRequest, res: Respon
   if (!char) return res.status(404).json({ error: 'not found' });
 
   const r = await query<{
-    total_kills: number;
+    current_field_kills: number;
     online_exp_rate: number;
     online_gold_rate: number;
     online_kill_rate: number;
     online_drop_rate: number;
   }>(
-    `SELECT total_kills,
+    `SELECT COALESCE(current_field_kills, 0) AS current_field_kills,
             COALESCE(online_exp_rate, 0)::float8  AS online_exp_rate,
             COALESCE(online_gold_rate, 0)::float8 AS online_gold_rate,
             COALESCE(online_kill_rate, 0)::float8 AS online_kill_rate,
@@ -244,8 +246,8 @@ router.get('/:id/combat/offline-preview', async (req: AuthedRequest, res: Respon
   const row = r.rows[0];
   if (!row) return res.status(404).json({ error: 'not found' });
 
-  const MIN_KILLS = 300;
-  const eligible = row.total_kills >= MIN_KILLS
+  const MIN_FIELD_KILLS = 20;
+  const eligible = row.current_field_kills >= MIN_FIELD_KILLS
     && (row.online_exp_rate > 0 || row.online_gold_rate > 0 || row.online_kill_rate > 0);
 
   const previewFor = (sec: number) => ({
@@ -257,8 +259,8 @@ router.get('/:id/combat/offline-preview', async (req: AuthedRequest, res: Respon
 
   res.json({
     eligible,
-    totalKills: row.total_kills,
-    minKillsRequired: MIN_KILLS,
+    currentFieldKills: row.current_field_kills,
+    minFieldKillsRequired: MIN_FIELD_KILLS,
     rates: {
       expPerSec:  Number(row.online_exp_rate.toFixed(2)),
       goldPerSec: Number(row.online_gold_rate.toFixed(2)),

@@ -396,6 +396,7 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
            gold = c.gold + v.gold_d,
            total_kills = c.total_kills + v.kill_d,
            total_gold_earned = c.total_gold_earned + v.earned_d,
+           current_field_kills = COALESCE(c.current_field_kills, 0) + v.kill_d,
            online_exp_rate = CASE
              WHEN c.exp_boost_until > NOW()
                OR c.event_exp_until > NOW()

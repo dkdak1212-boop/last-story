@@ -520,14 +520,14 @@ export function CombatScreen() {
                     <div style={{ fontSize: 12, color: accent, marginTop: 4, opacity: 0.9 }}>
                       {eligible
                         ? `현재 평균 효율로 정산됩니다 (효율이 낮으면 보상도 적습니다)`
-                        : `누적 ${p.minKillsRequired}킬 미달 (신규 캐릭) 또는 평균 효율 0 — 정산 0`}
+                        : `현재 사냥터 ${p.currentFieldKills ?? 0}/${p.minFieldKillsRequired}킬 미달 — 정산 0`}
                     </div>
                   </div>
 
                   <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 10 }}>
-                    누적 처치: <span style={{ color: 'var(--text)', fontWeight: 700 }}>{fmt(p.totalKills)}킬</span>
+                    현재 사냥터 처치: <span style={{ color: 'var(--text)', fontWeight: 700 }}>{fmt(p.currentFieldKills ?? 0)}킬</span>
                     <span style={{ marginLeft: 6, opacity: 0.7 }}>
-                      (신규 캐릭 보호 floor: {p.minKillsRequired}킬)
+                      / 정산 가능 최소 {p.minFieldKillsRequired}킬
                     </span>
                   </div>
 
@@ -558,8 +558,8 @@ export function CombatScreen() {
                     · 보상은 위에 표시된 평균 효율 × 경과 시간 (낮으면 적게, 높으면 많이)<br/>
                     · 계정당 최대 2캐릭만 오프라인 가능<br/>
                     · 부스트 적용 중엔 EMA 정지 (위 수치는 base 효율)<br/>
-                    · 사냥터 이동 시 EMA 리셋 — 새 사냥터에서 다시 측정 필요<br/>
-                    · 누적 {p.minKillsRequired}킬 미만은 신규 캐릭 보호 (정산 0)
+                    · 사냥터 이동 시 EMA + 사냥터 킬카운트 리셋<br/>
+                    · 현재 사냥터에서 최소 {p.minFieldKillsRequired}킬 잡아야 정산 가능
                   </div>
                 </>
               )}
