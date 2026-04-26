@@ -320,6 +320,31 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       [drops[i], drops[j]] = [drops[j], drops[i]];
     }
 
+    // per-itemId quota — 인벤 free space 가 부족할 경우 한 itemId 가 free 를
+    // 다 차지하지 않도록 quota = ceil(free / drops.length) 로 cap. 모든
+    // itemId 가 골고루 들어가도록 보장. quota 초과분은 (mailOnOverflow 미설정
+    // 정책에 따라) 자연 손실.
+    if (drops.length > 0) {
+      const usedR = await query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM character_inventory WHERE character_id = $1`, [charId]
+      );
+      const maxR = await query<{ bonus: number | null }>(
+        `SELECT COALESCE(inventory_slots_bonus, 0) AS bonus FROM characters WHERE id = $1`, [charId]
+      );
+      const used = usedR.rows[0]?.n ?? 0;
+      const BASE_SLOTS = 300;
+      const maxSlots = BASE_SLOTS + (maxR.rows[0]?.bonus ?? 0);
+      const free = Math.max(0, maxSlots - used);
+      const totalDropQty = drops.reduce((s, d) => s + d.qty, 0);
+      if (totalDropQty > free) {
+        const quota = Math.max(1, Math.ceil(free / drops.length));
+        for (const d of drops) {
+          if (d.qty > quota) d.qty = quota;
+        }
+        console.log(`[offline-settle] char ${charId}: free=${free} totalQty=${totalDropQty} → per-item quota=${quota}`);
+      }
+    }
+
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
     let filteredCount = 0;
     for (const d of drops) {
