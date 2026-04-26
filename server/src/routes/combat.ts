@@ -61,8 +61,24 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   if (existing && char.location === locStr) {
     return res.json({ ok: true, resumed: true });
   }
+  // 사냥터 변경 감지: 이전 필드와 다른 필드 진입 시 EMA 리셋.
+  // 이전 사냥터에서 쌓인 평균 효율(킬속도/드랍률 등)이 새 사냥터의
+  // last_field_id_offline 풀에서 잘못 정산되는 버그 차단.
+  const prevField = char.location?.startsWith('field:')
+    ? parseInt(char.location.slice(6), 10) : null;
+  if (prevField !== null && !Number.isNaN(prevField) && prevField !== fieldId) {
+    await query(
+      `UPDATE characters SET
+          online_exp_rate = 0,
+          online_gold_rate = 0,
+          online_kill_rate = 0,
+          online_drop_rate = 0
+        WHERE id = $1`,
+      [id]
+    );
+  }
   await startCombatSession(id, fieldId);
-  res.json({ ok: true, resumed: false });
+  res.json({ ok: true, resumed: false, emaReset: prevField !== null && prevField !== fieldId });
 });
 
 // 필드 떠남
