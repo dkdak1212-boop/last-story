@@ -302,6 +302,96 @@ export function CombatScreen() {
     }
   }
 
+  // 오프라인 사냥중 — 명시적 중단 클릭까지 일반 전투 비활성. 정산도 중단 클릭 시점에만.
+  if (state && (state as any).offlineMode) {
+    const since = (state as any).offlineSince as string | undefined;
+    const elapsedLabel = (() => {
+      if (!since) return '';
+      const ms = Date.now() - new Date(since).getTime();
+      const totalMin = Math.max(0, Math.floor(ms / 60000));
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+    })();
+    const stopOffline = async () => {
+      if (!active) return;
+      if (!confirm(`오프라인 사냥을 중단하고 즉시 보상을 정산받습니다.\n경과 시간: ${elapsedLabel}\n\n진행하시겠습니까?`)) return;
+      try {
+        const r = await api<{ ok: boolean; offlineReward: any }>(
+          `/characters/${active.id}/combat/resume-from-offline`,
+          { method: 'POST' }
+        );
+        if (r.offlineReward?.applied) {
+          const d = r.offlineReward;
+          alert(
+            `오프라인 정산 완료\n\n` +
+            `경과: ${Math.floor((d.elapsedSec || 0) / 60)}분\n` +
+            `경험치: +${(d.expGain || 0).toLocaleString()}\n` +
+            `골드: +${(d.goldGain || 0).toLocaleString()}\n` +
+            `처치: +${d.killsInc || 0}마리\n` +
+            `드랍: ${d.drops?.length || 0}개\n` +
+            (d.levelsGained > 0 ? `레벨업! Lv.${d.newLevel}\n` : '')
+          );
+        }
+        await refreshActive();
+        // /combat/state 재폴링 — useCombatState 훅이 자동 갱신할 것이므로 별도 처리 불필요
+      } catch (e: any) {
+        alert(e?.message || '오프라인 사냥 중단 실패');
+      }
+    };
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: 20, padding: 20,
+      }}>
+        <div style={{
+          maxWidth: 480, width: '100%',
+          background: 'linear-gradient(180deg, #001a2a, #000a1a)',
+          border: '3px solid #88c8ff',
+          boxShadow: '0 0 40px rgba(136,200,255,0.5)',
+          padding: '30px 28px', textAlign: 'center',
+          borderRadius: 8,
+        }}>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#88c8ff', marginBottom: 8, letterSpacing: 2 }}>
+            오프라인 사냥중
+          </div>
+          <div style={{ fontSize: 14, color: '#aaccff', marginBottom: 6 }}>
+            이 캐릭터는 현재 오프라인 모드입니다.
+          </div>
+          {since && (
+            <div style={{ fontSize: 13, color: '#88c8ff', marginTop: 16, marginBottom: 6, fontWeight: 700 }}>
+              경과 시간: {elapsedLabel}
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 10, marginBottom: 20, lineHeight: 1.6 }}>
+            · 사냥 효율은 최근 100초 평균값으로 계속 누적 중<br/>
+            · 최대 24시간까지 누적 가능<br/>
+            · 중단 시 즉시 보상이 정산됩니다
+          </div>
+          <button onClick={stopOffline} style={{
+            padding: '14px 36px', fontSize: 16, fontWeight: 800,
+            background: '#88c8ff', color: '#000', border: 'none', cursor: 'pointer',
+            borderRadius: 4, letterSpacing: 2,
+            boxShadow: '0 2px 12px rgba(136,200,255,0.4)',
+          }}>
+            오프라인 사냥 중단
+          </button>
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => nav('/village')} style={{
+              padding: '8px 20px', fontSize: 12,
+              background: 'transparent', color: 'var(--text-dim)',
+              border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 3,
+            }}>
+              마을로 돌아가기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!state || !state.inCombat) {
     return <div style={{ color: 'var(--text-dim)' }}>전투 준비 중...</div>;
   }

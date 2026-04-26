@@ -147,14 +147,20 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 오프라인 정산 — last_offline_at 이 set 되어 있으면 EMA 기반 보상 적용.
-  // Step 2 단계에서는 onSessionGoOffline 미가동이라 대부분 no_offline 으로 즉시 반환.
-  // applied 인 경우만 응답에 포함하여 클라가 보상 모달 표시.
-  let offlineReward: Awaited<ReturnType<typeof settleOfflineRewards>> | null = null;
-  try {
-    const r = await settleOfflineRewards(id);
-    if (r.applied) offlineReward = r;
-  } catch (e) { console.error('[combat] offline settle err', id, e); }
+  // 오프라인 모드 — last_offline_at 가 set 이면 자동 정산 안 하고 모드 정보만 반환.
+  // 사용자가 "오프라인 사냥 중단" 버튼을 누르면 /combat/resume-from-offline 에서 정산 + 사냥 재개.
+  const offR = await query<{ last_offline_at: string | null; last_field_id_offline: number | null }>(
+    `SELECT last_offline_at, last_field_id_offline FROM characters WHERE id = $1`, [id]
+  );
+  if (offR.rows[0]?.last_offline_at) {
+    return res.json({
+      inCombat: false,
+      offlineMode: true,
+      offlineSince: offR.rows[0].last_offline_at,
+      offlineFieldId: offR.rows[0].last_field_id_offline,
+      player: { hp: char.hp, maxHp: char.max_hp },
+    });
+  }
 
   let snapshot = await getCombatSnapshot(id);
   // 세션 없음 + 필드 위치 → 자동 재시작 (배포/재시작 후 세션 휘발 복구)
@@ -168,9 +174,33 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
     }
   }
   if (!snapshot) {
-    return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp }, offlineReward });
+    return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp } });
   }
-  res.json({ ...snapshot, offlineReward });
+  res.json(snapshot);
+});
+
+// 오프라인 사냥 중단 — 정산 받고 일반 사냥 재개.
+router.post('/:id/combat/resume-from-offline', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 1) 정산 (멱등 — last_offline_at NULL 면 즉시 no_offline 반환)
+  let offlineReward: Awaited<ReturnType<typeof settleOfflineRewards>> | null = null;
+  try {
+    const r = await settleOfflineRewards(id);
+    if (r.applied) offlineReward = r;
+  } catch (e) { console.error('[combat] resume settle err', id, e); }
+
+  // 2) 사냥 재개 — 마지막 필드로 자동 진입 (없으면 마을 머무름)
+  if (char.location && char.location.startsWith('field:')) {
+    const fieldId = parseInt(char.location.slice(6), 10);
+    if (!Number.isNaN(fieldId) && fieldId > 0) {
+      try { await startCombatSession(id, fieldId); }
+      catch (e) { console.error('[combat] resume start err', id, e); }
+    }
+  }
+  res.json({ ok: true, offlineReward });
 });
 
 // 오프라인 전환 — 사용자가 명시적으로 클릭 시 호출.
