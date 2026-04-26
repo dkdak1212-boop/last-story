@@ -56,6 +56,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [globalEvent, setGlobalEvent] = useState<{ name: string; exp: number; gold: number; drop: number; endsAt: string } | null>(null);
   const [charSwitchOpen, setCharSwitchOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // 모달 열 때마다 캐릭 목록 fresh refetch — stale lastOfflineAt 표기 방지
+  useEffect(() => {
+    if (charSwitchOpen) fetchCharacters().catch(() => {});
+  }, [charSwitchOpen, fetchCharacters]);
 
   async function switchTo(id: number) {
     if (switching || id === active?.id) { setCharSwitchOpen(false); return; }
