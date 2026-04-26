@@ -156,7 +156,7 @@ export function initWebSocket(httpServer: HttpServer) {
       socket.join(`combat:${characterId}`);
 
       try {
-        const { activeSessions, startCombatSession } = await import('../combat/engine.js');
+        const { activeSessions, startCombatSession, startGuildBossCombatSession } = await import('../combat/engine.js');
         if (activeSessions.has(characterId)) return;
         const r = await query<{ user_id: number; location: string; last_offline_at: string | null }>(
           'SELECT user_id, location, last_offline_at FROM characters WHERE id = $1', [characterId]
@@ -167,7 +167,25 @@ export function initWebSocket(httpServer: HttpServer) {
         if (row.location && row.location.startsWith('field:')) {
           const fid = parseInt(row.location.slice(6), 10);
           if (!Number.isNaN(fid) && fid > 0) {
-            await startCombatSession(characterId, fid);
+            // 길드보스 진행 중 (location='field:999') 이면 일반 세션 X — active run 복원.
+            // 백그라운드 후 재접속 시 "적을 찾는 중" 표시 무한 차단.
+            if (fid === 999) {
+              const runR = await query<{ id: string; boss_id: number }>(
+                `SELECT id::text, boss_id FROM guild_boss_runs
+                  WHERE character_id = $1 AND ended_at IS NULL
+                  ORDER BY started_at DESC LIMIT 1`,
+                [characterId]
+              );
+              if (runR.rowCount) {
+                const { getBossById } = await import('../combat/guildBossHelpers.js');
+                const boss = await getBossById(runR.rows[0].boss_id);
+                if (boss) {
+                  await startGuildBossCombatSession(characterId, runR.rows[0].id, boss);
+                }
+              }
+            } else {
+              await startCombatSession(characterId, fid);
+            }
           }
         }
       } catch (e) {

@@ -4729,6 +4729,27 @@ export async function restoreCombatSessions(): Promise<void> {
       for (const row of active.rows) {
         try {
           if (activeSessions.has(row.character_id)) continue;
+          // 길드보스 (field 999) 는 일반 startCombatSession 이 아닌 길드보스 전용 복원.
+          // active run (ended_at IS NULL) 이 있어야 복원, 없으면 skip.
+          if (row.field_id === 999) {
+            const runR = await query<{ id: string; boss_id: number }>(
+              `SELECT id::text, boss_id FROM guild_boss_runs
+                WHERE character_id = $1 AND ended_at IS NULL
+                ORDER BY started_at DESC LIMIT 1`,
+              [row.character_id]
+            );
+            if (runR.rowCount) {
+              const boss = await getBossById(runR.rows[0].boss_id);
+              if (boss) {
+                await startGuildBossCombatSession(row.character_id, runR.rows[0].id, boss);
+                restored++;
+                continue;
+              }
+            }
+            // active run 없으면 stale 세션 — combat_sessions row 정리
+            await query('DELETE FROM combat_sessions WHERE character_id = $1', [row.character_id]);
+            continue;
+          }
           await startCombatSession(row.character_id, row.field_id, undefined, { skipMultiCharCleanup: true });
           restored++;
         } catch (e) {
