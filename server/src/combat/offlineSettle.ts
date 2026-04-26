@@ -348,28 +348,37 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
 
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
     let filteredCount = 0;
+    // 비유니크 장비는 인스턴스별로 prefix 새로 굴리고 필터 체크 — 온라인 사냥과 동일.
+    // 과거 stack 단위 1회 prefix → qty 통째로 필터되는 버그 (T1 필터 시 거의 전손) 수정.
+    const { generatePrefixes } = await import('../game/prefix.js');
     for (const d of drops) {
       try {
         const item = await getItemDef(d.itemId);
-        let preroll: EquipPreroll | undefined;
-        // 장비 + 비유니크는 prefix 자동 생성 (시뮬레이션 경로와 동일)
-        if (item && item.slot && item.grade !== 'unique') {
-          const { generatePrefixes } = await import('../game/prefix.js');
+
+        // 비장비 / 유니크 / item def 없음 → stack 단위로 add (필터 미적용)
+        if (!item || !item.slot || item.grade === 'unique') {
+          const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined);
+          if (overflow < d.qty) {
+            appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item?.name });
+          }
+          continue;
+        }
+
+        // 비유니크 장비 — 인스턴스별 처리
+        let acceptedQty = 0;
+        for (let inst = 0; inst < d.qty; inst++) {
           const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level || 1);
           const quality = Math.floor(Math.random() * 101);
-          preroll = { prefixIds, bonusStats, maxTier, quality };
+          const preroll: EquipPreroll = { prefixIds, bonusStats, maxTier, quality };
 
-          // 드랍필터 — 시뮬과 동일 로직. 유니크는 항상 통과.
+          // 드랍필터 — 인스턴스 단위. 유니크는 위에서 이미 분기됨.
           if (hasDropFilter) {
-            // 일반등급 자동 버림
             if (dfCommon && item.grade === 'common') { filteredCount++; continue; }
-            // 티어 필터 — 비트마스크 (1=T1, 2=T2, 4=T3, 8=T4)
             if (dfTiers > 0) {
               const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
               const dfTierMatch = (dfTiers & tierBit) !== 0;
               const is3Options = prefixIds.length >= 3;
               const protected3opt = is3Options && dfProtect3opt;
-              // 보호 접두사 검사
               let protectStats: Set<string> | null = null;
               if (prefixIds.length > 0 && dfProtect.size > 0) {
                 const keys = await getPrefixStatKeys(prefixIds);
@@ -379,10 +388,13 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
               if (!protected3opt && !dfHasProtected && dfTierMatch) { filteredCount++; continue; }
             }
           }
+
+          const { overflow } = await addItemToInventory(charId, d.itemId, 1, undefined, preroll);
+          if (overflow < 1) acceptedQty++;
         }
-        const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined, preroll);
-        if (overflow < d.qty) {
-          appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item?.name });
+
+        if (acceptedQty > 0) {
+          appliedDrops.push({ itemId: d.itemId, qty: acceptedQty, itemName: item.name });
         }
       } catch (e) {
         console.error('[offline-settle] drop apply err', charId, d, e);

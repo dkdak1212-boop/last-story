@@ -334,7 +334,7 @@ export function CombatScreen() {
             `경험치: +${(d.expGain || 0).toLocaleString()}\n` +
             `골드: +${(d.goldGain || 0).toLocaleString()}\n` +
             `처치: +${d.killsInc || 0}마리\n` +
-            `드랍: ${d.drops?.length || 0}개\n` +
+            `드랍: ${(d.drops || []).reduce((s: number, x: any) => s + (x.qty || 0), 0)}개 (종류 ${d.drops?.length || 0})\n` +
             (d.filteredCount > 0 ? `드랍필터 자동 폐기: ${d.filteredCount}개\n` : '') +
             (d.levelsGained > 0 ? `레벨업! Lv.${d.newLevel}\n` : '')
           );
