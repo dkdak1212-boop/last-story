@@ -399,7 +399,8 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
            current_field_kills = COALESCE(c.current_field_kills, 0) + v.kill_d,
            online_exp_rate = CASE
              WHEN c.exp_boost_until > NOW()
-               OR c.event_exp_until > NOW()
+               OR (c.event_exp_until > NOW()
+                   AND (c.event_exp_max_level IS NULL OR c.level < c.event_exp_max_level))
                OR (COALESCE(c.personal_exp_mult, 1) > 1
                    AND (c.personal_exp_mult_max_level IS NULL OR c.level < c.personal_exp_mult_max_level))
              THEN c.online_exp_rate
