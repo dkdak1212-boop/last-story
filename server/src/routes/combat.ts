@@ -14,6 +14,7 @@ import {
   resetDummyTracking,
   setAfkMode,
 } from '../combat/engine.js';
+import { settleOfflineRewards } from '../combat/offlineSettle.js';
 
 const router = Router();
 router.use(authRequired);
@@ -157,6 +158,15 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // 오프라인 정산 — last_offline_at 이 set 되어 있으면 EMA 기반 보상 적용.
+  // Step 2 단계에서는 onSessionGoOffline 미가동이라 대부분 no_offline 으로 즉시 반환.
+  // applied 인 경우만 응답에 포함하여 클라가 보상 모달 표시.
+  let offlineReward: Awaited<ReturnType<typeof settleOfflineRewards>> | null = null;
+  try {
+    const r = await settleOfflineRewards(id);
+    if (r.applied) offlineReward = r;
+  } catch (e) { console.error('[combat] offline settle err', id, e); }
+
   let snapshot = await getCombatSnapshot(id);
   // 세션 없음 + 필드 위치 → 자동 재시작 (배포/재시작 후 세션 휘발 복구)
   if (!snapshot && char.location && char.location.startsWith('field:')) {
@@ -169,9 +179,9 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
     }
   }
   if (!snapshot) {
-    return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp } });
+    return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp }, offlineReward });
   }
-  res.json(snapshot);
+  res.json({ ...snapshot, offlineReward });
 });
 
 export default router;

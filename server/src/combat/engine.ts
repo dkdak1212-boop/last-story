@@ -326,6 +326,7 @@ interface CharWriteBatch {
   goldDelta: number;
   killDelta: number;
   goldEarnedDelta: number;
+  dropDelta: number;
 }
 const charBatch = new Map<number, CharWriteBatch>();
 
@@ -341,33 +342,41 @@ const QUEST_MONSTER_CACHE_MS = 30_000;
 const lastMetaRefreshAt = new Map<number, number>();
 function batchAdd(charId: number, patch: Partial<CharWriteBatch>) {
   let b = charBatch.get(charId);
-  if (!b) { b = { expDelta: 0, goldDelta: 0, killDelta: 0, goldEarnedDelta: 0 }; charBatch.set(charId, b); }
+  if (!b) { b = { expDelta: 0, goldDelta: 0, killDelta: 0, goldEarnedDelta: 0, dropDelta: 0 }; charBatch.set(charId, b); }
   b.expDelta += patch.expDelta || 0;
   b.goldDelta += patch.goldDelta || 0;
   b.killDelta += patch.killDelta || 0;
   b.goldEarnedDelta += patch.goldEarnedDelta || 0;
+  b.dropDelta += patch.dropDelta || 0;
 }
 async function flushCharBatch(onlyId?: number): Promise<void> {
   const targets = onlyId !== undefined ? [onlyId] : [...charBatch.keys()];
   // 단일 bulk UPDATE — N개 개별 쿼리 대신 unnest 배열 한 번 실행
   // EMA 갱신: new_rate = old_rate * 0.99 + delta * 0.01 (~100초 이동평균)
   // 오프라인 세션은 rate 업데이트 제외 (offline 모드 중 EMA 드리프트 방지).
-  const onIds: number[] = []; const onExp: number[] = []; const onGold: number[] = []; const onKill: number[] = []; const onEarned: number[] = [];
+  const onIds: number[] = []; const onExp: number[] = []; const onGold: number[] = []; const onKill: number[] = []; const onEarned: number[] = []; const onDrop: number[] = [];
   const offIds: number[] = []; const offExp: number[] = []; const offGold: number[] = []; const offKill: number[] = []; const offEarned: number[] = [];
   for (const id of targets) {
     const b = charBatch.get(id);
     if (!b) continue;
     charBatch.delete(id);
-    if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta) continue;
+    if (!b.expDelta && !b.goldDelta && !b.killDelta && !b.goldEarnedDelta && !b.dropDelta) continue;
     const sess = activeSessions.get(id);
     const isOffline = sess?.offline === true;
-    const dest = isOffline ? { ids: offIds, exp: offExp, gold: offGold, kill: offKill, earned: offEarned }
-                           : { ids: onIds,  exp: onExp,  gold: onGold,  kill: onKill,  earned: onEarned  };
-    dest.ids.push(id);
-    dest.exp.push(b.expDelta);
-    dest.gold.push(b.goldDelta);
-    dest.kill.push(b.killDelta);
-    dest.earned.push(b.goldEarnedDelta);
+    if (isOffline) {
+      offIds.push(id);
+      offExp.push(b.expDelta);
+      offGold.push(b.goldDelta);
+      offKill.push(b.killDelta);
+      offEarned.push(b.goldEarnedDelta);
+    } else {
+      onIds.push(id);
+      onExp.push(b.expDelta);
+      onGold.push(b.goldDelta);
+      onKill.push(b.killDelta);
+      onEarned.push(b.goldEarnedDelta);
+      onDrop.push(b.dropDelta);
+    }
   }
   try {
     if (onIds.length > 0) {
@@ -379,17 +388,19 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
            total_gold_earned = c.total_gold_earned + v.earned_d,
            online_exp_rate  = c.online_exp_rate  * 0.99 + v.exp_d::numeric    * 0.01,
            online_gold_rate = c.online_gold_rate * 0.99 + v.earned_d::numeric * 0.01,
-           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01
+           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric   * 0.01,
+           online_drop_rate = c.online_drop_rate * 0.99 + v.drop_d::numeric   * 0.01
          FROM (
            SELECT
              unnest($1::int[])    AS id,
              unnest($2::bigint[]) AS exp_d,
              unnest($3::bigint[]) AS gold_d,
              unnest($4::int[])    AS kill_d,
-             unnest($5::bigint[]) AS earned_d
+             unnest($5::bigint[]) AS earned_d,
+             unnest($6::int[])    AS drop_d
          ) v
          WHERE c.id = v.id`,
-        [onIds, onExp, onGold, onKill, onEarned]
+        [onIds, onExp, onGold, onKill, onEarned, onDrop]
       );
     }
     if (offIds.length > 0) {
@@ -2271,11 +2282,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
   // ── 자동 포션 (아이템 — 스킬과 별개, HP 위험 시 사용) ──
-  // 소환사는 소환수 빈틈에서 취약 → offline 중 threshold 을 최소 70% 로 상향 (생존률↑)
-  let healThresholdPct = s.autoPotionThreshold || 50;
-  if (s.className === 'summoner' && s.offline) {
-    healThresholdPct = Math.max(70, healThresholdPct);
-  }
+  // 오프라인 시뮬 폐지 후 항상 onLine — 소환사 70% 분기는 사문화. threshold 그대로 사용.
+  const healThresholdPct = s.autoPotionThreshold || 50;
   if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
     const potionHealPct: Record<number, number> = { 106: 80, 104: 60, 102: 40, 100: 20 };
     const pot = await getPotionInInventory(s.characterId, [106, 104, 102, 100]);
@@ -2789,9 +2797,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // const territoryBonus = await getTerritoryBonusForChar(s.characterId, s.fieldId);
   // 글로벌 이벤트 배율 (서버 전체 공용)
   const ge = await getActiveGlobalEvent();
-  // 오프라인 보정 배율 — 1초 tick 자연 효율 ~68% 을 보상 ×1.4 로 ~95% 도달
-  // 전투화면 활성 (hasSub=true → s.offline=false) 은 배율 없음 (기존 100% 유지)
-  const offlineMult = s.offline ? OFFLINE_REWARD_MULT : 1;
+  // 오프라인 시뮬 폐지 후 항상 온라인 모드 — offlineMult=1.
+  // 오프라인 보상은 별도 EMA 정산(offlineSettle.ts)에서 MULT 1.4 적용.
+  const offlineMult = 1;
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
   const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold * offlineMult);
@@ -2929,6 +2937,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult * offlineMult);
+  // 오프라인 정산용 EMA 갱신: 드랍 발생 갯수 (qty 무관, 슬롯 단위)
+  if (drops.length > 0) batchAdd(s.characterId, { dropDelta: drops.length });
   // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)
   if (!s.autoSellCache) {
     await loadAutoSellCache(s);
@@ -3254,11 +3264,31 @@ let lastTickAt = 0;
 const TICK_TARGET_MS = 100;
 // 세션별 마지막 tick 시각 (백그라운드 세션 간격 조절용)
 const sessionLastTickAt = new Map<number, number>();
-const OFFLINE_TICK_INTERVAL_MS = 3000; // 구독자 없는 세션은 3초 간격 — 970+ 세션 DB 부하 감경 (1000→3000).
-                                        // Railway PG max_connections=100 고정이라 쿼리 수 자체를 줄이는 방향.
-// 오프라인 보상 보정 배율 — 1초 tick 자연 효율 ~68%(몬스터 리스폰 지연·액션 압축 등 손실분) 을
-// ×1.4 로 보정해 실질 ~95% 체감 효율 도달. EXP/골드/드랍 전부 적용. CPU 부하 변동 없음.
-const OFFLINE_REWARD_MULT = 1.4;
+// 오프라인 보상은 EMA 정산(offlineSettle.ts)으로 분리됨 — 시뮬레이션 폐지.
+// OFFLINE_TICK_INTERVAL_MS / OFFLINE_REWARD_MULT 는 정산 모듈로 이전.
+
+async function onSessionGoOffline(s: ActiveSession): Promise<void> {
+  const charId = s.characterId;
+  if (!activeSessions.has(charId)) return; // 이미 정리됨 — 멱등
+  const fieldId = s.fieldId;
+  // 누적 배치 먼저 flush — 마지막 100ms 분량의 exp/gold/kill/drop 누락 방지
+  try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
+  activeSessions.delete(charId);
+  sessionStartedMap.delete(charId);
+  sessionLastTickAt.delete(charId);
+  try {
+    await query(
+      `UPDATE characters
+          SET last_offline_at = NOW(),
+              last_field_id_offline = $2
+        WHERE id = $1`,
+      [charId, fieldId]
+    );
+    await query(`DELETE FROM combat_sessions WHERE character_id = $1`, [charId]);
+  } catch (e) {
+    console.error('[offline-go] persist err', charId, e);
+  }
+}
 
 async function combatTick(): Promise<void> {
   const now = Date.now();
@@ -3268,43 +3298,17 @@ async function combatTick(): Promise<void> {
   lastTickAt = now;
   const tickScaleGlobal = dtMsGlobal / TICK_TARGET_MS;
 
-  // 계정당 offline 활성 캐릭 최대 2명 — userId 별로 last_online_at 상위 2명만 tick.
-  // 3번째 이상은 offline 모드에서 skip (일시 정지).
-  const offlineByUser = new Map<number, { charId: number; lastOnlineAt: number }[]>();
-  for (const [charId, s] of activeSessions) {
-    if (sessionHasSubscriber(charId)) continue; // 온라인 활성은 제한 없음
-    const arr = offlineByUser.get(s.userId) ?? [];
-    arr.push({ charId, lastOnlineAt: s.enteredFieldAt });
-    offlineByUser.set(s.userId, arr);
-  }
-  const offlineAllowed = new Set<number>();
-  for (const [userId, arr] of offlineByUser) {
-    arr.sort((a, b) => b.lastOnlineAt - a.lastOnlineAt);
-    const limit = await getOfflineCharLimit(userId);
-    for (const e of arr.slice(0, limit)) offlineAllowed.add(e.charId);
-  }
-
-  // 세션을 병렬로 처리
+  // 세션을 병렬로 처리 — 구독자 없는 세션은 즉시 오프라인 정산으로 이행 후 제거
   const tasks: Promise<void>[] = [];
   for (const [charId, s] of activeSessions) {
-    const hasSub = sessionHasSubscriber(charId);
-    let tickScale: number;
-    if (hasSub) {
-      s.offline = false;
-      tickScale = tickScaleGlobal;
-      sessionLastTickAt.set(charId, now);
-    } else {
-      // 계정당 2캐릭 제한 — offline 활성 허용 목록에 없으면 tick 스킵
-      if (!offlineAllowed.has(charId)) continue;
-      s.offline = true;
-      // 구독자 없음 → 1초 간격으로만 tick
-      const last = sessionLastTickAt.get(charId) ?? 0;
-      const sDt = now - last;
-      if (sDt < OFFLINE_TICK_INTERVAL_MS) continue;
-      // sDt 상한 2000ms (=tickScale 20 → while 루프가 3으로 재차 컷) — 장기 lag 후 폭주 방어
-      tickScale = Math.min(2000, sDt) / TICK_TARGET_MS;
-      sessionLastTickAt.set(charId, now);
+    if (!sessionHasSubscriber(charId)) {
+      // fire-and-forget — 다음 tick 까지 정리 완료, 이번 tick 은 시뮬 안 함
+      onSessionGoOffline(s).catch(err => console.error('[combat] go-offline err', charId, err));
+      continue;
     }
+    s.offline = false;
+    const tickScale = tickScaleGlobal;
+    sessionLastTickAt.set(charId, now);
     tasks.push((async () => {
     try {
       if (!s.monsterId) return;
