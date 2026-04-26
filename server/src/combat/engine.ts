@@ -1509,6 +1509,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               }
               s.monsterHp -= dmg2;
               addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
+              // 치명타 후속 (재충전·흡혈) — 2회차 타격에도 적용 (이전 누락)
+              applyCritPostEffects(s, dmg2, d2.crit, '2회차');
               // 최후의 일격: 2회차 타격에도 흡혈 적용 — 110 몬스터는 피흡 면역
               if (skill.name === '최후의 일격' && dmg2 > 0 && !s.monsterLifestealImmune) {
                 let heal2 = Math.round(dmg2 * 50 / 100);
@@ -1529,6 +1531,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (!d2.miss) {
             s.monsterHp -= d2.damage;
             addLog(s, `추가 타격! ${d2.damage}`);
+            // 치명타 후속 (재충전·흡혈) — 추가 타격에도 적용 (이전 누락)
+            applyCritPostEffects(s, d2.damage, d2.crit, '추가타');
           }
         }
         // blade_flurry: 칼날 추가타 확률 (일반 공격에 추가 타격)
