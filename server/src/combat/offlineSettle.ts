@@ -53,15 +53,16 @@ interface CharRates {
   last_field_id_offline: number | null;
 }
 
-// 필드 드랍 풀 캐시 — fields.monster_pool 의 모든 몬스터의 drop_table 을 합산.
-// 가중치 = chance * (1/pool_size) * (uniq ? 1 : DROP_RATE_MULT) * avg_qty.
-// 60초 TTL.
-interface FieldDropPool {
-  items: { itemId: number; weight: number; minQty: number; maxQty: number; isUnique: boolean }[];
-  totalWeight: number;
+// 필드 몬스터·드랍 캐시 (60초 TTL).
+// 정산 시 N "가상 킬" 시뮬레이션 — 매 킬마다 원본 rollDrops 와 동일한
+// multi-Bernoulli 시행 (각 drop_table 항목별 독립 chance × rateMult).
+// multinomial 풀 추첨 방식은 비유니크 0.1 배율 영향으로 유니크 비중이
+// 인위적으로 12배 폭증하는 인플레가 발생해 폐기.
+interface FieldMonsterCache {
+  monsters: { id: number; drop_table: { itemId: number; chance: number; minQty: number; maxQty: number }[] }[];
   loadedAt: number;
 }
-const fieldDropPoolCache = new Map<number, FieldDropPool>();
+const fieldMonsterCache = new Map<number, FieldMonsterCache>();
 const FIELD_POOL_TTL = 60_000;
 
 let uniqueIdSet: Set<number> | null = null;
@@ -72,10 +73,9 @@ async function getUniqueIds(): Promise<Set<number>> {
   return uniqueIdSet;
 }
 
-async function getFieldDropPool(fieldId: number): Promise<FieldDropPool | null> {
-  const cached = fieldDropPoolCache.get(fieldId);
+async function getFieldMonsters(fieldId: number): Promise<FieldMonsterCache | null> {
+  const cached = fieldMonsterCache.get(fieldId);
   if (cached && Date.now() - cached.loadedAt < FIELD_POOL_TTL) return cached;
-
   const fr = await query<{ monster_pool: number[] }>(
     'SELECT monster_pool FROM fields WHERE id = $1', [fieldId]
   );
@@ -87,49 +87,32 @@ async function getFieldDropPool(fieldId: number): Promise<FieldDropPool | null> 
     `SELECT id, drop_table FROM monsters WHERE id = ANY($1::int[])`,
     [monsterIds]
   );
-  const uniques = await getUniqueIds();
-  // 합산: 몬스터별 균등 등장 가정 (1/pool_size) × drop_chance × 비유니크 배율
-  const aggMap = new Map<number, { weight: number; minQty: number; maxQty: number; isUnique: boolean }>();
-  const perMonsterShare = 1 / monsterIds.length;
-  for (const row of mr.rows) {
-    const dt = row.drop_table || [];
-    for (const d of dt) {
-      const isUnique = uniques.has(d.itemId);
-      const rateMult = isUnique ? 1.0 : DROP_RATE_MULT;
-      const w = perMonsterShare * d.chance * rateMult;
-      const cur = aggMap.get(d.itemId);
-      if (cur) {
-        cur.weight += w;
-        cur.minQty = Math.min(cur.minQty, d.minQty);
-        cur.maxQty = Math.max(cur.maxQty, d.maxQty);
-      } else {
-        aggMap.set(d.itemId, { weight: w, minQty: d.minQty, maxQty: d.maxQty, isUnique });
-      }
-    }
-  }
-  const items = [...aggMap.entries()].map(([itemId, v]) => ({ itemId, ...v }));
-  const totalWeight = items.reduce((s, x) => s + x.weight, 0);
-  const pool: FieldDropPool = { items, totalWeight, loadedAt: Date.now() };
-  if (totalWeight > 0) fieldDropPoolCache.set(fieldId, pool);
-  return totalWeight > 0 ? pool : null;
+  const cache: FieldMonsterCache = {
+    monsters: mr.rows.map(r => ({ id: r.id, drop_table: r.drop_table || [] })),
+    loadedAt: Date.now(),
+  };
+  fieldMonsterCache.set(fieldId, cache);
+  return cache;
 }
 
-// N개 슬롯 가중 추첨. itemId 별 qty 합산.
-async function sampleDropsFromField(fieldId: number, n: number): Promise<{ itemId: number; qty: number }[]> {
-  if (n <= 0) return [];
-  const pool = await getFieldDropPool(fieldId);
-  if (!pool || pool.totalWeight <= 0) return [];
-  const cap = Math.min(n, MAX_DROP_COUNT);
+// killsInc 번의 가상 킬을 시뮬레이션하여 드랍 추출.
+// 원본 rollDrops 와 동일한 multi-Bernoulli — 비유니크 ×0.1, 유니크 그대로.
+// 균등 몬스터 추첨(필드 monster_pool 1/N) 가정.
+async function sampleDropsFromField(fieldId: number, killsInc: number): Promise<{ itemId: number; qty: number }[]> {
+  if (killsInc <= 0) return [];
+  const cache = await getFieldMonsters(fieldId);
+  if (!cache || cache.monsters.length === 0) return [];
+  const uniques = await getUniqueIds();
+  const cap = Math.min(killsInc, MAX_DROP_COUNT);
   const out = new Map<number, number>();
   for (let i = 0; i < cap; i++) {
-    const r = Math.random() * pool.totalWeight;
-    let acc = 0;
-    for (const item of pool.items) {
-      acc += item.weight;
-      if (r <= acc) {
-        const qty = item.minQty + Math.floor(Math.random() * (item.maxQty - item.minQty + 1));
-        if (qty > 0) out.set(item.itemId, (out.get(item.itemId) ?? 0) + qty);
-        break;
+    const m = cache.monsters[Math.floor(Math.random() * cache.monsters.length)];
+    for (const d of m.drop_table) {
+      const isUnique = uniques.has(d.itemId);
+      const rateMult = isUnique ? 1.0 : DROP_RATE_MULT;
+      if (Math.random() < d.chance * rateMult) {
+        const qty = d.minQty + Math.floor(Math.random() * (d.maxQty - d.minQty + 1));
+        if (qty > 0) out.set(d.itemId, (out.get(d.itemId) ?? 0) + qty);
       }
     }
   }
@@ -183,11 +166,11 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const expGainRaw  = c.online_exp_rate  * elapsedCapped * MULT;
     const goldGain    = Math.floor(c.online_gold_rate * elapsedCapped * MULT);
     const killsInc    = Math.floor(c.online_kill_rate * elapsedCapped);
-    const dropCount   = Math.floor(c.online_drop_rate * elapsedCapped * MULT);
 
-    // 4) 드랍 추첨
+    // 4) 드랍 — killsInc 가상 킬 시뮬 (multi-Bernoulli, 원본 rollDrops 와 동일 분포)
+    //    online_drop_rate 는 EMA 통계용으로만 유지, 정산 추첨엔 사용 안 함 (인플레 방지).
     const drops = c.last_field_id_offline
-      ? await sampleDropsFromField(c.last_field_id_offline, dropCount)
+      ? await sampleDropsFromField(c.last_field_id_offline, killsInc)
       : [];
 
     // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용)
