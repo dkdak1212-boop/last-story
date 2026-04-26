@@ -223,20 +223,38 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   const cost = 5000;
   if (char.gold < cost) return res.status(400).json({ error: 'not enough gold' });
 
-  const totalR = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(nd.cost), 0)::text AS total FROM character_nodes cn
-     JOIN node_definitions nd ON nd.id = cn.node_id
-     WHERE cn.character_id = $1`,
+  // paragon zone 노드는 paragon_points 로, 나머지는 node_points 로 분리 환불.
+  // 이전 통합 환불은 paragon 노드 cost 도 node_points 로 잘못 가산해 paragon_points 가
+  // 사라지는 버그가 있었음 (두둥게 보고).
+  const totalR = await query<{ paragon_total: string; normal_total: string }>(
+    `SELECT
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN nd.cost ELSE 0 END), 0)::text AS paragon_total,
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN 0 ELSE nd.cost END), 0)::text AS normal_total
+       FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE cn.character_id = $1`,
     [id]
   );
-  const refund = Number(totalR.rows[0].total);
+  const paragonRefund = Number(totalR.rows[0].paragon_total);
+  const normalRefund = Number(totalR.rows[0].normal_total);
 
   await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
-  await query('UPDATE characters SET node_points = node_points + $1, gold = gold - $2 WHERE id = $3',
-    [refund, cost, id]);
+  await query(
+    `UPDATE characters
+        SET node_points = node_points + $1,
+            paragon_points = COALESCE(paragon_points, 0) + $2,
+            gold = gold - $3
+      WHERE id = $4`,
+    [normalRefund, paragonRefund, cost, id]
+  );
   await refreshSessionStats(id).catch(() => {});
 
-  res.json({ ok: true, refundedPoints: refund, goldSpent: cost });
+  res.json({
+    ok: true,
+    refundedPoints: normalRefund,
+    refundedParagonPoints: paragonRefund,
+    goldSpent: cost,
+  });
 });
 
 // ═══ 노드 프리셋 ═══

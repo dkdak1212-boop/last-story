@@ -77,8 +77,7 @@ router.post('/:characterId/buy', async (req: AuthedRequest, res: Response) => {
 });
 
 // POST /paragon/:characterId/reset
-//   - paragon zone 노드 모두 해제 (character_nodes 에서 zone='paragon' 노드 삭제)
-//   - paragon_points 는 보존 (재배치 자유)
+//   - paragon zone 노드 모두 해제 + 투자한 cost 만큼 paragon_points 환불 (재배치 자유)
 //   - 일반 node_points 는 영향 없음
 router.post('/:characterId/reset', async (req: AuthedRequest, res: Response) => {
   const cid = Number(req.params.characterId);
@@ -91,19 +90,34 @@ router.post('/:characterId/reset', async (req: AuthedRequest, res: Response) => 
     if (activeSessions.has(cid)) return res.status(400).json({ error: '전투 중에는 리셋 불가. 마을 귀환 후 시도.' });
   } catch {}
 
+  let refunded = 0;
   await withTransaction(async (tx) => {
-    // 캐릭 행 락
     await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [cid]);
+    // 환불할 paragon cost 합산
+    const sumR = await tx.query<{ total: string }>(
+      `SELECT COALESCE(SUM(nd.cost), 0)::text AS total
+         FROM character_nodes cn
+         JOIN node_definitions nd ON nd.id = cn.node_id
+        WHERE cn.character_id = $1 AND nd.zone = 'paragon'`,
+      [cid]
+    );
+    refunded = Number(sumR.rows[0].total);
     await tx.query(
       `DELETE FROM character_nodes
         WHERE character_id = $1
           AND node_id IN (SELECT id FROM node_definitions WHERE zone = 'paragon')`,
       [cid]
     );
+    if (refunded > 0) {
+      await tx.query(
+        `UPDATE characters SET paragon_points = COALESCE(paragon_points, 0) + $1 WHERE id = $2`,
+        [refunded, cid]
+      );
+    }
   });
   await refreshSessionStats(cid).catch(() => {});
 
-  res.json({ ok: true });
+  res.json({ ok: true, refundedParagonPoints: refunded });
 });
 
 export default router;
