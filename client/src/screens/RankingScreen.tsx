@@ -14,7 +14,7 @@ const CLASS_COLOR: Record<string, string> = {
 };
 
 const TABS: { key: string; label: string }[] = [
-  { key: 'level', label: '레벨' },
+  { key: 'guildboss', label: '길드보스' },
   { key: 'gold', label: '골드' },
   { key: 'pvp', label: 'PvP' },
   { key: 'enhance', label: '강화' },
@@ -37,7 +37,7 @@ const CLASS_TABS: { key: string; label: string }[] = [
 ];
 
 export function RankingScreen() {
-  const [type, setType] = useState('level');
+  const [type, setType] = useState('guildboss');
   const [classFilter, setClassFilter] = useState('all');
   const [rows, setRows] = useState<RankEntry[]>([]);
 

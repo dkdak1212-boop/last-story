@@ -4,7 +4,7 @@ import { query } from '../db/pool.js';
 const router = Router();
 
 router.get('/', async (req, res) => {
-  const type = (req.query.type as string) || 'level';
+  const type = (req.query.type as string) || 'guildboss';
   const limit = 100;
 
   let sql: string;
@@ -48,12 +48,18 @@ router.get('/', async (req, res) => {
       mapFn = (row, idx) => ({ rank: idx + 1, id: row.id, name: row.name, className: row.class_name, level: row.level, value: Number(row.kills), label: `${Number(row.kills).toLocaleString()}킬` });
       break;
 
-    case 'level':
+    case 'guildboss':
     default:
-      sql = `SELECT c.id, c.name, c.class_name, c.level, c.gold, c.exp
-             FROM characters c JOIN users u ON u.id = c.user_id WHERE u.is_admin = FALSE
-             ORDER BY c.level DESC, c.exp DESC LIMIT ${limit}`;
-      mapFn = (row, idx) => ({ rank: idx + 1, id: row.id, name: row.name, className: row.class_name, level: row.level, value: row.level, label: `Lv.${row.level}` });
+      // 길드보스 누적딜 — 캐릭별 daily_damage_total 전기간 합산. 누적딜 0 인 캐릭 제외.
+      sql = `SELECT c.id, c.name, c.class_name, c.level,
+                    COALESCE(SUM(gbd.daily_damage_total), 0)::text AS dmg
+               FROM characters c JOIN users u ON u.id = c.user_id
+               LEFT JOIN guild_boss_daily gbd ON gbd.character_id = c.id
+              WHERE u.is_admin = FALSE
+              GROUP BY c.id, c.name, c.class_name, c.level
+             HAVING COALESCE(SUM(gbd.daily_damage_total), 0) > 0
+              ORDER BY COALESCE(SUM(gbd.daily_damage_total), 0) DESC, c.level DESC LIMIT ${limit}`;
+      mapFn = (row, idx) => ({ rank: idx + 1, id: row.id, name: row.name, className: row.class_name, level: row.level, value: Number(row.dmg), label: `${Number(row.dmg).toLocaleString()} 누적딜` });
       break;
   }
 
