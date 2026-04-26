@@ -52,6 +52,9 @@ export interface Character {
   title?: string | null;
   transientTitle?: string | null;
   transientTitleExpiresAt?: string | null;
+  // 오프라인 보상 정산 — last_offline_at 가 set 되어 있으면 다음 진입 시 정산 대상.
+  lastOfflineAt?: string | null;
+  lastFieldIdOffline?: number | null;
   // /:id 엔드포인트에서만 내려오는 추가 필드
   effectiveStats?: EffectiveStats;
   fieldName?: string;

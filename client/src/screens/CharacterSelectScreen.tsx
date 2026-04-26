@@ -125,9 +125,32 @@ export function CharacterSelectScreen() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
               <ClassIcon className={c.className as ClassName} size={28} />
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{c.name}</div>
+                <div style={{ fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {c.name}
+                  {c.lastOfflineAt && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        background: 'rgba(136, 200, 255, 0.15)',
+                        color: '#88c8ff',
+                        border: '1px solid #88c8ff',
+                        borderRadius: 3,
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      오프라인 사냥중
+                    </span>
+                  )}
+                </div>
                 <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
                   Lv.{c.level} {c.className}
+                  {c.lastOfflineAt && (
+                    <span style={{ marginLeft: 8, color: '#88c8ff' }}>
+                      · 진입 시 정산
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
