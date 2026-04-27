@@ -2298,6 +2298,86 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 종언의 기둥 — 4 테이블 + 보상 매핑 시드 + fields 항목
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'endless_pillar_v1'`);
+      if (!applied.rowCount) {
+        await query(`CREATE TABLE IF NOT EXISTS endless_pillar_progress (
+          character_id INT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+          current_floor INT NOT NULL DEFAULT 1,
+          current_hp INT NOT NULL DEFAULT 0,
+          paused BOOLEAN NOT NULL DEFAULT TRUE,
+          highest_floor INT NOT NULL DEFAULT 0,
+          daily_highest_floor INT NOT NULL DEFAULT 0,
+          daily_highest_at TIMESTAMPTZ,
+          total_kills BIGINT NOT NULL DEFAULT 0,
+          total_deaths INT NOT NULL DEFAULT 0,
+          last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_epp_daily ON endless_pillar_progress(daily_highest_floor DESC, daily_highest_at)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_epp_highest ON endless_pillar_progress(highest_floor DESC)`);
+        await query(`CREATE TABLE IF NOT EXISTS endless_pillar_floor_log (
+          id BIGSERIAL PRIMARY KEY,
+          character_id INT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+          floor INT NOT NULL,
+          cleared_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          clear_time_ms INT NOT NULL
+        )`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_epfl_char ON endless_pillar_floor_log(character_id, cleared_at DESC)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_epfl_floor ON endless_pillar_floor_log(floor)`);
+        await query(`CREATE TABLE IF NOT EXISTS endless_pillar_reward_mapping (
+          id SERIAL PRIMARY KEY,
+          rank INT NOT NULL,
+          item_id INT NOT NULL REFERENCES items(id),
+          quantity INT NOT NULL DEFAULT 1,
+          description TEXT
+        )`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_eprm_rank ON endless_pillar_reward_mapping(rank)`);
+        await query(`CREATE TABLE IF NOT EXISTS endless_pillar_daily_rewards (
+          id BIGSERIAL PRIMARY KEY,
+          send_date DATE NOT NULL,
+          character_id INT NOT NULL,
+          rank INT,
+          floor_reached INT NOT NULL,
+          item_id INT NOT NULL,
+          quantity INT NOT NULL,
+          is_random_bonus BOOLEAN NOT NULL DEFAULT FALSE,
+          sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (send_date, character_id, item_id, is_random_bonus)
+        )`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_epdr_date ON endless_pillar_daily_rewards(send_date)`);
+
+        // 보상 매핑 시드 — 1~10 (T3+품질) / 11~50 (T2+수치) / 51~100 (T1+수치)
+        const existing = await query(`SELECT 1 FROM endless_pillar_reward_mapping LIMIT 1`);
+        if (!existing.rowCount) {
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 840, 1, g || '위: T3 보장 추첨권' FROM generate_series(1, 10) AS g`);
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 476, 1, g || '위: 품질 재굴림권' FROM generate_series(1, 10) AS g`);
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 856, 1, g || '위: T2 보장 추첨권' FROM generate_series(11, 50) AS g`);
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 322, 1, g || '위: 접두사 수치 재굴림권' FROM generate_series(11, 50) AS g`);
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 857, 1, g || '위: T1 보장 추첨권' FROM generate_series(51, 100) AS g`);
+          await query(`INSERT INTO endless_pillar_reward_mapping (rank, item_id, quantity, description)
+            SELECT g, 322, 1, g || '위: 접두사 수치 재굴림권' FROM generate_series(51, 100) AS g`);
+        }
+
+        await query(`INSERT INTO fields (id, name, required_level, monster_pool, description)
+          VALUES (1000, '종언의 기둥', 1, '[]'::jsonb,
+                  '무한 등반 도전 컨텐츠. 100층마다 보스 등장, 죽으면 1층 회귀. 매일 랭킹 보상 지급.')
+          ON CONFLICT (id) DO NOTHING`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('endless_pillar_v1')`);
+        console.log('[late] endless_pillar_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] endless_pillar_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
