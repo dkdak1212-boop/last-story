@@ -87,6 +87,13 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   // 차원의 정수 (paragon) 노드 — Lv.100 + 키스톤 cap 2 + paragon_points 사용
   const isParagon = node.zone === 'paragon';
   if (isParagon) {
+    // 임시 잠금 — 어드민 전용. 일반 유저 투자 차단 (밸런스 점검 중).
+    const adminR = await query<{ is_admin: boolean }>(
+      `SELECT is_admin FROM users WHERE id = $1`, [req.userId!]
+    );
+    if (!adminR.rows[0]?.is_admin) {
+      return res.status(403).json({ error: '차원의 정수 노드 투자는 현재 점검 중입니다. 잠시 후 다시 시도해주세요.' });
+    }
     if (char.level < 100) return res.status(400).json({ error: 'Lv.100 도달 후 투자 가능' });
     if (node.tier === 'huge') {
       // 키스톤 cap (huge tier 만 카운트)
@@ -312,6 +319,20 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   );
   if (pr.rowCount === 0 || pr.rows[0].node_ids.length === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
   const targetNodeIds = pr.rows[0].node_ids;
+
+  // 차원의 정수 (paragon) 노드 잠금 — 어드민 외 차단. 프리셋에 paragon 노드 포함 시 거부.
+  const paragonInPresetR = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM node_definitions WHERE id = ANY($1::int[]) AND zone = 'paragon'`,
+    [targetNodeIds]
+  );
+  if ((paragonInPresetR.rows[0]?.n ?? 0) > 0) {
+    const adminR = await query<{ is_admin: boolean }>(
+      `SELECT is_admin FROM users WHERE id = $1`, [req.userId!]
+    );
+    if (!adminR.rows[0]?.is_admin) {
+      return res.status(403).json({ error: '차원의 정수 노드 투자는 현재 점검 중 — 해당 노드 포함 프리셋 로드 차단됩니다.' });
+    }
+  }
 
   // 현재 노드 전체 환불
   const totalR = await query<{ total: string }>(
