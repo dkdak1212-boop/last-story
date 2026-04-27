@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, memo } from 'react';
+import { useEffect, useState, useRef, useCallback, memo, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../api/client';
@@ -621,8 +621,19 @@ export function CombatScreen() {
     );
   })() : null;
 
+  // 종언의 기둥 — 어두운 탑 배경 (DCSS stone_dark0 타일 반복 + 보라/검정 그라디언트)
+  const endlessBgStyle: CSSProperties | undefined = isEndless ? {
+    backgroundImage: 'linear-gradient(180deg, rgba(20,5,35,0.85), rgba(5,2,15,0.92)), url(/images/fields/stone_dark0.png)',
+    backgroundRepeat: 'repeat',
+    backgroundSize: 'auto, 64px 64px',
+    boxShadow: 'inset 0 0 120px rgba(162,75,255,0.2)',
+    minHeight: '100vh',
+    margin: '-16px -16px 0',
+    padding: '16px 16px 0',
+  } : undefined;
+
   return (
-    <div>
+    <div style={endlessBgStyle}>
       {endlessHud}
       {/* 오프라인 전환 미리보기 모달 */}
       {offlinePreview && (() => {

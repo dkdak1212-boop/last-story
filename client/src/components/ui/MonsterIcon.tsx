@@ -1,6 +1,24 @@
 // Monster pixel art icons (DCSS CC0) – 이름 키워드 기반 매핑
 
 const KEYWORD_MAP: [string[], string][] = [
+  // 종언의 기둥 — 정확한 이름 매칭 (키워드 충돌 방지로 최상단)
+  // 일반 몬스터 5종
+  [['망자의 그림자'], 'shadow'],
+  [['차원의 사냥꾼'], 'deep_elf_knight'],
+  [['영겁의 잔재'], 'sun_demon'],
+  [['침묵의 수도자'], 'mummy_priest'],
+  [['종언의 첨병'], 'hell_knight'],
+  // 보스 10종
+  [['깨어난 수문장'], 'iron_golem'],
+  [['시간의 포식자'], 'shadow_dragon'],
+  [['균열의 폭군'], 'fire_dragon'],
+  [['무한의 환영'], 'lich_new'],
+  [['종말의 기수'], 'skeletal_warrior'],
+  [['절멸의 권능'], 'balrug'],
+  [['영원의 파수자'], 'titan'],
+  [['차원 군주'], 'ancient_lich'],
+  [['끝없는 심판자'], 'cyclops'],
+  [['종언 그 자체'], 'phoenix'],
   // 길드 보스 — 정확한 이름 매칭 우선
   [['강철의 거인'], 'iron_golem'],
   [['광속의 환영'], 'shadow'],
