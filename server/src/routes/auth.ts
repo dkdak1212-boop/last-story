@@ -81,7 +81,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await query<{ id: number }>(
-      'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 2) RETURNING id',
+      'INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots) VALUES ($1, $2, $3, $4, 3) RETURNING id',
       [username, hash, email.toLowerCase(), ip]
     );
     const userId = result.rows[0].id;
@@ -294,7 +294,7 @@ router.get('/google/callback', async (req, res) => {
       }
       const ins = await query<{ id: number }>(
         `INSERT INTO users (username, password_hash, email, registered_ip, max_character_slots, provider, provider_id)
-         VALUES ($1, NULL, $2, $3, 2, $4, $5) RETURNING id`,
+         VALUES ($1, NULL, $2, $3, 3, $4, $5) RETURNING id`,
         [uname, gu.email || null, ip, provider, providerId]
       );
       userId = ins.rows[0].id;
