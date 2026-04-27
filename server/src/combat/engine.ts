@@ -1584,16 +1584,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hitMult = baseChain;
       let firstLandedHit = true;
       let landedCount = 0;
-      // 신의 타격: 본인 최대 HP × 50 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
-      // 천상 강림: 본인 최대 HP × 40 × N연타 + 마지막 1타 추가 max_hp × 200 폭격 (강제 치명).
+      // 신의 타격: 본인 최대 HP × 25 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
+      // 천상 강림: 본인 최대 HP × 20 × N연타 + 마지막 1타 추가 max_hp × 50 폭격 (강제 치명).
       let divineStrikeFlat = 0;
       let ascensionFinalFlat = 0;
       let ascensionForceCritOnLast = false;
       if (skill.name === '신의 타격') {
-        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 25 - s.monsterStats.mdef * 0.5));
       } else if (skill.name === '천상 강림') {
-        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 40 - s.monsterStats.mdef * 0.5));
-        ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 200 - s.monsterStats.mdef * 0.5));
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 20 - s.monsterStats.mdef * 0.5));
+        ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
         ascensionForceCritOnLast = true;
         addLog(s, `[${skill.name}] 천상의 빛이 강림한다…`);
       }
