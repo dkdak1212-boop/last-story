@@ -2448,6 +2448,22 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 종언의 기둥 — 모든 몬스터 spd ×3 (일반 + 보스). 시드/너프 뒤에 배치.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'endless_pillar_speed_x3_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE monsters
+           SET stats = jsonb_set(stats, '{spd}', to_jsonb(COALESCE((stats->>'spd')::int, 100) * 3))
+         WHERE id BETWEEN 503 AND 517`);
+        await query(`INSERT INTO _migrations (name) VALUES ('endless_pillar_speed_x3_v1')`);
+        console.log('[late] endless_pillar_speed_x3_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] endless_pillar_speed_x3_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
