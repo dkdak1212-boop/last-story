@@ -148,3 +148,140 @@ export async function resetDailyHighest(): Promise<number> {
   );
   return r.rowCount ?? 0;
 }
+
+// 일일 랭킹 보상 발송 — KST 자정 cron 에서 호출.
+// 단계:
+//   1. 어제 (KST) 의 랭킹 산정 (daily_highest_floor > 0, 동점 시 daily_highest_at 빠른순)
+//   2. 1~100위에게 매핑된 보상 우편 (item 단위로 row 가 매핑돼있어 한 순위에 복수 row 가능)
+//   3. 1~200위 중 랜덤 10명에게 3옵 보장 굴림권(841) 우편 추가
+//   4. daily_highest_floor 전부 0 으로 리셋
+// 멱등성: endless_pillar_daily_rewards UNIQUE (send_date, char, item_id, is_random_bonus)
+export async function sendDailyRewardMails(): Promise<{ mainSent: number; randomSent: number; date: string }> {
+  // KST 어제 날짜 — 자정 직후 cron 이라 NOW() KST 의 어제 ?
+  // 아니면 cron 호출 시점 = "다음날 00:00 직후" 기준의 "전일" 이 평가 대상.
+  // 단순화: cron 발동 시점 KST 의 (CURRENT_DATE - 1) 을 send_date 로 기록.
+  const dateR = await query<{ d: string }>(
+    `SELECT ((NOW() AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '1 day')::date::text AS d`
+  );
+  const sendDate = dateR.rows[0].d;
+
+  // 1. 랭킹 산정 — 200위까지 (랜덤 보너스 추첨용 포함)
+  const rankR = await query<{ character_id: number; daily_highest_floor: number }>(
+    `SELECT character_id, daily_highest_floor
+       FROM endless_pillar_progress
+      WHERE daily_highest_floor > 0
+      ORDER BY daily_highest_floor DESC, daily_highest_at ASC
+      LIMIT 200`
+  );
+  const top200 = rankR.rows;
+  let mainSent = 0;
+  let randomSent = 0;
+
+  // 2. 1~100위 보상 매핑 발송 (rank 별 복수 row 처리)
+  const top100 = top200.slice(0, 100);
+  if (top100.length > 0) {
+    const mappingR = await query<{ rank: number; item_id: number; quantity: number; description: string | null }>(
+      `SELECT rank, item_id, quantity, description FROM endless_pillar_reward_mapping ORDER BY rank, item_id`
+    );
+    const mappingByRank = new Map<number, { item_id: number; quantity: number; description: string | null }[]>();
+    for (const m of mappingR.rows) {
+      if (!mappingByRank.has(m.rank)) mappingByRank.set(m.rank, []);
+      mappingByRank.get(m.rank)!.push({ item_id: m.item_id, quantity: m.quantity, description: m.description });
+    }
+
+    const { deliverToMailbox } = await import('./inventory.js');
+    for (let i = 0; i < top100.length; i++) {
+      const rank = i + 1;
+      const entry = top100[i];
+      const rewards = mappingByRank.get(rank) || [];
+      for (const reward of rewards) {
+        // 멱등 가드 — 같은 날 같은 캐릭에게 같은 아이템 (main, 비랜덤) 한 번만
+        const dup = await query(
+          `INSERT INTO endless_pillar_daily_rewards (send_date, character_id, rank, floor_reached, item_id, quantity, is_random_bonus)
+           VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+           ON CONFLICT (send_date, character_id, item_id, is_random_bonus) DO NOTHING
+           RETURNING id`,
+          [sendDate, entry.character_id, rank, entry.daily_highest_floor, reward.item_id, reward.quantity]
+        );
+        if ((dup.rowCount ?? 0) > 0) {
+          await deliverToMailbox(
+            entry.character_id,
+            `종언의 기둥 일일 랭킹 보상 (${rank}위)`,
+            `${sendDate} 종언의 기둥 일일 랭킹 ${rank}위 도달 — 도달층 ${entry.daily_highest_floor}층\n\n` +
+            (reward.description || '보상 아이템'),
+            reward.item_id,
+            reward.quantity
+          );
+          mainSent++;
+        }
+      }
+    }
+  }
+
+  // 3. 1~200위 중 랜덤 10명 추첨 → 3옵 보장 굴림권(841) 추가 우편
+  if (top200.length > 0) {
+    const RANDOM_BONUS_ITEM_ID = 841;
+    const RANDOM_BONUS_QTY = 1;
+    const RANDOM_PICK_N = 10;
+    const pool = [...top200];
+    const picked: typeof pool = [];
+    for (let i = 0; i < Math.min(RANDOM_PICK_N, pool.length); i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picked.push(pool.splice(idx, 1)[0]);
+    }
+    const { deliverToMailbox } = await import('./inventory.js');
+    for (const entry of picked) {
+      const dup = await query(
+        `INSERT INTO endless_pillar_daily_rewards (send_date, character_id, rank, floor_reached, item_id, quantity, is_random_bonus)
+         VALUES ($1, $2, NULL, $3, $4, $5, TRUE)
+         ON CONFLICT (send_date, character_id, item_id, is_random_bonus) DO NOTHING
+         RETURNING id`,
+        [sendDate, entry.character_id, entry.daily_highest_floor, RANDOM_BONUS_ITEM_ID, RANDOM_BONUS_QTY]
+      );
+      if ((dup.rowCount ?? 0) > 0) {
+        await deliverToMailbox(
+          entry.character_id,
+          '종언의 기둥 일일 랜덤 추첨 보상',
+          `${sendDate} 종언의 기둥 200위 안 랜덤 추첨에 당첨되었습니다 — 도달층 ${entry.daily_highest_floor}층`,
+          RANDOM_BONUS_ITEM_ID,
+          RANDOM_BONUS_QTY
+        );
+        randomSent++;
+      }
+    }
+  }
+
+  // 4. daily_highest 리셋
+  await resetDailyHighest();
+
+  return { mainSent, randomSent, date: sendDate };
+}
+
+// KST 자정 크로싱 감지 cron — 1분 단위 호출. 마지막 실행 자정 시각을 메모리에 저장,
+// 같은 자정에 두 번 발송되지 않도록 가드.
+let lastDailyRunKstDate: string | null = null;
+
+export async function tickDailyRewardCron(): Promise<void> {
+  // KST 시각 기준 시각/일자 조회
+  const r = await query<{ kst_date: string; kst_hhmm: string }>(
+    `SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS kst_date,
+            to_char(NOW() AT TIME ZONE 'Asia/Seoul', 'HH24:MI') AS kst_hhmm`
+  );
+  const kstDate = r.rows[0].kst_date;
+  const kstHhmm = r.rows[0].kst_hhmm;
+
+  // 자정 직후 (00:00 ~ 00:09) 안에서만 발동. 같은 KST 일자에 한 번만.
+  if (!kstHhmm.startsWith('00:')) return;
+  const minutes = parseInt(kstHhmm.split(':')[1], 10);
+  if (minutes > 9) return;
+  if (lastDailyRunKstDate === kstDate) return;
+
+  console.log(`[endless] daily reward cron 시작 — KST ${kstDate} ${kstHhmm}`);
+  try {
+    const result = await sendDailyRewardMails();
+    console.log(`[endless] daily reward cron 완료 — date=${result.date} main=${result.mainSent} random=${result.randomSent}`);
+    lastDailyRunKstDate = kstDate;
+  } catch (e) {
+    console.error('[endless] daily reward cron error:', e);
+  }
+}

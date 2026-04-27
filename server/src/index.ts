@@ -2494,6 +2494,14 @@ setInterval(async () => {
   } catch (e) { console.error('[territory] settle error', e); }
 }, 60_000);
 
+// 종언의 기둥 일일 랭킹 보상 cron (1분마다 — KST 00:00~00:09 자정 크로싱 감지 1회 발동)
+setInterval(async () => {
+  try {
+    const { tickDailyRewardCron } = await import('./game/endlessPillar.js');
+    await tickDailyRewardCron();
+  } catch (e) { console.error('[endless] daily cron error:', e); }
+}, 60_000);
+
 // 로그인 이력 90일 이상 자동 정리 (하루 1회)
 setInterval(async () => {
   try {
