@@ -25,13 +25,18 @@ function chestItemId(tier: 'gold' | 'silver' | 'copper'): number {
   return tier === 'gold' ? ITEM_CHEST_GOLD : tier === 'silver' ? ITEM_CHEST_SILVER : ITEM_CHEST_COPPER;
 }
 
-// 캐릭 레벨 기준 유니크 풀에서 무작위 1개 선택
+// 캐릭 레벨 기준 유니크 풀에서 무작위 1개 선택.
+// 제외: bound_on_pickup=true (시공 분쇄 110제 + 재료/통행증), slot IS NULL (재료/소비).
+// 즉 거래 가능한 일반 유니크 장비만 추첨 풀에 포함.
 export async function pickRandomUnique(characterLevel: number): Promise<number | null> {
   const low = Math.max(1, characterLevel - 10);
   const high = characterLevel + 10;
   const r = await query<{ id: number }>(
     `SELECT id FROM items
-     WHERE grade = 'unique' AND required_level BETWEEN $1 AND $2
+     WHERE grade = 'unique'
+       AND required_level BETWEEN $1 AND $2
+       AND slot IS NOT NULL
+       AND bound_on_pickup = FALSE
      ORDER BY RANDOM() LIMIT 1`,
     [low, high]
   );
