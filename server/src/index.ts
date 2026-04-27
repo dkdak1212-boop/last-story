@@ -2416,6 +2416,38 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 종언의 기둥 — 보스 너프 (HP/스탯 ÷4) — v1 시드 후 적용. 시드 블록 뒤에 배치 필수.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'endless_pillar_boss_nerf_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE monsters
+           SET max_hp = max_hp / 4,
+               stats = jsonb_set(
+                 jsonb_set(
+                   jsonb_set(
+                     jsonb_set(
+                       jsonb_set(
+                         stats,
+                         '{str}',  to_jsonb(GREATEST(1, (stats->>'str')::int / 4))
+                       ),
+                       '{int}',  to_jsonb(GREATEST(1, COALESCE((stats->>'int')::int, 0) / 4))
+                     ),
+                     '{def}',  to_jsonb(GREATEST(1, COALESCE((stats->>'def')::int, 0) / 4))
+                   ),
+                   '{mdef}', to_jsonb(GREATEST(1, COALESCE((stats->>'mdef')::int, 0) / 4))
+                 ),
+                 '{vit}',  to_jsonb(GREATEST(1, COALESCE((stats->>'vit')::int, 0) / 4))
+               )
+         WHERE id BETWEEN 508 AND 517`);
+        await query(`INSERT INTO _migrations (name) VALUES ('endless_pillar_boss_nerf_v1')`);
+        console.log('[late] endless_pillar_boss_nerf_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] endless_pillar_boss_nerf_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
