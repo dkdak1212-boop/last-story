@@ -5,7 +5,7 @@ import { query } from '../db/pool.js';
 
 export const ENDLESS_FIELD_ID = 1000;
 export const ENDLESS_TIME_LIMIT_MS = 60_000;            // 1분 / 층
-export const ENDLESS_SCALE_PER_FLOOR = 0.025;           // +2.5% / 층
+export const ENDLESS_SCALE_PER_FLOOR = 0.03;            // +3% / 층
 
 const NORMAL_MONSTER_IDS = [503, 504, 505, 506, 507];
 const BOSS_MONSTER_IDS = [508, 509, 510, 511, 512, 513, 514, 515, 516, 517];
