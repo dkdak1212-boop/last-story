@@ -4406,8 +4406,32 @@ async function startCombatSessionInner(
     guildBossHitsBuffer: 0,
     guildBossDmgByElement: {},
     currentActionElement: null,
-    guildBossStartedAt: guildBossOpts ? Date.now() : 0,
+    // 광분 타이머 — run 의 DB started_at 기준 (재입장 시에도 누적 유지).
+    // 클라가 탭 이동/재접속으로 세션을 재생성해도 60초 카운트가 reset 되지 않게.
+    // run 정보 못 읽거나 practice 면 Date.now() fallback (in-memory only).
+    guildBossStartedAt: 0, // 아래에서 비동기 SELECT 후 세팅
   };
+
+  // 광분 타이머 기준 시각 — run 의 DB started_at 사용 (탭 이동 어뷰즈 차단)
+  if (guildBossOpts?.guildBossRunId && !guildBossOpts.practice) {
+    try {
+      const runR = await query<{ started_ms: string }>(
+        `SELECT (EXTRACT(EPOCH FROM started_at) * 1000)::bigint::text AS started_ms
+           FROM guild_boss_runs WHERE id = $1`,
+        [guildBossOpts.guildBossRunId]
+      );
+      if (runR.rowCount && runR.rows[0].started_ms) {
+        session.guildBossStartedAt = Number(runR.rows[0].started_ms);
+      } else {
+        session.guildBossStartedAt = Date.now();
+      }
+    } catch (e) {
+      console.error('[guild-boss] run started_at fetch fail', characterId, e);
+      session.guildBossStartedAt = Date.now();
+    }
+  } else if (guildBossOpts) {
+    session.guildBossStartedAt = Date.now();
+  }
 
   // 패시브: counter_incarnation (상시 반사)
   const counterInc = passives.get('counter_incarnation') || 0;
