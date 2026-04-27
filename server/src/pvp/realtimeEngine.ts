@@ -247,9 +247,9 @@ function amplifyDamage(
     .filter(e => e.type === 'stat_buff' && e.remainingActions > 0)
     .reduce((a, e) => a + e.value, 0);
   if (atkBuff > 0) dmg = Math.round(dmg * (1 + atkBuff / 100));
-  // 광전사 prefix (HP 30% 이하)
+  // 광전사 prefix (HP 35% 이하)
   const berserk = self.equipPrefixes.berserk_pct || 0;
-  if (berserk > 0 && self.hp / self.maxHp <= 0.3) {
+  if (berserk > 0 && self.hp / self.maxHp <= 0.35) {
     dmg = Math.round(dmg * (1 + berserk / 100));
   }
   // spell_amp 패시브 (마법사)

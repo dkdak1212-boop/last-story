@@ -20,7 +20,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   exp_bonus_pct: v => `경험치 획득 ${v}% 증가`,
   crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
   // 신규 7종
-  berserk_pct: v => `내 HP 30% 이하 시 데미지 +${v}%`,
+  berserk_pct: v => `내 HP 35% 이하 시 데미지 +${v}%`,
   guardian_pct: v => `HP 50% 이상 시 받는 데미지 -${v}%`,
   thorns_pct: v => `받는 데미지 ${v}% 반사`,
   gauge_on_crit_pct: v => `치명타 시 게이지 +${v}% (게이지회복 최대치50%제한)`,
