@@ -3410,16 +3410,38 @@ export async function onSessionGoOffline(
 
   // last_offline_at 기록은 명시적 오프라인 전환 시에만.
   // offline_buff_snapshot 동시 박제 — 정산 시 시간 비례 적분에 사용 (어뷰즈 차단).
-  // snapshot 은 offline 진입 시점의 버프 상태(until/pct/max_level) 를 jsonb 로 캡처.
+  // snapshot 은 offline 진입 시점의 버프 상태(until/pct/max_level/세션 보너스) 를 jsonb 로 캡처.
   // 이후 settleOfflineRewards 가 [last_offline_at, NOW] 와 [offline_start, snapshot.until]
   // 교집합 비율로 mul 가중치 계산 → 오프 중 버프 grant/연장으로 인한 부정 가산 방지.
+  // 세션-only 보너스(길드 드랍, 영지, 접두사 드랍률, 글로벌 이벤트) 는 세션 메모리에서
+  // 박제 — 이건 온라인-오프라인 정산 격차 해소 (오프라인이 길드/접두사 보너스 누락하던 버그 수정).
   if (record) {
     try {
+      // DB 컬럼 기반 버프 (until 시리즈) 는 SQL 에서 jsonb_build_object 로 직접 박제,
+      // 세션 메모리 의존 보너스는 TS 에서 계산 후 jsonb 에 merge.
+      let geDropMult = 1;
+      let geDropEndsAt: string | null = null;
+      try {
+        const ge = await getActiveGlobalEvent();
+        if (ge.active) {
+          geDropMult = ge.drop || 1;
+          geDropEndsAt = ge.endsAt;
+        }
+      } catch (e) {
+        console.error('[offline-go] global event fetch err', charId, e);
+      }
+      const sessionExtras = {
+        guild_drop_bonus_pct:    s.cachedGuildBuffs?.drop ?? 0,
+        prefix_drop_bonus_pct:   s.equipPrefixes?.drop_rate_pct ?? 0,
+        territory_drop_bonus_pct: 0, // 영지 점령 비활성화. 활성화 시 getTerritoryBonusForChar 로 박제.
+        ge_drop_mult:            geDropMult,
+        ge_drop_ends_at:         geDropEndsAt,
+      };
       await query(
         `UPDATE characters
             SET last_offline_at = NOW(),
                 last_field_id_offline = $2,
-                offline_buff_snapshot = jsonb_build_object(
+                offline_buff_snapshot = (jsonb_build_object(
                   'exp_until',                exp_boost_until,
                   'gold_until',               gold_boost_until,
                   'drop_until',               drop_boost_until,
@@ -3430,9 +3452,9 @@ export async function onSessionGoOffline(
                   'event_drop_pct',           COALESCE(event_drop_pct, 0),
                   'personal_exp_mult',        COALESCE(personal_exp_mult, 1),
                   'personal_exp_mult_max_level', personal_exp_mult_max_level
-                )
+                ) || $3::jsonb)
           WHERE id = $1`,
-        [charId, fieldId]
+        [charId, fieldId, JSON.stringify(sessionExtras)]
       );
     } catch (e) {
       console.error('[offline-go] persist err', charId, e);

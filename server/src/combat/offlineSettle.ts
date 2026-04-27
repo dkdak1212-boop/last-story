@@ -54,6 +54,12 @@ interface OfflineBuffSnapshot {
   event_drop_pct: number;
   personal_exp_mult: number;
   personal_exp_mult_max_level: number | null;
+  // 세션-only 보너스 (오프 진입 시점에서 박제 — 오프 중 변경 무시)
+  guild_drop_bonus_pct?: number;
+  prefix_drop_bonus_pct?: number;
+  territory_drop_bonus_pct?: number;
+  ge_drop_mult?: number;             // 글로벌 이벤트 드랍 배수 (1.0 = 비활성)
+  ge_drop_ends_at?: string | null;   // 글로벌 이벤트 종료시각 — 시간 비례 적분에 사용
 }
 
 interface CharRates {
@@ -275,6 +281,21 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const dropBoostMul = 1 + 0.5 * dropBoostFrac;
     const eventExpMul  = 1 + (evExpPct / 100) * eventExpFrac;
     const eventDropMul = 1 + (evDropPct / 100) * eventDropFrac;
+
+    // 세션-only 드랍 보너스 (snapshot 박제분) — 오프 진입 시점 길드/접두사/영지/글로벌이벤트
+    // 누락된 경우 0/1 fallback (legacy snapshot OR pre-fix 박제) 으로 안전.
+    const guildDropPct     = snap?.guild_drop_bonus_pct ?? 0;
+    const prefixDropPct    = snap?.prefix_drop_bonus_pct ?? 0;
+    const territoryDropPct = snap?.territory_drop_bonus_pct ?? 0;
+    const geDropMult       = snap?.ge_drop_mult ?? 1;
+    const geDropEndsAt     = snap?.ge_drop_ends_at ?? null;
+    // 글로벌 이벤트는 [offlineStart, NOW] ∩ [offlineStart, ge_drop_ends_at] 비율로 가중.
+    // ge_drop_mult=1 (비활성) 면 frac 무관 1 로 수렴.
+    const geDropFrac = geDropMult > 1
+      ? buffOverlapFrac(offlineStartMs, nowMs, geDropEndsAt) : 0;
+    const geDropEffective = 1 + (geDropMult - 1) * geDropFrac;
+    // 길드/접두사/영지 보너스는 시간 무관 (오프 중 변경 불가) — 전체 elapsed 에 적용.
+    const flatDropBonusPct = guildDropPct + prefixDropPct + territoryDropPct;
     // personal_exp_mult 는 영구 곱연산 (until 없음). max_level 만 체크해 그대로 적용.
     const personalExpActive = persExpMult > 1
       && (persExpMaxLv == null || c.level < persExpMaxLv);
@@ -284,7 +305,11 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const expGainRaw  = c.online_exp_rate  * elapsedCapped * MULT * expBoostMul * eventExpMul * personalExpMul;
     const goldGain    = Math.floor(c.online_gold_rate * elapsedCapped * MULT * goldBoostMul);
     const killsInc    = Math.floor(c.online_kill_rate * elapsedCapped);
-    const dropMult    = dropBoostMul * eventDropMul;
+    // dropMult — 온라인 rollDrops 와 동일 구조:
+    //   personal boost × event_drop × (1 + flat 길드/접두사/영지 합) × 글로벌이벤트 배수
+    const dropMult    = dropBoostMul * eventDropMul
+                      * (1 + flatDropBonusPct / 100)
+                      * geDropEffective;
 
     // 5) 드랍 — killsInc 가상 킬 시뮬 (multi-Bernoulli, 원본 rollDrops 와 동일 분포)
     //    online_drop_rate 는 EMA 통계용으로만 유지, 정산 추첨엔 사용 안 함 (인플레 방지).
