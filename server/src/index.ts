@@ -2298,6 +2298,27 @@ async function runEquipOverhaul() {
     }
   }
 
+  // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'tier_tickets_t1_t2_v1'`);
+      if (!applied.rowCount) {
+        await query(
+          `INSERT INTO items (id, name, type, grade, description, stack_size, sell_price, required_level)
+           VALUES
+             (856, 'T2 접두사 보장 추첨권', 'consumable', 'epic', '장비 1개에서 접두사 1개를 T2 티어로 재굴림합니다. 강화 메뉴에서 사용할 수 있습니다.', 300, 0, 1),
+             (857, 'T1 접두사 보장 추첨권', 'consumable', 'rare', '장비 1개에서 접두사 1개를 T1 티어로 재굴림합니다. 강화 메뉴에서 사용할 수 있습니다.', 300, 0, 1)
+           ON CONFLICT (id) DO NOTHING`
+        );
+        await query(`SELECT setval('items_id_seq', GREATEST((SELECT MAX(id) FROM items), 857))`);
+        await query(`INSERT INTO _migrations (name) VALUES ('tier_tickets_t1_t2_v1')`);
+        console.log('[late] tier_tickets_t1_t2_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] tier_tickets_t1_t2_v1 error:', e);
+    }
+  }
+
   // 오프라인 진입 시점 버프 스냅샷 — 정산 시 시간 비례 적분
   {
     try {

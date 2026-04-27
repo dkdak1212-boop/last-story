@@ -53,14 +53,16 @@ export function EnhanceScreen() {
   const [rerollIndex, setRerollIndex] = useState<number | null>(null); // null=전체
   const [qualityRerollCount, setQualityRerollCount] = useState(0);
   const [qualityRerolling, setQualityRerolling] = useState(false);
+  const [t1TicketCount, setT1TicketCount] = useState(0);
+  const [t2TicketCount, setT2TicketCount] = useState(0);
   const [t3TicketCount, setT3TicketCount] = useState(0);
   const [p3TicketCount, setP3TicketCount] = useState(0);
-  const [usingT3, setUsingT3] = useState(false);
+  const [usingTier, setUsingTier] = useState<1 | 2 | 3 | null>(null);
   const [usingP3, setUsingP3] = useState(false);
 
   async function load(): Promise<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] } | null> {
     if (!active) return null;
-    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number; t3TicketCount?: number; p3TicketCount?: number }>(`/enhance/${active.id}/list`);
+    const d = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[]; scrollCount: number; rerollCount: number; qualityRerollCount?: number; t1TicketCount?: number; t2TicketCount?: number; t3TicketCount?: number; p3TicketCount?: number }>(`/enhance/${active.id}/list`);
     setItems([...d.equipped, ...d.inventory]);
     const newScrollCount = d.scrollCount || 0;
     setScrollCount(newScrollCount);
@@ -69,21 +71,24 @@ export function EnhanceScreen() {
     if (newScrollCount === 0) setUseScroll(false);
     setRerollCount(d.rerollCount || 0);
     setQualityRerollCount(d.qualityRerollCount || 0);
+    setT1TicketCount(d.t1TicketCount || 0);
+    setT2TicketCount(d.t2TicketCount || 0);
     setT3TicketCount(d.t3TicketCount || 0);
     setP3TicketCount(d.p3TicketCount || 0);
     return { inventory: d.inventory, equipped: d.equipped };
   }
 
-  async function useT3Ticket() {
-    if (!active || !selected || usingT3) return;
-    if (rerollIndex === null) { alert('T3 추첨권은 특정 접두사 1개를 선택해야 합니다. 아래 "접두사 선택" 에서 하나 골라주세요.'); return; }
+  async function useTierTicket(tier: 1 | 2 | 3) {
+    if (!active || !selected || usingTier !== null) return;
+    if (rerollIndex === null) { alert(`T${tier} 추첨권은 특정 접두사 1개를 선택해야 합니다. 아래 "접두사 선택" 에서 하나 골라주세요.`); return; }
     if (selected.grade === 'unique') { alert('유니크 장비는 사용 불가'); return; }
-    if (t3TicketCount <= 0) { alert('T3 접두사 보장 추첨권이 없습니다.'); return; }
-    if (!confirm('선택한 접두사 1개를 T3 티어로 재굴림합니다. 진행하시겠습니까?')) return;
-    setUsingT3(true);
+    const count = tier === 1 ? t1TicketCount : tier === 2 ? t2TicketCount : t3TicketCount;
+    if (count <= 0) { alert(`T${tier} 접두사 보장 추첨권이 없습니다.`); return; }
+    if (!confirm(`선택한 접두사 1개를 T${tier} 티어로 재굴림합니다. 진행하시겠습니까?`)) return;
+    setUsingTier(tier);
     try {
       await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number>; prefixStatsRaw?: Record<string, number> }>(
-        `/enhance/${active.id}/use-t3-ticket`,
+        `/enhance/${active.id}/use-t${tier}-ticket`,
         { method: 'POST', body: JSON.stringify({
           kind: selected.kind,
           slotKey: selected.kind === 'inventory' ? selected.slotIndex : selected.equipSlot,
@@ -96,7 +101,7 @@ export function EnhanceScreen() {
       const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
       if (match) setSelected(match);
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
-    finally { setUsingT3(false); }
+    finally { setUsingTier(null); }
   }
 
   async function use3PrefixTicket() {
@@ -531,21 +536,29 @@ export function EnhanceScreen() {
                 </div>
               ) : null}
 
-              {/* T3 보장 추첨권 / 3옵 보장 굴림권 */}
+              {/* T1/T2/T3 보장 추첨권 / 3옵 보장 굴림권 */}
               {selected.itemSlot && selected.grade !== 'unique' ? (
                 <div style={{ marginTop: 12, padding: 10, border: '1px solid #a24bff', borderRadius: 4 }}>
-                  <div style={{ fontSize: 11, color: '#a24bff', marginBottom: 8, fontWeight: 700 }}>길드 보스 상점 전용 추첨권</div>
-                  <button onClick={useT3Ticket} disabled={usingT3 || t3TicketCount <= 0 || rerollIndex === null} style={{
-                    width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700, marginBottom: 6,
-                    background: t3TicketCount > 0 && rerollIndex !== null ? '#a24bff' : 'transparent',
-                    color: t3TicketCount > 0 && rerollIndex !== null ? '#000' : 'var(--text-dim)',
-                    border: '1px solid #a24bff', borderRadius: 4,
-                    cursor: t3TicketCount > 0 && !usingT3 && rerollIndex !== null ? 'pointer' : 'default',
-                  }}>
-                    {usingT3 ? '굴리는 중...' : `T3 보장 추첨권 (보유: ${t3TicketCount}개)`}
-                  </button>
+                  <div style={{ fontSize: 11, color: '#a24bff', marginBottom: 8, fontWeight: 700 }}>접두사 보장 추첨권</div>
+                  {([1, 2, 3] as const).map(tier => {
+                    const cnt = tier === 1 ? t1TicketCount : tier === 2 ? t2TicketCount : t3TicketCount;
+                    const tierColor = TIER_COLOR[tier];
+                    const isUsing = usingTier === tier;
+                    const enabled = cnt > 0 && rerollIndex !== null && usingTier === null;
+                    return (
+                      <button key={tier} onClick={() => useTierTicket(tier)} disabled={!enabled || isUsing} style={{
+                        width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700, marginBottom: 6,
+                        background: enabled ? tierColor : 'transparent',
+                        color: enabled ? '#000' : 'var(--text-dim)',
+                        border: `1px solid ${tierColor}`, borderRadius: 4,
+                        cursor: enabled ? 'pointer' : 'default',
+                      }}>
+                        {isUsing ? '굴리는 중...' : `T${tier} 보장 추첨권 (보유: ${cnt}개)`}
+                      </button>
+                    );
+                  })}
                   <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 8, textAlign: 'center' }}>
-                    선택한 접두사 1개를 T3 티어로 교체 — 아래 "접두사 선택" 필수
+                    선택한 접두사 1개를 해당 티어로 교체 — 아래 "접두사 선택" 필수
                   </div>
                   <button onClick={use3PrefixTicket} disabled={usingP3 || p3TicketCount <= 0} style={{
                     width: '100%', padding: '8px 0', fontSize: 12, fontWeight: 700,

@@ -101,15 +101,19 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   );
   const qualityRerollCount = qualityRerollR.rows[0]?.quantity || 0;
 
-  // T3 접두사 보장 추첨권 + 3옵 보장 굴림권 보유량
-  const tktR = await query<{ t3_count: number; p3_count: number }>(
+  // T1/T2/T3 접두사 보장 추첨권 + 3옵 보장 굴림권 보유량
+  const tktR = await query<{ t1_count: number; t2_count: number; t3_count: number; p3_count: number }>(
     `SELECT
+       COALESCE(SUM(CASE WHEN i.name = 'T1 접두사 보장 추첨권' THEN ci.quantity ELSE 0 END), 0)::int AS t1_count,
+       COALESCE(SUM(CASE WHEN i.name = 'T2 접두사 보장 추첨권' THEN ci.quantity ELSE 0 END), 0)::int AS t2_count,
        COALESCE(SUM(CASE WHEN i.name = 'T3 접두사 보장 추첨권' THEN ci.quantity ELSE 0 END), 0)::int AS t3_count,
        COALESCE(SUM(CASE WHEN i.name = '3옵 보장 굴림권' THEN ci.quantity ELSE 0 END), 0)::int AS p3_count
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.name IN ('T3 접두사 보장 추첨권', '3옵 보장 굴림권')`,
+     WHERE ci.character_id = $1 AND i.name IN ('T1 접두사 보장 추첨권', 'T2 접두사 보장 추첨권', 'T3 접두사 보장 추첨권', '3옵 보장 굴림권')`,
     [cid]
   );
+  const t1TicketCount = tktR.rows[0]?.t1_count || 0;
+  const t2TicketCount = tktR.rows[0]?.t2_count || 0;
   const t3TicketCount = tktR.rows[0]?.t3_count || 0;
   const p3TicketCount = tktR.rows[0]?.p3_count || 0;
 
@@ -200,6 +204,8 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
     scrollCount,
     rerollCount,
     qualityRerollCount,
+    t1TicketCount,
+    t2TicketCount,
     t3TicketCount,
     p3TicketCount,
   });
@@ -517,31 +523,38 @@ router.post('/:characterId/reroll-quality', async (req: AuthedRequest, res: Resp
 });
 
 // ============================================================
-// T3 접두사 보장 추첨권 사용 — 지정 장비의 접두사 1개를 T3 tier 로 재굴림
+// T1/T2/T3 접두사 보장 추첨권 사용 — 지정 장비의 접두사 1개를 해당 tier 로 재굴림
+// 공용 핸들러: tier 별 라우트가 thin wrapper 로 호출.
 // body: { kind: 'inventory' | 'equipped', slotKey, prefixIndex }
 // ============================================================
-router.post('/:characterId/use-t3-ticket', async (req: AuthedRequest, res: Response) => {
+const TIER_TICKET_NAMES: Record<1 | 2 | 3, string> = {
+  1: 'T1 접두사 보장 추첨권',
+  2: 'T2 접두사 보장 추첨권',
+  3: 'T3 접두사 보장 추첨권',
+};
+
+async function handleTierTicketUse(req: AuthedRequest, res: Response, tier: 1 | 2 | 3): Promise<void> {
   const cid = Number(req.params.characterId);
   const char = await loadCharacterOwned(cid, req.userId!);
-  if (!char) return res.status(404).json({ error: 'not found' });
+  if (!char) { res.status(404).json({ error: 'not found' }); return; }
 
   const parsed = z.object({
     kind: z.enum(['inventory', 'equipped']),
     slotKey: z.union([z.number().int().min(0), z.string()]),
     prefixIndex: z.number().int().min(0).max(2),
   }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  if (!parsed.success) { res.status(400).json({ error: 'invalid input' }); return; }
 
-  // 추첨권 소모
+  const ticketName = TIER_TICKET_NAMES[tier];
+
   const ticketR = await query<{ id: number; quantity: number }>(
     `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.name = 'T3 접두사 보장 추첨권' AND ci.quantity > 0
-     ORDER BY ci.slot_index LIMIT 1`, [cid]
+     WHERE ci.character_id = $1 AND i.name = $2 AND ci.quantity > 0
+     ORDER BY ci.slot_index LIMIT 1`, [cid, ticketName]
   );
-  if (ticketR.rowCount === 0) return res.status(400).json({ error: 'T3 접두사 보장 추첨권이 없습니다.' });
+  if (ticketR.rowCount === 0) { res.status(400).json({ error: `${ticketName}이 없습니다.` }); return; }
   const ticket = ticketR.rows[0];
 
-  // 장비 정보 로드
   const load = parsed.data.kind === 'inventory'
     ? await query<{ required_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; enhance_level: number; unique_prefix_stats: Record<string, number> | null; grade: string }>(
         `SELECT COALESCE(i.required_level, 1) AS required_level, ci.prefix_ids, ci.prefix_stats, ci.enhance_level, i.unique_prefix_stats, i.grade
@@ -551,19 +564,17 @@ router.post('/:characterId/use-t3-ticket', async (req: AuthedRequest, res: Respo
         `SELECT COALESCE(i.required_level, 1) AS required_level, ce.prefix_ids, ce.prefix_stats, ce.enhance_level, i.unique_prefix_stats, i.grade
          FROM character_equipped ce JOIN items i ON i.id = ce.item_id
          WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
-  if (!load.rowCount) return res.status(404).json({ error: 'item not found' });
+  if (!load.rowCount) { res.status(404).json({ error: 'item not found' }); return; }
   const row = load.rows[0];
-  if (row.grade === 'unique') return res.status(400).json({ error: '유니크 장비는 사용 불가' });
+  if (row.grade === 'unique') { res.status(400).json({ error: '유니크 장비는 사용 불가' }); return; }
 
   const prefixIds = row.prefix_ids || [];
-  if (parsed.data.prefixIndex >= prefixIds.length) return res.status(400).json({ error: '존재하지 않는 접두사 인덱스' });
+  if (parsed.data.prefixIndex >= prefixIds.length) { res.status(400).json({ error: '존재하지 않는 접두사 인덱스' }); return; }
 
-  // 기존 prefix_stats 분리 — 대상 접두사의 stat_key 는 덮어쓰기
   const resolved = await resolvePrefixes(prefixIds);
   const targetStatKey = resolved[parsed.data.prefixIndex]?.statKey;
-  if (!targetStatKey) return res.status(400).json({ error: '접두사 해석 실패' });
+  if (!targetStatKey) { res.status(400).json({ error: '접두사 해석 실패' }); return; }
 
-  // 현재 사용 중인 stat_key 집합 (대상 index 제외)
   const usedStats = new Set<string>();
   for (let i = 0; i < prefixIds.length; i++) {
     if (i === parsed.data.prefixIndex) continue;
@@ -571,26 +582,21 @@ router.post('/:characterId/use-t3-ticket', async (req: AuthedRequest, res: Respo
     if (sk) usedStats.add(sk);
   }
 
-  const rolled = await generateSinglePrefixOfTier(row.required_level, 3, usedStats);
-  if (!rolled) return res.status(500).json({ error: 'T3 접두사 생성 실패' });
+  const rolled = await generateSinglePrefixOfTier(row.required_level, tier, usedStats);
+  if (!rolled) { res.status(500).json({ error: `T${tier} 접두사 생성 실패` }); return; }
 
-  // 새 prefix_ids / prefix_stats 구성
   const newIds = [...prefixIds];
   newIds[parsed.data.prefixIndex] = rolled.prefixId;
   const newStats: Record<string, number> = { ...(row.prefix_stats || {}) };
-  // 기존 대상 stat_key 가 복수 접두사에 걸쳐 있으면 전체 재굴림을 피하기 위해 —
-  //   단순화: 대상 stat_key 값 전체 제거 후 새 T3 값으로 대체
   delete newStats[targetStatKey];
   newStats[rolled.statKey] = (newStats[rolled.statKey] ?? 0) + rolled.value;
 
-  // 티켓 소모
   if (ticket.quantity <= 1) {
     await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
   } else {
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 저장
   if (parsed.data.kind === 'inventory') {
     await query(
       `UPDATE character_inventory SET prefix_ids = $1, prefix_stats = $2::jsonb WHERE character_id = $3 AND slot_index = $4`,
@@ -611,7 +617,11 @@ router.post('/:characterId/use-t3-ticket', async (req: AuthedRequest, res: Respo
     prefixStats: displayPrefixStats(newStats, enhanceLv),
     prefixStatsRaw: displayPrefixStats(newStats, 0),
   });
-});
+}
+
+router.post('/:characterId/use-t1-ticket', (req, res) => handleTierTicketUse(req as AuthedRequest, res, 1));
+router.post('/:characterId/use-t2-ticket', (req, res) => handleTierTicketUse(req as AuthedRequest, res, 2));
+router.post('/:characterId/use-t3-ticket', (req, res) => handleTierTicketUse(req as AuthedRequest, res, 3));
 
 // ============================================================
 // 3옵 보장 굴림권 사용 — 지정 장비의 접두사를 3개로 새로 굴림 (기존 접두사 모두 폐기)
