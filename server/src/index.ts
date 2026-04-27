@@ -2464,6 +2464,21 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 종언의 기둥 — 주간 보상 + 직업별 보상 (reward_mapping 에 class_name 컬럼 추가)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'endless_pillar_weekly_class_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE endless_pillar_reward_mapping ADD COLUMN IF NOT EXISTS class_name TEXT`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_eprm_class ON endless_pillar_reward_mapping(class_name)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('endless_pillar_weekly_class_v1')`);
+        console.log('[late] endless_pillar_weekly_class_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] endless_pillar_weekly_class_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
@@ -2542,12 +2557,12 @@ setInterval(async () => {
   } catch (e) { console.error('[territory] settle error', e); }
 }, 60_000);
 
-// 종언의 기둥 일일 랭킹 보상 cron (1분마다 — KST 00:00~00:09 자정 크로싱 감지 1회 발동)
+// 종언의 기둥 주간 랭킹 보상 cron (1분마다 — KST 월요일 00:00~00:09 자정 크로싱 1회 발동)
 setInterval(async () => {
   try {
-    const { tickDailyRewardCron } = await import('./game/endlessPillar.js');
-    await tickDailyRewardCron();
-  } catch (e) { console.error('[endless] daily cron error:', e); }
+    const { tickWeeklyRewardCron } = await import('./game/endlessPillar.js');
+    await tickWeeklyRewardCron();
+  } catch (e) { console.error('[endless] weekly cron error:', e); }
 }, 60_000);
 
 // 로그인 이력 90일 이상 자동 정리 (하루 1회)

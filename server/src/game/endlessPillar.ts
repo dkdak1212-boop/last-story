@@ -123,11 +123,12 @@ export async function recordFloorClear(
   };
 }
 
-// 사망 — 1층 회귀, total_deaths++, paused=true
+// 사망 — 현재 층 -10 (최소 1층 유지), total_deaths++, paused=true
+// 인터뷰 변경 (2026-04-27): 1층 완전 회귀 → -10층으로 완화
 export async function recordDeath(characterId: number): Promise<void> {
   await query(
     `UPDATE endless_pillar_progress
-       SET current_floor = 1,
+       SET current_floor = GREATEST(1, current_floor - 10),
            current_hp = 0,
            paused = TRUE,
            total_deaths = total_deaths + 1,
@@ -149,65 +150,86 @@ export async function resetDailyHighest(): Promise<number> {
   return r.rowCount ?? 0;
 }
 
-// 일일 랭킹 보상 발송 — KST 자정 cron 에서 호출.
-// 단계:
-//   1. 어제 (KST) 의 랭킹 산정 (daily_highest_floor > 0, 동점 시 daily_highest_at 빠른순)
-//   2. 1~100위에게 매핑된 보상 우편 (item 단위로 row 가 매핑돼있어 한 순위에 복수 row 가능)
-//   3. 1~200위 중 랜덤 10명에게 3옵 보장 굴림권(841) 우편 추가
-//   4. daily_highest_floor 전부 0 으로 리셋
+// 주간 랭킹 보상 발송 — KST 월요일 00:00 cron 에서 호출.
+// 인터뷰 변경 (2026-04-27): 일일 보상 → 주간 보상 + 직업별 별도 랭킹 그룹.
+//
+// 직업별 처리:
+//   - 5 클래스(warrior/mage/rogue/cleric/summoner) 각자 독립된 1~100 랭킹
+//   - 같은 클래스 내에서 daily_highest_floor 기준 정렬 (동점 시 daily_highest_at 빠른순)
+//   - 각 클래스 200위 안 랜덤 10명에게 보너스 (총 5×10=50 추첨)
+//
+// reward_mapping.class_name 컬럼:
+//   - NULL = 모든 클래스 공용 (현 시드 데이터)
+//   - 'warrior' 등 = 해당 클래스 한정 (운영자가 클래스별 보상 차별화 시 사용)
+//
 // 멱등성: endless_pillar_daily_rewards UNIQUE (send_date, char, item_id, is_random_bonus)
-export async function sendDailyRewardMails(): Promise<{ mainSent: number; randomSent: number; date: string }> {
-  // KST 어제 날짜 — 자정 직후 cron 이라 NOW() KST 의 어제 ?
-  // 아니면 cron 호출 시점 = "다음날 00:00 직후" 기준의 "전일" 이 평가 대상.
-  // 단순화: cron 발동 시점 KST 의 (CURRENT_DATE - 1) 을 send_date 로 기록.
+//   - send_date 는 cron 발동 시점 KST 의 "지난 주 시작 월요일" 일자로 기록 (주간 키)
+export async function sendWeeklyRewardMails(): Promise<{ mainSent: number; randomSent: number; weekStart: string }> {
+  // 지난 주 월요일 (KST) — cron 이 이번 주 월요일 00:00~00:09 발동되니, send_date = 지난 주 월요일
   const dateR = await query<{ d: string }>(
-    `SELECT ((NOW() AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '1 day')::date::text AS d`
+    `SELECT ((NOW() AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '7 days')::date::text AS d`
   );
-  const sendDate = dateR.rows[0].d;
+  const weekStart = dateR.rows[0].d;
 
-  // 1. 랭킹 산정 — 200위까지 (랜덤 보너스 추첨용 포함)
-  const rankR = await query<{ character_id: number; daily_highest_floor: number }>(
-    `SELECT character_id, daily_highest_floor
-       FROM endless_pillar_progress
-      WHERE daily_highest_floor > 0
-      ORDER BY daily_highest_floor DESC, daily_highest_at ASC
-      LIMIT 200`
-  );
-  const top200 = rankR.rows;
   let mainSent = 0;
   let randomSent = 0;
 
-  // 2. 1~100위 보상 매핑 발송 (rank 별 복수 row 처리)
-  const top100 = top200.slice(0, 100);
-  if (top100.length > 0) {
-    const mappingR = await query<{ rank: number; item_id: number; quantity: number; description: string | null }>(
-      `SELECT rank, item_id, quantity, description FROM endless_pillar_reward_mapping ORDER BY rank, item_id`
-    );
-    const mappingByRank = new Map<number, { item_id: number; quantity: number; description: string | null }[]>();
-    for (const m of mappingR.rows) {
-      if (!mappingByRank.has(m.rank)) mappingByRank.set(m.rank, []);
-      mappingByRank.get(m.rank)!.push({ item_id: m.item_id, quantity: m.quantity, description: m.description });
-    }
+  const CLASSES = ['warrior', 'mage', 'rogue', 'cleric', 'summoner'] as const;
+  const RANDOM_BONUS_ITEM_ID = 841;
+  const RANDOM_BONUS_QTY = 1;
+  const RANDOM_PICK_N = 10;
 
-    const { deliverToMailbox } = await import('./inventory.js');
+  // 보상 매핑 한 번만 로드 — class_name NULL 또는 매칭 클래스만 적용
+  const mappingR = await query<{
+    rank: number; item_id: number; quantity: number; description: string | null;
+    class_name: string | null;
+  }>(
+    `SELECT rank, item_id, quantity, description, class_name
+       FROM endless_pillar_reward_mapping
+      ORDER BY rank, item_id`
+  );
+
+  function getRewardsForRank(rank: number, className: string) {
+    return mappingR.rows.filter(m =>
+      m.rank === rank && (m.class_name === null || m.class_name === className)
+    );
+  }
+
+  const { deliverToMailbox } = await import('./inventory.js');
+
+  for (const className of CLASSES) {
+    // 클래스 내 랭킹 200위 추출
+    const rankR = await query<{ character_id: number; daily_highest_floor: number }>(
+      `SELECT epp.character_id, epp.daily_highest_floor
+         FROM endless_pillar_progress epp
+         JOIN characters c ON c.id = epp.character_id
+        WHERE epp.daily_highest_floor > 0 AND c.class_name = $1
+        ORDER BY epp.daily_highest_floor DESC, epp.daily_highest_at ASC
+        LIMIT 200`,
+      [className]
+    );
+    const top200 = rankR.rows;
+    if (top200.length === 0) continue;
+
+    // 클래스 1~100위 메인 보상
+    const top100 = top200.slice(0, 100);
     for (let i = 0; i < top100.length; i++) {
       const rank = i + 1;
       const entry = top100[i];
-      const rewards = mappingByRank.get(rank) || [];
+      const rewards = getRewardsForRank(rank, className);
       for (const reward of rewards) {
-        // 멱등 가드 — 같은 날 같은 캐릭에게 같은 아이템 (main, 비랜덤) 한 번만
         const dup = await query(
           `INSERT INTO endless_pillar_daily_rewards (send_date, character_id, rank, floor_reached, item_id, quantity, is_random_bonus)
            VALUES ($1, $2, $3, $4, $5, $6, FALSE)
            ON CONFLICT (send_date, character_id, item_id, is_random_bonus) DO NOTHING
            RETURNING id`,
-          [sendDate, entry.character_id, rank, entry.daily_highest_floor, reward.item_id, reward.quantity]
+          [weekStart, entry.character_id, rank, entry.daily_highest_floor, reward.item_id, reward.quantity]
         );
         if ((dup.rowCount ?? 0) > 0) {
           await deliverToMailbox(
             entry.character_id,
-            `종언의 기둥 일일 랭킹 보상 (${rank}위)`,
-            `${sendDate} 종언의 기둥 일일 랭킹 ${rank}위 도달 — 도달층 ${entry.daily_highest_floor}층\n\n` +
+            `종언의 기둥 주간 랭킹 보상 (${className} ${rank}위)`,
+            `${weekStart} 시작 주간 종언의 기둥 ${className} 클래스 ${rank}위 — 도달층 ${entry.daily_highest_floor}층\n\n` +
             (reward.description || '보상 아이템'),
             reward.item_id,
             reward.quantity
@@ -216,33 +238,27 @@ export async function sendDailyRewardMails(): Promise<{ mainSent: number; random
         }
       }
     }
-  }
 
-  // 3. 1~200위 중 랜덤 10명 추첨 → 3옵 보장 굴림권(841) 추가 우편
-  if (top200.length > 0) {
-    const RANDOM_BONUS_ITEM_ID = 841;
-    const RANDOM_BONUS_QTY = 1;
-    const RANDOM_PICK_N = 10;
+    // 클래스 200위 안 랜덤 10명 추첨 보너스
     const pool = [...top200];
     const picked: typeof pool = [];
     for (let i = 0; i < Math.min(RANDOM_PICK_N, pool.length); i++) {
       const idx = Math.floor(Math.random() * pool.length);
       picked.push(pool.splice(idx, 1)[0]);
     }
-    const { deliverToMailbox } = await import('./inventory.js');
     for (const entry of picked) {
       const dup = await query(
         `INSERT INTO endless_pillar_daily_rewards (send_date, character_id, rank, floor_reached, item_id, quantity, is_random_bonus)
          VALUES ($1, $2, NULL, $3, $4, $5, TRUE)
          ON CONFLICT (send_date, character_id, item_id, is_random_bonus) DO NOTHING
          RETURNING id`,
-        [sendDate, entry.character_id, entry.daily_highest_floor, RANDOM_BONUS_ITEM_ID, RANDOM_BONUS_QTY]
+        [weekStart, entry.character_id, entry.daily_highest_floor, RANDOM_BONUS_ITEM_ID, RANDOM_BONUS_QTY]
       );
       if ((dup.rowCount ?? 0) > 0) {
         await deliverToMailbox(
           entry.character_id,
-          '종언의 기둥 일일 랜덤 추첨 보상',
-          `${sendDate} 종언의 기둥 200위 안 랜덤 추첨에 당첨되었습니다 — 도달층 ${entry.daily_highest_floor}층`,
+          `종언의 기둥 주간 랜덤 추첨 보상 (${className})`,
+          `${weekStart} 시작 주간 종언의 기둥 ${className} 200위 안 랜덤 추첨 당첨 — 도달층 ${entry.daily_highest_floor}층`,
           RANDOM_BONUS_ITEM_ID,
           RANDOM_BONUS_QTY
         );
@@ -251,37 +267,40 @@ export async function sendDailyRewardMails(): Promise<{ mainSent: number; random
     }
   }
 
-  // 4. daily_highest 리셋
+  // 주간 리셋 — daily_highest_floor 가 사실상 weekly_highest 역할 (column 명만 daily 유지)
   await resetDailyHighest();
 
-  return { mainSent, randomSent, date: sendDate };
+  return { mainSent, randomSent, weekStart };
 }
 
-// KST 자정 크로싱 감지 cron — 1분 단위 호출. 마지막 실행 자정 시각을 메모리에 저장,
-// 같은 자정에 두 번 발송되지 않도록 가드.
-let lastDailyRunKstDate: string | null = null;
+// KST 월요일 00:00 cron — 1분 단위 호출. 마지막 실행 주간 키를 메모리에 저장,
+// 같은 월요일에 두 번 발송되지 않도록 가드.
+let lastWeeklyRunKey: string | null = null;
 
-export async function tickDailyRewardCron(): Promise<void> {
-  // KST 시각 기준 시각/일자 조회
-  const r = await query<{ kst_date: string; kst_hhmm: string }>(
+export async function tickWeeklyRewardCron(): Promise<void> {
+  // KST 요일 / 시각 조회 (DOW: 0=일~6=토)
+  const r = await query<{ kst_date: string; kst_hhmm: string; dow: number }>(
     `SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS kst_date,
-            to_char(NOW() AT TIME ZONE 'Asia/Seoul', 'HH24:MI') AS kst_hhmm`
+            to_char(NOW() AT TIME ZONE 'Asia/Seoul', 'HH24:MI') AS kst_hhmm,
+            EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Asia/Seoul'))::int AS dow`
   );
   const kstDate = r.rows[0].kst_date;
   const kstHhmm = r.rows[0].kst_hhmm;
+  const dow = r.rows[0].dow;
 
-  // 자정 직후 (00:00 ~ 00:09) 안에서만 발동. 같은 KST 일자에 한 번만.
+  // 월요일(DOW=1) 00:00~00:09 안에서만 발동. 같은 월요일에 한 번만.
+  if (dow !== 1) return;
   if (!kstHhmm.startsWith('00:')) return;
   const minutes = parseInt(kstHhmm.split(':')[1], 10);
   if (minutes > 9) return;
-  if (lastDailyRunKstDate === kstDate) return;
+  if (lastWeeklyRunKey === kstDate) return;
 
-  console.log(`[endless] daily reward cron 시작 — KST ${kstDate} ${kstHhmm}`);
+  console.log(`[endless] weekly reward cron 시작 — KST ${kstDate} ${kstHhmm}`);
   try {
-    const result = await sendDailyRewardMails();
-    console.log(`[endless] daily reward cron 완료 — date=${result.date} main=${result.mainSent} random=${result.randomSent}`);
-    lastDailyRunKstDate = kstDate;
+    const result = await sendWeeklyRewardMails();
+    console.log(`[endless] weekly reward cron 완료 — weekStart=${result.weekStart} main=${result.mainSent} random=${result.randomSent}`);
+    lastWeeklyRunKey = kstDate;
   } catch (e) {
-    console.error('[endless] daily reward cron error:', e);
+    console.error('[endless] weekly reward cron error:', e);
   }
 }
