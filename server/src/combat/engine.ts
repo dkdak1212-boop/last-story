@@ -3409,12 +3409,28 @@ export async function onSessionGoOffline(
   sessionLastTickAt.delete(charId);
 
   // last_offline_at 기록은 명시적 오프라인 전환 시에만.
+  // offline_buff_snapshot 동시 박제 — 정산 시 시간 비례 적분에 사용 (어뷰즈 차단).
+  // snapshot 은 offline 진입 시점의 버프 상태(until/pct/max_level) 를 jsonb 로 캡처.
+  // 이후 settleOfflineRewards 가 [last_offline_at, NOW] 와 [offline_start, snapshot.until]
+  // 교집합 비율로 mul 가중치 계산 → 오프 중 버프 grant/연장으로 인한 부정 가산 방지.
   if (record) {
     try {
       await query(
         `UPDATE characters
             SET last_offline_at = NOW(),
-                last_field_id_offline = $2
+                last_field_id_offline = $2,
+                offline_buff_snapshot = jsonb_build_object(
+                  'exp_until',                exp_boost_until,
+                  'gold_until',               gold_boost_until,
+                  'drop_until',               drop_boost_until,
+                  'event_exp_until',          event_exp_until,
+                  'event_exp_pct',            COALESCE(event_exp_pct, 0),
+                  'event_exp_max_level',      event_exp_max_level,
+                  'event_drop_until',         event_drop_until,
+                  'event_drop_pct',           COALESCE(event_drop_pct, 0),
+                  'personal_exp_mult',        COALESCE(personal_exp_mult, 1),
+                  'personal_exp_mult_max_level', personal_exp_mult_max_level
+                )
           WHERE id = $1`,
         [charId, fieldId]
       );

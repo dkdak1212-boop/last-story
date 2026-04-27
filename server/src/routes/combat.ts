@@ -335,7 +335,8 @@ router.post('/:id/combat/cancel-offline', async (req: AuthedRequest, res: Respon
 
   await query(
     `UPDATE characters
-        SET last_offline_at = NULL, last_field_id_offline = NULL
+        SET last_offline_at = NULL, last_field_id_offline = NULL,
+            offline_buff_snapshot = NULL
       WHERE id = $1`,
     [id]
   );

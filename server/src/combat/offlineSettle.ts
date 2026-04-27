@@ -43,6 +43,19 @@ export interface OfflineRewardResult {
   levelsGained?: number;
 }
 
+interface OfflineBuffSnapshot {
+  exp_until: string | null;
+  gold_until: string | null;
+  drop_until: string | null;
+  event_exp_until: string | null;
+  event_exp_pct: number;
+  event_exp_max_level: number | null;
+  event_drop_until: string | null;
+  event_drop_pct: number;
+  personal_exp_mult: number;
+  personal_exp_mult_max_level: number | null;
+}
+
 interface CharRates {
   id: number;
   user_id: number;
@@ -57,7 +70,9 @@ interface CharRates {
   online_drop_rate: number;
   last_offline_at: string | null;
   last_field_id_offline: number | null;
-  // 부스트 (정산 시점 active 면 곱연산 적용 — EMA 는 base 효율 보존 정책)
+  // 오프라인 진입 시점 버프 박제 — 시간 비례 적분에 사용. NULL 이면 legacy fallback.
+  offline_buff_snapshot: OfflineBuffSnapshot | null;
+  // 부스트 (snapshot 없을 때 fallback — 정산 시점 active 여부만 단순 체크)
   exp_boost_until: string | null;
   gold_boost_until: string | null;
   drop_boost_until: string | null;
@@ -68,6 +83,19 @@ interface CharRates {
   event_drop_pct: number;
   personal_exp_mult: number;
   personal_exp_mult_max_level: number | null;
+}
+
+// [offlineStart, NOW] 와 [offlineStart, until] 의 교집합 길이를 elapsed 로 나눈 비율.
+// 즉 오프라인 구간 중 버프가 켜져있던 시간의 비율 (0~1).
+// snapshot.until 이 offline 진입 시점의 값이라 grant/연장으로 인한 부당 가산 차단.
+function buffOverlapFrac(offlineStartMs: number, nowMs: number, until: string | null): number {
+  if (!until) return 0;
+  const untilMs = new Date(until).getTime();
+  if (untilMs <= offlineStartMs) return 0;
+  const elapsed = nowMs - offlineStartMs;
+  if (elapsed <= 0) return 0;
+  const overlap = Math.min(nowMs, untilMs) - offlineStartMs;
+  return Math.max(0, Math.min(1, overlap / elapsed));
 }
 
 // 필드 몬스터·드랍 캐시 (60초 TTL).
@@ -152,6 +180,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
               COALESCE(online_kill_rate, 0)::float8 AS online_kill_rate,
               COALESCE(online_drop_rate, 0)::float8 AS online_drop_rate,
               last_offline_at, last_field_id_offline,
+              offline_buff_snapshot,
               exp_boost_until, gold_boost_until, drop_boost_until,
               event_exp_until, COALESCE(event_exp_pct, 0)::int AS event_exp_pct, event_exp_max_level,
               event_drop_until, COALESCE(event_drop_pct, 0)::int AS event_drop_pct,
@@ -194,7 +223,9 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     // 2) 표본 부족 / 너무 짧음
     if (elapsedSec < MIN_ELAPSED_SEC) {
       await client.query(
-        `UPDATE characters SET last_offline_at = NULL, last_offline_settled_at = NOW() WHERE id = $1`,
+        `UPDATE characters SET last_offline_at = NULL, last_offline_settled_at = NOW(),
+                                offline_buff_snapshot = NULL
+           WHERE id = $1`,
         [charId]
       );
       await client.query('COMMIT');
@@ -202,7 +233,9 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     }
     if (c.current_field_kills < MIN_CURRENT_FIELD_KILLS) {
       await client.query(
-        `UPDATE characters SET last_offline_at = NULL, last_offline_settled_at = NOW() WHERE id = $1`,
+        `UPDATE characters SET last_offline_at = NULL, last_offline_settled_at = NOW(),
+                                offline_buff_snapshot = NULL
+           WHERE id = $1`,
         [charId]
       );
       await client.query('COMMIT');
@@ -211,19 +244,41 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
 
     const elapsedCapped = Math.min(elapsedSec, OFFLINE_CAP_SEC);
 
-    // 3) 정산 시점 부스트 곱연산 (EMA 가 base 효율이라 부스트 active 시 별도 적용)
-    const nowMs = Date.now();
-    const isActiveAt = (s: string | null) => !!(s && new Date(s).getTime() > nowMs);
-    const expBoostMul   = isActiveAt(c.exp_boost_until)  ? 1.5 : 1;
-    const goldBoostMul  = isActiveAt(c.gold_boost_until) ? 1.5 : 1;
-    const dropBoostMul  = isActiveAt(c.drop_boost_until) ? 1.5 : 1;
-    const eventExpActive = isActiveAt(c.event_exp_until)
-      && (c.event_exp_max_level == null || c.level < c.event_exp_max_level);
-    const eventExpMul    = eventExpActive ? 1 + c.event_exp_pct / 100 : 1;
-    const eventDropMul   = isActiveAt(c.event_drop_until) ? 1 + c.event_drop_pct / 100 : 1;
-    const personalExpActive = (c.personal_exp_mult || 1) > 1
-      && (c.personal_exp_mult_max_level == null || c.level < c.personal_exp_mult_max_level);
-    const personalExpMul = personalExpActive ? c.personal_exp_mult : 1;
+    // 3) 부스트 곱연산 — 시간 비례 적분.
+    // snapshot 이 있으면(신규) snapshot.until 기준으로 [offlineStart, NOW] ∩ [offlineStart, until]
+    // 비율 산출 → 어뷰즈 차단 (오프 중 grant/연장은 snapshot 에 반영 안 되어 보너스 0).
+    // snapshot 이 없으면(legacy: 마이그레이션 이전 오프라인 진입) 현재 컬럼값으로
+    // overlap 계산. 이 경우 offline 중 grant 된 버프도 일부 반영될 수 있으나, 다음
+    // 오프라인 진입부턴 snapshot 으로 정확해짐.
+    const nowMs = nowMsForElapsed;
+    const snap = c.offline_buff_snapshot;
+    const expUntil   = snap ? snap.exp_until   : c.exp_boost_until;
+    const goldUntil  = snap ? snap.gold_until  : c.gold_boost_until;
+    const dropUntil  = snap ? snap.drop_until  : c.drop_boost_until;
+    const evExpUntil = snap ? snap.event_exp_until : c.event_exp_until;
+    const evExpPct   = snap ? snap.event_exp_pct ?? 0 : c.event_exp_pct;
+    const evExpMaxLv = snap ? snap.event_exp_max_level : c.event_exp_max_level;
+    const evDropUntil = snap ? snap.event_drop_until : c.event_drop_until;
+    const evDropPct   = snap ? snap.event_drop_pct ?? 0 : c.event_drop_pct;
+    const persExpMult = snap ? (snap.personal_exp_mult ?? 1) : (c.personal_exp_mult || 1);
+    const persExpMaxLv = snap ? snap.personal_exp_mult_max_level : c.personal_exp_mult_max_level;
+
+    const expBoostFrac  = buffOverlapFrac(offlineStartMs, nowMs, expUntil);
+    const goldBoostFrac = buffOverlapFrac(offlineStartMs, nowMs, goldUntil);
+    const dropBoostFrac = buffOverlapFrac(offlineStartMs, nowMs, dropUntil);
+    const eventExpFrac  = (evExpMaxLv == null || c.level < evExpMaxLv)
+      ? buffOverlapFrac(offlineStartMs, nowMs, evExpUntil) : 0;
+    const eventDropFrac = buffOverlapFrac(offlineStartMs, nowMs, evDropUntil);
+
+    const expBoostMul  = 1 + 0.5 * expBoostFrac;   // 1.5× 의 가중치 = 0.5
+    const goldBoostMul = 1 + 0.5 * goldBoostFrac;
+    const dropBoostMul = 1 + 0.5 * dropBoostFrac;
+    const eventExpMul  = 1 + (evExpPct / 100) * eventExpFrac;
+    const eventDropMul = 1 + (evDropPct / 100) * eventDropFrac;
+    // personal_exp_mult 는 영구 곱연산 (until 없음). max_level 만 체크해 그대로 적용.
+    const personalExpActive = persExpMult > 1
+      && (persExpMaxLv == null || c.level < persExpMaxLv);
+    const personalExpMul = personalExpActive ? persExpMult : 1;
 
     // 4) 산정
     const expGainRaw  = c.online_exp_rate  * elapsedCapped * MULT * expBoostMul * eventExpMul * personalExpMul;
@@ -259,7 +314,8 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             total_gold_earned = total_gold_earned + $3,
             location = 'village',
             last_offline_at = NULL,
-            last_offline_settled_at = NOW()
+            last_offline_settled_at = NOW(),
+            offline_buff_snapshot = NULL
           WHERE id = $8`,
         [lvRes.newLevel, lvRes.newExp, goldGain, lvRes.hpGained, lvRes.nodePointsGained,
          lvRes.statPointsGained, killsInc, charId]
@@ -272,7 +328,8 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
             total_gold_earned = total_gold_earned + $2,
             location = 'village',
             last_offline_at = NULL,
-            last_offline_settled_at = NOW()
+            last_offline_settled_at = NOW(),
+            offline_buff_snapshot = NULL
           WHERE id = $4`,
         [lvRes.newExp, goldGain, killsInc, charId]
       );

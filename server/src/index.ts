@@ -2298,6 +2298,20 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 오프라인 진입 시점 버프 스냅샷 — 정산 시 시간 비례 적분
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'offline_buff_snapshot_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS offline_buff_snapshot JSONB`);
+        await query(`INSERT INTO _migrations (name) VALUES ('offline_buff_snapshot_v1')`);
+        console.log('[late] offline_buff_snapshot_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] offline_buff_snapshot_v1 error:', e);
+    }
+  }
+
   // blocked_ips 재생성 (wipe 중 CASCADE 로 드랍됐을 가능성) + fail2ban 용 expires_at 보강
   {
     try {
