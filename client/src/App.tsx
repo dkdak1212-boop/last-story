@@ -29,6 +29,7 @@ const SkillsScreen = lazyRetry(() => import('./screens/SkillsScreen').then((m) =
 const ShopScreen = lazyRetry(() => import('./screens/ShopScreen').then((m) => ({ default: m.ShopScreen })));
 const MailboxScreen = lazyRetry(() => import('./screens/MailboxScreen').then((m) => ({ default: m.MailboxScreen })));
 const RankingScreen = lazyRetry(() => import('./screens/RankingScreen').then((m) => ({ default: m.RankingScreen })));
+const EndlessRankingScreen = lazyRetry(() => import('./screens/EndlessRankingScreen').then((m) => ({ default: m.EndlessRankingScreen })));
 const GuildScreen = lazyRetry(() => import('./screens/GuildScreen').then((m) => ({ default: m.GuildScreen })));
 const GuildBossScreen = lazyRetry(() => import('./screens/GuildBossScreen').then((m) => ({ default: m.GuildBossScreen })));
 const GuildBossShopScreen = lazyRetry(() => import('./screens/GuildBossShopScreen').then((m) => ({ default: m.GuildBossShopScreen })));
@@ -179,6 +180,7 @@ export default function App() {
                       <Route path="/shop" element={<ShopScreen />} />
                       <Route path="/mailbox" element={<MailboxScreen />} />
                       <Route path="/ranking" element={<RankingScreen />} />
+                      <Route path="/endless-ranking" element={<EndlessRankingScreen />} />
                       <Route path="/guild" element={<GuildScreen />} />
                       <Route path="/guild-boss" element={<GuildBossScreen />} />
                       <Route path="/guild-boss-shop" element={<GuildBossShopScreen />} />

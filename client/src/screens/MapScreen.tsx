@@ -14,19 +14,32 @@ interface FieldData {
   ownerGuildName?: string | null;
 }
 
+const ENDLESS_FIELD_ID = 1000;
+
 export function MapScreen() {
   const nav = useNavigate();
   const [fields, setFields] = useState<FieldData[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const active = useCharacterStore((s) => s.activeCharacter);
 
   useEffect(() => {
     api<FieldData[]>('/fields').then(setFields).catch(() => {});
-    // 영토 점령전 일시 비활성화 — fetch 제거
+    api<{ isAdmin: boolean }>('/me').then(d => setIsAdmin(!!d.isAdmin)).catch(() => {});
   }, []);
 
   async function enter(fieldId: number) {
     if (!active) return;
+    if (fieldId === ENDLESS_FIELD_ID) {
+      // 종언의 기둥은 별도 API 사용 (어드민 전용)
+      try {
+        await api(`/endless/${active.id}/enter`, { method: 'POST' });
+        nav('/combat');
+      } catch (e) {
+        alert(e instanceof Error ? e.message : '종언 입장 실패');
+      }
+      return;
+    }
     await api(`/characters/${active.id}/enter-field`, {
       method: 'POST',
       body: JSON.stringify({ fieldId }),
@@ -34,11 +47,25 @@ export function MapScreen() {
     nav('/combat');
   }
 
+  // 어드민 전용 — 종언의 기둥 entry 가상 추가
+  const allFields: FieldData[] = isAdmin
+    ? [
+        ...fields,
+        {
+          id: ENDLESS_FIELD_ID,
+          name: '종언의 기둥 (어드민 전용)',
+          requiredLevel: 1,
+          description: '무한 등반 도전. 100층마다 보스, 죽으면 1층. 매일 랭킹 보상.',
+          monsters: [],
+        } as FieldData,
+      ]
+    : fields;
+
   return (
     <div>
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>사냥터</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {[...fields].sort((a, b) => {
+        {[...allFields].sort((a, b) => {
           const aDummy = a.name.startsWith('허수아비');
           const bDummy = b.name.startsWith('허수아비');
           if (aDummy && !bDummy) return -1;
@@ -79,6 +106,15 @@ export function MapScreen() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{isOpen ? '▲' : '▼'}</span>
+                  {f.id === ENDLESS_FIELD_ID && (
+                    <button onClick={(e) => { e.stopPropagation(); nav('/endless-ranking'); }} style={{
+                      background: 'transparent', color: '#c97bff',
+                      border: '1px solid #c97bff', padding: '6px 12px',
+                      fontSize: 12, fontWeight: 700, cursor: 'pointer', borderRadius: 3,
+                    }}>
+                      랭킹
+                    </button>
+                  )}
                   <button className="primary" onClick={(e) => { e.stopPropagation(); enter(f.id); }} disabled={locked}>
                     {locked ? '잠김' : '입장'}
                   </button>

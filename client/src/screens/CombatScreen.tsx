@@ -18,6 +18,13 @@ export function CombatScreen() {
   const token = useAuthStore((s) => s.token);
   const [state, setState] = useState<CombatSnapshot | null>(null);
   const [offlinePreview, setOfflinePreview] = useState<any>(null);
+  // 종언의 기둥 — fieldName === '종언의 기둥' 일 때만 사용 (HUD/사망 모달)
+  const [endlessState, setEndlessState] = useState<{
+    currentFloor: number; highestFloor: number; dailyHighestFloor: number;
+    nextBossFloor: number; isCurrentBossFloor: boolean; totalKills: number; totalDeaths: number;
+  } | null>(null);
+  const [endlessFloorStartedAt, setEndlessFloorStartedAt] = useState<number>(0);
+  const [endlessNowTick, setEndlessNowTick] = useState<number>(Date.now());
   const [damagePopups, setDamagePopups] = useState<{ id: number; value: number; crit: boolean; x: number }[]>([]);
   const [skillFlash, setSkillFlash] = useState<{ icon: string; color: string } | null>(null);
   const skillFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -207,6 +214,31 @@ export function CombatScreen() {
       });
     }
   }, [state?.player.gauge, state?.monster?.gauge]);
+
+  // 종언의 기둥 — 진행 상태 폴링 (5초 간격, fieldName 매치 시만). 카운트다운은 500ms tick.
+  const isEndless = state?.fieldName === '종언의 기둥';
+  useEffect(() => {
+    if (!isEndless || !active) { setEndlessState(null); return; }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const d = await api<NonNullable<typeof endlessState>>(`/endless/${active.id}/state`);
+        if (!cancelled) setEndlessState(d);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [isEndless, active]);
+  useEffect(() => {
+    if (!isEndless) return;
+    setEndlessFloorStartedAt(Date.now());
+  }, [isEndless, state?.monster?.name]);
+  useEffect(() => {
+    if (!isEndless) return;
+    const id = setInterval(() => setEndlessNowTick(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [isEndless]);
 
   const toggleAuto = useCallback(async () => {
     if (!active) return;
@@ -409,6 +441,67 @@ export function CombatScreen() {
       await refreshActive();
       nav('/village');
     };
+    // 종언의 기둥 사망 모달 — 1층 회귀 + 다시 도전 / 마을로
+    if (state.fieldName === '종언의 기둥' && active) {
+      const reachedFloor = endlessState?.currentFloor ?? 1;
+      const dailyMax = endlessState?.dailyHighestFloor ?? 0;
+      const allTimeMax = endlessState?.highestFloor ?? 0;
+      const retry = async () => {
+        try {
+          await api(`/endless/${active.id}/enter`, { method: 'POST' });
+          // 페이지 새로고침으로 세션 재구성
+          window.location.reload();
+        } catch (e) { alert(e instanceof Error ? e.message : '재도전 실패'); }
+      };
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.92)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 20, padding: 20,
+        }}>
+          <div style={{
+            maxWidth: 480, width: '100%',
+            background: 'linear-gradient(180deg, #1a0030, #0a0020)',
+            border: '3px solid #a24bff',
+            boxShadow: '0 0 40px rgba(162,75,255,0.5)',
+            padding: '30px 28px', textAlign: 'center', borderRadius: 8,
+          }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#c97bff', marginBottom: 8, letterSpacing: 2 }}>
+              종언의 기둥
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#ff5050', marginBottom: 12 }}>
+              1층으로 회귀합니다
+            </div>
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20,
+              padding: '14px 16px', background: 'rgba(0,0,0,0.5)',
+              border: '1px solid rgba(162,75,255,0.3)', borderRadius: 6, fontSize: 13,
+            }}>
+              <div style={{ color: '#fff' }}>도달했던 층: <b style={{ color: '#ffcc66' }}>{reachedFloor}층</b></div>
+              <div style={{ color: '#fff' }}>당일 최고: <b style={{ color: '#88c8ff' }}>{dailyMax}층</b></div>
+              <div style={{ color: '#fff' }}>역대 최고: <b style={{ color: '#c97bff' }}>{allTimeMax}층</b></div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button onClick={retry} style={{
+                padding: '12px 28px', fontSize: 14, fontWeight: 800,
+                background: '#a24bff', color: '#fff', border: 'none', cursor: 'pointer',
+                borderRadius: 4, letterSpacing: 1,
+              }}>
+                다시 도전
+              </button>
+              <button onClick={goVillage} style={{
+                padding: '12px 28px', fontSize: 14, fontWeight: 800,
+                background: 'transparent', color: 'var(--text-dim)',
+                border: '1px solid var(--border)', cursor: 'pointer', borderRadius: 4,
+              }}>
+                마을로
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     // 최근 로그에서 사망 원인 찾기 (최근 5줄에서 "사망" 포함 라인 + 직전 라인)
     const recentLog = (state.log || []).slice(-5);
     const deathLine = recentLog.find(l => l.includes('사망')) || '';
@@ -473,8 +566,64 @@ export function CombatScreen() {
   const expPct = Math.min(100, (exp / expMax) * 100);
 
 
+  // 종언의 기둥 — HUD 정보 (현재 층/진척도/카운트다운/최고기록)
+  const endlessHud = isEndless && endlessState ? (() => {
+    const floor = endlessState.currentFloor;
+    const isBoss = endlessState.isCurrentBossFloor;
+    const nextBoss = endlessState.nextBossFloor;
+    const progress = ((floor - 1) % 100); // 0~99 (다음 보스까지 카운터)
+    const elapsedMs = endlessFloorStartedAt > 0 ? Math.max(0, endlessNowTick - endlessFloorStartedAt) : 0;
+    const remainSec = Math.max(0, Math.ceil((60_000 - elapsedMs) / 1000));
+    const timeFracPct = Math.min(100, Math.max(0, (elapsedMs / 60_000) * 100));
+    const timeColor = remainSec > 30 ? '#3ddc84' : remainSec > 10 ? '#daa520' : '#ff5050';
+    return (
+      <div style={{
+        margin: '0 0 12px', padding: '12px 14px',
+        background: 'linear-gradient(180deg, rgba(40,10,80,0.9), rgba(20,5,40,0.95))',
+        border: '2px solid #a24bff', borderRadius: 6,
+        boxShadow: '0 0 20px rgba(162,75,255,0.3)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: '#c97bff', fontWeight: 700 }}>종언의 기둥</span>
+            <span style={{ fontSize: 22, fontWeight: 900, color: isBoss ? '#ff5050' : '#ffcc66' }}>
+              {floor}층 {isBoss && <span style={{ color: '#ff5050' }}>(보스)</span>}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right' }}>
+            <div>당일 최고: <b style={{ color: '#88c8ff' }}>{endlessState.dailyHighestFloor}층</b></div>
+            <div>역대 최고: <b style={{ color: '#c97bff' }}>{endlessState.highestFloor}층</b></div>
+          </div>
+        </div>
+        {/* 다음 보스 진척도 */}
+        <div style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: '#aaa', marginBottom: 2 }}>다음 보스까지: {nextBoss - floor}층</div>
+          <div style={{ height: 6, background: 'rgba(0,0,0,0.5)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{
+              width: `${progress}%`, height: '100%',
+              background: 'linear-gradient(90deg, #a24bff, #c97bff)',
+            }} />
+          </div>
+        </div>
+        {/* 1분 카운트다운 */}
+        <div>
+          <div style={{ fontSize: 10, color: timeColor, marginBottom: 2, fontWeight: 700 }}>
+            남은 시간: {remainSec}초
+          </div>
+          <div style={{ height: 4, background: 'rgba(0,0,0,0.5)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{
+              width: `${100 - timeFracPct}%`, height: '100%', background: timeColor,
+              transition: 'width 0.5s linear',
+            }} />
+          </div>
+        </div>
+      </div>
+    );
+  })() : null;
+
   return (
     <div>
+      {endlessHud}
       {/* 오프라인 전환 미리보기 모달 */}
       {offlinePreview && (() => {
         const p = offlinePreview;
@@ -609,7 +758,7 @@ export function CombatScreen() {
           >
             {state.autoMode ? '자동' : '수동'}
           </button>
-          {!state.guildBossRunId && state.fieldName !== '시공의 균열' && (
+          {!state.guildBossRunId && state.fieldName !== '시공의 균열' && state.fieldName !== '종언의 기둥' && (
             <button
               onClick={goOffline}
               title="오프라인 보상 누적 시작 (계정당 최대 2캐릭)"
@@ -621,6 +770,25 @@ export function CombatScreen() {
               }}
             >
               오프라인 전환
+            </button>
+          )}
+          {state.fieldName === '종언의 기둥' && active && (
+            <button
+              onClick={async () => {
+                if (!confirm('현재 층 진행을 포기하고 1층으로 회귀합니다. 진행하시겠습니까?')) return;
+                try {
+                  await api(`/endless/${active.id}/give-up`, { method: 'POST' });
+                  await refreshActive();
+                  nav('/village');
+                } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+              }}
+              title="자진 포기 — 1층 회귀"
+              style={{
+                background: 'transparent', color: '#ff5050',
+                border: '1px solid #ff5050', fontWeight: 700,
+              }}
+            >
+              자진 포기
             </button>
           )}
           <button onClick={leave} style={state.guildBossRunId ? {
