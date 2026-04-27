@@ -13,6 +13,17 @@ import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 import { getActiveGlobalEvent } from '../game/globalEvent.js';
+import {
+  ENDLESS_FIELD_ID,
+  ENDLESS_TIME_LIMIT_MS,
+  getMonsterIdForFloor,
+  getScaleMultiplier,
+  isBossFloor,
+  loadOrCreateProgress,
+  pauseProgress,
+  recordDeath,
+  recordFloorClear,
+} from '../game/endlessPillar.js';
 import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
 import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
@@ -319,6 +330,10 @@ interface ActiveSession {
   // flushCharBatch, drop 처리 등)에서 사용. 골드 지급 차단 · EMA 업데이트 스킵 ·
   // 자동판매·드랍필터 비활성.
   offline: boolean;
+  // ── 종언의 기둥 (Endless Pillar) ──
+  // fieldId === ENDLESS_FIELD_ID (1000) 일 때만 사용. 일반 사냥과 분기 처리.
+  endlessFloor: number;          // 현재 진행 층 (1~)
+  endlessFloorStartedAt: number; // 현재 층 시작 시각 (ms) — 1분 타임아웃 체크용
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -2738,6 +2753,29 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     return;
   }
 
+  // 종언의 기둥 — 골드/EXP/드랍/퀘스트/업적 등 일반 사냥 보상 일체 스킵.
+  // 층 진행 + 보스층 클리어 시 풀회복 + 다음 층 스폰만 처리.
+  if (s.fieldId === ENDLESS_FIELD_ID) {
+    const clearedFloor = s.endlessFloor;
+    const clearTimeMs = Math.max(0, Date.now() - s.endlessFloorStartedAt);
+    try {
+      const result = await recordFloorClear(s.characterId, clearedFloor, clearTimeMs);
+      s.endlessFloor = result.newFloor;
+      // 보스층 클리어 시 풀회복 (인터뷰 A3.4)
+      if (result.isBoss) {
+        s.playerHp = s.playerMaxHp;
+        addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치! HP 풀회복.`);
+      } else {
+        addLog(s, `[종언의 기둥] ${clearedFloor}층 클리어 (${(clearTimeMs / 1000).toFixed(1)}초)`);
+      }
+    } catch (e) {
+      console.error('[endless] floor clear err', s.characterId, e);
+    }
+    s.dirty = true;
+    await spawnMonsterForSession(s);
+    return;
+  }
+
   // 스폰 시 캐시된 몬스터 정의 재사용 (킬당 DB 1 쿼리 절감)
   const m = s.monsterDef;
   if (!m) return;
@@ -3157,6 +3195,73 @@ function handleDummyTick(s: ActiveSession, hpBefore: number): void {
 }
 
 async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
+  // 종언의 기둥 — fieldId === 1000. floor 기반 monster 추첨 + 스케일링.
+  if (s.fieldId === ENDLESS_FIELD_ID) {
+    if (s.endlessFloor <= 0) {
+      const prog = await loadOrCreateProgress(s.characterId);
+      s.endlessFloor = prog.current_floor;
+    }
+    const monsterId = getMonsterIdForFloor(s.endlessFloor);
+    const r = await query<{ id: number; name: string; level: number; max_hp: number;
+      stats: Record<string, number | boolean>; skills: unknown[] }>(
+      `SELECT id, name, level, max_hp, stats, skills FROM monsters WHERE id = $1`, [monsterId]
+    );
+    if (r.rowCount === 0) {
+      s.monsterId = null;
+      s.monsterDef = null;
+      return;
+    }
+    const m = r.rows[0];
+    const mult = getScaleMultiplier(s.endlessFloor);
+    const scaledMaxHp = Math.floor(m.max_hp * mult);
+    const stats = m.stats || {};
+    const baseStr = Number(stats.str ?? 100);
+    const baseDef = Number(stats.def ?? 0);
+    const baseMdef = Number(stats.mdef ?? 0);
+    const baseInt = Number(stats.int ?? 0);
+    s.monsterId = m.id;
+    s.monsterDef = {
+      ...m,
+      max_hp: scaledMaxHp,
+      drop_table: [],
+      avg_kill_time_sec: 10,
+    } as unknown as MonsterDef;
+    s.monsterName = m.name;
+    s.monsterLevel = m.level;
+    s.monsterHp = scaledMaxHp;
+    s.monsterMaxHp = scaledMaxHp;
+    s.monsterStats = {
+      str: Math.floor(baseStr * mult),
+      dex: Number(stats.dex ?? 0),
+      int: Math.floor(baseInt * mult),
+      vit: Math.floor(Number(stats.vit ?? 0) * mult),
+      spd: Number(stats.spd ?? 100),
+      cri: Number(stats.cri ?? 0),
+      maxHp: scaledMaxHp,
+      atk: Math.floor(baseStr * mult),
+      matk: Math.floor(baseInt * mult),
+      def: Math.floor(baseDef * mult),
+      mdef: Math.floor(baseMdef * mult),
+      dodge: 0,
+      accuracy: 80,
+      unconditionalDodge: false,
+      // 종언 몬스터의 dr_pct / cc_immune 은 monsterDef.stats 에서 직접 참조하는 코드 경로
+      // (110 몬스터와 동일 처리) 가 EffectiveStats 외부에서 처리. 여기 추가 X.
+    };
+    s.monsterSpeed = Number(stats.spd ?? 100);
+    s.monsterGauge = 0;
+    s.hasFirstStrike = true;
+    s.hasFirstSkill = true;
+    s.monsterSpawnAt = Date.now();
+    s.endlessFloorStartedAt = Date.now();
+    s.statusEffects = s.statusEffects.filter(e =>
+      e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
+    );
+    const floorLabel = isBossFloor(s.endlessFloor) ? `${s.endlessFloor}층 — 보스` : `${s.endlessFloor}층`;
+    addLog(s, `[종언의 기둥 ${floorLabel}] ${m.name} 등장!`);
+    return;
+  }
+
   // 길드 보스 세션은 보스를 "가상 몬스터"로 스폰 (필드 풀 무시)
   if (s.guildBossRunId && s.guildBossBoss) {
     const boss = s.guildBossBoss;
@@ -3263,6 +3368,22 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
+  // 종언의 기둥 — 부활 시스템 없음 (인터뷰 C3.1). 1층 회귀 + paused=true + 마을 이동.
+  if (s.fieldId === ENDLESS_FIELD_ID) {
+    const reachedFloor = s.endlessFloor;
+    addLog(s, `[종언의 기둥] 사망 — ${reachedFloor}층에서 1층으로 회귀합니다.`);
+    s.playerHp = 0;
+    try { await recordDeath(s.characterId); } catch (e) { console.error('[endless] recordDeath', e); }
+    await query(
+      'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
+      ['village', s.characterId]
+    );
+    await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
+    await pushCombatState(s, true, true);
+    activeSessions.delete(s.characterId);
+    return;
+  }
+
   // 길드 보스: 부활 계열 총 1회만 허용 (부활 스킬 + undying_fury 중 먼저 발동되는 1회)
   if (s.guildBossRunId) {
     const gbRevived = s.statusEffects.some(e => e.id === 'gb_revive_used');
@@ -3372,6 +3493,23 @@ export async function onSessionGoOffline(
   if (!activeSessions.has(charId)) return; // 이미 정리됨 — 멱등
   const fieldId = s.fieldId;
   const record = !!opts.recordOfflineRewards;
+
+  // 종언의 기둥 — 오프라인 EMA 정산 적용 X (인터뷰 E3). 현재 HP + paused=true 박제만.
+  // 다음 진입 시 그 층/HP 에서 재개 (인터뷰 C5.1).
+  if (s.fieldId === ENDLESS_FIELD_ID) {
+    try {
+      await pauseProgress(charId, s.playerHp);
+    } catch (e) {
+      console.error('[endless-go-offline] pauseProgress', charId, e);
+    }
+    try {
+      await query(`DELETE FROM combat_sessions WHERE character_id = $1`, [charId]);
+    } catch (e) { console.error('[endless-go-offline] delete session', e); }
+    activeSessions.delete(charId);
+    sessionStartedMap.delete(charId);
+    sessionLastTickAt.delete(charId);
+    return;
+  }
   // 누적 배치 먼저 flush — 마지막 100ms 분량의 exp/gold/kill/drop 누락 방지
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
 
@@ -3484,6 +3622,17 @@ async function combatTick(): Promise<void> {
     tasks.push((async () => {
     try {
       if (!s.monsterId) return;
+
+      // 종언의 기둥 — 매 층 1분 시간 제한 체크 (인터뷰 A4). 초과 시 사망 처리.
+      if (s.fieldId === ENDLESS_FIELD_ID && s.endlessFloorStartedAt > 0) {
+        const elapsed = now - s.endlessFloorStartedAt;
+        if (elapsed >= ENDLESS_TIME_LIMIT_MS && s.monsterHp > 0) {
+          addLog(s, `[종언의 기둥] 시간 초과 (60초) — ${s.endlessFloor}층에서 패배`);
+          s.playerHp = 0;
+          await handlePlayerDeath(s);
+          return;
+        }
+      }
 
       // 각성 카운터: 실제 경과 시간 기반 (1틱 = 100ms 기준)
       s.ticksSinceLastHit += tickScale;
@@ -4248,6 +4397,8 @@ async function startCombatSessionInner(
     afkUnique: 0,
     afkT4Prefix: 0,
     offline: false,
+    endlessFloor: 0,
+    endlessFloorStartedAt: 0,
     guildBossRunId: guildBossOpts?.guildBossRunId ?? null,
     guildBossBoss: guildBossOpts?.guildBossBoss ?? null,
     guildBossPractice: guildBossOpts?.practice ?? false,
@@ -4317,6 +4468,15 @@ async function startCombatSessionInner(
   if (savedCooldowns) {
     for (const [k, v] of Object.entries(savedCooldowns)) {
       if (typeof v === 'number' && v > 0) session.skillCooldowns.set(Number(k), v);
+    }
+  }
+
+  // 종언의 기둥 — 진행 데이터 로드. paused 였던 세션 재개 시 current_hp 복원.
+  if (fieldId === ENDLESS_FIELD_ID) {
+    const prog = await loadOrCreateProgress(characterId);
+    session.endlessFloor = prog.current_floor;
+    if (prog.current_hp > 0) {
+      session.playerHp = Math.min(prog.current_hp, session.playerMaxHp);
     }
   }
 
