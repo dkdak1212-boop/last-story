@@ -2685,6 +2685,35 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 시공의 균열 몬스터 강화 (500/501/502) — spd 800 / str·def·mdef ×2 / HP ×5
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'rift_monster_buff_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE monsters
+           SET max_hp = max_hp * 5,
+               stats = jsonb_set(
+                 jsonb_set(
+                   jsonb_set(
+                     jsonb_set(
+                       stats,
+                       '{spd}', to_jsonb(800)
+                     ),
+                     '{str}', to_jsonb(((stats->>'str')::int * 2))
+                   ),
+                   '{def}', to_jsonb(((stats->>'def')::int * 2))
+                 ),
+                 '{mdef}', to_jsonb(((stats->>'mdef')::int * 2))
+               )
+         WHERE id IN (500, 501, 502)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('rift_monster_buff_v1')`);
+        console.log('[late] rift_monster_buff_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] rift_monster_buff_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
