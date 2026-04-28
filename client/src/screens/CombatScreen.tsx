@@ -1380,7 +1380,7 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
   '맹독의 안개': { cls: 'rogue', lv: 65 }, '심장 관통': { cls: 'rogue', lv: 70 }, '죽음의 무도': { cls: 'rogue', lv: 75 },
   '독의 축제': { cls: 'rogue', lv: 80 }, '기습': { cls: 'rogue', lv: 85 }, '천 개의 칼날': { cls: 'rogue', lv: 90 },
   '치명 절격': { cls: 'rogue', lv: 95 }, '암흑의 심판': { cls: 'rogue', lv: 100 },
-  '늑대 소환': { cls: 'summoner', lv: 1 }, '골렘 소환': { cls: 'summoner', lv: 5 }, '지휘': { cls: 'summoner', lv: 10 },
+  '늑대 소환': { cls: 'summoner', lv: 1 }, '골렘 소환': { cls: 'summoner', lv: 5 }, '모든 소환수 공격': { cls: 'summoner', lv: 10 },
   '독수리 소환': { cls: 'summoner', lv: 15 }, '영혼 유대': { cls: 'summoner', lv: 20 }, '불정령 소환': { cls: 'summoner', lv: 25 },
   '정령의 가호': { cls: 'summoner', lv: 30 }, '수호수 소환': { cls: 'summoner', lv: 35 }, '야수의 분노': { cls: 'summoner', lv: 40 },
   '드래곤 소환': { cls: 'summoner', lv: 45 }, '희생': { cls: 'summoner', lv: 50 }, '피닉스 소환': { cls: 'summoner', lv: 55 },
