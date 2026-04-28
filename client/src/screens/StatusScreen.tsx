@@ -285,10 +285,10 @@ export function StatusScreen() {
           ))}
         </div>
 
-        {/* 스탯 분해 */}
+        {/* 스탯 */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h3 style={{ fontSize: 14, color: 'var(--accent)', margin: 0 }}>스탯 분해</h3>
+            <h3 style={{ fontSize: 14, color: 'var(--accent)', margin: 0 }}>스탯</h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 onClick={resetStats}
