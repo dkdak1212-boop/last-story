@@ -235,11 +235,16 @@ export function SkillsScreen() {
               <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
                 {s.name}
                 <span style={{ color: 'var(--text-dim)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>Lv.{s.requiredLevel}</span>
+                {s.description.includes('자유행동') && (
+                  <span style={{ color: '#88c8ff', fontWeight: 400, fontSize: 11, marginLeft: 8 }}>자유 행동</span>
+                )}
                 {s.cooldown === 0 && <span style={{ color: 'var(--text-dim)', fontSize: 11, marginLeft: 8 }}>[기본기 — 슬롯 미차감]</span>}
               </div>
-              <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>{s.description}</div>
+              <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
+                {s.description.replace(/\s*·\s*자유행동/g, '').replace(/\s*·\s*쿨\s*\d+\s*행동/g, '')}
+              </div>
               <div style={{ color: 'var(--text-dim)', fontSize: 12, marginTop: 4 }}>
-                쿨다운 {s.cooldown}s
+                쿨다운 {s.cooldown} 행동
               </div>
             </div>
             {isOn && (
