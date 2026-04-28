@@ -2637,6 +2637,22 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 고통의 군주 (988) 자가 도트 8% → 0.5% 너프 — description 갱신
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'pain_lord_self_dmg_nerf_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE node_definitions
+           SET description = '자신 도트 데미지 ×2, 매 행동 자신 max_hp 0.5% 깎임'
+         WHERE id = 988`);
+        await query(`INSERT INTO _migrations (name) VALUES ('pain_lord_self_dmg_nerf_v1')`);
+        console.log('[late] pain_lord_self_dmg_nerf_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] pain_lord_self_dmg_nerf_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
