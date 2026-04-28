@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
+import { getSkillIcon } from './CombatScreen';
 
 interface Skill {
   id: number;
@@ -225,7 +226,7 @@ export function SkillsScreen() {
             }}
           >
             <img
-              src={`/images/skills/${className}_${s.requiredLevel}.png`}
+              src={getSkillIcon(s.name) || `/images/skills/${className}_${s.requiredLevel}.png`}
               alt={s.name}
               width={40}
               height={40}
