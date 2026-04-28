@@ -53,7 +53,7 @@ interface CombatSnapshot {
   };
   skills: CombatSkillInfoLocal[];
   log: string[];
-  potions?: { small: number; mid: number; high: number; max: number };
+  potions?: { small: number; mid: number; high: number; max: number; supreme: number };
   autoPotion: { enabled: boolean; threshold: number };
   exp?: number;
   expMax?: number;
@@ -286,7 +286,7 @@ interface ActiveSession {
   cachedExp: number;
   cachedExpMax: number;
   cachedBoosts: { name: string; until: string }[];
-  cachedPotions: { small: number; mid: number; high: number; max: number };
+  cachedPotions: { small: number; mid: number; high: number; max: number; supreme: number };
   cachedGuildBuffs: { hp: number; gold: number; exp: number; drop: number };
   // 킬 시 부스트/레벨 판정용 raw 캐시 — refreshSessionMeta 가 채움. null 이면 DB fallback.
   cachedCharMeta: {
@@ -3937,13 +3937,13 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
     const pr = await query<{ item_id: number; total: string }>(
       `SELECT item_id, COALESCE(SUM(quantity),0)::text AS total
        FROM character_inventory
-       WHERE character_id = $1 AND item_id IN (100, 102, 104, 106)
+       WHERE character_id = $1 AND item_id IN (100, 102, 104, 106, 108)
        GROUP BY item_id`,
       [s.characterId]
     );
-    const map: Record<number, number> = { 100: 0, 102: 0, 104: 0, 106: 0 };
+    const map: Record<number, number> = { 100: 0, 102: 0, 104: 0, 106: 0, 108: 0 };
     for (const row of pr.rows) map[row.item_id] = Number(row.total);
-    s.cachedPotions = { small: map[100], mid: map[102], high: map[104], max: map[106] };
+    s.cachedPotions = { small: map[100], mid: map[102], high: map[104], max: map[106], supreme: map[108] };
   } catch {}
 
   // 3) 길드 버프 (길드 스킬 + 24시간 길드 버프 합산)
@@ -4433,7 +4433,7 @@ async function startCombatSessionInner(
     cachedExp: Number(char.exp) || 0,
     cachedExpMax: expToNext(char.level),
     cachedBoosts: [],
-    cachedPotions: { small: 0, mid: 0, high: 0, max: 0 },
+    cachedPotions: { small: 0, mid: 0, high: 0, max: 0, supreme: 0 },
     cachedGuildBuffs: { hp: 0, gold: 0, exp: 0, drop: 0 },
     cachedCharMeta: null,
     monsterDef: null,

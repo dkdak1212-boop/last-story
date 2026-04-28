@@ -186,7 +186,7 @@ export interface CombatSnapshot {
   };
   skills: CombatSkillInfo[];
   log: string[];
-  potions?: { small: number; mid: number; high: number; max: number };
+  potions?: { small: number; mid: number; high: number; max: number; supreme: number };
   autoPotion: { enabled: boolean; threshold: number };
   exp?: number;
   expMax?: number;

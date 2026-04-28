@@ -1122,7 +1122,8 @@ export function CombatScreen() {
           { label: '소', qty: p.small, src: '/images/items/potion/ruby.png' },
           { label: '중', qty: p.mid, src: '/images/items/potion/ruby.png' },
           { label: '고', qty: p.high, src: '/images/items/potion/ruby.png' },
-          { label: '최', qty: p.max, src: '/images/items/potion/ruby.png' },
+          { label: '최상', qty: p.max, src: '/images/items/potion/ruby.png' },
+          { label: '최고', qty: p.supreme || 0, src: '/images/items/potion/magenta.png' },
         ];
         return (
           <div style={{
