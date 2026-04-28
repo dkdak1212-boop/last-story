@@ -163,6 +163,17 @@ export function GuildScreen() {
       await load();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
   }
+  async function transferLeader(targetId: number, name: string) {
+    if (!active) return;
+    if (!confirm(`길드장 권한을 ${name}님에게 위임합니다.\n위임 후 본인은 일반 길드원이 됩니다. 진행하시겠습니까?`)) return;
+    try {
+      await api('/guilds/transfer-leader', { method: 'POST', body: JSON.stringify({
+        leaderCharacterId: active.id, newLeaderCharacterId: targetId,
+      })});
+      alert(`길드장 위임 완료 — ${name}`);
+      await load();
+    } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
+  }
   async function leave() {
     if (!active) return;
     if (!confirm('정말 탈퇴하시겠습니까?')) return;
@@ -744,10 +755,16 @@ export function GuildScreen() {
                       <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>리더</span>
                     )}
                     {my.isLeader && m.role !== 'leader' && (
-                      <button onClick={() => kickMember(m.id, m.name)} style={{
-                        fontSize: 10, padding: '3px 8px', background: 'var(--danger)',
-                        color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
-                      }}>추방</button>
+                      <>
+                        <button onClick={() => transferLeader(m.id, m.name)} style={{
+                          fontSize: 10, padding: '3px 8px', background: '#daa520',
+                          color: '#000', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
+                        }}>위임</button>
+                        <button onClick={() => kickMember(m.id, m.name)} style={{
+                          fontSize: 10, padding: '3px 8px', background: 'var(--danger)',
+                          color: '#fff', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700,
+                        }}>추방</button>
+                      </>
                     )}
                   </div>
                 </div>

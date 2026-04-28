@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { query } from '../db/pool.js';
+import { query, withTransaction } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import {
@@ -536,6 +536,55 @@ router.post('/kick', async (req: AuthedRequest, res: Response) => {
   await query('DELETE FROM guild_members WHERE character_id = $1', [targetCharacterId]);
   clearMemberGuild(targetCharacterId);
   res.json({ ok: true });
+});
+
+// 길드장 위임 — 현 리더가 같은 길드의 다른 멤버에게 leader 권한 양도
+router.post('/transfer-leader', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    leaderCharacterId: z.number().int().positive(),
+    newLeaderCharacterId: z.number().int().positive(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { leaderCharacterId, newLeaderCharacterId } = parsed.data;
+  if (leaderCharacterId === newLeaderCharacterId) return res.status(400).json({ error: '본인에게 위임할 수 없습니다' });
+
+  const leader = await loadCharacterOwned(leaderCharacterId, req.userId!);
+  if (!leader) return res.status(404).json({ error: 'not found' });
+
+  const lm = await query<{ guild_id: number; role: string }>(
+    'SELECT guild_id, role FROM guild_members WHERE character_id = $1', [leaderCharacterId]
+  );
+  if (lm.rowCount === 0 || lm.rows[0].role !== 'leader') {
+    return res.status(403).json({ error: '길드장만 위임 가능' });
+  }
+
+  const tm = await query<{ guild_id: number; role: string; name: string }>(
+    `SELECT gm.guild_id, gm.role, c.name FROM guild_members gm
+       JOIN characters c ON c.id = gm.character_id
+      WHERE gm.character_id = $1`, [newLeaderCharacterId]
+  );
+  if (tm.rowCount === 0 || tm.rows[0].guild_id !== lm.rows[0].guild_id) {
+    return res.status(400).json({ error: '같은 길드원이 아닙니다' });
+  }
+
+  const guildId = lm.rows[0].guild_id;
+  await withTransaction(async (tx) => {
+    await tx.query(`SELECT id FROM guilds WHERE id = $1 FOR UPDATE`, [guildId]);
+    await tx.query(
+      `UPDATE guild_members SET role = 'member' WHERE character_id = $1 AND guild_id = $2`,
+      [leaderCharacterId, guildId]
+    );
+    await tx.query(
+      `UPDATE guild_members SET role = 'leader' WHERE character_id = $1 AND guild_id = $2`,
+      [newLeaderCharacterId, guildId]
+    );
+    await tx.query(
+      `UPDATE guilds SET leader_id = $1 WHERE id = $2`,
+      [newLeaderCharacterId, guildId]
+    );
+  });
+
+  res.json({ ok: true, newLeaderName: tm.rows[0].name });
 });
 
 // 길드 탈퇴
