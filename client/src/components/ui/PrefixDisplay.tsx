@@ -43,6 +43,14 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   summon_amp: v => `소환수 데미지 ${v}% 증가`,
   summon_double_hit: v => `소환수 2회 타격 ${v}%`,
   summon_max_extra: v => `최대 소환수 +${v}`,
+  // 성직자 — 실드 효과 강화 (시공의 차원의 홀 등)
+  shield_amp: v => `실드 효과 ${v}% 증가`,
+  // 110제 craft 추가 옵션
+  execute_pct: v => `적 HP 20% 이하 시 데미지 +${v}%`,
+  undispellable: () => `버프 디스펠 면역`,
+  shield_on_low_hp: v => `HP 30% 이하 시 자동 실드 max_hp ${v}%`,
+  reflect_skill: v => `스킬 피해 ${v}% 반사`,
+  def_convert_atk: v => `방어력 ${v}% 만큼 공격력 추가`,
 };
 
 interface Props {
