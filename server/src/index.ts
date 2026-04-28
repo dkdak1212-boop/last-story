@@ -2669,6 +2669,22 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 신의 타격 (136) description 에 천상 강림 쿨 -1 콤보 안내 추가
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'divine_strike_combo_tooltip_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE skills
+           SET description = '본인 최대 HP × 25 × 4연타 (크리티컬 발동 가능). 사용 시 천상 강림 쿨다운 -1행동 · 쿨 3행동'
+         WHERE id = 136`);
+        await query(`INSERT INTO _migrations (name) VALUES ('divine_strike_combo_tooltip_v1')`);
+        console.log('[late] divine_strike_combo_tooltip_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] divine_strike_combo_tooltip_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
