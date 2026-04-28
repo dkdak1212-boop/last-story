@@ -2714,6 +2714,27 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 시공의 균열 골드/드랍 조정 — 골드 2/4/6만, 드랍 통일 (10/5/2.5%)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'rift_gold_drops_v1'`);
+      if (!applied.rowCount) {
+        const drops = `'[
+          {"itemId":852,"chance":0.10,"minQty":1,"maxQty":1},
+          {"itemId":853,"chance":0.05,"minQty":1,"maxQty":1},
+          {"itemId":854,"chance":0.025,"minQty":1,"maxQty":1}
+        ]'::jsonb`;
+        await query(`UPDATE monsters SET gold_reward = 20000, drop_table = ${drops} WHERE id = 500`);
+        await query(`UPDATE monsters SET gold_reward = 40000, drop_table = ${drops} WHERE id = 501`);
+        await query(`UPDATE monsters SET gold_reward = 60000, drop_table = ${drops} WHERE id = 502`);
+        await query(`INSERT INTO _migrations (name) VALUES ('rift_gold_drops_v1')`);
+        console.log('[late] rift_gold_drops_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] rift_gold_drops_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
