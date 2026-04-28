@@ -2576,6 +2576,23 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 영원의 계약자 (354) 효과 변경 — summon_infinite 제거, summon_amp +60%
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summoner_eternal_contract_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE node_definitions
+           SET effects = '[{"key":"summon_amp","type":"passive","value":60}]'::jsonb,
+               description = '소환수 데미지 +60%'
+         WHERE id = 354`);
+        await query(`INSERT INTO _migrations (name) VALUES ('summoner_eternal_contract_v1')`);
+        console.log('[late] summoner_eternal_contract_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] summoner_eternal_contract_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
