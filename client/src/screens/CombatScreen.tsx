@@ -539,6 +539,16 @@ export function CombatScreen() {
               {deathLine && <div style={{ color: '#ff5050' }}>{deathLine}</div>}
             </div>
           )}
+          {(state.sessionDamage ?? 0) > 0 && (
+            <div style={{
+              marginTop: 12, padding: '10px 14px',
+              background: 'rgba(218,165,32,0.12)', border: '1px solid rgba(218,165,32,0.4)',
+              borderRadius: 4, fontSize: 13,
+            }}>
+              <span style={{ color: 'var(--text-dim)' }}>이번 전투 누적 데미지 </span>
+              <b style={{ color: '#ffcc66' }}>{(state.sessionDamage ?? 0).toLocaleString()}</b>
+            </div>
+          )}
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 16, marginBottom: 20, lineHeight: 1.5 }}>
             · 마을로 돌아가면 전투 세션이 종료됩니다<br/>
             · HP는 자동으로 100% 회복됩니다<br/>

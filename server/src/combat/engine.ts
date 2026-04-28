@@ -66,6 +66,7 @@ interface CombatSnapshot {
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
+  sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
   summons?: { skillName: string; element?: string; remainingActions: number }[]; // 소환사 전용: 활성 소환수 목록
   afk?: {
@@ -322,7 +323,8 @@ interface ActiveSession {
   afkExpGained: number;
   afkGoldGained: number;
   afkKills: number;
-  afkDamage: number;        // 누적 플레이어 데미지
+  afkDamage: number;        // 누적 플레이어 데미지 (AFK 모드 전용 통계)
+  sessionDamage: number;    // 세션 시작 후 누적 플레이어 데미지 (AFK 무관, 사망 모달 표시용)
   afkQuality100: number;    // 100% 품질 드랍 수
   afkUnique: number;        // 유니크 드랍 수
   afkT4Prefix: number;      // T4 접두사 드랍 수
@@ -3810,6 +3812,7 @@ async function combatTick(): Promise<void> {
         tickShield(s);
         s.dirty = true;
         const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
+        if (dealtThisAction > 0) s.sessionDamage += dealtThisAction;
         if (s.afkMode && dealtThisAction > 0) s.afkDamage += dealtThisAction;
         if (s.guildBossRunId && dealtThisAction > 0) {
           // 버퍼 누적 — element 별 분리 + 호환용 합산 둘 다 갱신.
@@ -4135,6 +4138,8 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       elapsedMs: s.dummyTrackStart > 0 ? Date.now() - s.dummyTrackStart : 0,
     };
   }
+  // 세션 누적 데미지 — 사망 모달 표시용
+  snapshot.sessionDamage = s.sessionDamage;
 
   // 영토 점령 보너스 정보
   try {
@@ -4444,6 +4449,7 @@ async function startCombatSessionInner(
     afkGoldGained: 0,
     afkKills: 0,
     afkDamage: 0,
+    sessionDamage: 0,
     afkQuality100: 0,
     afkUnique: 0,
     afkT4Prefix: 0,
