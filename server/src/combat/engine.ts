@@ -716,10 +716,14 @@ function rollDrops(m: MonsterDef, dropBoost: boolean = false, guildDropPct: numb
 // countPotions removed — potions handled inline
 
 async function getPotionInInventory(characterId: number, itemIds: number[]) {
+  // itemIds 배열 순서 = 우선순위 (앞쪽 = 높은 등급).
+  // array_position 으로 등급 우선 → 같은 등급은 slot_index 낮은 순으로 소비.
+  // 종래 단순 slot_index ASC 정렬은 고등급 물약이 인벤 뒤쪽에 있을 때 저등급만 먹어 안 먹히는 버그 원인.
   const r = await query<{ id: number; item_id: number; quantity: number }>(
     `SELECT id, item_id, quantity FROM character_inventory
      WHERE character_id = $1 AND item_id = ANY($2::int[]) AND quantity > 0
-     ORDER BY slot_index ASC LIMIT 1`,
+     ORDER BY array_position($2::int[], item_id) ASC, slot_index ASC
+     LIMIT 1`,
     [characterId, itemIds]
   );
   return r.rows[0] || null;

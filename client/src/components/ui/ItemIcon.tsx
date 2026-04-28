@@ -204,6 +204,7 @@ const CONSUMABLE_ICON: Record<string, string> = {
   '중급 체력 물약': '/images/items/potion/ruby.png',
   '고급 체력 물약': '/images/items/potion/ruby.png',
   '최상급 체력 물약': '/images/items/potion/ruby.png',
+  '최고급 체력 물약': '/images/items/potion/magenta.png',
   '작은 마나 물약': '/images/items/potion/brilliant_blue.png',
   '중급 마나 물약': '/images/items/potion/brilliant_blue.png',
   '고급 마나 물약': '/images/items/potion/brilliant_blue.png',
