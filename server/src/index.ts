@@ -2735,6 +2735,28 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 시공의 균열 공격력/방어력 -50% 너프 (str/def 만 ÷2, mdef/HP/spd 유지)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'rift_atk_def_nerf_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE monsters
+           SET stats = jsonb_set(
+                 jsonb_set(
+                   stats,
+                   '{str}', to_jsonb(GREATEST(1, ((stats->>'str')::int / 2)))
+                 ),
+                 '{def}', to_jsonb(GREATEST(1, ((stats->>'def')::int / 2)))
+               )
+         WHERE id IN (500, 501, 502)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('rift_atk_def_nerf_v1')`);
+        console.log('[late] rift_atk_def_nerf_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] rift_atk_def_nerf_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
