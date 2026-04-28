@@ -581,7 +581,7 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
             {a.classRestriction && (() => {
               const cls = a.classRestriction!;
               const krMap: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
-              const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0' };
+              const colorMap: Record<string, string> = { warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0', summoner: '#44cc88' };
               return (
                 <span style={{
                   fontSize: 9, padding: '1px 5px', borderRadius: 2,
