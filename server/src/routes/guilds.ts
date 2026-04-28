@@ -99,7 +99,8 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
             COALESCE(gc.gold_donated, 0)::text AS gold_donated,
             COALESCE(
               (SELECT amount FROM guild_donations_daily
-                WHERE character_id = gm.character_id AND date = CURRENT_DATE),
+                WHERE character_id = gm.character_id
+                  AND date = (NOW() AT TIME ZONE 'Asia/Seoul')::date),
               0
             )::text AS today_donation,
             (SELECT keys_remaining FROM guild_boss_daily
@@ -140,9 +141,10 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
     };
   });
 
-  // 본인 일일 기부량
+  // 본인 일일 기부량 (KST 자정 리셋)
   const dr = await query<{ amount: string }>(
-    `SELECT amount FROM guild_donations_daily WHERE character_id = $1 AND date = CURRENT_DATE`,
+    `SELECT amount FROM guild_donations_daily
+       WHERE character_id = $1 AND date = (NOW() AT TIME ZONE 'Asia/Seoul')::date`,
     [cid]
   );
   const myDonationToday = Number(dr.rows[0]?.amount || 0);
@@ -217,9 +219,10 @@ router.post('/donate', async (req: AuthedRequest, res: Response) => {
   if (gm.rowCount === 0) return res.status(400).json({ error: '길드 없음' });
   const guildId = gm.rows[0].guild_id;
 
-  // 일일 한도 체크
+  // 일일 한도 체크 (KST 자정 리셋 — 길드 보스와 통일)
   const dr = await query<{ amount: string }>(
-    `SELECT amount FROM guild_donations_daily WHERE character_id = $1 AND date = CURRENT_DATE`,
+    `SELECT amount FROM guild_donations_daily
+       WHERE character_id = $1 AND date = (NOW() AT TIME ZONE 'Asia/Seoul')::date`,
     [char.id]
   );
   const todaySoFar = Number(dr.rows[0]?.amount || 0);
@@ -235,12 +238,13 @@ router.post('/donate', async (req: AuthedRequest, res: Response) => {
   if (deductR.rowCount === 0) return res.status(400).json({ error: '골드가 부족합니다.' });
   await query('UPDATE guilds SET treasury = treasury + $1 WHERE id = $2', [parsed.data.amount, guildId]);
 
+  // KST 기준 일자 사용 (길드 보스와 통일 — 자정 00:00 리셋)
   await query(
     `INSERT INTO guild_donations_daily (character_id, date, amount)
-     VALUES ($1, CURRENT_DATE, $2)
+     VALUES ($1, (NOW() AT TIME ZONE 'Asia/Seoul')::date, $2)
      ON CONFLICT (character_id) DO UPDATE
-       SET date = CURRENT_DATE,
-           amount = CASE WHEN guild_donations_daily.date = CURRENT_DATE
+       SET date = (NOW() AT TIME ZONE 'Asia/Seoul')::date,
+           amount = CASE WHEN guild_donations_daily.date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
                          THEN guild_donations_daily.amount + $2
                          ELSE $2 END`,
     [char.id, parsed.data.amount]
