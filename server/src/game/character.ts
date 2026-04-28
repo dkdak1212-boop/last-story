@@ -113,7 +113,7 @@ export async function getNodeEffects(characterId: number) {
 }
 
 // 세트 효과 계산
-async function getSetBonus(characterId: number): Promise<Partial<Stats>> {
+export async function getSetBonus(characterId: number): Promise<Partial<Stats>> {
   // 장착 중인 아이템의 set_id 조회
   const r = await query<{ set_id: number | null }>(
     `SELECT i.set_id FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1 AND i.set_id IS NOT NULL`,
@@ -188,6 +188,14 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   for (const it of equipped) {
     if (!it.prefixStats) continue;
     for (const [k, v] of Object.entries(it.prefixStats)) {
+      equipPrefixes[k] = (equipPrefixes[k] || 0) + (v as number);
+    }
+  }
+  // 세트 보너스의 prefix-style 키 (atk_pct/multi_hit_amp_pct/damage_taken_down_pct 등) 도
+  // equipPrefixes 에 합류 — Stats 키는 이미 combinedNodeBonus 로 들어갔으므로 제외.
+  const STATS_KEYS = new Set(['str','dex','int','vit','spd','cri','atk','matk','def','mdef','hp','dodge','accuracy']);
+  for (const [k, v] of Object.entries(setBonus)) {
+    if (!STATS_KEYS.has(k)) {
       equipPrefixes[k] = (equipPrefixes[k] || 0) + (v as number);
     }
   }

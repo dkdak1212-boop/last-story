@@ -595,6 +595,9 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
 }
 
 // 장비 접두사 특수 효과 합산 로드
+// 세트 보너스 prefix-style 키 (Stats 외 — equipPrefixes 로 처리되어야 효과 발동)
+const STATS_KEYS_FOR_SET_FILTER = new Set(['str','dex','int','vit','spd','cri','atk','matk','def','mdef','hp','dodge','accuracy']);
+
 export async function loadEquipPrefixes(characterId: number): Promise<Record<string, number>> {
   const r = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
     `SELECT ce.enhance_level, ce.prefix_stats FROM character_equipped ce WHERE ce.character_id = $1`,
@@ -608,6 +611,19 @@ export async function loadEquipPrefixes(characterId: number): Promise<Record<str
     for (const [k, v] of Object.entries(row.prefix_stats)) {
       totals[k] = (totals[k] || 0) + Math.round((v as number) * mult);
     }
+  }
+  // 세트 보너스 prefix-style 키 합산 — Stats 키는 computeEffective 가 따로 처리하므로 제외.
+  // (atk_pct, multi_hit_amp_pct, damage_taken_down_pct 등 prefix 키만 equipPrefixes 에 합류)
+  try {
+    const { getSetBonus } = await import('../game/character.js');
+    const setBonus = await getSetBonus(characterId);
+    for (const [k, v] of Object.entries(setBonus)) {
+      if (!STATS_KEYS_FOR_SET_FILTER.has(k)) {
+        totals[k] = (totals[k] || 0) + (v as number);
+      }
+    }
+  } catch (e) {
+    console.error('[loadEquipPrefixes] set bonus merge fail', characterId, e);
   }
   return totals;
 }
