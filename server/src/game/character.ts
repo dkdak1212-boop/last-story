@@ -222,13 +222,26 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (ppCri) eff.cri = Math.min(100, eff.cri + ppCri * 0.5);
 
   // 키스톤 #7 반대의 균형 — STR↔INT, DEX↔VIT 교체 + 교체 후 ×1.5
+  // computeEffective 가 derived stat (atk/matk/def/mdef/dodge/accuracy) 을 이미 swap 전 값으로 계산해뒀으므로,
+  // swap 후 stat-portion 만큼 차이를 빼고 다시 더해 derived 도 반영. bonus 부분은 그대로 보존.
   if (pMap.has('paragon_balance_inversion')) {
-    const swapStr = eff.int, swapInt = eff.str;
-    const swapDex = eff.vit, swapVit = eff.dex;
-    eff.str = Math.round(swapStr * 1.5);
-    eff.int = Math.round(swapInt * 1.5);
-    eff.dex = Math.round(swapDex * 1.5);
-    eff.vit = Math.round(swapVit * 1.5);
+    const oldStr = eff.str, oldInt = eff.int, oldDex = eff.dex, oldVit = eff.vit;
+    const newStr = Math.round(oldInt * 1.5);
+    const newInt = Math.round(oldStr * 1.5);
+    const newDex = Math.round(oldVit * 1.5);
+    const newVit = Math.round(oldDex * 1.5);
+    // derived stat 재계산 — computeEffective 의 stat-portion 공식과 동일 계수 사용
+    eff.atk = Math.round(eff.atk - oldStr * 1.5 + newStr * 1.5);
+    eff.matk = Math.round(eff.matk - oldInt * 1.5 + newInt * 1.5);
+    eff.def = Math.round(eff.def - oldVit * 0.8 + newVit * 0.8);
+    eff.mdef = Math.round(eff.mdef - oldInt * 0.5 + newInt * 0.5);
+    eff.dodge = Math.min(70, Math.round(eff.dodge - oldDex * 0.2 + newDex * 0.2));
+    eff.accuracy = Math.min(100, Math.round(eff.accuracy - oldDex * 0.3 + newDex * 0.3));
+    // 표기 stat 도 swap 적용
+    eff.str = newStr;
+    eff.int = newInt;
+    eff.dex = newDex;
+    eff.vit = newVit;
   }
   // 키스톤 #1 철의 반사 — 회피 0, 회피 1 = 방어 1
   if (pMap.has('paragon_iron_reflexes')) {
