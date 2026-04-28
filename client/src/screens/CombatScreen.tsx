@@ -1390,7 +1390,14 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
   '대지 거신 소환': { cls: 'summoner', lv: 90 }, '천상의 수호자': { cls: 'summoner', lv: 95 },
   '시공의 지배자': { cls: 'summoner', lv: 100 },
 };
+// 특정 스킬 이름은 spells/ 픽셀 아트로 직접 매핑 (이름에 맞는 외형으로 오버라이드)
+const SKILL_ICON_OVERRIDES: Record<string, string> = {
+  '정령의 가호': '/images/skills/spells/might.png',
+  '정령의 보호': '/images/skills/spells/tso_divine_shield.png',
+};
+
 export function getSkillIcon(name: string): string {
+  if (SKILL_ICON_OVERRIDES[name]) return SKILL_ICON_OVERRIDES[name];
   const m = SKILL_CLASS_MAP[name];
   return m ? `/images/skills/${m.cls}_${m.lv}.png` : '';
 }
