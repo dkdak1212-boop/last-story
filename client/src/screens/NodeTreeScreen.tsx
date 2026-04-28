@@ -173,6 +173,14 @@ function computeRadialLayout(nodes: NodeDefinition[]): Map<number, Position> {
 const TIER_RADIUS: Record<string, number> = { small: 18, medium: 26, large: 36, huge: 46 };
 const TIER_LABEL: Record<string, string> = { small: '소형', medium: '중형', large: '키스톤', huge: '초월' };
 
+// 구역 탭 한글 라벨 매핑 (DB zone → 표시명)
+const ZONE_LABEL: Record<string, string> = {
+  core: '공용',
+  north_rogue: '북방 도적',
+  paragon: '차원의 정수',
+  '소환사 전용': '소환사 전용',
+};
+
 /* ── 메인 컴포넌트 ── */
 export function NodeTreeScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -274,17 +282,23 @@ export function NodeTreeScreen() {
     return getPrereqChain(selected.id, nodeMap);
   }, [selected, nodeMap]);
 
+  // 노드별 사용 가능 포인트 풀 — paragon zone 은 paragonPoints, 그 외는 일반 node_points
+  function pointsForNode(node: NodeDefinition): number {
+    if (node.zone === 'paragon') return paragonState?.paragonPoints ?? 0;
+    return treeState?.availablePoints ?? 0;
+  }
+
   function nodeStatus(node: NodeDefinition): 'invested' | 'available' | 'locked' {
     if (invested.has(node.id)) return 'invested';
     if (!treeState) return 'locked';
-    if (treeState.availablePoints < node.cost) return 'locked';
+    if (pointsForNode(node) < node.cost) return 'locked';
     if (node.prerequisites.length > 0 && !node.prerequisites.every(pid => invested.has(pid))) return 'locked';
     return 'available';
   }
 
   function canInvestWithPrereqs(node: NodeDefinition): boolean {
     if (!treeState || invested.has(node.id)) return false;
-    return treeState.availablePoints >= calcTotalCost(node.id, nodeMap, invested);
+    return pointsForNode(node) >= calcTotalCost(node.id, nodeMap, invested);
   }
 
   /* ── pan/zoom 핸들러 ── */
@@ -549,19 +563,22 @@ export function NodeTreeScreen() {
       {/* 구역 탭 */}
       {!isSingleZone && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-          {zones.map(z => (
-            <button key={z} onClick={() => setActiveZone(z)} style={{
-              padding: isMobile ? '8px 16px' : '5px 12px',
-              fontSize: isMobile ? 13 : 12,
-              minHeight: isMobile ? 38 : 'auto',
-              background: activeZone === z ? 'var(--accent)' : 'var(--bg-panel)',
-              color: activeZone === z ? '#000' : 'var(--text-dim)',
-              border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
-              fontWeight: activeZone === z ? 700 : 500,
-              borderRadius: 4,
-              flex: isMobile ? '1 1 auto' : '0 0 auto',
-            }}>{z}</button>
-          ))}
+          {zones.map(z => {
+            const label = ZONE_LABEL[z] || z;
+            return (
+              <button key={z} onClick={() => setActiveZone(z)} style={{
+                padding: isMobile ? '8px 16px' : '5px 12px',
+                fontSize: isMobile ? 13 : 12,
+                minHeight: isMobile ? 38 : 'auto',
+                background: activeZone === z ? 'var(--accent)' : 'var(--bg-panel)',
+                color: activeZone === z ? '#000' : 'var(--text-dim)',
+                border: `1px solid ${activeZone === z ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: activeZone === z ? 700 : 500,
+                borderRadius: 4,
+                flex: isMobile ? '1 1 auto' : '0 0 auto',
+              }}>{label}</button>
+            );
+          })}
         </div>
       )}
 
@@ -577,7 +594,8 @@ export function NodeTreeScreen() {
       {/* 계단식 선택형 노드 */}
       {isTierMode && (
         <StaircaseView
-          nodes={zoneNodes} invested={invested} availablePoints={treeState?.availablePoints ?? 0}
+          nodes={zoneNodes} invested={invested}
+          availablePoints={activeZone === 'paragon' ? (paragonState?.paragonPoints ?? 0) : (treeState?.availablePoints ?? 0)}
           onInvest={invest} loading={loading} isMobile={isMobile}
         />
       )}
