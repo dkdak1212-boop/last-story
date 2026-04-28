@@ -2653,6 +2653,22 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 빠른 결단 (993) 효과 변경 — 게이지 50% → 속도 +50%
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'quick_decision_rework_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE node_definitions
+           SET description = '현재 속도 +50%, 모든 데미지 −30%'
+         WHERE id = 993`);
+        await query(`INSERT INTO _migrations (name) VALUES ('quick_decision_rework_v1')`);
+        console.log('[late] quick_decision_rework_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] quick_decision_rework_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {

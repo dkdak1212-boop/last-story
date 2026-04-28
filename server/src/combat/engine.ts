@@ -3764,9 +3764,8 @@ async function combatTick(): Promise<void> {
           }
           return 'break'; // 수동 모드 추가 처리 없음
         }
-        // #15 paragon_quick_decision — 게이지 50% 만 차감
-        const gaugeCost = getPassive(s, 'paragon_quick_decision') > 0 ? GAUGE_MAX * 0.5 : GAUGE_MAX;
-        s.playerGauge -= gaugeCost;
+        // #15 paragon_quick_decision — 게이지 정상 차감 (이전 50%만 차감 → 현재 속도 +50% 효과로 변경)
+        s.playerGauge -= GAUGE_MAX;
         s.actionCount++;
         s.paragonActionCount++;
         // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 75% cap 다시 적용)
