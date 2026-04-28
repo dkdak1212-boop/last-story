@@ -2537,7 +2537,7 @@ async function runEquipOverhaul() {
     }
   }
 
-  // 소환사 지휘 → 모든 소환수 공격 (25% 확률로 2회 발동, 쿨 1행동)
+  // 소환사 지휘 → 모든 소환수 공격 (소환수 지속 +1행동, 쿨 1행동)
   {
     try {
       const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summoner_command_rework_v1'`);
@@ -2546,17 +2546,33 @@ async function runEquipOverhaul() {
            SET name = '모든 소환수 공격',
                kind = 'damage',
                effect_type = 'summon_all',
-               effect_value = 25,
+               effect_value = 1,
                effect_duration = 0,
                damage_mult = 0,
                cooldown_actions = 1,
-               description = '모든 소환수 일제 공격 — 25% 확률로 2회 발동 · 쿨 1행동'
+               description = '모든 소환수 일제 공격 + 모든 소환수 지속 +1행동 · 쿨 1행동'
          WHERE id = 160`);
         await query(`INSERT INTO _migrations (name) VALUES ('summoner_command_rework_v1')`);
         console.log('[late] summoner_command_rework_v1: 완료');
       }
     } catch (e) {
       console.error('[late] summoner_command_rework_v1 error:', e);
+    }
+  }
+  // v2 — v1 가 effect_value=25 (구 25% 더블) 로 적용된 환경에 대해 effect_value=1 로 재조정
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summoner_command_rework_v2'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE skills
+           SET effect_value = 1,
+               description = '모든 소환수 일제 공격 + 모든 소환수 지속 +1행동 · 쿨 1행동'
+         WHERE id = 160`);
+        await query(`INSERT INTO _migrations (name) VALUES ('summoner_command_rework_v2')`);
+        console.log('[late] summoner_command_rework_v2: 완료');
+      }
+    } catch (e) {
+      console.error('[late] summoner_command_rework_v2 error:', e);
     }
   }
 

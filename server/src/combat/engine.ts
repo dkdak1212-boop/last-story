@@ -2252,17 +2252,24 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'summon_all': {
       // 모든 소환수 일제 공격. damage_mult > 0 이면 본체도 공격에 동참.
-      // effect_value > 0 이면 그 % 확률로 2회 발동 (예: 지휘 25% → 1/4 확률 ×2 타).
-      const doubleChance = skill.effect_value > 0 ? skill.effect_value / 100 : 0;
-      const rolledDouble = doubleChance > 0 && Math.random() < doubleChance;
-      const passes = rolledDouble ? 2 : 1;
-      if (rolledDouble) addLog(s, `[${skill.name}] ${skill.effect_value}% 발동 — 모든 소환수 ×2 타!`);
-      for (let pass = 0; pass < passes; pass++) {
-        if (skill.damage_mult > 0) {
-          const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, true);
-          if (!d.miss) { s.monsterHp -= d.damage; addLog(s, `[${skill.name}] 본체 ${d.damage}${d.crit ? '!' : ''}`); }
+      // effect_value > 0 이면 그 만큼 모든 소환수 지속시간 +N 행동 (지휘 = +1).
+      if (skill.damage_mult > 0) {
+        const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, true);
+        if (!d.miss) { s.monsterHp -= d.damage; addLog(s, `[${skill.name}] 본체 ${d.damage}${d.crit ? '!' : ''}`); }
+      }
+      processSummons(s);
+      // 소환수 턴 유지 +N 행동 (summon_extend 와 동일한 SUMMON_REMAIN_CAP 적용)
+      const ext = skill.effect_value;
+      if (ext > 0) {
+        const SUMMON_REMAIN_CAP = 120;
+        let extended = 0;
+        for (const eff of s.statusEffects) {
+          if (eff.type === 'summon' && eff.source === 'player' && eff.remainingActions > 0) {
+            eff.remainingActions = Math.min(SUMMON_REMAIN_CAP, eff.remainingActions + ext);
+            extended++;
+          }
         }
-        processSummons(s);
+        if (extended > 0) addLog(s, `[${skill.name}] 소환수 ${extended}마리 지속 +${ext}행동`);
       }
       break;
     }
