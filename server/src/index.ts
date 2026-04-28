@@ -2757,6 +2757,29 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 110제 시공 분쇄 무기 재밸런스 (atk/matk 1.5x of 100제, 유니크 옵션 신규 조합)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'lv110_weapon_rebalance_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE items SET stats='{"hp":900,"atk":1650,"str":35}'::jsonb,
+          unique_prefix_stats='{"atk_pct":20,"multi_hit_amp_pct":15,"berserk_pct":25}'::jsonb WHERE id=900`);
+        await query(`UPDATE items SET stats='{"hp":900,"int":35,"matk":1650}'::jsonb,
+          unique_prefix_stats='{"matk_pct":20,"crit_dmg_pct":30,"gauge_on_crit_pct":10}'::jsonb WHERE id=901`);
+        await query(`UPDATE items SET stats='{"hp":1200,"int":30,"vit":10,"matk":1500}'::jsonb,
+          unique_prefix_stats='{"matk_pct":15,"max_hp_pct":20,"damage_taken_down_pct":12}'::jsonb WHERE id=902`);
+        await query(`UPDATE items SET stats='{"hp":850,"atk":1550,"dex":40}'::jsonb,
+          unique_prefix_stats='{"atk_pct":15,"dot_amp_pct":50,"ambush_pct":35}'::jsonb WHERE id=903`);
+        await query(`UPDATE items SET stats='{"hp":900,"int":40,"matk":1600}'::jsonb,
+          unique_prefix_stats='{"matk_pct":15,"summon_amp":25,"summon_double_hit":20}'::jsonb WHERE id=904`);
+        await query(`INSERT INTO _migrations (name) VALUES ('lv110_weapon_rebalance_v1')`);
+        console.log('[late] lv110_weapon_rebalance_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] lv110_weapon_rebalance_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
