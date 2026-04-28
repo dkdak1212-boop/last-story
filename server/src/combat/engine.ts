@@ -2214,6 +2214,19 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       break;
     }
 
+    case 'spirit_blessing': {
+      // 정령의 가호 — 자기 + 모든 소환수 마공 +N% (atk_buff 는 데미지 스킬 atk/matk 모두 적용)
+      // 중복 제거 후 단일 인스턴스 갱신.
+      s.statusEffects = s.statusEffects.filter(e =>
+        !(e.type === 'atk_buff' && e.source === 'monster') &&
+        e.type !== 'summon_buff_active'
+      );
+      addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addEffect(s, { type: 'summon_buff_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 자기 + 소환수 마공 +${skill.effect_value}% ${skill.effect_duration}행동!`);
+      break;
+    }
+
     case 'summon_extend': {
       // 소환수 지속시간 연장 — 상한 120 행동. 무한 누적 방지 (영혼 유대 6action cd×
       // effect_value 6 이면 시전 주기 = 소모 속도 → 무한 증가 가능).

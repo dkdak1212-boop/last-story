@@ -2493,6 +2493,50 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 소환사 스킬 개편 v1 — 총공격→정령의 가호 / 영혼 폭풍→정령의 보호 / 소환수 MATK ×1.5
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summoner_rework_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE skills SET name='정령의 가호', kind='buff', effect_type='spirit_blessing',
+                       effect_value=50, effect_duration=6, damage_mult=0, cooldown_actions=7,
+                       description='자기 + 모든 소환수 마법공격력 +50% (6행동) · 쿨 7행동'
+                     WHERE id = 164`);
+        await query(`UPDATE skills SET name='정령의 보호', kind='buff', effect_type='damage_reduce',
+                       effect_value=50, effect_duration=6, damage_mult=0, cooldown_actions=9,
+                       description='받는 데미지 -50% (6행동) · 쿨 9행동'
+                     WHERE id = 172`);
+        await query(`UPDATE skills SET effect_value = ROUND(effect_value * 1.5, 2)
+                     WHERE id IN (158,159,161,163,165,167,168,169,171,173,194,195,196,197,198)`);
+        // 소환수 description 갱신 (변경된 MATK% 반영)
+        const desc: Array<[number, string]> = [
+          [158, '[대지] 소환 (MATK x120%, 10행동) · 기본기'],
+          [159, '[대지] 탱커 소환 (MATK x120%, 16행동, 받는 데미지 -20%) · 쿨 2행동'],
+          [161, '[번개] 소환 (MATK x225%, 8행동) · 쿨 2행동'],
+          [163, '[화염] 소환 + 화상 도트 (MATK x210%, 12행동) · 쿨 3행동'],
+          [165, '[신성] 수호수 소환 (MATK x105%, 20행동, 매 행동 HP 5% 회복) · 쿨 5행동'],
+          [167, '[화염] 소환 + 화상 도트 (MATK x360%, 10행동) · 쿨 6행동'],
+          [168, '가장 강한 소환수 희생 → MATK x825% 폭발 · 쿨 8행동'],
+          [169, '[신성] 소환 (MATK x300%, 16행동) · 쿨 7행동'],
+          [171, '[빙결] 소환 (MATK x130% × 3연타, 12행동) · 쿨 6행동'],
+          [173, '[암흑] 소환 (MATK x525%, 12행동) · 쿨 8행동'],
+          [194, '[빙결] 소환 (MATK x375%, 12행동) · 쿨 10행동'],
+          [195, '[번개] 소환 (MATK x420%, 12행동) · 쿨 11행동'],
+          [196, '[대지] 탱커 소환 (MATK x300%, 20행동, 받는 데미지 -20%) · 쿨 11행동'],
+          [197, '[신성] 수호수 소환 (MATK x375%, 20행동, 매 행동 HP 5% 회복) · 쿨 12행동'],
+          [198, '[암흑] 소환 (MATK x300% × 3연타, 16행동) · 쿨 15행동'],
+        ];
+        for (const [id, d] of desc) {
+          await query(`UPDATE skills SET description=$1 WHERE id=$2`, [d, id]);
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('summoner_rework_v1')`);
+        console.log('[late] summoner_rework_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] summoner_rework_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
