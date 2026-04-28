@@ -2593,6 +2593,25 @@ async function runEquipOverhaul() {
     }
   }
 
+  // Lv.100 마법사/성직자 무기 base 스탯 보강 (마법사 cri+8, 성직자 vit+100)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'lv100_weapon_stat_buff_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE items
+           SET stats = jsonb_set(stats, '{cri}', to_jsonb(COALESCE((stats->>'cri')::int, 0) + 8))
+         WHERE id IN (803, 804, 805)`);
+        await query(`UPDATE items
+           SET stats = jsonb_set(stats, '{vit}', to_jsonb(COALESCE((stats->>'vit')::int, 0) + 100))
+         WHERE id IN (806, 807, 808)`);
+        await query(`INSERT INTO _migrations (name) VALUES ('lv100_weapon_stat_buff_v1')`);
+        console.log('[late] lv100_weapon_stat_buff_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] lv100_weapon_stat_buff_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {
