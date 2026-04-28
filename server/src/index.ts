@@ -2612,6 +2612,31 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 파라곤 키스톤 4종 효과 교체 (923/928/938/1008)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'paragon_keystone_rework_v1'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE node_definitions SET name='파괴자의 의지',
+          effects='[{"key":"paragon_destroyer_will","type":"passive","value":1}]'::jsonb,
+          description='모든 공격이 적의 방어력/마법방어를 50% 무시' WHERE id=923`);
+        await query(`UPDATE node_definitions SET name='고립 본능',
+          effects='[{"key":"paragon_isolation_instinct","type":"passive","value":1}]'::jsonb,
+          description='상태이상(기절/게이지 동결/명중 감소/취약 등)에 걸린 적에게 모든 데미지 2배' WHERE id=928`);
+        await query(`UPDATE node_definitions SET name='마지막 일격',
+          effects='[{"key":"paragon_last_strike","type":"passive","value":1}]'::jsonb,
+          description='적 HP 30% 이하일 때 모든 데미지 1.6배' WHERE id=938`);
+        await query(`UPDATE node_definitions SET name='혼의 강타',
+          effects='[{"key":"paragon_soul_strike","type":"passive","value":1}]'::jsonb,
+          description='매 5번째 행동마다 데미지 3배' WHERE id=1008`);
+        await query(`INSERT INTO _migrations (name) VALUES ('paragon_keystone_rework_v1')`);
+        console.log('[late] paragon_keystone_rework_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] paragon_keystone_rework_v1 error:', e);
+    }
+  }
+
   // T2 / T1 접두사 보장 추첨권 시드 — 종언의 기둥 일일 랭킹 보상용
   {
     try {

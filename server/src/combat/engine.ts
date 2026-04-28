@@ -940,6 +940,21 @@ function applyDamagePrefixes(
   if (s.paragonCrystalActive) {
     dmg = Math.round(dmg * 3);
   }
+  // 고립 본능 — 적이 CC 계열 상태이상 (stun/gauge_freeze/gauge_reset/accuracy_debuff/damage_taken_up) 일 때 ×2
+  if (getPassive(s, 'paragon_isolation_instinct') > 0) {
+    const ccApplied = s.statusEffects.some(e =>
+      e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
+    );
+    if (ccApplied) dmg = Math.round(dmg * 2);
+  }
+  // 마지막 일격 — 적 HP 30% 이하 시 ×1.6
+  if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.30) {
+    dmg = Math.round(dmg * 1.6);
+  }
+  // 혼의 강타 — 매 5번째 액션 ×3
+  if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
+    dmg = Math.round(dmg * 3);
+  }
   // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N%
   const executePct = s.equipPrefixes.execute_pct || 0;
   if (executePct > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.20) {
@@ -985,7 +1000,8 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   const armorPierce = getPassive(s, 'armor_pierce');
   const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
   const prefixDefPierce = s.equipPrefixes.def_pierce_pct || 0;
-  const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
+  const destroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
+  const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce + destroyerWill);
   const defModStats = totalDefReduce > 0 ? {
     ...s.monsterStats,
     def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
@@ -1134,7 +1150,8 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
     const armorPierce = getPassive(s, 'armor_pierce');
     const prefixDefReduce = s.equipPrefixes.def_reduce_pct || 0;
     const prefixDefPierce = s.equipPrefixes.def_pierce_pct || 0;
-    const totalPierce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
+    const destroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
+    const totalPierce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce + destroyerWill);
     let monsterDef = useMatk ? s.monsterStats.mdef : s.monsterStats.def;
     if (totalPierce > 0) monsterDef = Math.round(monsterDef * (1 - totalPierce / 100));
     defenderDef = monsterDef;
@@ -1363,7 +1380,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const furyPierce =
         skill.name === '분노의 일격' ? 50 :
         (skill.name === '절대 파괴' || skill.name === '대멸절') ? 100 : 0;
-      const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + prefixDefPierce + furyPierce);
+      const destroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
+      const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + prefixDefPierce + furyPierce + destroyerWill);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
@@ -2015,7 +2033,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const shieldMult = skill.name === '대심판의 철퇴' ? 8.0 : 4.0;
       const shieldBonus = myShieldTotal > 0 ? Math.round(myShieldTotal * shieldMult) : 0;
       // armor_pierce 적용 (일반 damage와 동일)
-      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce);
+      const destroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
+      const totalDefReduce = Math.min(80, armorPierce + prefixDefReduce + prefixDefPierce + destroyerWill);
       const defModStats = totalDefReduce > 0 ? {
         ...s.monsterStats,
         def: Math.round(s.monsterStats.def * (1 - totalDefReduce / 100)),
