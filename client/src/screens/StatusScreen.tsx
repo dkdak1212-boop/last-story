@@ -302,7 +302,7 @@ export function StatusScreen() {
               </div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 80px', gap: 4, fontSize: 12, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 130px', gap: 4, fontSize: 12, alignItems: 'center' }}>
             <div style={{ color: 'var(--text-dim)' }}></div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>기본</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>장비</div>
@@ -326,7 +326,7 @@ export function StatusScreen() {
             })}
           </div>
           {status.statPoints > 0 && (
-            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)' }}>+1 / +5 / +10 버튼으로 스탯을 분배할 수 있습니다.</div>
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)' }}>+1 / +5 / +10 / 전체 버튼으로 스탯을 분배할 수 있습니다.</div>
           )}
         </div>
       </div>
@@ -478,6 +478,10 @@ function StatRow({ label, base, eq, node, total, canSpend, spendable = true, sta
           <button onClick={() => onSpend?.(1)} disabled={!canSpend || statPoints < 1} style={btnStyle(1)}>+1</button>
           <button onClick={() => onSpend?.(5)} disabled={!canSpend || statPoints < 5} style={btnStyle(5)}>+5</button>
           <button onClick={() => onSpend?.(10)} disabled={!canSpend || statPoints < 10} style={btnStyle(10)}>+10</button>
+          <button onClick={() => onSpend?.(statPoints)} disabled={!canSpend || statPoints < 1} style={{
+            ...btnStyle(1), minWidth: 40,
+            background: canSpend && statPoints > 0 ? '#daa520' : 'transparent',
+          }}>전체</button>
         </div>
       ) : (
         <div style={{ fontSize: 10, color: 'var(--text-dim)', textAlign: 'center' }}>–</div>
