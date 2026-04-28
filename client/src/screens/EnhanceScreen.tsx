@@ -32,6 +32,9 @@ const STAT_KEY_LABEL: Record<string, string> = {
   damage_taken_down_pct: '데미지감소',
   max_hp_pct: '최대HP%', drop_rate_pct: '드랍률', multi_hit_amp_pct: '다단뎀',
   def_pierce_pct: '방관', miss_combo_pct: '빗누적', evasion_burst_pct: '회피반격',
+  shield_amp: '실드강화', summon_amp: '소환뎀', summon_double_hit: '소환2타',
+  summon_max_extra: '소환+', execute_pct: '처형', undispellable: '디스펠면역',
+  shield_on_low_hp: '저체력실드', reflect_skill: '스킬반사', def_convert_atk: '방어전환',
 };
 const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };
 

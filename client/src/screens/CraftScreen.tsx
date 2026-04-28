@@ -3,7 +3,26 @@ import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 
 const GRADE_COLOR: Record<string, string> = { common: '#9a8b75', rare: '#5b8ecc', epic: '#b060cc', legendary: '#e08030' };
-const STAT_LABEL: Record<string, string> = { str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '스피드', cri: '치명타 확률' };
+const STAT_LABEL: Record<string, string> = {
+  // 기본 스탯
+  str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '스피드', cri: '치명타 확률',
+  accuracy: '명중', dodge: '회피',
+  atk: '공격력', matk: '마법공격', def: '방어력', mdef: '마법방어', hp: 'HP',
+  // 접두사 스타일 키 (% 단위)
+  atk_pct: '공격력%', matk_pct: '마법공격%', hp_pct: '최대HP%', max_hp_pct: '최대HP%',
+  crit_dmg_pct: '치명타 데미지%', def_pierce_pct: '방어 추가무시%',
+  damage_taken_down_pct: '받는 피해 감소%', drop_rate_pct: '드랍률%',
+  multi_hit_amp_pct: '다단 데미지%', miss_combo_pct: '빗누적%', evasion_burst_pct: '회피반격%',
+  shield_amp: '실드 효과%',
+  summon_amp: '소환수 데미지%', summon_double_hit: '소환 2회타격%', summon_max_extra: '최대 소환수+',
+  lifesteal_pct: '흡혈%', dot_amp_pct: '도트 데미지%', exp_bonus_pct: '경험치%',
+  gold_bonus_pct: '골드%', guardian_pct: '수호%', gauge_on_crit_pct: '치명 게이지%',
+  first_strike_pct: '약점간파%', berserk_pct: '광폭%', ambush_pct: '기습%',
+  predator_pct: '포식%', def_reduce_pct: '방어 감소%', hp_regen: 'HP 재생',
+  slow_pct: '저주%', thorns_pct: '가시 반사%',
+  execute_pct: '처형%', undispellable: '디스펠 면역',
+  shield_on_low_hp: '저체력 자동실드%', reflect_skill: '스킬 반사%', def_convert_atk: '방어→공격%',
+};
 
 interface Recipe {
   id: number; name: string;

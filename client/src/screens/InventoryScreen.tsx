@@ -999,12 +999,12 @@ function actionBtn(color: string): React.CSSProperties {
 }
 
 const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string }[] = [
-  { key: 'str', label: 'STR', color: '#ff6644', group: '스탯' },
-  { key: 'dex', label: 'DEX', color: '#44cc88', group: '스탯' },
-  { key: 'int', label: 'INT', color: '#6688ff', group: '스탯' },
-  { key: 'vit', label: 'VIT', color: '#88aa44', group: '스탯' },
-  { key: 'spd', label: 'SPD', color: '#44cccc', group: '스탯' },
-  { key: 'cri', label: 'CRI', color: '#ff4488', group: '공격' },
+  { key: 'str', label: '힘', color: '#ff6644', group: '스탯' },
+  { key: 'dex', label: '민첩', color: '#44cc88', group: '스탯' },
+  { key: 'int', label: '지능', color: '#6688ff', group: '스탯' },
+  { key: 'vit', label: '체력', color: '#88aa44', group: '스탯' },
+  { key: 'spd', label: '속도', color: '#44cccc', group: '스탯' },
+  { key: 'cri', label: '치명', color: '#ff4488', group: '공격' },
   { key: 'crit_dmg_pct', label: '치명뎀', color: '#ff6688', group: '공격' },
   { key: 'accuracy', label: '명중', color: '#ccaa44', group: '공격' },
   { key: 'def_reduce_pct', label: '방관', color: '#cc6644', group: '공격' },
@@ -1031,6 +1031,16 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'miss_combo_pct', label: '빗누적', color: '#66ccaa', group: '특수' },
   { key: 'evasion_burst_pct', label: '회피반격', color: '#88ccff', group: '특수' },
   { key: 'drop_rate_pct', label: '드랍률', color: '#ffaadd', group: '보상' },
+  // 110제 craft 추가 옵션
+  { key: 'shield_amp', label: '실드강화', color: '#88ddff', group: '유틸' },
+  { key: 'summon_amp', label: '소환뎀', color: '#44cc88', group: '소환사' },
+  { key: 'summon_double_hit', label: '소환2타', color: '#66dd99', group: '소환사' },
+  { key: 'summon_max_extra', label: '소환+', color: '#88ee99', group: '소환사' },
+  { key: 'execute_pct', label: '처형', color: '#ff4488', group: '특수' },
+  { key: 'shield_on_low_hp', label: '저체력실드', color: '#aaddff', group: '유틸' },
+  { key: 'reflect_skill', label: '스킬반사', color: '#cc88aa', group: '유틸' },
+  { key: 'def_convert_atk', label: '방어전환', color: '#cc8866', group: '특수' },
+  { key: 'damage_taken_down_pct', label: '피감', color: '#88aacc', group: '유틸' },
 ];
 
 function FilterToggleButton({ label, active, color, onClick, open }: { label: string; active: boolean; color: string; onClick: () => void; open: boolean }) {

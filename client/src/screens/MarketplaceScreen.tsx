@@ -407,6 +407,16 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'miss_combo_pct', label: '빗나감 누적 보너스 %' },
   { key: 'evasion_burst_pct', label: '회피 반격 %' },
   { key: 'drop_rate_pct', label: '드랍률 %' },
+  // 110제 craft 추가 옵션
+  { key: 'shield_amp', label: '실드 효과 %' },
+  { key: 'summon_amp', label: '소환수 데미지 %' },
+  { key: 'summon_double_hit', label: '소환수 2회 타격 %' },
+  { key: 'summon_max_extra', label: '최대 소환수 +' },
+  { key: 'execute_pct', label: '처형 %' },
+  { key: 'shield_on_low_hp', label: '저체력 자동 실드 %' },
+  { key: 'reflect_skill', label: '스킬 피해 반사 %' },
+  { key: 'def_convert_atk', label: '방어→공격 전환 %' },
+  { key: 'damage_taken_down_pct', label: '받는 피해 감소 %' },
 ];
 
 const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };

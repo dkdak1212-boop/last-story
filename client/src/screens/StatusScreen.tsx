@@ -67,6 +67,12 @@ const PREFIX_LABEL: Record<string, string> = {
   summon_amp: '소환수 데미지 +%',
   summon_double_hit: '소환수 2회 타격 %',
   summon_max_extra: '최대 소환수 +',
+  // 110제 craft 추가 옵션
+  execute_pct: '처형 (적 HP 20% 이하 시 데미지 +%)',
+  undispellable: '버프 디스펠 면역',
+  shield_on_low_hp: '저체력 자동 실드 (HP 30% 이하, max_hp %)',
+  reflect_skill: '스킬 피해 반사 %',
+  def_convert_atk: '방어력→공격력 전환 %',
 };
 
 const PASSIVE_LABEL: Record<string, string> = {
