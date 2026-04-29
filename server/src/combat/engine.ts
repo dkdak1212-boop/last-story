@@ -1451,14 +1451,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const ownShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
           if (ownShield) { dmg = Math.round(dmg * 1.5); addLog(s, `[심판자의 권능] 실드 보유 +50%`); }
         }
-        // 도적 암흑의 심판: 적에게 걸린 독 스택당 +8% (독 없어도 베이스 강화)
-        if (skill.name === '암흑의 심판') {
-          const poisonStacks = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player' && e.remainingActions > 0).length;
-          if (poisonStacks > 0) {
-            dmg = Math.round(dmg * (1 + poisonStacks * 0.08));
-            addLog(s, `[암흑의 심판] 독 ${poisonStacks}중첩 +${poisonStacks * 8}%`);
-          }
-        }
         // 접두사: 광전사 (내 HP 35% 이하)
         const berserk = s.equipPrefixes.berserk_pct || 0;
         let berserkProc = false;
@@ -1639,15 +1631,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hitMult = baseChain;
       let firstLandedHit = true;
       let landedCount = 0;
-      // 신의 타격: 본인 최대 HP × 25 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
-      // 천상 강림: 본인 최대 HP × 20 × N연타 + 마지막 1타 추가 max_hp × 50 폭격 (강제 치명).
+      // 신의 타격: 본인 최대 HP × 20 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
+      // 천상 강림: 본인 최대 HP × 15 × N연타 + 마지막 1타 추가 max_hp × 50 폭격 (강제 치명).
       let divineStrikeFlat = 0;
       let ascensionFinalFlat = 0;
       let ascensionForceCritOnLast = false;
       if (skill.name === '신의 타격') {
-        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 25 - s.monsterStats.mdef * 0.5));
-      } else if (skill.name === '천상 강림') {
         divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 20 - s.monsterStats.mdef * 0.5));
+      } else if (skill.name === '천상 강림') {
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 15 - s.monsterStats.mdef * 0.5));
         ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
         ascensionForceCritOnLast = true;
         addLog(s, `[${skill.name}] 천상의 빛이 강림한다…`);
@@ -1705,6 +1697,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (skId !== skill.id) s.skillCooldowns.delete(skId);
         }
         addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
+      }
+      // 도적 암흑의 심판: 적 HP 30% 이하면 즉사 (보스/길드보스/엔드리스 보스층 제외, PVP는 별도 엔진)
+      if (skill.name === '암흑의 심판' && s.monsterHp > 0) {
+        const isBossLike = !!s.guildBossRunId
+          || isBossFloor(s.endlessFloor)
+          || s.monsterName.startsWith('보스:')
+          || s.monsterMaxHp >= 100_000_000;
+        if (!isBossLike && s.monsterHp <= s.monsterMaxHp * 0.30) {
+          addLog(s, `💀 [암흑의 심판] 즉사! (HP ${Math.round(s.monsterHp / s.monsterMaxHp * 100)}% 처형)`);
+          s.monsterHp = 0;
+        }
       }
       // 신의 타격 사용 시 천상 강림 쿨다운 -1 행동 (성직자 콤보)
       if (skill.name === '신의 타격') {
@@ -2011,13 +2014,6 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // self-buff
       addLog(s, `[${skill.name}] 공격력 ${skill.effect_value}% 증가 ${skill.effect_duration}행동!`);
-      // 성직자 빛의 축복: 즉시 HP 50% 회복
-      if (skill.name === '빛의 축복') {
-        const heal = Math.round(s.playerMaxHp * 0.5);
-        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-        s.dirty = true;
-        addLog(s, `[${skill.name}] HP +${heal} 회복`);
-      }
       break;
     }
 
@@ -2041,8 +2037,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
-      addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
-      addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
+      // 쉴드 중첩 불가: 기존 쉴드 중 가장 큰 값과 비교, 새 것이 더 클 때만 교체
+      const existingShields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+      const maxExisting = existingShields.reduce((m, e) => Math.max(m, e.value), 0);
+      if (shieldHp > maxExisting) {
+        if (existingShields.length > 0) {
+          s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield' && e.source === 'monster'));
+        }
+        addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
+        addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
+      } else {
+        addLog(s, `[${skill.name}] 실드 ${shieldHp} (기존 ${maxExisting} 유지)`);
+      }
       break;
     }
 
