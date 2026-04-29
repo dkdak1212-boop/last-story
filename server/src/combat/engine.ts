@@ -4346,6 +4346,23 @@ export async function startCombatSession(
   return p;
 }
 
+// 시공의 균열 입장 시각 — 영속 타이머. 첫 진입/30분 만료 후엔 NOW(), 30분 내 재진입은 기존 값 유지.
+async function resolveRiftEnteredAt(characterId: number, fieldId: number): Promise<number> {
+  const now = Date.now();
+  if (fieldId !== RIFT_110_FIELD_ID) return now;
+  const r = await query<{ rea: string | null }>(
+    'SELECT rift_entered_at::text AS rea FROM characters WHERE id = $1', [characterId]
+  );
+  const existingMs = r.rows[0]?.rea ? new Date(r.rows[0].rea).getTime() : 0;
+  // 기존 입장이 30분 안이면 이어서 사용 (사망/탭이동 등 후 재진입)
+  if (existingMs > 0 && now - existingMs < RIFT_110_TIMEOUT_MS) {
+    return existingMs;
+  }
+  // 첫 진입 또는 만료 후 신규 진입 → NOW() 박제
+  await query('UPDATE characters SET rift_entered_at = NOW() WHERE id = $1', [characterId]);
+  return now;
+}
+
 async function startCombatSessionInner(
   characterId: number,
   fieldId: number,
@@ -4472,7 +4489,7 @@ async function startCombatSessionInner(
     monsterSpawnAt: Date.now(),
     recentKillTimes: [],
     lastPushAt: 0,
-    enteredFieldAt: Date.now(),
+    enteredFieldAt: await resolveRiftEnteredAt(characterId, fieldId),
     metaDirty: true,
     cachedExp: Number(char.exp) || 0,
     cachedExpMax: expToNext(char.level),
@@ -4925,7 +4942,7 @@ export function sessionHasSubscriber(characterId: number): boolean {
 }
 const SESSION_MAX_MS = 24 * 60 * 60_000; // 최대 24시간 연속 시뮬레이션
 const RIFT_110_FIELD_ID = 23;
-const RIFT_110_TIMEOUT_MS = 60 * 60_000; // 시공의 균열 — 입장 후 1시간 만료 (구독 무관)
+const RIFT_110_TIMEOUT_MS = 30 * 60_000; // 시공의 균열 — 첫 진입 후 30분 만료 (사망/탭이동/재진입 무관 영속 타이머)
 setInterval(() => {
   const io = getIo();
   if (!io) return;
