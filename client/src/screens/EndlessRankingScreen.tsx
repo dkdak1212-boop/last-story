@@ -25,10 +25,13 @@ const CLASS_LABEL: Record<string, string> = {
   warrior: '전사', mage: '마법사', rogue: '도적', cleric: '성직자', summoner: '소환사',
 };
 
+type ClassTab = 'all' | 'warrior' | 'mage' | 'rogue' | 'cleric' | 'summoner';
+
 export function EndlessRankingScreen() {
   const nav = useNavigate();
   const active = useCharacterStore((s) => s.activeCharacter);
   const [tab, setTab] = useState<'daily' | 'all-time'>('daily');
+  const [classTab, setClassTab] = useState<ClassTab>('all');
   const [rows, setRows] = useState<RankRow[]>([]);
   const [myRank, setMyRank] = useState<MyRank | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,12 +41,13 @@ export function EndlessRankingScreen() {
     let cancel = false;
     setLoading(true);
     setErr(null);
-    api<{ rankings: RankRow[] }>(`/endless/ranking/${tab}`)
+    const qs = classTab !== 'all' ? `?class=${classTab}` : '';
+    api<{ rankings: RankRow[] }>(`/endless/ranking/${tab}${qs}`)
       .then(d => { if (!cancel) setRows(d.rankings || []); })
       .catch(e => { if (!cancel) setErr(e instanceof Error ? e.message : '로드 실패'); })
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
-  }, [tab]);
+  }, [tab, classTab]);
 
   useEffect(() => {
     if (!active) return;
@@ -66,8 +70,8 @@ export function EndlessRankingScreen() {
         </button>
       </div>
 
-      {/* 탭 */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
+      {/* 탭 — 일일/명예의 전당 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8, borderBottom: '1px solid var(--border)' }}>
         {([
           { key: 'daily', label: '일일 랭킹' },
           { key: 'all-time', label: '명예의 전당' },
@@ -78,6 +82,29 @@ export function EndlessRankingScreen() {
             color: tab === t.key ? '#c97bff' : 'var(--text-dim)',
             border: 'none',
             borderBottom: tab === t.key ? '2px solid #c97bff' : '2px solid transparent',
+            cursor: 'pointer',
+          }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 클래스 탭 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+        {([
+          { key: 'all', label: '전체' },
+          { key: 'warrior', label: '전사' },
+          { key: 'mage', label: '마법사' },
+          { key: 'rogue', label: '도적' },
+          { key: 'cleric', label: '성직자' },
+          { key: 'summoner', label: '소환사' },
+        ] as const).map(t => (
+          <button key={t.key} onClick={() => setClassTab(t.key)} style={{
+            padding: '6px 12px', fontSize: 11, fontWeight: 700,
+            background: classTab === t.key ? 'rgba(255,204,102,0.18)' : 'var(--bg-panel)',
+            color: classTab === t.key ? '#ffcc66' : 'var(--text-dim)',
+            border: classTab === t.key ? '1px solid #ffcc66' : '1px solid var(--border)',
+            borderRadius: 4,
             cursor: 'pointer',
           }}>
             {t.label}

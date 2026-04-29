@@ -102,7 +102,10 @@ router.post('/:characterId/give-up', endlessAccessRequired, async (req: AuthedRe
 });
 
 // 일일 랭킹 — 200위까지 표기 (당일 도달 최고층 기준, 동점 시 daily_highest_at 빠른 순)
+// ?class=warrior|mage|rogue|cleric|summoner 옵션으로 클래스별 랭킹 (없으면 전체)
+const CLASS_FILTER = new Set(['warrior','mage','rogue','cleric','summoner']);
 router.get('/ranking/daily', endlessAccessRequired, async (req: AuthedRequest, res: Response) => {
+  const cls = typeof req.query.class === 'string' && CLASS_FILTER.has(req.query.class) ? req.query.class : null;
   const r = await query<{
     character_id: number; name: string; class_name: string; level: number;
     guild_name: string | null;
@@ -116,8 +119,9 @@ router.get('/ranking/daily', endlessAccessRequired, async (req: AuthedRequest, r
        LEFT JOIN guild_members gm ON gm.character_id = c.id
        LEFT JOIN guilds g ON g.id = gm.guild_id
       WHERE epp.daily_highest_floor > 0
+        AND ($1::text IS NULL OR c.class_name = $1::text)
       ORDER BY epp.daily_highest_floor DESC, epp.daily_highest_at ASC
-      LIMIT 200`
+      LIMIT 200`, [cls]
   );
   res.json({
     rankings: r.rows.map((row, idx) => ({
@@ -133,8 +137,9 @@ router.get('/ranking/daily', endlessAccessRequired, async (req: AuthedRequest, r
   });
 });
 
-// 명예의 전당 — 역대 최고 도달층 200위까지
+// 명예의 전당 — 역대 최고 도달층 200위까지 (?class= 옵션 동일)
 router.get('/ranking/all-time', endlessAccessRequired, async (req: AuthedRequest, res: Response) => {
+  const cls = typeof req.query.class === 'string' && CLASS_FILTER.has(req.query.class) ? req.query.class : null;
   const r = await query<{
     character_id: number; name: string; class_name: string; level: number;
     guild_name: string | null;
@@ -148,8 +153,9 @@ router.get('/ranking/all-time', endlessAccessRequired, async (req: AuthedRequest
        LEFT JOIN guild_members gm ON gm.character_id = c.id
        LEFT JOIN guilds g ON g.id = gm.guild_id
       WHERE epp.highest_floor > 0
+        AND ($1::text IS NULL OR c.class_name = $1::text)
       ORDER BY epp.highest_floor DESC, epp.last_updated ASC
-      LIMIT 200`
+      LIMIT 200`, [cls]
   );
   res.json({
     rankings: r.rows.map((row, idx) => ({
