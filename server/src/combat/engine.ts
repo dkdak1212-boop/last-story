@@ -100,12 +100,14 @@ function monsterResistsCC(monsterLevel: number): boolean {
   return Math.random() < 0.70;
 }
 
-// 1000 이하: 그대로, 1000 이상: 1000 + (초과분) × 0.42 (선형 완화)
-// 예) raw 1000→1000(0.50초), 1100→1042(0.48초), 2000→1420(0.35초), 5000→2680(0.19초)
+// 1000 이하: raw 그대로 (action_time = 500/raw)
+// 1000 초과: 등차 수열 — raw 100 당 행동주기 -0.02초 (floor 0.10초 = raw 3000+ 캡)
+// 예) raw 1000→0.50, 1100→0.48, 1500→0.40, 2000→0.30, 3000→0.10, 5000+→0.10
 function diminishSpeed(rawSpd: number): number {
-  const SOFT_CAP = 1000;
-  if (rawSpd <= SOFT_CAP) return rawSpd;
-  return Math.round(SOFT_CAP + (rawSpd - SOFT_CAP) * 0.42);
+  if (rawSpd <= 1000) return rawSpd;
+  const cappedRaw = Math.min(3000, rawSpd);
+  const actionSec = 0.50 - (cappedRaw - 1000) * 0.0002;
+  return Math.round(500 / actionSec);
 }
 
 // 레벨차에 따른 EXP 배율 — 캐릭터가 몬스터보다 높을수록 감소.
