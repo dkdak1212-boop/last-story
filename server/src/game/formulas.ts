@@ -111,7 +111,8 @@ export function calcDamage(
   const rawAtk = useMatk ? attacker.matk : attacker.atk;
   const defVal = useMatk ? defender.mdef : defender.def;
   let base = rawAtk - defVal * 0.5;
-  base = Math.max(1, base);
+  // 최소 데미지 보장 — 방어가 아무리 높아도 raw ATK 의 10% 는 통과
+  base = Math.max(rawAtk * 0.10, base);
   base = base * skillMult + flatDamage;
   // 치명타 (확률 어렵게, 데미지 강하게)
   const crit = Math.random() * 100 < (attacker.cri + criBonus);
