@@ -16,7 +16,7 @@ const STAT_LABEL: Record<string, string> = {
   shield_amp: '실드 효과%',
   summon_amp: '소환수 데미지%', summon_double_hit: '소환 2회타격%', summon_max_extra: '최대 소환수+',
   lifesteal_pct: '흡혈%', dot_amp_pct: '도트 데미지%', exp_bonus_pct: '경험치%',
-  gold_bonus_pct: '골드%', guardian_pct: '수호%', spd_pct: '속도퍼센트%',
+  gold_bonus_pct: '골드%', guardian_pct: '수호%', spd_pct: '속도증가%',
   first_strike_pct: '약점간파%', berserk_pct: '광폭%', ambush_pct: '기습%',
   predator_pct: '포식%', def_reduce_pct: '방어 감소%', hp_regen: 'HP 재생',
   slow_pct: '저주%', thorns_pct: '가시 반사%',

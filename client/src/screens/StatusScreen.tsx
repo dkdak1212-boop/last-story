@@ -42,7 +42,7 @@ const PREFIX_LABEL: Record<string, string> = {
   ambush_pct: '기습 (5초 미피격 시 +%)',
   crit_dmg_pct: '치명타 데미지 +%',
   lifesteal_pct: '생명력 흡수 %',
-  spd_pct: '속도퍼센트 +%',
+  spd_pct: '속도증가 +%',
   thorns_pct: '가시 반사 %',
   guardian_pct: '수호 (피해감소 %)',
   damage_taken_down_pct: '받는 피해 감소 %',
