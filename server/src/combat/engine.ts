@@ -2036,21 +2036,19 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'shield': {
       // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
       dealBuffSkillDamage(s, skill, useMatk);
+      // 쉴드 중첩 불가: 활성 쉴드가 있는 동안엔 새 쉴드 적용 안 함 (만료 직후 시전해 끊김 없이 유지)
+      const hasActiveShield = s.statusEffects.some(e =>
+        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0
+      );
+      if (hasActiveShield) {
+        addLog(s, `[${skill.name}] 기존 실드 유지 — 만료 후 재시전`);
+        break;
+      }
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
-      // 쉴드 중첩 불가: 기존 쉴드 중 가장 큰 값과 비교, 새 것이 더 클 때만 교체
-      const existingShields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
-      const maxExisting = existingShields.reduce((m, e) => Math.max(m, e.value), 0);
-      if (shieldHp > maxExisting) {
-        if (existingShields.length > 0) {
-          s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield' && e.source === 'monster'));
-        }
-        addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
-        addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
-      } else {
-        addLog(s, `[${skill.name}] 실드 ${shieldHp} (기존 ${maxExisting} 유지)`);
-      }
+      addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
+      addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
       break;
     }
 
@@ -2397,8 +2395,11 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
     case 'shield':
-      // 실드 스킬은 모두 중첩 — 쿨다운만 보고 항상 시전 허용.
-      return true;
+      // 활성 쉴드가 있는 동안은 다른 쉴드 시전 금지 (낭비 방지) — 만료 직후 자동 재시전 가능 → 쉴드 끊김 없이 유지.
+      // damage_mult > 0 인 공격형 쉴드 스킬은 데미지 발생을 위해 예외 허용.
+      return sk.damage_mult > 0 || !s.statusEffects.some(e =>
+        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0
+      );
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
     case 'atk_buff':
