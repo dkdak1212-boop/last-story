@@ -112,6 +112,30 @@ export function EndlessRankingScreen() {
         ))}
       </div>
 
+      {/* 순위 보상 안내 */}
+      <div style={{
+        marginBottom: 14, padding: '10px 14px',
+        background: 'rgba(201,123,255,0.06)', border: '1px solid rgba(201,123,255,0.25)',
+        borderRadius: 4, fontSize: 11, lineHeight: 1.7,
+      }}>
+        <div style={{ color: '#c97bff', fontWeight: 700, marginBottom: 6, fontSize: 12 }}>
+          🏆 주간 순위 보상 (클래스별 독립 발송)
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr', gap: '4px 10px' }}>
+          <div style={{ color: '#ffcc33', fontWeight: 700 }}>1~5위</div>
+          <div>품질 재굴림권 ×1 + <span style={{ color: '#ff4444' }}>T3 접두사 보장 추첨권</span> ×1</div>
+          <div style={{ color: '#daa520', fontWeight: 700 }}>6~15위</div>
+          <div>접두사 수치 재굴림권 ×1 + <span style={{ color: '#b060cc' }}>T2 접두사 보장 추첨권</span> ×1</div>
+          <div style={{ color: '#c97bff', fontWeight: 700 }}>16~50위</div>
+          <div>접두사 수치 재굴림권 ×1 + <span style={{ color: '#5b8ecc' }}>T1 접두사 보장 추첨권</span> ×1</div>
+          <div style={{ color: '#888', fontWeight: 700 }}>51~100위</div>
+          <div>접두사 수치 재굴림권 ×1</div>
+        </div>
+        <div style={{ color: 'var(--text-dim)', fontSize: 10, marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(201,123,255,0.15)' }}>
+          + 클래스별 200위 안 랜덤 10명 보너스 추첨 (별도)
+        </div>
+      </div>
+
       {/* 자기 순위 */}
       {myRank && (tab === 'daily' ? myRank.dailyRank : myRank.allTimeRank) !== null && (
         <div style={{
