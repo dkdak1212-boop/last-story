@@ -55,7 +55,7 @@ export function MapScreen() {
           id: ENDLESS_FIELD_ID,
           name: '종언의 기둥 (어드민 전용)',
           requiredLevel: 1,
-          description: '무한 등반 도전. 100층마다 보스, 죽으면 1층. 매일 랭킹 보상.',
+          description: '무한 등반 도전. 100층마다 보스, 주간보상',
           monsters: [],
         } as FieldData,
       ]
