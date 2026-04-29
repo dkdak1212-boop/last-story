@@ -3486,17 +3486,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
       addLog(s, `부활의 기적! HP ${s.playerHp} 회복! (길드 보스 1회 한정)`);
       return;
     }
-    // 2순위: undying_fury 패시브
-    const undying = getPassive(s, 'undying_fury');
-    const undyingUsed = s.statusEffects.some(e => e.id === 'undying_used');
-    if (!gbRevived && undying > 0 && !undyingUsed) {
-      s.playerHp = Math.round(s.playerMaxHp * undying / 100);
-      addEffect(s, { type: 'invincible', value: 0, remainingActions: 1, source: 'monster' });
-      s.statusEffects.push({ id: 'undying_used', type: 'invincible', value: 0, remainingActions: 0, source: 'player' });
-      s.statusEffects.push({ id: 'gb_revive_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
-      addLog(s, `불굴의 의지! HP ${s.playerHp} 부활 + 무적 1행동 (길드 보스 1회 한정)`);
-      return;
-    }
+    // undying_fury 패시브의 부활 효과 제거됨 (불굴의 의지 무적/부활 모두 비활성)
 
     // 부활 불가 → run 종료 + 마을로 이동
     await flushGuildBossDamage(s);
@@ -3530,16 +3520,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     return;
   }
 
-  // 패시브: undying_fury (HP 0 시 1회 자동 부활, 30% HP)
-  const undying = getPassive(s, 'undying_fury');
-  if (undying > 0 && !s.statusEffects.some(e => e.type === 'invincible' && e.id === 'undying_used')) {
-    s.playerHp = Math.round(s.playerMaxHp * undying / 100);
-    addEffect(s, { type: 'invincible', value: 0, remainingActions: 1, source: 'monster' });
-    // 사용 표시 (전투당 1회)
-    s.statusEffects.push({ id: 'undying_used', type: 'invincible', value: 0, remainingActions: 0, source: 'player' });
-    addLog(s, `불굴의 의지! HP ${s.playerHp} 부활 + 무적 1행동!`);
-    return;
-  }
+  // undying_fury 패시브의 부활 효과 제거됨 (불굴의 의지 무적/부활 모두 비활성)
 
   addLog(s, '사망했습니다.');
   s.playerHp = 0; // 클라이언트에 사망 상태 전달
