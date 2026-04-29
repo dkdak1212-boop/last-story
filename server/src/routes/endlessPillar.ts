@@ -21,16 +21,9 @@ import {
 const router = Router();
 router.use(authRequired);
 
-// 어드민 전용 게이트 — 정식 오픈 시 server_settings 플래그로 토글 예정
+// 종언의 기둥 — 일반 오픈. 인증만 확인.
 async function endlessAccessRequired(req: AuthedRequest, res: Response, next: NextFunction) {
   if (!req.userId) { res.status(401).json({ error: 'unauthorized' }); return; }
-  const r = await query<{ is_admin: boolean }>(
-    'SELECT is_admin FROM users WHERE id = $1', [req.userId]
-  );
-  if (r.rowCount === 0 || !r.rows[0].is_admin) {
-    res.status(403).json({ error: '종언의 기둥은 현재 어드민 전용입니다.' });
-    return;
-  }
   next();
 }
 

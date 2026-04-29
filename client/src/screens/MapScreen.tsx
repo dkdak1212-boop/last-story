@@ -20,18 +20,16 @@ export function MapScreen() {
   const nav = useNavigate();
   const [fields, setFields] = useState<FieldData[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const active = useCharacterStore((s) => s.activeCharacter);
 
   useEffect(() => {
     api<FieldData[]>('/fields').then(setFields).catch(() => {});
-    api<{ isAdmin: boolean }>('/me').then(d => setIsAdmin(!!d.isAdmin)).catch(() => {});
   }, []);
 
   async function enter(fieldId: number) {
     if (!active) return;
     if (fieldId === ENDLESS_FIELD_ID) {
-      // 종언의 기둥은 별도 API 사용 (어드민 전용)
+      // 종언의 기둥은 별도 API 사용 (전용 진행/사망 로직)
       try {
         await api(`/endless/${active.id}/enter`, { method: 'POST' });
         nav('/combat');
@@ -47,19 +45,12 @@ export function MapScreen() {
     nav('/combat');
   }
 
-  // 어드민 전용 — 종언의 기둥 entry 가상 추가
-  const allFields: FieldData[] = isAdmin
-    ? [
-        ...fields,
-        {
-          id: ENDLESS_FIELD_ID,
-          name: '종언의 기둥 (어드민 전용)',
-          requiredLevel: 1,
-          description: '무한 등반 도전. 100층마다 보스, 주간보상',
-          monsters: [],
-        } as FieldData,
-      ]
-    : fields;
+  // 종언의 기둥은 fields API 가 반환하지만 monster_pool 비어있어 별도 표시 보강
+  const allFields: FieldData[] = fields.map(f =>
+    f.id === ENDLESS_FIELD_ID
+      ? { ...f, name: '종언의 기둥', description: '무한 등반 도전. 100층마다 보스, 주간보상' }
+      : f
+  );
 
   return (
     <div>

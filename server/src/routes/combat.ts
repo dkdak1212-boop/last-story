@@ -38,14 +38,8 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: '길드 보스는 길드 메뉴에서만 진입 가능합니다.' });
   }
 
-  // 시공의 균열 (id=23) — 어드민 전용 (베타 검증 단계).
-  // 일일 입장 제한 2회 — 새 30분 타이머가 시작될 때마다 카운트 +1.
+  // 시공의 균열 (id=23) — 일반 오픈. Lv.100 + 일일 2회 제한 + 30분 영속 타이머.
   if (fieldId === 23) {
-    const adm = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
-    const isAdmin = adm.rows[0]?.is_admin === true;
-    if (!isAdmin) {
-      return res.status(403).json({ error: '시공의 균열 — 베타 점검 중입니다. 추후 오픈 예정.' });
-    }
     // 일일 입장 카운트 체크 — 활성 타이머(30분 안) 내 재진입은 카운트 안 함
     const stat = await query<{ rea: string | null; cnt: number; rdate: string | null; today: string }>(
       `SELECT rift_entered_at::text AS rea, COALESCE(rift_daily_count,0) AS cnt,
@@ -230,41 +224,35 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
             }
           }
         } else if (fieldId === 23) {
-          // 시공의 균열 — 자동복구도 진입 가드 통과해야 함 (admin + 일일 2회)
-          const adm = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
-          if (adm.rows[0]?.is_admin !== true) {
-            // 어드민 아니면 자동복구 차단 (마을 위치로 강제)
-            await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', id]);
-          } else {
-            // 활성 타이머 안이면 신규 카운트 없이 복구, 만료/신규는 일일 2회 검증
-            const stat = await query<{ rea: string | null; cnt: number; rdate: string | null; today: string }>(
-              `SELECT rift_entered_at::text AS rea, COALESCE(rift_daily_count,0) AS cnt,
-                      rift_daily_date::text AS rdate,
-                      (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS today
-                 FROM characters WHERE id = $1`, [id]
-            );
-            const row = stat.rows[0];
-            const enteredMs = row?.rea ? new Date(row.rea).getTime() : 0;
-            const isWithinTimer = enteredMs > 0 && Date.now() - enteredMs < 30 * 60_000;
-            if (!isWithinTimer) {
-              const sameDay = row?.rdate === row?.today;
-              const cnt = sameDay ? Number(row?.cnt || 0) : 0;
-              if (cnt >= 2) {
-                // 일일 2회 소진 — 자동복구 차단, 마을로
-                await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', id]);
-              } else {
-                await query(
-                  `UPDATE characters
-                      SET rift_daily_count = $1,
-                          rift_daily_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
-                    WHERE id = $2`,
-                  [cnt + 1, id]
-                );
-                await startCombatSession(id, fieldId);
-              }
+          // 시공의 균열 — 자동복구도 일일 2회 카운트 가드 적용
+          // 활성 타이머 안이면 신규 카운트 없이 복구, 만료/신규는 일일 2회 검증
+          const stat = await query<{ rea: string | null; cnt: number; rdate: string | null; today: string }>(
+            `SELECT rift_entered_at::text AS rea, COALESCE(rift_daily_count,0) AS cnt,
+                    rift_daily_date::text AS rdate,
+                    (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS today
+               FROM characters WHERE id = $1`, [id]
+          );
+          const row = stat.rows[0];
+          const enteredMs = row?.rea ? new Date(row.rea).getTime() : 0;
+          const isWithinTimer = enteredMs > 0 && Date.now() - enteredMs < 30 * 60_000;
+          if (!isWithinTimer) {
+            const sameDay = row?.rdate === row?.today;
+            const cnt = sameDay ? Number(row?.cnt || 0) : 0;
+            if (cnt >= 2) {
+              // 일일 2회 소진 — 자동복구 차단, 마을로
+              await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', id]);
             } else {
+              await query(
+                `UPDATE characters
+                    SET rift_daily_count = $1,
+                        rift_daily_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+                  WHERE id = $2`,
+                [cnt + 1, id]
+              );
               await startCombatSession(id, fieldId);
             }
+          } else {
+            await startCombatSession(id, fieldId);
           }
         } else {
           await startCombatSession(id, fieldId);
