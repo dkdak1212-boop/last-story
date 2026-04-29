@@ -123,19 +123,8 @@ router.post('/:id/daily-quests/claim', async (req: AuthedRequest, res: Response)
   // 세션 캐시 무효화 — 다음 combat push 시 새 boost_until 값이 UI 로 반영됨
   invalidateSessionMeta(id);
 
-  // 차원의 통행증 (item 855) — Lv.100 도달 시 보상에 1장 추가 (시공의 균열 입장권)
-  let passGranted = false;
-  if (char.level >= 100) {
-    try {
-      const { addItemToInventory } = await import('../game/inventory.js');
-      const { added } = await addItemToInventory(id, 855, 1, {
-        subject: '차원의 통행증 — 일일 임무 보상',
-        body: '시공의 균열 입장 시 1장 소모. 인벤토리 가득 시 우편으로 자동 발송.',
-      });
-      passGranted = added > 0;
-    } catch (e) { console.error('[daily-quest] pass grant fail', id, e); }
-  }
-  res.json({ exp: expReward, boostHours: 3, passGranted });
+  // 차원의 통행증 보상 폐기 (2026-04-30) — 통행증 시스템 제거
+  res.json({ exp: expReward, boostHours: 3, passGranted: false });
 });
 
 export default router;
