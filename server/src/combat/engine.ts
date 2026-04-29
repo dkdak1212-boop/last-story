@@ -2530,10 +2530,10 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
     }
     if (sk.id === 'phase2_summon' && !s.bossPhase2Triggered && s.monsterHp / Math.max(1, s.monsterMaxHp) <= 0.5) {
       s.bossPhase2Triggered = true;
-      // 페이즈 2 — 분노형 stats 부스트 (1v1 엔진 한계로 추가 소환 대신 atk +30% / spd +30% 로 근사)
+      // 페이즈 2 격노 — atk +30% / spd +30% 1회 부스트
       s.monsterStats = { ...s.monsterStats, atk: Math.round(s.monsterStats.atk * 1.3), spd: Math.round(s.monsterStats.spd * 1.3) };
       s.monsterSpeed = s.monsterStats.spd;
-      addLog(s, `[${sk.name}] 페이즈 2 진입 — 균열의 군주가 강해진다!`);
+      addLog(s, `[${sk.name}] 균열의 군주 격노 — 공격력 +30% / 속도 +30%!`);
     }
   }
 
