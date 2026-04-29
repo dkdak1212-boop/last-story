@@ -100,12 +100,12 @@ function monsterResistsCC(monsterLevel: number): boolean {
   return Math.random() < 0.70;
 }
 
-// 300 이하: 그대로, 300 이상: 300 + sqrt(초과분) * 15
-// 예) spd 300→300, 500→326, 800→367, 1200→413
+// 1000 이하: 그대로, 1000 이상: 1000 + (초과분) × 0.42 (선형 완화)
+// 예) raw 1000→1000(0.50초), 1100→1042(0.48초), 2000→1420(0.35초), 5000→2680(0.19초)
 function diminishSpeed(rawSpd: number): number {
-  const SOFT_CAP = 300;
+  const SOFT_CAP = 1000;
   if (rawSpd <= SOFT_CAP) return rawSpd;
-  return Math.round(SOFT_CAP + Math.sqrt(rawSpd - SOFT_CAP) * 15);
+  return Math.round(SOFT_CAP + (rawSpd - SOFT_CAP) * 0.42);
 }
 
 // 레벨차에 따른 EXP 배율 — 캐릭터가 몬스터보다 높을수록 감소.
