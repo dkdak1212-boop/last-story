@@ -39,12 +39,38 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   }
 
   // 시공의 균열 (id=23) — 어드민 전용 (베타 검증 단계).
-  // 통행증 시스템은 일시 비활성. 추후 정식 오픈 시 재오픈 예정.
+  // 일일 입장 제한 2회 — 새 30분 타이머가 시작될 때마다 카운트 +1.
   if (fieldId === 23) {
     const adm = await query<{ is_admin: boolean }>('SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = $1', [req.userId]);
     const isAdmin = adm.rows[0]?.is_admin === true;
     if (!isAdmin) {
       return res.status(403).json({ error: '시공의 균열 — 베타 점검 중입니다. 추후 오픈 예정.' });
+    }
+    // 일일 입장 카운트 체크 — 활성 타이머(30분 안) 내 재진입은 카운트 안 함
+    const stat = await query<{ rea: string | null; cnt: number; rdate: string | null; today: string }>(
+      `SELECT rift_entered_at::text AS rea, COALESCE(rift_daily_count,0) AS cnt,
+              rift_daily_date::text AS rdate,
+              (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS today
+         FROM characters WHERE id = $1`, [id]
+    );
+    const row = stat.rows[0];
+    const enteredMs = row?.rea ? new Date(row.rea).getTime() : 0;
+    const isWithinTimer = enteredMs > 0 && Date.now() - enteredMs < 30 * 60_000;
+    if (!isWithinTimer) {
+      // 새 타이머가 필요한 입장
+      const sameDay = row?.rdate === row?.today;
+      const cnt = sameDay ? Number(row?.cnt || 0) : 0;
+      if (cnt >= 2) {
+        return res.status(403).json({ error: '시공의 균열 — 일일 입장 2회 제한. 내일 다시 시도해주세요.' });
+      }
+      // 카운터 +1 + 날짜 갱신 (Asia/Seoul 기준)
+      await query(
+        `UPDATE characters
+            SET rift_daily_count = $1,
+                rift_daily_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+          WHERE id = $2`,
+        [cnt + 1, id]
+      );
     }
   }
 
