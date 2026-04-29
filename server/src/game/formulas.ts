@@ -66,7 +66,8 @@ export function computeEffective(
   const equipVit = (equipBonus.vit ?? 0) + (nodeBonus.vit ?? 0);
   const maxHp = baseMaxHp + equipVit * 20 + (equipBonus.bonusHp ?? 0);
 
-  const atk = str * 1.5 + (equipBonus.bonusAtk ?? 0);
+  // STR: ATK 의 % 증폭 (스탯당 +0.5%) — flat 기여 제거. 무기/장비 ATK 가 핵심 베이스.
+  const atk = Math.max(1, Math.round((equipBonus.bonusAtk ?? 0) * (1 + str * 0.005)));
   const matk = intl * 1.5 + (equipBonus.bonusMatk ?? 0); // 1.2 → 1.5 마법사 강화
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
   const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);

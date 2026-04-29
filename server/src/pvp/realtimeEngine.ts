@@ -332,9 +332,11 @@ function amplifyDamage(
       self.dodgeBurstPending = false;
     }
   }
-  // 크리 추가 배율 (crit_damage 패시브 + crit_dmg_pct prefix)
+  // 크리 추가 배율 (crit_damage 패시브 + crit_dmg_pct prefix + DEX 0.35%/스탯)
   if (isCrit) {
-    const critDmgBonus = getFPassive(self, 'crit_damage') + (self.equipPrefixes.crit_dmg_pct || 0);
+    const critDmgBonus = getFPassive(self, 'crit_damage')
+      + (self.equipPrefixes.crit_dmg_pct || 0)
+      + (self.stats.dex || 0) * 0.35;
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
     // assassin_execute 패시브 (크리 시 적 HP 15% 이하 → 즉사 확률)
     const execute = getFPassive(self, 'assassin_execute');
