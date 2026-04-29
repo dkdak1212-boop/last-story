@@ -409,14 +409,17 @@ function tickSession(s: PvPSession): void {
     return;
   }
 
-  // 양측 게이지 충전 (gauge_freeze 활성 시 충전 스킵, speed_mod 반영)
+  // 양측 게이지 충전 (gauge_freeze 활성 시 충전 스킵, speed_mod / spd_pct prefix 반영)
   const fillGauge = (f: FighterState) => {
     const frozen = f.statusEffects.some(e => e.type === 'gauge_freeze' && e.remainingActions > 0);
     if (frozen) return;
     const speedMod = f.statusEffects
       .filter(e => e.type === 'speed_mod' && e.remainingActions > 0)
       .reduce((acc, e) => acc + e.value, 0);
-    const spdEff = Math.max(10, f.stats.spd * (1 + speedMod / 100));
+    let spdEff = Math.max(10, f.stats.spd * (1 + speedMod / 100));
+    // 신속(spd_pct) prefix: 현재속도 +% (합산 100% 캡)
+    const spdPct = Math.min(100, f.equipPrefixes.spd_pct || 0);
+    if (spdPct > 0) spdEff = spdEff * (1 + spdPct / 100);
     f.gauge = Math.min(GAUGE_MAX, f.gauge + spdEff * GAUGE_FILL_RATE);
   };
   if (!s.attackerWaitingInput) fillGauge(s.attacker);
@@ -668,14 +671,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
       const critLifesteal = getFPassive(self, 'crit_lifesteal');
       if (critLifesteal > 0) self.hp = Math.min(self.maxHp, self.hp + Math.round(amplified * critLifesteal / 100));
     }
-    // 재충전 prefix — 크리 시 자기 게이지 충전
-    if (d.crit) {
-      const gaugeOnCrit = self.equipPrefixes.gauge_on_crit_pct || 0;
-      if (gaugeOnCrit > 0) {
-        const gain = Math.min(GAUGE_MAX * 0.75, GAUGE_MAX * gaugeOnCrit / 100);
-        self.gauge = Math.min(GAUGE_MAX, self.gauge + gain);
-      }
-    }
+    // gauge_on_crit_pct 효과는 spd_pct (현재속도 +%) 로 전환됨 — PvP 행동 주기에 적용.
     // extra_hit 패시브 — 확률 추가 타격 (0.5x)
     const extraHit = getFPassive(self, 'extra_hit');
     if (extraHit > 0 && Math.random() * 100 < extraHit) {

@@ -25,7 +25,7 @@ const STAT_KEY_LABEL: Record<string, string> = {
   accuracy: '명중', dodge: '회피', hp_regen: 'HP재생',
   crit_dmg_pct: '크리뎀', lifesteal_pct: '흡혈', dot_amp_pct: '도트',
   def_reduce_pct: '약화', berserk_pct: '광전사', first_strike_pct: '약점간파',
-  ambush_pct: '각성', gauge_on_crit_pct: '재충전', guardian_pct: '수호자',
+  ambush_pct: '각성', spd_pct: '신속', guardian_pct: '수호자',
   predator_pct: '포식자', thorns_pct: '가시', slow_pct: '저주',
   exp_bonus_pct: '경험치', gold_bonus_pct: '골드',
   atk_pct: '공격%', matk_pct: '마공%', hp_pct: '최대HP%',

@@ -19,7 +19,7 @@ const STAT_LABEL: Record<string, string> = {
   summon_amp: '소환뎀', summon_double_hit: '소환2타', summon_max_extra: '소환+',
   // 기존 접두사
   lifesteal_pct: '흡혈', dot_amp_pct: '도트', exp_bonus_pct: '경험치',
-  gold_bonus_pct: '골드', guardian_pct: '방어', gauge_on_crit_pct: '게이지',
+  gold_bonus_pct: '골드', guardian_pct: '방어', spd_pct: '신속',
   first_strike_pct: '선제', berserk_pct: '광전사', ambush_pct: '기습',
   predator_pct: '포식', hp_regen: '재생', slow_pct: '감속', thorns_pct: '반사',
   // 110제 craft 추가 옵션

@@ -1102,20 +1102,7 @@ function getCritDmgBonus(s: ActiveSession): number {
 // hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
 function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
   if (!crit) return;
-  // gauge_on_crit_pct — 다단히트도 매 hit 발동 허용. 단 한 액션 내 누적 회수량 cap 75%.
-  // 영구 100% 정체 버그 방지(상한 < 100%) + 다단히트 보너스 보존.
-  const gaugeOnCrit = s.equipPrefixes.gauge_on_crit_pct || 0;
-  if (gaugeOnCrit > 0) {
-    const cap = GAUGE_MAX * 0.75; // 750
-    const remaining = cap - s.gaugeOnCritGainedThisAction;
-    if (remaining > 0) {
-      const want = GAUGE_MAX * gaugeOnCrit / 100;
-      const gain = Math.min(remaining, want);
-      s.playerGauge = Math.min(GAUGE_MAX, s.playerGauge + gain);
-      s.gaugeOnCritGainedThisAction += gain;
-      addLog(s, `[재충전] ${hitLabel ? hitLabel + ' ' : ''}게이지 +${Math.round(gain / GAUGE_MAX * 100)}%`);
-    }
-  }
+  // gauge_on_crit_pct 효과는 spd_pct (현재속도 +%) 로 전환됨 — 액션 루프에서 effectivePlayerSpeed 에 적용.
   const critLifesteal = getPassive(s, 'crit_lifesteal');
   if (critLifesteal > 0 && dmg > 0 && !s.monsterLifestealImmune) {
     let critHeal = Math.round(dmg * critLifesteal / 100);
@@ -3720,6 +3707,11 @@ async function combatTick(): Promise<void> {
       // 접두사: 저주(slow_pct) → 몬스터 속도 감소
       if (s.equipPrefixes.slow_pct) {
         effectiveMonsterSpeed = Math.round(effectiveMonsterSpeed * (1 - s.equipPrefixes.slow_pct / 100));
+      }
+      // 접두사: 신속(spd_pct) → 플레이어 현재속도 +N% (합산 100% 캡)
+      if (s.equipPrefixes.spd_pct) {
+        const spdPct = Math.min(100, s.equipPrefixes.spd_pct);
+        effectivePlayerSpeed = Math.round(effectivePlayerSpeed * (1 + spdPct / 100));
       }
       // 소환사 속도 오오라 — 플레이어 행동 주기 가속 (소환수가 player 액션마다 발동하므로
       // 결과적으로 "소환수 속도 상승" 과 동치). 오오라의 왕 키스톤 시 ×2.

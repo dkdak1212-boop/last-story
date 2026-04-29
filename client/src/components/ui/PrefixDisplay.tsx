@@ -23,7 +23,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   berserk_pct: v => `내 HP 35% 이하 시 데미지 +${v}%`,
   guardian_pct: v => `HP 50% 이상 시 받는 데미지 -${v}%`,
   thorns_pct: v => `받는 데미지 ${v}% 반사`,
-  gauge_on_crit_pct: v => `치명타 시 게이지 +${v}% (한 행동당 게이지회복 최대 75% 제한)`,
+  spd_pct: v => `현재속도 +${v}% (합산 100% 제한)`,
   ambush_pct: v => `5초 미피격 시 다음 공격 +${v}%`,
   predator_pct: v => `적 처치 시 HP ${v}% 회복`,
   first_strike_pct: v => `첫 공격 데미지 +${v}%`,
