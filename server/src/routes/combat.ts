@@ -57,6 +57,23 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
       if (cnt >= 2) {
         return res.status(403).json({ error: '시공의 균열 — 일일 입장 2회 제한. 내일 다시 시도해주세요.' });
       }
+      // 차원의 통행증(item 855) 1장 차감 — 새 30분 타이머 시작 시에만 소모.
+      // 같은 타이머 안의 재진입(사망/탭이동 후)은 무료.
+      const passR = await query<{ id: number; quantity: number }>(
+        `SELECT id, quantity FROM character_inventory
+          WHERE character_id = $1 AND item_id = 855 AND quantity > 0
+          ORDER BY slot_index LIMIT 1`,
+        [id]
+      );
+      if (passR.rowCount === 0) {
+        return res.status(400).json({ error: '시공의 균열 — 차원의 통행증이 없습니다. 상점에서 구매 후 입장 가능합니다.' });
+      }
+      const pass = passR.rows[0];
+      if (pass.quantity <= 1) {
+        await query('DELETE FROM character_inventory WHERE id = $1', [pass.id]);
+      } else {
+        await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [pass.id]);
+      }
       // 카운터 +1 + 날짜 갱신 (Asia/Seoul 기준)
       await query(
         `UPDATE characters
@@ -242,14 +259,32 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
               // 일일 2회 소진 — 자동복구 차단, 마을로
               await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', id]);
             } else {
-              await query(
-                `UPDATE characters
-                    SET rift_daily_count = $1,
-                        rift_daily_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
-                  WHERE id = $2`,
-                [cnt + 1, id]
+              // 차원의 통행증 1장 차감 — 새 타이머 시작 시 소모
+              const passR = await query<{ id: number; quantity: number }>(
+                `SELECT id, quantity FROM character_inventory
+                  WHERE character_id = $1 AND item_id = 855 AND quantity > 0
+                  ORDER BY slot_index LIMIT 1`,
+                [id]
               );
-              await startCombatSession(id, fieldId);
+              if (passR.rowCount === 0) {
+                // 통행증 없음 — 자동복구 차단, 마을로
+                await query('UPDATE characters SET location=$1 WHERE id=$2', ['village', id]);
+              } else {
+                const pass = passR.rows[0];
+                if (pass.quantity <= 1) {
+                  await query('DELETE FROM character_inventory WHERE id = $1', [pass.id]);
+                } else {
+                  await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [pass.id]);
+                }
+                await query(
+                  `UPDATE characters
+                      SET rift_daily_count = $1,
+                          rift_daily_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+                    WHERE id = $2`,
+                  [cnt + 1, id]
+                );
+                await startCombatSession(id, fieldId);
+              }
             }
           } else {
             await startCombatSession(id, fieldId);
