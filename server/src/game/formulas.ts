@@ -68,8 +68,8 @@ export function computeEffective(
 
   // STR: ATK 의 % 증폭 (스탯당 +0.5%) — flat 기여 제거. 무기/장비 ATK 가 핵심 베이스.
   const atk = Math.max(1, Math.round((equipBonus.bonusAtk ?? 0) * (1 + str * 0.005)));
-  // INT: flat (×1.5) 유지 + 추가 % 증폭 (스탯당 +0.5%) 가산.
-  const matk = Math.max(1, Math.round((intl * 1.5 + (equipBonus.bonusMatk ?? 0)) * (1 + intl * 0.005)));
+  // INT: MATK 의 % 증폭 (스탯당 +0.5%) — flat 기여 제거. STR 과 동일 정책.
+  const matk = Math.max(1, Math.round((equipBonus.bonusMatk ?? 0) * (1 + intl * 0.005)));
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
   const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);
   // 회피: DEX 계수 하향 + 상한 70%
