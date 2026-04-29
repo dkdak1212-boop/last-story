@@ -1014,7 +1014,7 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'guardian_pct', label: '방어', color: '#8888cc', group: '유틸' },
   { key: 'hp_regen', label: '재생', color: '#44cc44', group: '유틸' },
   { key: 'predator_pct', label: '포식', color: '#66aa44', group: '유틸' },
-  { key: 'spd_pct', label: '신속', color: '#ff8844', group: '특수' },
+  { key: 'spd_pct', label: '속도%', color: '#ff8844', group: '특수' },
   { key: 'first_strike_pct', label: '선제', color: '#cc88ff', group: '특수' },
   { key: 'berserk_pct', label: '광전사', color: '#ff4444', group: '특수' },
   { key: 'ambush_pct', label: '각성', color: '#aa66ff', group: '특수' },

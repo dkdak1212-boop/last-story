@@ -391,7 +391,7 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'berserk_pct', label: '광전사 %' },
   { key: 'first_strike_pct', label: '약점간파 %' },
   { key: 'ambush_pct', label: '각성 %' },
-  { key: 'spd_pct', label: '신속 %' },
+  { key: 'spd_pct', label: '속도퍼센트 %' },
   { key: 'guardian_pct', label: '수호자 %' },
   { key: 'predator_pct', label: '포식자 %' },
   { key: 'thorns_pct', label: '가시 %' },
