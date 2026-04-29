@@ -313,40 +313,61 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   if (pr.rowCount === 0 || pr.rows[0].node_ids.length === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
   const targetNodeIds = pr.rows[0].node_ids;
 
-  // 프리셋에 차원의 정수(paragon) 노드 포함 시 별도 검증 — 일반 오픈 후 제한 없음.
-  // (paragon 노드 자체의 Lv.100 / 키스톤 cap / paragon_points 부족은 invest 단계에서 처리됨)
-
-  // 현재 노드 전체 환불
-  const totalR = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(nd.cost), 0)::text AS total FROM character_nodes cn
-     JOIN node_definitions nd ON nd.id = cn.node_id WHERE cn.character_id = $1`, [id]
+  // 현재 노드 환불 — paragon zone 과 normal 분리 (reset 라우트와 동일 정책)
+  const totalR = await query<{ paragon_total: string; normal_total: string }>(
+    `SELECT
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN nd.cost ELSE 0 END), 0)::text AS paragon_total,
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN 0 ELSE nd.cost END), 0)::text AS normal_total
+       FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE cn.character_id = $1`,
+    [id]
   );
-  const refund = Number(totalR.rows[0].total);
+  const paragonRefund = Number(totalR.rows[0].paragon_total);
+  const normalRefund = Number(totalR.rows[0].normal_total);
   await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
-  await query('UPDATE characters SET node_points = node_points + $1 WHERE id = $2', [refund, id]);
+  await query(
+    `UPDATE characters
+        SET node_points = node_points + $1,
+            paragon_points = COALESCE(paragon_points, 0) + $2
+      WHERE id = $3`,
+    [normalRefund, paragonRefund, id]
+  );
 
-  // 프리셋 노드 투자 (존재하는 노드만, 포인트 충분한 만큼)
-  const charR = await query<{ node_points: number }>('SELECT node_points FROM characters WHERE id = $1', [id]);
+  // 프리셋 노드 투자 — paragon 은 paragon_points, 그 외는 node_points 에서 차감
+  const charR = await query<{ node_points: number; paragon_points: number }>(
+    'SELECT node_points, COALESCE(paragon_points, 0) AS paragon_points FROM characters WHERE id = $1', [id]
+  );
   let points = charR.rows[0].node_points;
+  let paragonPoints = charR.rows[0].paragon_points;
   let invested = 0;
 
-  // 노드를 cost 순으로 정렬해서 선행 노드부터 투자
-  const nodeDefsR = await query<{ id: number; cost: number }>(
-    'SELECT id, cost FROM node_definitions WHERE id = ANY($1::int[])', [targetNodeIds]
+  const nodeDefsR = await query<{ id: number; cost: number; zone: string }>(
+    'SELECT id, cost, zone FROM node_definitions WHERE id = ANY($1::int[])', [targetNodeIds]
   );
-  const nodeCostMap = new Map(nodeDefsR.rows.map(r => [r.id, r.cost]));
+  const nodeMap = new Map(nodeDefsR.rows.map(r => [r.id, r]));
 
   for (const nid of targetNodeIds) {
-    const cost = nodeCostMap.get(nid);
-    if (!cost || points < cost) continue;
+    const def = nodeMap.get(nid);
+    if (!def) continue;
+    const isParagon = def.zone === 'paragon';
+    if (isParagon) {
+      if (paragonPoints < def.cost) continue;
+      paragonPoints -= def.cost;
+    } else {
+      if (points < def.cost) continue;
+      points -= def.cost;
+    }
     await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
-    points -= cost;
     invested++;
   }
-  await query('UPDATE characters SET node_points = $1 WHERE id = $2', [points, id]);
+  await query(
+    'UPDATE characters SET node_points = $1, paragon_points = $2 WHERE id = $3',
+    [points, paragonPoints, id]
+  );
   await refreshSessionStats(id).catch(() => {});
 
-  res.json({ ok: true, invested, remainingPoints: points });
+  res.json({ ok: true, invested, remainingPoints: points, remainingParagonPoints: paragonPoints });
 });
 
 // 프리셋 이름 변경
