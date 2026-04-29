@@ -2604,6 +2604,29 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
       s.monsterSkillCooldowns.set(sk.id, cdActions);
     }
   }
+
+  // 4) Fallback — 종언 보스(508-517) 등 orderedIds 에 없는 cooldown 스킬 처리
+  // atk_mult 보유 스킬 1개 발동 (대체 공격 형태). 효과 처리는 단순화 (정교화는 추후).
+  if (skillMult === 1.0) {
+    for (const sk of mDef.skills as Array<{ id: string; name: string; atk_mult?: number; cooldown?: number; effect?: string; trigger?: string }>) {
+      if (typeof sk.cooldown !== 'number') continue;
+      if (sk.trigger) continue; // hp_below 등 트리거 전용은 스킵
+      if (orderedIds.includes(sk.id)) continue;
+      if ((s.monsterSkillCooldowns.get(sk.id) ?? 0) > 0) continue;
+      const mult = sk.atk_mult;
+      if (typeof mult !== 'number' || mult <= 1.0) continue;
+      const cdActions = Math.max(1, Math.round(sk.cooldown / 1.5));
+      skillMult = mult;
+      bonusName = sk.name;
+      // effect 의 일부 명시적 처리 — def_pierce_50/70 / def_pierce_100
+      if (typeof sk.effect === 'string') {
+        const m = sk.effect.match(/def_pierce_(\d+)/);
+        if (m) defPierce = Math.min(100, Math.max(defPierce, Number(m[1])));
+      }
+      s.monsterSkillCooldowns.set(sk.id, cdActions);
+      break;
+    }
+  }
   return { skillMult, defPierce, bonusName };
 }
 
@@ -3362,6 +3385,17 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.hasFirstSkill = true;
     s.monsterSpawnAt = Date.now();
     s.endlessFloorStartedAt = Date.now();
+    // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
+    s.monsterDrPct = Number(stats.dr_pct ?? 0);
+    s.monsterCcImmune = stats.cc_immune === true;
+    s.monsterLifestealImmune = stats.lifesteal_immune === true;
+    s.monsterSkillCooldowns = new Map<string, number>();
+    s.monsterRageActivated = false;
+    s.bossPhase2Triggered = false;
+    // matk_based — 본체 atk/matk 를 INT 기반으로 교체
+    if (stats.matk_based === true) {
+      s.monsterStats.atk = Math.floor(baseInt * mult);
+    }
     s.statusEffects = s.statusEffects.filter(e =>
       e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
     );
@@ -4952,7 +4986,7 @@ setInterval(() => {
   for (const charId of activeSessions.keys()) {
     const s = activeSessions.get(charId);
     if (!s) continue;
-    // 시공의 균열: 입장 후 1시간 무조건 만료 (구독자 유무 무관, 마을 귀환)
+    // 시공의 균열: 첫 진입 후 30분 영속 만료 (구독자 유무 무관, 마을 귀환)
     if (s.fieldId === RIFT_110_FIELD_ID && now - s.enteredFieldAt > RIFT_110_TIMEOUT_MS) {
       riftKicked++;
       stopCombatSession(charId, { keepLocation: false }).catch(e => console.error('[rift-110] timeout err', charId, e));

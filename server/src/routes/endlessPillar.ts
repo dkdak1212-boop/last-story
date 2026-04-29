@@ -82,7 +82,7 @@ router.post('/:characterId/enter', endlessAccessRequired, async (req: AuthedRequ
   });
 });
 
-// 자진 포기 — 사망 처리 (1층 회귀)
+// 자진 포기 — 사망 처리 (-10층 회귀, paused)
 router.post('/:characterId/give-up', endlessAccessRequired, async (req: AuthedRequest, res: Response) => {
   const cid = Number(req.params.characterId);
   const char = await loadCharacterOwned(cid, req.userId!);
