@@ -70,10 +70,10 @@ export function EndlessRankingScreen() {
         </button>
       </div>
 
-      {/* 탭 — 일일/명예의 전당 */}
+      {/* 탭 — 주간/명예의 전당 */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 8, borderBottom: '1px solid var(--border)' }}>
         {([
-          { key: 'daily', label: '일일 랭킹' },
+          { key: 'daily', label: '주간 랭킹' },
           { key: 'all-time', label: '명예의 전당' },
         ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
@@ -159,7 +159,7 @@ export function EndlessRankingScreen() {
       {/* 랭킹 표 */}
       {!loading && rows.length === 0 && (
         <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: 40 }}>
-          {tab === 'daily' ? '오늘 도달 기록이 없습니다.' : '아직 명예의 전당에 등재된 도전자가 없습니다.'}
+          {tab === 'daily' ? '이번 주 도달 기록이 없습니다.' : '아직 명예의 전당에 등재된 도전자가 없습니다.'}
         </div>
       )}
       {!loading && rows.length > 0 && (
