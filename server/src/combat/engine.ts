@@ -2037,13 +2037,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'shield': {
       // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
       dealBuffSkillDamage(s, skill, useMatk);
-      // 쉴드 중첩 불가: 활성 쉴드가 있는 동안엔 새 쉴드 적용 안 함 (만료 직후 시전해 끊김 없이 유지)
-      const hasActiveShield = s.statusEffects.some(e =>
-        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0
+      // 쉴드 중첩 불가 + 끊김 없는 유지: 활성 쉴드 remainingActions > 1 이면 새 쉴드 보류 (만료 직전에 덮어쓰기 허용).
+      const activeShield = s.statusEffects.find(e =>
+        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 1
       );
-      if (hasActiveShield) {
-        addLog(s, `[${skill.name}] 기존 실드 유지 — 만료 후 재시전`);
+      if (activeShield) {
+        addLog(s, `[${skill.name}] 기존 실드 유지 (잔여 ${activeShield.remainingActions}행동)`);
         break;
+      }
+      // remainingActions <= 1 인 만료 직전 쉴드는 즉시 제거 후 새 쉴드 적용 (오버랩 0턴 → 끊김 없음)
+      const expiringShields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster');
+      if (expiringShields.length > 0) {
+        s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield' && e.source === 'monster'));
       }
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
@@ -2396,10 +2401,10 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'heal_pct':
       return hpPct < 1.0; // 풀HP면 낭비
     case 'shield':
-      // 활성 쉴드가 있는 동안은 다른 쉴드 시전 금지 (낭비 방지) — 만료 직후 자동 재시전 가능 → 쉴드 끊김 없이 유지.
-      // damage_mult > 0 인 공격형 쉴드 스킬은 데미지 발생을 위해 예외 허용.
+      // 끊김 없는 쉴드 유지: 활성 쉴드의 remainingActions <= 1 일 때 (이번 턴 끝나면 만료) 새 쉴드 시전 허용 → 1턴 오버랩으로 공백 제거.
+      // damage_mult > 0 인 공격형 쉴드 스킬은 데미지 발생을 위해 항상 허용.
       return sk.damage_mult > 0 || !s.statusEffects.some(e =>
-        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0
+        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 1
       );
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
