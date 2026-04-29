@@ -400,6 +400,7 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   { key: 'gold_bonus_pct', label: '골드 %' },
   // 신규 8종 (4월 패치)
   { key: 'max_hp_pct', label: '최대 HP %' },
+  { key: 'all_stats_pct', label: '전체스탯 %' },
   { key: 'atk_pct', label: '공격력 %' },
   { key: 'matk_pct', label: '마법공격 %' },
   { key: 'def_pierce_pct', label: '추가 방어 무시 %' },

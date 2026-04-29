@@ -34,6 +34,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   damage_taken_down_pct: v => `받는 데미지 ${v}% 감소`,
   // 신규 8종 (4월 패치)
   max_hp_pct: v => `최대 HP ${v}% 증가`,
+  all_stats_pct: v => `전체 스탯 ${v}% 증가 (힘/민/지/체)`,
   drop_rate_pct: v => `아이템 드랍률 ${v}% 증가`,
   multi_hit_amp_pct: v => `다단 타격 데미지 ${v}% 증가`,
   def_pierce_pct: v => `적 방어 ${v}% 추가 무시`,

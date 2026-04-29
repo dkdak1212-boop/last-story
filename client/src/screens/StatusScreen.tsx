@@ -57,6 +57,7 @@ const PREFIX_LABEL: Record<string, string> = {
   matk_pct: '마법 공격 +%',
   hp_pct: '최대 HP +%',
   max_hp_pct: '최대 HP +%',
+  all_stats_pct: '전체 스탯 +% (힘/민/지/체)',
   drop_rate_pct: '드랍률 +%',
   multi_hit_amp_pct: '다단 타격 데미지 +%',
   def_pierce_pct: '방어 추가 무시 %',

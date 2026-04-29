@@ -10,7 +10,7 @@ const STAT_LABEL: Record<string, string> = {
   str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '속도', cri: '치명',
   accuracy: '명중', dodge: '회피',
   // % 계열 유니크/접두사
-  atk_pct: '공격%', matk_pct: '마공%', hp_pct: 'HP%', max_hp_pct: 'HP%',
+  atk_pct: '공격%', matk_pct: '마공%', hp_pct: 'HP%', max_hp_pct: 'HP%', all_stats_pct: '전체%',
   crit_dmg_pct: '치명뎀', def_reduce_pct: '방관', def_pierce_pct: '방무',
   damage_taken_down_pct: '피감', drop_rate_pct: '드랍',
   multi_hit_amp_pct: '다단', miss_combo_pct: '빗맞', evasion_burst_pct: '회피폭',

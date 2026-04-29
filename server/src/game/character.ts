@@ -203,6 +203,27 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
   if (equipPrefixes.max_hp_pct) eff.maxHp = Math.round(eff.maxHp * (1 + equipPrefixes.max_hp_pct / 100));
   if (equipPrefixes.spd_pct) eff.spd = Math.round(eff.spd * (1 + equipPrefixes.spd_pct / 100));
+  // 시공 6세트: all_stats_pct — 힘/민/지/체 모두 +N% (derived 스탯도 동시 재계산)
+  if (equipPrefixes.all_stats_pct) {
+    const pct = equipPrefixes.all_stats_pct / 100;
+    const oldStr = eff.str, oldDex = eff.dex, oldInt = eff.int, oldVit = eff.vit;
+    const newStr = Math.round(oldStr * (1 + pct));
+    const newDex = Math.round(oldDex * (1 + pct));
+    const newInt = Math.round(oldInt * (1 + pct));
+    const newVit = Math.round(oldVit * (1 + pct));
+    // ATK = bonusAtk × (1 + str×0.005) — 비율 보정
+    if (eff.atk > 1 && (1 + oldStr * 0.005) > 0) {
+      eff.atk = Math.round(eff.atk * ((1 + newStr * 0.005) / (1 + oldStr * 0.005)));
+    }
+    if (eff.matk > 1 && (1 + oldInt * 0.005) > 0) {
+      eff.matk = Math.round(eff.matk * ((1 + newInt * 0.005) / (1 + oldInt * 0.005)));
+    }
+    eff.def = Math.round(eff.def + (newVit - oldVit) * 0.8);
+    eff.mdef = Math.round(eff.mdef + (newInt - oldInt) * 0.5);
+    eff.dodge = Math.min(70, Math.round(eff.dodge + (newDex - oldDex) * 0.2));
+    eff.accuracy = Math.min(100, Math.round(eff.accuracy + (newDex - oldDex) * 0.3));
+    eff.str = newStr; eff.dex = newDex; eff.int = newInt; eff.vit = newVit;
+  }
   // 110제 신규 옵션: def_convert_atk — 방어력의 N% 를 공격력에 추가
   if (equipPrefixes.def_convert_atk) {
     eff.atk += Math.round(eff.def * equipPrefixes.def_convert_atk / 100);

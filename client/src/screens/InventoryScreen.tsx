@@ -1024,6 +1024,7 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'thorns_pct', label: '반사', color: '#aa8844', group: '기타' },
   // 신규 8종 (4월 패치)
   { key: 'max_hp_pct', label: '최대HP%', color: '#44dd66', group: '스탯' },
+  { key: 'all_stats_pct', label: '전체스탯%', color: '#ff66dd', group: '스탯' },
   { key: 'atk_pct', label: '공격%', color: '#ff8844', group: '공격' },
   { key: 'matk_pct', label: '마공%', color: '#aa66ff', group: '공격' },
   { key: 'def_pierce_pct', label: '추가방관', color: '#cc6644', group: '공격' },

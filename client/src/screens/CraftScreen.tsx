@@ -9,7 +9,7 @@ const STAT_LABEL: Record<string, string> = {
   accuracy: '명중', dodge: '회피',
   atk: '공격력', matk: '마법공격', def: '방어력', mdef: '마법방어', hp: 'HP',
   // 접두사 스타일 키 (% 단위)
-  atk_pct: '공격력%', matk_pct: '마법공격%', hp_pct: '최대HP%', max_hp_pct: '최대HP%',
+  atk_pct: '공격력%', matk_pct: '마법공격%', hp_pct: '최대HP%', max_hp_pct: '최대HP%', all_stats_pct: '전체스탯%',
   crit_dmg_pct: '치명타 데미지%', def_pierce_pct: '방어 추가무시%',
   damage_taken_down_pct: '받는 피해 감소%', drop_rate_pct: '드랍률%',
   multi_hit_amp_pct: '다단 데미지%', miss_combo_pct: '빗누적%', evasion_burst_pct: '회피반격%',
