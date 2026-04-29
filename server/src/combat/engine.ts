@@ -1361,6 +1361,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
     if (cdFlat > 0) cd = cd - cdFlat;
     if (summonCdFlat > 0) cd = cd - summonCdFlat;
+    // #6 paragon_time_master — 모든 쿨다운 -70%
+    if (getPassive(s, 'paragon_time_master') > 0) cd = Math.floor(cd * 0.3);
     cd = Math.max(1, cd);
     s.skillCooldowns.set(skill.id, cd);
   }
@@ -3818,11 +3820,10 @@ async function combatTick(): Promise<void> {
         s.currentActionElement = null;
         // #13 paragon_time_crystal — 매 10번째 행동 ×3 데미지 + 추가 1회 행동
         const crystalActive = getPassive(s, 'paragon_time_crystal') > 0 && s.paragonActionCount % 10 === 0;
-        // #6 paragon_time_master — 쿨다운 −70% (감소량 +1, +2 추가). 매 액션마다 추가 감소.
-        const cdBoost = getPassive(s, 'paragon_time_master') > 0 ? 1 : 0;
+        // 매 액션마다 모든 쿨다운 -1 (paragon_time_master 의 -70% 는 set 시 적용됨)
         const newCd = new Map<number, number>();
         for (const [skId, cd] of s.skillCooldowns) {
-          const next = cd - 1 - cdBoost;
+          const next = cd - 1;
           if (next > 0) newCd.set(skId, next);
         }
         s.skillCooldowns = newCd;
