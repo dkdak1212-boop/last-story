@@ -949,9 +949,9 @@ function applyDamagePrefixes(
     const mult = 0.5 + 2.5 * (1 - hpRatio);
     dmg = Math.round(dmg * mult);
   }
-  // #15 빠른 결단 — 데미지 −50%
+  // #15 빠른 결단 — 데미지 −30%
   if (getPassive(s, 'paragon_quick_decision') > 0) {
-    dmg = Math.round(dmg * 0.5);
+    dmg = Math.round(dmg * 0.7);
   }
   // #17 실패의 영광 — 직전 빗맞 펜딩 시 ×3
   if (consume && getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
