@@ -1221,7 +1221,8 @@ function processSummons(s: ActiveSession) {
   const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
   if (summons.length === 0) return;
 
-  const matk = s.playerStats.matk;
+  // 소환사 INT 직접 영향: 지능 1당 소환수 데미지 +1.5 (마공에 추가 가산 — 마법사 flat 계수와 동일)
+  const matk = s.playerStats.matk + (s.playerStats.int || 0) * 1.5;
   const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
   // summon_buff 효과 (지휘/군주의 위엄)
