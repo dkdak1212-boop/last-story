@@ -101,12 +101,12 @@ function monsterResistsCC(monsterLevel: number): boolean {
 }
 
 // 1000 이하: raw 그대로 (action_time = 500/raw)
-// 1000 초과: 등차 수열 — raw 100 당 행동주기 -0.02초 (floor 0.10초 = raw 3000+ 캡)
-// 예) raw 1000→0.50, 1100→0.48, 1500→0.40, 2000→0.30, 3000→0.10, 5000+→0.10
+// 1000 초과: 등차 수열 — raw 100 당 행동주기 -0.01초 (floor 0.10초 = raw 5000+ 캡)
+// 예) raw 1000→0.50, 1100→0.49, 1500→0.45, 2000→0.40, 3000→0.30, 5000+→0.10
 function diminishSpeed(rawSpd: number): number {
   if (rawSpd <= 1000) return rawSpd;
-  const cappedRaw = Math.min(3000, rawSpd);
-  const actionSec = 0.50 - (cappedRaw - 1000) * 0.0002;
+  const cappedRaw = Math.min(5000, rawSpd);
+  const actionSec = 0.50 - (cappedRaw - 1000) * 0.0001;
   return Math.round(500 / actionSec);
 }
 
