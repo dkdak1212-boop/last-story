@@ -256,9 +256,11 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     eff.def += eff.dodge;
     eff.dodge = 0;
   }
-  // 키스톤 #11 방패의 분노 — 방어 0, 잃은 방어 1당 공격 +0.5
+  // 키스톤 #11 방패의 분노 — 방어 0, 잃은 방어 1당 공격 +2.0 / 마공 +2.0
   if (pMap.has('paragon_shield_wrath')) {
-    eff.atk += Math.round(eff.def * 0.5);
+    const lostDef = eff.def;
+    eff.atk += Math.round(lostDef * 2.0);
+    eff.matk += Math.round(lostDef * 2.0);
     eff.def = 0;
   }
   // 키스톤 #5 무거운 검 — 속도 −50%

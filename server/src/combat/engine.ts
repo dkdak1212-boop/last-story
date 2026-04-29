@@ -918,9 +918,9 @@ function applyDamagePrefixes(
     }
   }
   // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 ──
-  // #5 무거운 검 — 데미지 ×2.5
+  // #5 무거운 검 — 데미지 ×2.0
   if (getPassive(s, 'paragon_heavy_blade') > 0) {
-    dmg = Math.round(dmg * 2.5);
+    dmg = Math.round(dmg * 2.0);
   }
   // #2 운명의 결박 — cri/dodge 0 페널티 보상으로 균일 데미지 ×1.75
   if (getPassive(s, 'paragon_fate_lock') > 0) {
@@ -949,9 +949,9 @@ function applyDamagePrefixes(
     const mult = 0.5 + 2.5 * (1 - hpRatio);
     dmg = Math.round(dmg * mult);
   }
-  // #15 빠른 결단 — 데미지 −30%
+  // #15 빠른 결단 — 데미지 −40%
   if (getPassive(s, 'paragon_quick_decision') > 0) {
-    dmg = Math.round(dmg * 0.7);
+    dmg = Math.round(dmg * 0.6);
   }
   // #17 실패의 영광 — 직전 빗맞 펜딩 시 ×3
   if (consume && getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
@@ -964,16 +964,16 @@ function applyDamagePrefixes(
   if (s.paragonCrystalActive) {
     dmg = Math.round(dmg * 3);
   }
-  // 고립 본능 — 적이 CC 계열 상태이상 (stun/gauge_freeze/gauge_reset/accuracy_debuff/damage_taken_up) 일 때 ×2
+  // 고립 본능 — 적이 CC 계열 상태이상 (stun/gauge_freeze/gauge_reset/accuracy_debuff/damage_taken_up) 일 때 ×1.5
   if (getPassive(s, 'paragon_isolation_instinct') > 0) {
     const ccApplied = s.statusEffects.some(e =>
       e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
     );
-    if (ccApplied) dmg = Math.round(dmg * 2);
+    if (ccApplied) dmg = Math.round(dmg * 1.5);
   }
-  // 마지막 일격 — 적 HP 30% 이하 시 ×1.6
+  // 마지막 일격 — 적 HP 30% 이하 시 ×2.0
   if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.30) {
-    dmg = Math.round(dmg * 1.6);
+    dmg = Math.round(dmg * 2.0);
   }
   // 혼의 강타 — 매 5번째 액션 ×3
   if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
@@ -2777,9 +2777,9 @@ function monsterAction(s: ActiveSession): void {
       if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
     }
 
-    // #10 paragon_dim_chain — 받는 데미지 +30%
+    // #10 paragon_dim_chain — 받는 데미지 +100%
     if (getPassive(s, 'paragon_dim_chain') > 0 && dmg > 0) {
-      dmg = Math.round(dmg * 1.3);
+      dmg = Math.round(dmg * 2.0);
     }
 
     // 데미지 감소 총합 한계 70% — 최종 데미지는 원본의 30% 이상 보장
