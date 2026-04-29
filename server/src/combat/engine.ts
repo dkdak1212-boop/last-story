@@ -1507,6 +1507,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 치명타 후속 (재충전·흡혈) — 모든 스킬 타입 공통
         applyCritPostEffects(s, dmg, d.crit);
 
+        // 도적 치명 절격: 메인 hit 에 독 5 stack 부여
+        if (skill.name === '치명 절격') {
+          const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+          const POISON_MULT = 1.8;
+          const dotDmg = Math.round(dotBase * POISON_MULT);
+          const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+          for (let n = 0; n < 5; n++) {
+            addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
+          }
+          addLog(s, `[${skill.name}] 독 5 stack 부여 (${dotDmg}/행동 x${3 + poisonLordExt})`);
+        }
+
         // 패시브: bleed_on_hit (타격 시 출혈)
         const bleedChance = getPassive(s, 'bleed_on_hit');
         if (bleedChance > 0 && Math.random() * 100 < bleedChance) {
@@ -1565,6 +1577,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
               // 치명타 후속 (재충전·흡혈) — 2회차 타격에도 적용 (이전 누락)
               applyCritPostEffects(s, dmg2, d2.crit, '2회차');
+              // 도적 치명 절격: 2회차에도 독 추가 1 stack (총 5~6 stack)
+              if (skill.name === '치명 절격') {
+                const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+                const POISON_MULT = 1.8;
+                const dotDmg = Math.round(dotBase * POISON_MULT);
+                const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+                addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
+                addLog(s, `[${skill.name}] 2회차 독 +1 stack`);
+              }
               // 최후의 일격: 2회차 타격에도 흡혈 적용 — 110 몬스터는 피흡 면역
               if (skill.name === '최후의 일격' && dmg2 > 0 && !s.monsterLifestealImmune) {
                 let heal2 = Math.round(dmg2 * 50 / 100);
@@ -1675,6 +1696,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             // 접두사 흡혈 — 타격마다 적용
             const pLifesteal = applyPrefixLifesteal(s, dmg);
             if (pLifesteal > 0) addLog(s, `[흡혈] HP +${pLifesteal}`);
+            // 도적 암흑의 심판: 1타 5 stack + 2타 1 stack = 총 6 stack (5~6 범위)
+            if (skill.name === '암흑의 심판') {
+              const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+              const POISON_MULT = 1.8;
+              const dotDmg = Math.round(dotBase * POISON_MULT);
+              const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+              const stacks = (i === 0) ? 5 : 1;
+              for (let n = 0; n < stacks; n++) {
+                addEffect(s, { type: 'poison', value: dotDmg, remainingActions: 3 + poisonLordExt, source: 'player', dotMult: POISON_MULT, dotUseMatk: useMatk });
+              }
+            }
             // 전사 분노 축적 — 각 적중마다 +5 (3연타 기본 = 15, 추가 타 시 더 많이 충전)
             if (s.className === 'warrior') {
               s.rage = Math.min(100, s.rage + 5);
