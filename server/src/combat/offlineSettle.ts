@@ -176,7 +176,7 @@ async function sampleDropsFromField(fieldId: number, killsInc: number, dropMult:
 // 동시 settleOfflineRewards 호출 제한 — pool 부하 차단 (semaphore=5)
 let _settleConcurrent = 0;
 const _settleQueue: Array<() => void> = [];
-const SETTLE_MAX_CONCURRENT = 5;
+const SETTLE_MAX_CONCURRENT = 2;
 async function _acquireSettleSlot(): Promise<void> {
   if (_settleConcurrent < SETTLE_MAX_CONCURRENT) {
     _settleConcurrent++;

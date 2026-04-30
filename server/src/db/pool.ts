@@ -12,8 +12,8 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 75,                        // Railway PG max_connections=100. 평균값 보상 후 burst 처리용 일시 75 (60 → 75).
-                                  // 이전 85 → 53300 too many clients 사고 후 60 복구. 75 는 안전 마진 25.
+  max: 80,                        // Railway PG max_connections=100. burst 정체로 일시 80 (60→75→80).
+                                  // 이전 85 → 53300 too many clients 사고 후 60 복구. 80 은 안전 마진 20.
                                   // 안정화 후 60 복원 권장.
   min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
   idleTimeoutMillis: 10_000,      // idle 연결 빠르게 해제해 burst 대응 가용량 확보.
