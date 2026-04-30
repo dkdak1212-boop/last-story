@@ -1492,6 +1492,49 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           s.rage = rageReduce > 0 ? Math.round(s.rage * (rageReduce / 100)) : 0;
           rageProc = true;
         }
+        // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 — 단일 'damage' case 누락 보강 ──
+        if (getPassive(s, 'paragon_heavy_blade') > 0) dmg = Math.round(dmg * 2.0);
+        if (getPassive(s, 'paragon_fate_lock') > 0) dmg = Math.round(dmg * 1.75);
+        if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
+          dmg = Math.round(dmg * 1.5);
+        }
+        if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0) {
+          const ratio = s.monsterHp / s.monsterMaxHp;
+          if (ratio >= 1.0) dmg = Math.round(dmg * 3);
+          else if (ratio <= 0.5) dmg = Math.round(dmg * 0.3);
+        }
+        if (getPassive(s, 'paragon_dormant_burst') > 0 && s.ticksSinceLastHit >= 50) {
+          dmg = Math.round(dmg * 3);
+          s.ticksSinceLastHit = 0;
+          addLog(s, '[잠재된 폭발] 다음 공격 ×3!');
+        }
+        if (getPassive(s, 'paragon_madness_slide') > 0) {
+          const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
+          dmg = Math.round(dmg * (0.5 + 2.5 * (1 - hpRatio)));
+        }
+        if (getPassive(s, 'paragon_quick_decision') > 0) dmg = Math.round(dmg * 0.7);
+        if (getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
+          dmg = Math.round(dmg * 3);
+          s.paragonFailurePending = false;
+          addLog(s, '[실패의 영광] ×3!');
+        }
+        if (s.paragonCrystalActive) dmg = Math.round(dmg * 3);
+        if (getPassive(s, 'paragon_isolation_instinct') > 0) {
+          const ccApplied = s.statusEffects.some(e =>
+            e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
+          );
+          if (ccApplied) dmg = Math.round(dmg * 1.5);
+        }
+        if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.30) {
+          dmg = Math.round(dmg * 2.0);
+        }
+        if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
+          dmg = Math.round(dmg * 3);
+        }
+        // 110 몬스터 dr_pct — 받는 데미지 감쇠
+        if (s.monsterDrPct > 0) {
+          dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
+        }
         s.monsterHp -= dmg;
         if (rageProc) {
           addLog(s, `🔥 [분노 폭발!] ${dmg} 데미지 (×3)`);
