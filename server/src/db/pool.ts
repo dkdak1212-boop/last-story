@@ -12,8 +12,8 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 170,                       // 2026-04-30: 풀 140 도 waiting=137~191 발생 → 170 으로 추가 확장.
-                                  // PG max_connections 200, 외부 ~20-30 마진 후 안전 한도.
+  max: 200,                       // 2026-04-30: PG max_connections 200→300 상향 후 풀 170→200.
+                                  // 외부 connections (~30-50) 안전 마진 50 확보. settle 트랜잭션 장기 점유에도 견딤.
   min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
   idleTimeoutMillis: 10_000,      // idle 10s — 평소 부하에서는 자연 회수.
   connectionTimeoutMillis: 10_000,

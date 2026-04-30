@@ -173,12 +173,13 @@ async function sampleDropsFromField(fieldId: number, killsInc: number, dropMult:
   return [...out.entries()].map(([itemId, qty]) => ({ itemId, qty }));
 }
 
-// 동시 settleOfflineRewards 호출 제한 — pool 부하 차단 (semaphore=2)
-// 2026-04-30: 풀 140→170 확장에도 waiting=191 발생 → 3→2 로 추가 강화.
-// settleOfflineRewards 트랜잭션이 드랍필터/우편/인벤 다수 쓰기로 connection 길게 점유.
+// 동시 settleOfflineRewards 호출 제한 — pool 부하 차단 (semaphore=1, 직렬화)
+// 2026-04-30: 풀 170 + 동시 2 에서도 waiting=148, SLOW TICK 525ms 재발.
+// 드랍필터 100~200개 처리 트랜잭션이 connection 장기 점유 → 완전 직렬 처리로 강제.
+// 진입 정산 큐가 더 느려지지만 풀 고갈만은 차단.
 let _settleConcurrent = 0;
 const _settleQueue: Array<() => void> = [];
-const SETTLE_MAX_CONCURRENT = 2;
+const SETTLE_MAX_CONCURRENT = 1;
 async function _acquireSettleSlot(): Promise<void> {
   if (_settleConcurrent < SETTLE_MAX_CONCURRENT) {
     _settleConcurrent++;
