@@ -3803,9 +3803,15 @@ async function combatTick(): Promise<void> {
   const tickScaleGlobal = dtMsGlobal / TICK_TARGET_MS;
 
   // 세션을 병렬로 처리 — 구독자 없는 세션은 즉시 오프라인 정산으로 이행 후 제거
+  // 단, 세션 시작 후 10초 이내(grace)에는 sessionHasSubscriber 판정 skip:
+  // 자동복구(/combat/state) → startCombatSession 직후 클라가 WS subscribe 보내기 전에
+  // 다음 tick 이 즉시 onSessionGoOffline 호출하여 무한 루프(생성→정리→생성) 발생 방지.
+  const SESSION_SUBSCRIBE_GRACE_MS = 10_000;
   const tasks: Promise<void>[] = [];
   for (const [charId, s] of activeSessions) {
-    if (!sessionHasSubscriber(charId)) {
+    const startedAt = sessionStartedMap.get(charId) || 0;
+    const inGrace = startedAt > 0 && (now - startedAt) < SESSION_SUBSCRIBE_GRACE_MS;
+    if (!inGrace && !sessionHasSubscriber(charId)) {
       // fire-and-forget — 다음 tick 까지 정리 완료, 이번 tick 은 시뮬 안 함
       onSessionGoOffline(s).catch(err => console.error('[combat] go-offline err', charId, err));
       continue;
@@ -4767,6 +4773,9 @@ async function startCombatSessionInner(
   }
 
   activeSessions.set(characterId, session);
+  // 세션 시작 시각 박제 — combatTick 의 sessionHasSubscriber 검사에 grace 적용.
+  // 자동복구(/combat/state) ↔ WS subscribe 사이에 클라가 구독 메시지 보낼 시간 보장.
+  sessionStartedMap.set(characterId, Date.now());
 
   // 메타 캐시 선로드 — handleMonsterDeath 가 첫 킬부터 cache hit 되도록.
   // 실패해도 handleMonsterDeath 에 null-safe 폴백 있음.
