@@ -413,6 +413,9 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
       // 부스트 받는 동안의 delta 는 부스트 배수로 정규화하여 base 효율로 누적.
       // 정산 시점에 부스트 active 면 별도 곱연산 (offlineSettle.ts) → 정확한 환산.
       // 신규 캐릭(event_exp_until 부스트 받는 Lv.1~94) 도 즉시 EMA 측정 시작.
+      // 시공의 균열(field:23) 사냥 중엔 EMA 갱신 SKIP — 어뷰즈 차단.
+      // 시공의 폭증 효율이 다른 사냥터 오프라인 정산에 누적되는 패턴 차단.
+      // exp/gold/kill 합산은 정상 적용 (보상 자체는 받음).
       await query(
         `UPDATE characters c SET
            exp = c.exp + v.exp_d,
@@ -420,7 +423,8 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
            total_kills = c.total_kills + v.kill_d,
            total_gold_earned = c.total_gold_earned + v.earned_d,
            current_field_kills = COALESCE(c.current_field_kills, 0) + v.kill_d,
-           online_exp_rate = c.online_exp_rate * 0.99 +
+           online_exp_rate = CASE WHEN c.location = 'field:23' THEN c.online_exp_rate ELSE
+             c.online_exp_rate * 0.99 +
              (v.exp_d::numeric / GREATEST(1.0,
                (CASE WHEN c.exp_boost_until > NOW() THEN 1.5 ELSE 1 END)
                * (CASE WHEN c.event_exp_until > NOW()
@@ -429,18 +433,21 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
                * (CASE WHEN COALESCE(c.personal_exp_mult, 1) > 1
                        AND (c.personal_exp_mult_max_level IS NULL OR c.level < c.personal_exp_mult_max_level)
                   THEN c.personal_exp_mult ELSE 1 END)
-             )) * 0.01,
-           online_gold_rate = c.online_gold_rate * 0.99 +
+             )) * 0.01 END,
+           online_gold_rate = CASE WHEN c.location = 'field:23' THEN c.online_gold_rate ELSE
+             c.online_gold_rate * 0.99 +
              (v.earned_d::numeric / GREATEST(1.0,
                CASE WHEN c.gold_boost_until > NOW() THEN 1.5 ELSE 1 END
-             )) * 0.01,
-           online_kill_rate = c.online_kill_rate * 0.99 + v.kill_d::numeric * 0.01,
-           online_drop_rate = c.online_drop_rate * 0.99 +
+             )) * 0.01 END,
+           online_kill_rate = CASE WHEN c.location = 'field:23' THEN c.online_kill_rate ELSE
+             c.online_kill_rate * 0.99 + v.kill_d::numeric * 0.01 END,
+           online_drop_rate = CASE WHEN c.location = 'field:23' THEN c.online_drop_rate ELSE
+             c.online_drop_rate * 0.99 +
              (v.drop_d::numeric / GREATEST(1.0,
                (CASE WHEN c.drop_boost_until > NOW() THEN 1.5 ELSE 1 END)
                * (CASE WHEN c.event_drop_until > NOW()
                   THEN 1 + COALESCE(c.event_drop_pct, 0) / 100.0 ELSE 1 END)
-             )) * 0.01
+             )) * 0.01 END
          FROM (
            SELECT
              unnest($1::int[])    AS id,
