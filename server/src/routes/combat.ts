@@ -42,6 +42,17 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     return res.status(400).json({ error: '길드 보스는 길드 메뉴에서만 진입 가능합니다.' });
   }
 
+  // 오프라인 모드 가드 (2026-04-30): last_offline_at NOT NULL 인 캐릭은 진입 차단.
+  // 시공의 균열 통행증 차감/카운트 증가가 먼저 실행된 후 startCombatSession 이
+  // silent block 되면 통행증만 날아가는 버그 차단. 사용자는 먼저 오프라인 정산
+  // (/resume-from-offline) 후 진입해야 함.
+  const offCheck = await query<{ last_offline_at: string | null }>(
+    'SELECT last_offline_at FROM characters WHERE id = $1', [id]
+  );
+  if (offCheck.rows[0]?.last_offline_at) {
+    return res.status(400).json({ error: '오프라인 모드입니다. 먼저 오프라인 사냥을 중단해주세요.' });
+  }
+
   // 시공의 균열 (id=23) — 일반 오픈. Lv.100 + 일일 2회 제한 + 30분 영속 타이머.
   if (fieldId === 23) {
     // 일일 입장 카운트 체크 — 활성 타이머(30분 안) 내 재진입은 카운트 안 함
