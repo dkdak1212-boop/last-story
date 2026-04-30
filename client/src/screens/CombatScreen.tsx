@@ -217,6 +217,8 @@ export function CombatScreen() {
 
   // 종언의 기둥 — 진행 상태 폴링 (5초 간격, fieldName 매치 시만). 카운트다운은 500ms tick.
   const isEndless = state?.fieldName === '종언의 기둥';
+  // 시공의 균열 — 30분 영속 타이머 카운트다운에도 endlessNowTick 재활용
+  const isRift = state?.fieldName === '시공의 균열';
   useEffect(() => {
     if (!isEndless || !active) { setEndlessState(null); return; }
     let cancelled = false;
@@ -235,10 +237,10 @@ export function CombatScreen() {
     setEndlessFloorStartedAt(Date.now());
   }, [isEndless, state?.monster?.name]);
   useEffect(() => {
-    if (!isEndless) return;
+    if (!isEndless && !isRift) return;
     const id = setInterval(() => setEndlessNowTick(Date.now()), 500);
     return () => clearInterval(id);
-  }, [isEndless]);
+  }, [isEndless, isRift]);
 
   const toggleAuto = useCallback(async () => {
     if (!active) return;
