@@ -285,6 +285,12 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   const finalChance = Math.min(1.0, info.chance + bonusChance);
   const success = Math.random() < finalChance;
 
+  // 일일퀘 강화 시도 카운트 (성공/실패 무관 매 시도 +1)
+  try {
+    const { trackDailyQuestProgress } = await import('./dailyQuests.js');
+    await trackDailyQuestProgress(cid, 'enhance', 1);
+  } catch {}
+
   if (success) {
     if (parsed.data.kind === 'inventory') {
       await query(
@@ -307,10 +313,8 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, char.name, itemName, itemGrade, currentLevel, currentLevel + 1]
       );
     }
-    // 일일퀘 + 업적 트래킹
+    // 업적 트래킹 (강화 성공 시 max_enhance_level 갱신 + 업적)
     try {
-      const { trackDailyQuestProgress } = await import('./dailyQuests.js');
-      await trackDailyQuestProgress(cid, 'enhance', 1);
       const newLv = currentLevel + 1;
       await query('UPDATE characters SET max_enhance_level = GREATEST(max_enhance_level, $1) WHERE id = $2', [newLv, cid]);
       const { checkAndUnlockAchievements } = await import('../game/achievements.js');

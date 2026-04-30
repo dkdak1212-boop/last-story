@@ -1574,7 +1574,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         if (skill.effect_type === 'double_chance') {
           if (Math.random() * 100 < skill.effect_value) {
-            const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, skill.flat_damage);
+            // 2회차 hit 도 1회차와 동일한 base flat (skillFlatWithInt — 창세의 빛 INT×5000 등) 적용
+            const flatFor2nd = skillFlatWithInt(skill, s.playerStats.int || 0);
+            const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, flatFor2nd);
             if (!d2.miss) {
               let dmg2 = d2.damage;
               if (spellAmp > 0) dmg2 = Math.round(dmg2 * (1 + spellAmp / 100));
