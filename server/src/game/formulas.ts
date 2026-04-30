@@ -39,11 +39,15 @@ export function sumEquipmentStats(
 }
 
 // 노드 스탯 합산
-export function sumNodeStats(nodeEffects: { type: string; stat?: string; value: number }[]): Partial<Stats> {
+export function sumNodeStats(nodeEffects: { type: string; stat?: string; key?: string; value: number }[]): Partial<Stats> {
   const acc: Partial<Stats> = {};
   for (const e of nodeEffects) {
-    if (e.type === 'stat' && e.stat) {
-      acc[e.stat as keyof Stats] = (acc[e.stat as keyof Stats] ?? 0) + e.value;
+    if (e.type !== 'stat') continue;
+    // 일부 노드 데이터가 stat 이름을 'key' 필드로 잘못 저장한 케이스 fallback (id 163/762/766 사례).
+    // 정상은 'stat' 필드 사용. fallback 으로 'key' 도 허용해 재발 시에도 안전.
+    const statKey = e.stat || e.key;
+    if (statKey) {
+      acc[statKey as keyof Stats] = (acc[statKey as keyof Stats] ?? 0) + e.value;
     }
   }
   return acc;
