@@ -15,6 +15,10 @@ interface CharStatus {
   baseStats: Stats; baseMaxHp: number;
   equipBonus: Partial<Stats>;
   nodeBonus: Partial<Stats>;
+  balanceInversion?: boolean;
+  baseStatsOriginal?: Partial<Stats> | null;
+  equipBonusOriginal?: Partial<Stats> | null;
+  nodeBonusOriginal?: Partial<Stats> | null;
   effective: Stats & { maxHp: number; atk: number; matk: number; def: number; mdef: number; dodge: number; accuracy: number };
   guildBuff: { name: string; pct: number } | null;
   prefixBonuses: Record<string, number>;
@@ -309,7 +313,18 @@ export function StatusScreen() {
               </div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 50px 50px 50px 55px 130px', gap: 4, fontSize: 12, alignItems: 'center' }}>
+          {status.balanceInversion && (
+            <div style={{
+              marginBottom: 10, padding: '8px 10px',
+              background: 'rgba(218,165,32,0.10)',
+              border: '1px solid #daa520', borderRadius: 4,
+              fontSize: 11, lineHeight: 1.5,
+            }}>
+              <span style={{ color: '#daa520', fontWeight: 700 }}>🔄 반대의 균형 적용 중</span>
+              <span style={{ color: 'var(--text-dim)' }}> — 힘↔지능, 민첩↔체력 교체 후 ×1.5. 아래 표는 <b>변환된 값</b>이며, 우측에 원본(swap 전 + ×1.5 미적용) 을 함께 표기합니다.</span>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: status.balanceInversion ? '1fr 70px 70px 70px 55px 130px' : '1fr 50px 50px 50px 55px 130px', gap: 4, fontSize: 12, alignItems: 'center' }}>
             <div style={{ color: 'var(--text-dim)' }}></div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>기본</div>
             <div style={{ color: 'var(--text-dim)', textAlign: 'right' }}>장비</div>
@@ -322,12 +337,24 @@ export function StatusScreen() {
               const node = (status.nodeBonus?.[k] || 0) as number;
               const total = status.effective[k] || 0;
               const spendable = k === 'str' || k === 'dex' || k === 'int' || k === 'vit';
+              // 반대의 균형 적용 시: 원본(swap 전) 값 표기 — STR ← INT, DEX ← VIT
+              const inv = status.balanceInversion;
+              const srcKey: Record<string, keyof Stats> = { str: 'int', int: 'str', dex: 'vit', vit: 'dex' };
+              const srcK = inv && srcKey[k as string] ? srcKey[k as string] : null;
+              const baseOrig = inv && srcK ? ((status.baseStatsOriginal?.[srcK] as number) || 0) : null;
+              const eqOrig = inv && srcK ? ((status.equipBonusOriginal?.[srcK] as number) || 0) : null;
+              const nodeOrig = inv && srcK ? ((status.nodeBonusOriginal?.[srcK] as number) || 0) : null;
+              const swapHint = inv && srcK ? `← ${STAT_LABEL[srcK]}` : null;
               return (
                 <StatRow key={k} label={STAT_LABEL[k]} base={base} eq={eq} node={node} total={total}
                   canSpend={spendable && status.statPoints > 0 && !busy}
                   spendable={spendable}
                   statPoints={status.statPoints}
                   onSpend={(amt: number) => spendStat(k, amt)}
+                  swapHint={swapHint}
+                  baseOrig={baseOrig}
+                  eqOrig={eqOrig}
+                  nodeOrig={nodeOrig}
                 />
               );
             })}
@@ -457,7 +484,7 @@ function Desc({ text }: { text: string }) {
   );
 }
 
-function StatRow({ label, base, eq, node, total, canSpend, spendable = true, statPoints = 0, onSpend }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; spendable?: boolean; statPoints?: number; onSpend?: (amount: number) => void }) {
+function StatRow({ label, base, eq, node, total, canSpend, spendable = true, statPoints = 0, onSpend, swapHint, baseOrig, eqOrig, nodeOrig }: { label: string; base: number; eq: number; node: number; total: number; canSpend?: boolean; spendable?: boolean; statPoints?: number; onSpend?: (amount: number) => void; swapHint?: string | null; baseOrig?: number | null; eqOrig?: number | null; nodeOrig?: number | null }) {
   const btnStyle = (amt: number) => {
     const ok = canSpend && statPoints >= amt;
     return {
@@ -469,15 +496,27 @@ function StatRow({ label, base, eq, node, total, canSpend, spendable = true, sta
       opacity: ok ? 1 : 0.4, minWidth: 22,
     };
   };
+  // 반대의 균형: 원본(swap 전, ×1.5 미적용) 값을 작게 병기
+  const subOrig = (orig: number | null | undefined, plus = false) =>
+    orig != null && orig > 0 ? (
+      <span style={{ fontSize: 9, color: 'var(--text-dim)', marginLeft: 3 }}>
+        ({plus ? '+' : ''}{orig})
+      </span>
+    ) : null;
   return (
     <>
-      <div style={{ color: 'var(--text)' }}>{label}</div>
-      <div style={{ textAlign: 'right' }}>{base}</div>
+      <div style={{ color: 'var(--text)' }}>
+        {label}
+        {swapHint && <span style={{ fontSize: 10, color: '#daa520', marginLeft: 4 }}>{swapHint}</span>}
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        {base}{subOrig(baseOrig)}
+      </div>
       <div style={{ textAlign: 'right', color: eq > 0 ? 'var(--success)' : 'var(--text-dim)' }}>
-        {eq > 0 ? `+${eq}` : '-'}
+        {eq > 0 ? `+${eq}` : '-'}{subOrig(eqOrig, true)}
       </div>
       <div style={{ textAlign: 'right', color: node > 0 ? '#8b8bef' : 'var(--text-dim)' }}>
-        {node > 0 ? `+${node}` : '-'}
+        {node > 0 ? `+${node}` : '-'}{subOrig(nodeOrig, true)}
       </div>
       <div style={{ textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{total}</div>
       {spendable ? (

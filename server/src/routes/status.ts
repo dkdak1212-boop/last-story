@@ -111,10 +111,14 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
 
   // 반대의 균형(paragon_balance_inversion) 보유 시 base/equip/node 표시값도 swap 후로 변환.
   // 이렇게 해야 base+eq+node ≈ total 이 일관되어 상태창에서 sense 가 맞음.
+  // 클라이언트에 원본(pre-swap) 도 함께 전달하여 "STR ← INT 202 × 1.5 = 303" 류 가시화 가능.
   const hasBalanceInv = nodeEffects.some(e => e.type === 'passive' && e.key === 'paragon_balance_inversion');
   let baseStatsDisplay = char.stats as any;
   let equipBonus: any = equipBonusRaw;
   let nodeBonus: any = nodeBonusRaw;
+  let baseStatsOriginal: any = null;
+  let equipBonusOriginal: any = null;
+  let nodeBonusOriginal: any = null;
   if (hasBalanceInv) {
     const swap = (obj: any) => {
       if (!obj) return obj;
@@ -126,6 +130,9 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
       o.vit = Math.round(oD * 1.5);
       return o;
     };
+    baseStatsOriginal = { ...char.stats };
+    equipBonusOriginal = { ...equipBonusRaw };
+    nodeBonusOriginal = { ...nodeBonusRaw };
     baseStatsDisplay = swap(char.stats);
     equipBonus = swap(equipBonusRaw);
     nodeBonus = swap(nodeBonusRaw);
@@ -244,6 +251,10 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     baseMaxHp: char.max_hp,
     equipBonus,
     nodeBonus,
+    balanceInversion: hasBalanceInv,
+    baseStatsOriginal,
+    equipBonusOriginal,
+    nodeBonusOriginal,
     effective: {
       str: effective.str, dex: effective.dex, int: effective.int,
       vit: effective.vit, spd: effective.spd, cri: effective.cri,

@@ -1129,6 +1129,8 @@ function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActio
     if (eff.source === actor && eff.remainingActions > 0) {
       // 쉴드는 몬스터 턴에 감소하지 않음 — 플레이어 턴에만 감소 (아래 tickShield에서 처리)
       if (eff.type === 'shield') continue;
+      // 소환수 무한유지 (2026-04-30): summon 본체는 시간 감소 없음 (사망/맵이동 등 외부 사건으로만 해제)
+      if (eff.type === 'summon') continue;
       // 같은 액션 사이클에서 새로 적용된 효과는 즉시 감소시키지 않는다 (1틱 손실 방지)
       if (preActionIds && !preActionIds.has(eff.id)) continue;
       eff.remainingActions--;
@@ -2305,15 +2307,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           addLog(s, `[소환] ${skill.name} 교체 소환! (${dominantType} 정리)`);
         }
       }
-      const durBonus = getPassive(s, 'summon_duration');
-      const infinite = getPassive(s, 'summon_infinite') > 0;
-      const dur = infinite ? 999 : skill.effect_duration + durBonus;
+      // 소환수 무한유지 (2026-04-30): 모든 소환수 영구 지속, 노드/장비 옵션 무시
+      const dur = 999999;
       const healMarker = skill.effect_type === 'summon_heal' ? -1 : 0;
       const multiHits = skill.effect_type === 'summon_multi' ? 3 : 1;
       const effectiveValue = skill.effect_type === 'summon_multi' ? skill.effect_value * multiHits : skill.effect_value;
       addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined, summonSkillName: skill.name });
-      addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, ${infinite ? '무한' : dur + '행동'})`);
-      // 소환_도트: 추가로 화상 도트도 부여
+      addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, 무한)`);
+      // 소환_도트: 추가로 화상 도트도 부여 (소환수와 함께 무한 지속)
       if (skill.effect_type === 'summon_dot') {
         const dotBase = s.playerStats.matk;
         const DOT_MULT = 1.56;
@@ -4515,19 +4516,19 @@ async function startCombatSessionInner(
       'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
     );
     if (offCheck.rows[0]?.last_offline_at) {
-      if (guildBossOpts) {
-        try {
-          const { settleOfflineRewards } = await import('./offlineSettle.js');
-          await settleOfflineRewards(characterId);
-          console.log('[combat] guildBoss 진입 — 오프라인 보상 자동 정산', characterId);
-        } catch (e) {
-          console.error('[combat] guildBoss 진입 시 오프라인 정산 실패', characterId, e);
-        }
-      } else {
-        // 로그 스팸 방지 — 같은 캐릭 30초 throttle (운영 추적용 최소 빈도 유지)
+      // 2026-04-30: 일반 필드 진입도 길드보스와 동일하게 자동 정산 후 진입.
+      // 정산 누락(클라 /offline/resume 미호출 등)으로 last_offline_at 가 stuck 되어
+      // "적을 찾는 중" 무한 표시되는 311+ 캐릭 사례 차단.
+      try {
+        const { settleOfflineRewards } = await import('./offlineSettle.js');
+        await settleOfflineRewards(characterId);
+        console.log(`[combat] ${guildBossOpts ? 'guildBoss' : '필드'} 진입 — 오프라인 보상 자동 정산`, characterId);
+      } catch (e) {
+        console.error(`[combat] ${guildBossOpts ? 'guildBoss' : '필드'} 진입 시 오프라인 정산 실패`, characterId, e);
+        // 정산 실패 시 안전하게 진입 차단 (기존 보존). 단, 로그 스팸은 30초 throttle.
         const last = blockedLogThrottle.get(characterId) || 0;
         if (Date.now() - last >= 30_000) {
-          console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
+          console.log('[combat] startCombatSession blocked — settle failed', characterId);
           blockedLogThrottle.set(characterId, Date.now());
         }
         return;

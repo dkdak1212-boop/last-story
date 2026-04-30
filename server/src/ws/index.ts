@@ -163,7 +163,10 @@ export function initWebSocket(httpServer: HttpServer) {
         );
         const row = r.rows[0];
         if (!row || row.user_id !== socket.data.userId) return;
-        if (row.last_offline_at) return; // 오프라인 모드 — 자동 세션 시작 차단
+        // 2026-04-30: location 이 field:N 인데 last_offline_at NOT NULL 이면
+        // 정산 누락 stuck 케이스 — startCombatSession 가 자동 정산 후 진입한다.
+        // 마을(location='village')에서 last_offline_at NOT NULL 은 정상 오프라인 모드 → skip.
+        if (row.last_offline_at && !(row.location && row.location.startsWith('field:'))) return;
         if (row.location && row.location.startsWith('field:')) {
           const fid = parseInt(row.location.slice(6), 10);
           if (!Number.isNaN(fid) && fid > 0) {
