@@ -766,39 +766,8 @@ export function CombatScreen() {
         );
       })()}
 
-      {/* 시공의 균열 — 30분 영속 타이머 표시 (남은 시간) */}
-      {state.fieldName === '시공의 균열' && state.riftExpiresAt && (() => {
-        const remainMs = Math.max(0, state.riftExpiresAt - endlessNowTick);
-        const totalSec = Math.floor(remainMs / 1000);
-        const m = Math.floor(totalSec / 60);
-        const sec = totalSec % 60;
-        const lowTime = remainMs < 5 * 60_000; // 5분 미만 강조
-        return (
-          <div style={{
-            marginBottom: 10, padding: '8px 12px',
-            background: lowTime ? 'rgba(255,80,80,0.15)' : 'rgba(170,120,255,0.10)',
-            border: `1px solid ${lowTime ? '#ff5050' : '#a24bff'}`,
-            borderRadius: 4,
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            fontSize: 12,
-          }}>
-            <span style={{ color: lowTime ? '#ff8888' : '#c97bff', fontWeight: 700 }}>
-              ⌛ 시공의 균열 — 던전 제한시간
-            </span>
-            <span style={{
-              fontSize: 16, fontWeight: 900,
-              color: lowTime ? '#ff5050' : '#fff',
-              fontFamily: 'monospace',
-              letterSpacing: 1,
-            }}>
-              {m.toString().padStart(2, '0')}:{sec.toString().padStart(2, '0')}
-            </span>
-          </div>
-        );
-      })()}
-
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <h2 style={{ color: 'var(--accent)' }}>{state.fieldName || '전투 중'}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -852,6 +821,37 @@ export function CombatScreen() {
           </button>
         </div>
       </div>
+
+      {/* 시공의 균열 — 30분 영속 타이머 표시 (자동/마을 귀환 버튼 아래, 항상 노출) */}
+      {state.fieldName === '시공의 균열' && state.riftExpiresAt && (() => {
+        const remainMs = Math.max(0, state.riftExpiresAt - endlessNowTick);
+        const totalSec = Math.floor(remainMs / 1000);
+        const m = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        const lowTime = remainMs < 5 * 60_000; // 5분 미만 강조
+        return (
+          <div style={{
+            marginBottom: 12, padding: '8px 12px',
+            background: lowTime ? 'rgba(255,80,80,0.15)' : 'rgba(170,120,255,0.10)',
+            border: `1px solid ${lowTime ? '#ff5050' : '#a24bff'}`,
+            borderRadius: 4,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: 12,
+          }}>
+            <span style={{ color: lowTime ? '#ff8888' : '#c97bff', fontWeight: 700 }}>
+              ⌛ 시공의 균열 — 던전 제한시간
+            </span>
+            <span style={{
+              fontSize: 16, fontWeight: 900,
+              color: lowTime ? '#ff5050' : '#fff',
+              fontFamily: 'monospace',
+              letterSpacing: 1,
+            }}>
+              {m.toString().padStart(2, '0')}:{sec.toString().padStart(2, '0')}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Combat log (상단 배치) — 터치/휠/클릭 시 자동스크롤 정지 · 토글 가능 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
