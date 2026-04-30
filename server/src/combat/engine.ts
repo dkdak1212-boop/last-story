@@ -4452,21 +4452,23 @@ export async function startCombatSession(
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
 
-  // 멱등성: guildBoss 진입이 아닐 때 최근 시작 + 같은 fieldId + 활성 세션 보유면 skip.
-  // 활성 세션 fieldId 도 일치 검사 — 사냥터 이동(다른 field) 호출은 통과해야 함.
+  // 멱등성: guildBoss 진입이 아닐 때 최근 시작(같은 fieldId)이 30초 내 있으면 skip.
+  // activeSession 존재 여부는 체크하지 않음 — inner 가 DB 타임아웃 등으로 실패 시
+  // session 이 set 안 돼도 재시도 폭주를 차단하기 위함. 사냥터 이동(다른 field) 은 통과.
+  // 정상 stopCombatSession 시 recentStartAt 도 같이 delete 되므로 명시적 재시작은 영향 없음.
+  // recentStartAt 은 inner 진입 직전에 즉시 set — 실패한 시도도 30초간 재시도 차단.
   if (!guildBossOpts) {
     const last = recentStartAt.get(characterId);
-    const sess = activeSessions.get(characterId);
-    if (last && Date.now() - last.at < START_DEDUP_MS
-        && last.fieldId === fieldId
-        && sess && sess.fieldId === fieldId) {
+    if (last && Date.now() - last.at < START_DEDUP_MS && last.fieldId === fieldId) {
       return;
     }
   }
 
+  // 즉시 마킹 — 실패해도 재시도 차단 보장
+  recentStartAt.set(characterId, { at: Date.now(), fieldId });
+
   const p = startCombatSessionInner(characterId, fieldId, guildBossOpts, opts).finally(() => {
     startInFlight.delete(characterId);
-    recentStartAt.set(characterId, { at: Date.now(), fieldId });
   });
   startInFlight.set(characterId, p);
   return p;
