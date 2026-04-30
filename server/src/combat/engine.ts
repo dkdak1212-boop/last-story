@@ -3391,7 +3391,23 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.hasFirstStrike = true;
     s.hasFirstSkill = true;
     s.monsterSpawnAt = Date.now();
-    s.endlessFloorStartedAt = Date.now();
+    // 종언 — DB 의 floor_started_at 영속값 복원. 없으면 NOW() 로 새로 박제.
+    {
+      const fr = await query<{ fsa: string | null }>(
+        `SELECT floor_started_at::text AS fsa FROM endless_pillar_progress WHERE character_id = $1`,
+        [s.characterId]
+      );
+      const persistedMs = fr.rows[0]?.fsa ? new Date(fr.rows[0].fsa).getTime() : 0;
+      if (persistedMs > 0) {
+        s.endlessFloorStartedAt = persistedMs;
+      } else {
+        s.endlessFloorStartedAt = Date.now();
+        await query(
+          `UPDATE endless_pillar_progress SET floor_started_at = NOW() WHERE character_id = $1`,
+          [s.characterId]
+        );
+      }
+    }
     // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
     s.monsterDrPct = Number(stats.dr_pct ?? 0);
     s.monsterCcImmune = stats.cc_immune === true;
@@ -5018,12 +5034,40 @@ setInterval(() => {
     }
   }
   if (cleaned > 0) console.log(`[combat-cleanup] stopped ${cleaned} offline sessions (>24h, no subscriber, remaining=${activeSessions.size})`);
-  if (riftKicked > 0) console.log(`[rift-110] timed-out ${riftKicked} sessions (1h limit, kicked to village)`);
+  if (riftKicked > 0) console.log(`[rift-110] timed-out ${riftKicked} sessions (30분 제한, 마을 귀환)`);
   // 비활성 세션 캐시 정리 (메모리 누수 방지)
   for (const id of lastAchievementCheckAt.keys()) if (!activeSessions.has(id)) lastAchievementCheckAt.delete(id);
   for (const id of questMonsterCache.keys()) if (!activeSessions.has(id)) questMonsterCache.delete(id);
   for (const id of lastMetaRefreshAt.keys()) if (!activeSessions.has(id)) lastMetaRefreshAt.delete(id);
 }, 60_000);
+
+// 종언의 기둥 — paused=true 상태에서 floor_started_at 기준 60초 초과 시 자동 사망 처리.
+// disconnect 후 재진입 안 해서 활성 세션 외에 있는 캐릭의 시간 어뷰즈 차단.
+setInterval(() => {
+  void (async () => {
+    try {
+      const r = await query<{ character_id: number; current_floor: number }>(
+        `SELECT character_id, current_floor
+           FROM endless_pillar_progress
+          WHERE paused = TRUE
+            AND current_floor > 0
+            AND floor_started_at IS NOT NULL
+            AND NOW() - floor_started_at >= INTERVAL '60 seconds'`
+      );
+      for (const row of r.rows) {
+        const cid = row.character_id;
+        // 이미 활성 세션이면 메인 tick 이 처리 — 스킵
+        if (activeSessions.has(cid)) continue;
+        // 사망 처리: recordDeath 가 -10층/HP=0/paused=true/floor_started_at=NULL 일괄 처리
+        const { recordDeath } = await import('../game/endlessPillar.js');
+        await recordDeath(cid);
+        console.log(`[endless-timeout] char ${cid} 종언 ${row.current_floor}층 60초 초과 → 자동 사망`);
+      }
+    } catch (e) {
+      console.error('[endless-timeout] cleanup err', e);
+    }
+  })();
+}, 30_000);
 
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };

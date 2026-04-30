@@ -20,6 +20,7 @@ export interface EndlessProgress {
   daily_highest_at: string | null;
   total_kills: string;        // bigint as string
   total_deaths: number;
+  floor_started_at: string | null;  // 현재 층 시작 시각 (영속) — disconnect 후 재진입 시 시간 이어감
 }
 
 export function isBossFloor(floor: number): boolean {
@@ -64,6 +65,7 @@ export async function loadProgress(characterId: number): Promise<EndlessProgress
 }
 
 // 일시정지 — 외부 이동 / 세션 끊김 시 호출. current_hp 와 함께 저장.
+// floor_started_at 은 일부러 유지 — 재진입 시 같은 시각 기준 60초 제한 이어감.
 export async function pauseProgress(characterId: number, currentHp: number): Promise<void> {
   await query(
     `UPDATE endless_pillar_progress
@@ -100,7 +102,7 @@ export async function recordFloorClear(
     [characterId, clearedFloor, Math.max(0, Math.floor(clearTimeMs))]
   );
   const newFloor = clearedFloor + 1;
-  // daily_highest 는 최고치 갱신 시 daily_highest_at 도 갱신 (동점 처리용 — 첫 도달 시각).
+  // 새 층 시작 시각 갱신 — 60초 타이머 새로 시작
   const r = await query<{ daily_highest_floor: number }>(
     `UPDATE endless_pillar_progress
        SET current_floor = $2,
@@ -111,6 +113,7 @@ export async function recordFloorClear(
              WHEN $2 > daily_highest_floor THEN NOW()
              ELSE daily_highest_at
            END,
+           floor_started_at = NOW(),
            last_updated = NOW()
      WHERE character_id = $1
      RETURNING daily_highest_floor`,
@@ -125,6 +128,7 @@ export async function recordFloorClear(
 
 // 사망 — 현재 층 -10 (최소 1층 유지), total_deaths++, paused=true
 // 인터뷰 변경 (2026-04-27): 1층 완전 회귀 → -10층으로 완화
+// floor_started_at 도 초기화 — 다음 진입 시 새 60초 타이머 시작
 export async function recordDeath(characterId: number): Promise<void> {
   await query(
     `UPDATE endless_pillar_progress
@@ -132,6 +136,7 @@ export async function recordDeath(characterId: number): Promise<void> {
            current_hp = 0,
            paused = TRUE,
            total_deaths = total_deaths + 1,
+           floor_started_at = NULL,
            last_updated = NOW()
      WHERE character_id = $1`,
     [characterId]
