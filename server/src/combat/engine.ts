@@ -4518,19 +4518,22 @@ async function startCombatSessionInner(
       'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
     );
     if (offCheck.rows[0]?.last_offline_at) {
-      // 2026-04-30: 일반 필드 진입도 길드보스와 동일하게 자동 정산 후 진입.
-      // 정산 누락(클라 /offline/resume 미호출 등)으로 last_offline_at 가 stuck 되어
-      // "적을 찾는 중" 무한 표시되는 311+ 캐릭 사례 차단.
-      try {
-        const { settleOfflineRewards } = await import('./offlineSettle.js');
-        await settleOfflineRewards(characterId);
-        console.log(`[combat] ${guildBossOpts ? 'guildBoss' : '필드'} 진입 — 오프라인 보상 자동 정산`, characterId);
-      } catch (e) {
-        console.error(`[combat] ${guildBossOpts ? 'guildBoss' : '필드'} 진입 시 오프라인 정산 실패`, characterId, e);
-        // 정산 실패 시 안전하게 진입 차단 (기존 보존). 단, 로그 스팸은 30초 throttle.
+      if (guildBossOpts) {
+        // 길드보스만 자동 정산 후 진입 (시간 제한 컨텐츠라 정산 화면 띄울 수 없음).
+        try {
+          const { settleOfflineRewards } = await import('./offlineSettle.js');
+          await settleOfflineRewards(characterId);
+          console.log('[combat] guildBoss 진입 — 오프라인 보상 자동 정산', characterId);
+        } catch (e) {
+          console.error('[combat] guildBoss 진입 시 오프라인 정산 실패', characterId, e);
+        }
+      } else {
+        // 일반 필드: 자동 정산 X — 클라이언트가 offlineMode 화면을 띄워
+        // 사용자가 "중단" 클릭하면 /resume-from-offline 으로 정산받는 흐름.
+        // 로그 스팸 방지 — 같은 캐릭 30초 throttle.
         const last = blockedLogThrottle.get(characterId) || 0;
         if (Date.now() - last >= 30_000) {
-          console.log('[combat] startCombatSession blocked — settle failed', characterId);
+          console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
           blockedLogThrottle.set(characterId, Date.now());
         }
         return;
