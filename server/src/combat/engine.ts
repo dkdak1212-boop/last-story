@@ -1404,10 +1404,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const criBonus = skill.effect_type === 'crit_bonus' ? skill.effect_value : 0;
       // armor_pierce 적용: 몬스터 방어력 감소 복사본
       // 분노의 일격: 방어 50% 추가 무시
-      // 절대 파괴 / 대멸절: 방어 100% 무시 (고정 피어스)
+      // 절대 파괴: 방어 100% 무시 (고정 피어스)
+      // 대멸절: 2026-04-30 방어무시 100% 제거 + multi_hit 3타 로 변경 (이제 multi_hit 케이스로 라우팅)
       const furyPierce =
         skill.name === '분노의 일격' ? 50 :
-        (skill.name === '절대 파괴' || skill.name === '대멸절') ? 100 : 0;
+        skill.name === '절대 파괴' ? 100 : 0;
       const destroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
       const totalDefReduce = Math.min(100, armorPierce + prefixDefReduce + prefixDefPierce + furyPierce + destroyerWill);
       const defModStats = totalDefReduce > 0 ? {
