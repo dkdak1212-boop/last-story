@@ -53,7 +53,10 @@ export function calcDotTickDamage(
     } else {
       if (ctx.dotResistPct > 0) dmg = Math.round(dmg * (1 - ctx.dotResistPct / 100));
     }
-    dmg = Math.max(1, dmg - defReduce);
+    // 최소 데미지 보장 — 증폭된 도트 데미지의 10% 는 방어 무관 통과 (calcDamage 와 일관)
+    // 페인 로드 등 도트 증폭이 고방어 적에게도 체감되도록.
+    const minDmg = Math.max(1, Math.round(dmg * 0.10));
+    dmg = Math.max(minDmg, dmg - defReduce);
     total += dmg;
   }
   return { totalDamage: total, count: dots.length };
