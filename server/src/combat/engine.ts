@@ -68,6 +68,7 @@ interface CombatSnapshot {
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
+  riftExpiresAt?: number; // 시공의 균열 — 30분 영속 타이머 만료시각(ms epoch)
   summons?: { skillName: string; element?: string; remainingActions: number }[]; // 소환사 전용: 활성 소환수 목록
   afk?: {
     mode: boolean;
@@ -4969,6 +4970,8 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
     },
     serverTime: Date.now(),
     guildBossRunId: s.guildBossRunId ?? undefined,
+    // 시공의 균열 — 30분 영속 타이머 만료시각 (클라이언트 카운트다운 표시용)
+    riftExpiresAt: s.fieldId === RIFT_110_FIELD_ID ? s.enteredFieldAt + RIFT_110_TIMEOUT_MS : undefined,
   };
 }
 
