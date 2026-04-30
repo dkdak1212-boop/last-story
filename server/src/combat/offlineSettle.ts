@@ -455,6 +455,11 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
 
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
     let filteredCount = 0;
+    // 2026-04-30: settle 트랜잭션이 connection 장기 점유 → SLOW TICK 폭주.
+    // 한 캐릭당 처리할 비유니크 장비 인스턴스 수 상한 100. 초과는 폐기 카운트로.
+    // 일반 사냥 1회 정산이면 100개 이내 충분. 인벤 가득 + 장기 정산 케이스만 일부 손실.
+    const MAX_INSTANCES_PER_SETTLE = 100;
+    let processedInstances = 0;
     // 비유니크 장비는 인스턴스별로 prefix 새로 굴리고 필터 체크 — 온라인 사냥과 동일.
     // 과거 stack 단위 1회 prefix → qty 통째로 필터되는 버그 (T1 필터 시 거의 전손) 수정.
     const { generatePrefixes } = await import('../game/prefix.js');
@@ -474,6 +479,12 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
         // 비유니크 장비 — 인스턴스별 처리
         let acceptedQty = 0;
         for (let inst = 0; inst < d.qty; inst++) {
+          // 인스턴스 처리 상한 — 트랜잭션 장기 점유 차단
+          if (processedInstances >= MAX_INSTANCES_PER_SETTLE) {
+            filteredCount++;
+            continue;
+          }
+          processedInstances++;
           const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level || 1);
           const quality = Math.floor(Math.random() * 101);
           const preroll: EquipPreroll = { prefixIds, bonusStats, maxTier, quality };
