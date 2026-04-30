@@ -104,10 +104,32 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   if (!char) return res.status(404).json({ error: 'not found' });
 
   const equipped = await getEquippedItems(cid);
-  const equipBonus = sumEquipmentStats(equipped);
+  const equipBonusRaw = sumEquipmentStats(equipped);
   const nodeEffects = await getNodeEffects(cid);
-  const nodeBonus = sumNodeStats(nodeEffects);
+  const nodeBonusRaw = sumNodeStats(nodeEffects);
   const effective = await getEffectiveStats(char);
+
+  // 반대의 균형(paragon_balance_inversion) 보유 시 base/equip/node 표시값도 swap 후로 변환.
+  // 이렇게 해야 base+eq+node ≈ total 이 일관되어 상태창에서 sense 가 맞음.
+  const hasBalanceInv = nodeEffects.some(e => e.type === 'passive' && e.key === 'paragon_balance_inversion');
+  let baseStatsDisplay = char.stats as any;
+  let equipBonus: any = equipBonusRaw;
+  let nodeBonus: any = nodeBonusRaw;
+  if (hasBalanceInv) {
+    const swap = (obj: any) => {
+      if (!obj) return obj;
+      const o: any = { ...obj };
+      const oS = obj.str || 0, oI = obj.int || 0, oD = obj.dex || 0, oV = obj.vit || 0;
+      o.str = Math.round(oI * 1.5);
+      o.int = Math.round(oS * 1.5);
+      o.dex = Math.round(oV * 1.5);
+      o.vit = Math.round(oD * 1.5);
+      return o;
+    };
+    baseStatsDisplay = swap(char.stats);
+    equipBonus = swap(equipBonusRaw);
+    nodeBonus = swap(nodeBonusRaw);
+  }
 
   // 접두사 합산 (장비별 prefix_stats)
   const prefixR = await query<{ enhance_level: number; prefix_stats: Record<string, number> | null }>(
@@ -218,7 +240,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     nodePoints: char.node_points,
     statPoints: (char as any).stat_points || 0,
     className: char.class_name,
-    baseStats: char.stats,
+    baseStats: baseStatsDisplay,
     baseMaxHp: char.max_hp,
     equipBonus,
     nodeBonus,
