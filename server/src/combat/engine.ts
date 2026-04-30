@@ -2503,11 +2503,24 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'poison_burst':
       return poisonCount > 0; // 독 없으면 낭비
     case 'summon_storm':
-    case 'summon_all':
     case 'summon_sacrifice': {
       // 활성 소환수가 없으면 낭비 — 스킵
       const hasSummon = s.statusEffects.some(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
       return hasSummon;
+    }
+    case 'summon_all': {
+      // 활성 소환수가 없으면 낭비 — 스킵
+      const hasSummon = s.statusEffects.some(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+      if (!hasSummon) return false;
+      // 슬롯 안에 ready 상태인 소환수 생성 스킬이 있으면 그게 먼저 — 모든 소환수 공격은 후순위 fallback.
+      // 사용자가 슬롯 1 에 모든 소환수 공격을 두어도 소환 사이클이 막히지 않도록.
+      const SUMMON_SPAWN_TYPES = new Set(['summon', 'summon_tank', 'summon_dot', 'summon_heal', 'summon_multi']);
+      const anyReadySpawn = s.skills.some(other =>
+        other.id !== sk.id &&
+        SUMMON_SPAWN_TYPES.has(other.effect_type) &&
+        isSkillReady(s, other)
+      );
+      return !anyReadySpawn;
     }
     case 'self_speed_mod': {
       // 자해 페널티(음수)는 항상 사용 가능
