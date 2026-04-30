@@ -29,17 +29,30 @@ router.post('/:characterId/spend-stat', async (req: AuthedRequest, res: Response
   const sp = (char as any).stat_points || 0;
   if (sp < parsed.data.amount) return res.status(400).json({ error: '스탯 포인트 부족' });
 
+  // 반대의 균형 보유 시 DEX↔VIT swap — max_hp 가산 대상도 swap.
+  // DEX 분배 시 max_hp +20/포인트 (사용자 입력 DEX 가 키스톤에 의해 VIT 로 변환되므로).
+  // VIT 분배 시 max_hp 가산 없음 (VIT 입력은 DEX 로 변환).
+  const invR = await query<{ x: number }>(
+    `SELECT 1 AS x FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE cn.character_id = $1
+        AND nd.effects::text LIKE '%paragon_balance_inversion%'
+      LIMIT 1`, [cid]
+  );
+  const hasInversion = (invR.rowCount ?? 0) > 0;
+  const hpAddingStat = hasInversion ? 'dex' : 'vit';
+
   const statKey = parsed.data.stat;
   const amt = parsed.data.amount;
-  if (statKey === 'vit') {
-    // VIT는 max_hp도 함께 +10/point (현재 HP는 그대로 — 회복 효과 없음)
+  if (statKey === hpAddingStat) {
+    // max_hp +20/포인트 (반대 균형 시 DEX, 일반 시 VIT)
     await query(
       `UPDATE characters
          SET stat_points = stat_points - $1,
-             stats = jsonb_set(stats, '{vit}', (COALESCE((stats->>'vit')::int,0) + $1)::text::jsonb),
+             stats = jsonb_set(stats, $4::text[], (COALESCE((stats->>$5)::int,0) + $1)::text::jsonb),
              max_hp = max_hp + $1 * $2
        WHERE id = $3`,
-      [amt, HP_PER_VIT, cid]
+      [amt, HP_PER_VIT, cid, `{${statKey}}`, statKey]
     );
   } else {
     await query(
@@ -81,7 +94,16 @@ router.post('/:characterId/reset-stats', async (req: AuthedRequest, res: Respons
     int: start.stats.int,
     vit: start.stats.vit,
   };
-  const hpRefund = spentVit * HP_PER_VIT;
+  // 반대의 균형 보유 시 DEX 분배가 max_hp 를 늘렸으므로 환불 대상도 DEX. 일반은 VIT.
+  const invR2 = await query<{ x: number }>(
+    `SELECT 1 AS x FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE cn.character_id = $1
+        AND nd.effects::text LIKE '%paragon_balance_inversion%'
+      LIMIT 1`, [cid]
+  );
+  const hasInversionRst = (invR2.rowCount ?? 0) > 0;
+  const hpRefund = (hasInversionRst ? spentDex : spentVit) * HP_PER_VIT;
 
   await query(
     `UPDATE characters
