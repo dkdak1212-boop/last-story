@@ -9,9 +9,16 @@ import { invalidateSessionMeta } from '../combat/engine.js';
 const router = Router();
 router.use(authRequired);
 
+// 30초 캐시 — 매 호출마다 PG round-trip 하면 53300 too-many-clients 직접적 원인.
+// 날짜는 자정에만 바뀌므로 30초 stale 무관.
+let _todayCache: { d: string; until: number } | null = null;
 async function todayFromDB(): Promise<string> {
+  const now = Date.now();
+  if (_todayCache && now < _todayCache.until) return _todayCache.d;
   const r = await query<{ d: string }>("SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date::text AS d");
-  return r.rows[0].d;
+  const d = r.rows[0].d;
+  _todayCache = { d, until: now + 30_000 };
+  return d;
 }
 
 // 오늘의 퀘스트 할당 (없으면 랜덤 3개)

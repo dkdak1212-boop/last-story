@@ -12,10 +12,11 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 80,                        // Railway PG max_connections=100. 트래픽 증가(sessions 156+) 대응 80 (70→80).
-                                  // 53300 사고 한계 85 미만, 마진 20. 새벽 한산 시 60 복귀 권장.
+  max: 70,                        // 2026-04-30: 53300 'too many clients' 재발생 → 80→70 강하.
+                                  // Railway PG max_connections=100, admin·migrate·psql·다른 서비스 마진 30 확보.
+                                  // 풀 max 70 + 외부 connections (10~20) → 안전 한도 ~85~90 유지.
   min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
-  idleTimeoutMillis: 10_000,      // idle 연결 빠르게 해제해 burst 대응 가용량 확보.
+  idleTimeoutMillis: 5_000,       // idle 빠르게 해제 (10s → 5s) — burst 대응 가용량 확보.
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
   query_timeout: 10_000,
