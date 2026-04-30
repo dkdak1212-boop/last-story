@@ -4439,6 +4439,8 @@ async function endOtherCharsForUser(userId: number, currentCharId: number): Prom
 
 // startCombatSession blocked 로그 스팸 방지 throttle — 같은 캐릭 30초 1회만 출력
 const blockedLogThrottle = new Map<number, number>();
+// 소환수 restored 로그 throttle — Railway 500 logs/sec 한도 회피
+const restoreLogThrottle = new Map<number, number>();
 
 // 같은 user 의 다른 캐릭 active session 시작 시각(ms) 배열 반환.
 // settleOfflineRewards 가 본캐 오프라인 구간에 부캐 active 사냥한 시간을
@@ -4747,7 +4749,12 @@ async function startCombatSessionInner(
         element: eff.element, summonSkillName: eff.summonSkillName, dotUseMatk: eff.dotUseMatk,
       });
     }
-    console.log(`[combat] restored ${savedSummons.length} summons for char ${characterId}`);
+    // 같은 캐릭 30초 내 반복 출력 차단 (Railway log rate-limit 회피)
+    const _last = restoreLogThrottle.get(characterId) || 0;
+    if (Date.now() - _last >= 30_000) {
+      console.log(`[combat] restored ${savedSummons.length} summons for char ${characterId}`);
+      restoreLogThrottle.set(characterId, Date.now());
+    }
   }
   if (savedCooldowns) {
     for (const [k, v] of Object.entries(savedCooldowns)) {
@@ -4833,7 +4840,12 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   // 세션 타이머 Map 도 같이 정리 — 좀비 entry 방지 (예외 경로 포함)
   sessionStartedMap.delete(characterId);
   sessionLastTickAt.delete(characterId);
-  recentStartAt.delete(characterId);
+  // 2026-04-30: keepLocation=true (24h cleanup, location='field:%' 유지) 시 recentStartAt 유지.
+  // 폴링/WS subscribe 자동복구가 30초 throttle 안에서 startCombatSession 폭주하는 것 차단.
+  // keepLocation=false (마을 귀환) 는 자동복구 안 되므로 정리해도 무방.
+  if (!opts.keepLocation) {
+    recentStartAt.delete(characterId);
+  }
 }
 
 export async function refreshSessionSkills(characterId: number): Promise<void> {
