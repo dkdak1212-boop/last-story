@@ -173,8 +173,30 @@ async function sampleDropsFromField(fieldId: number, killsInc: number, dropMult:
   return [...out.entries()].map(([itemId, qty]) => ({ itemId, qty }));
 }
 
+// 동시 settleOfflineRewards 호출 제한 — pool 부하 차단 (semaphore=5)
+let _settleConcurrent = 0;
+const _settleQueue: Array<() => void> = [];
+const SETTLE_MAX_CONCURRENT = 5;
+async function _acquireSettleSlot(): Promise<void> {
+  if (_settleConcurrent < SETTLE_MAX_CONCURRENT) {
+    _settleConcurrent++;
+    return;
+  }
+  await new Promise<void>(resolve => _settleQueue.push(resolve));
+  _settleConcurrent++;
+}
+function _releaseSettleSlot(): void {
+  _settleConcurrent--;
+  const next = _settleQueue.shift();
+  if (next) next();
+}
+
 export async function settleOfflineRewards(charId: number): Promise<OfflineRewardResult> {
+  await _acquireSettleSlot();
+  let _client: import('pg').PoolClient | null = null;
+  try {
   const client = await pool.connect();
+  _client = client;
   try {
     await client.query('BEGIN');
     // 1) row lock + 현재 상태 조회 (부스트 컬럼 포함)
@@ -503,5 +525,8 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     return { applied: false };
   } finally {
     client.release();
+  }
+  } finally {
+    _releaseSettleSlot();
   }
 }

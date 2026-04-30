@@ -23,6 +23,10 @@ router.use(authRequired);
 
 const enterSchema = z.object({ fieldId: z.number().int().positive() });
 
+// /combat/state 자동복구 throttle — 같은 캐릭이 5초 안 반복 호출 시 자동복구 스킵
+const autoRestartThrottle = new Map<number, number>();
+const AUTO_RESTART_THROTTLE_MS = 5000;
+
 // 필드 진입
 router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
@@ -219,7 +223,19 @@ router.get('/:id/combat/state', async (req: AuthedRequest, res: Response) => {
 
   let snapshot = await getCombatSnapshot(id);
   // 세션 없음 + 필드 위치 → 자동 재시작 (배포/재시작 후 세션 휘발 복구)
+  // throttle: 같은 캐릭 5초 안 반복 자동복구 시도 차단 — burst 시 쿼리 폭주 방지
+  const _now = Date.now();
+  const _lastTry = autoRestartThrottle.get(id) || 0;
+  if (!snapshot && char.location && char.location.startsWith('field:') && _now - _lastTry < AUTO_RESTART_THROTTLE_MS) {
+    return res.json({ inCombat: false, player: { hp: char.hp, maxHp: char.max_hp } });
+  }
   if (!snapshot && char.location && char.location.startsWith('field:')) {
+    autoRestartThrottle.set(id, _now);
+    // 메모리 정리 (10분 이상 된 항목 삭제)
+    if (autoRestartThrottle.size > 1000) {
+      const cutoff = _now - 10 * 60_000;
+      for (const [k, v] of autoRestartThrottle) if (v < cutoff) autoRestartThrottle.delete(k);
+    }
     const fieldId = parseInt(char.location.slice(6), 10);
     if (!Number.isNaN(fieldId) && fieldId > 0) {
       try {
