@@ -28,10 +28,13 @@ export async function clampOverflowPoints(): Promise<ClampResult> {
        FROM characters`
   );
 
+  // paragon zone 노드는 별도 paragon_points 풀로 구매하므로 일반 node_points 기댓값에 포함 X.
+  // (이전엔 zone 필터 없이 합산해 paragon 노드 cost 만큼 node_points 가 깎이는 버그)
   const spentR = await query<{ character_id: number; total: string }>(
     `SELECT cn.character_id, COALESCE(SUM(nd.cost), 0)::text AS total
        FROM character_nodes cn
        JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE nd.zone <> 'paragon'
       GROUP BY cn.character_id`
   );
   const spentMap = new Map(spentR.rows.map(r => [r.character_id, Number(r.total)]));
@@ -111,7 +114,7 @@ export async function clampCharacterPoints(characterId: number): Promise<void> {
     const spentR = await query<{ total: string }>(
       `SELECT COALESCE(SUM(nd.cost), 0)::text AS total
          FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
-        WHERE cn.character_id = $1`, [characterId]
+        WHERE cn.character_id = $1 AND nd.zone <> 'paragon'`, [characterId]
     );
     const nodeSpent = Number(spentR.rows[0]?.total || 0);
     const expectedNode = Math.max(0, c.level - 1);
