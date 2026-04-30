@@ -1098,6 +1098,8 @@ function getTotalDotAmpRaw(s: ActiveSession): number {
 // DEX 1당 +0.35% 크리티컬 데미지 (전 클래스 공통 — 자동 가산)
 function getCritDmgBonus(s: ActiveSession): number {
   let bonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
+  // 차원의 정수 — 잔혹 (paragon_crit_dmg_pct, value 1 = +1% 치명타 데미지)
+  bonus += getPassive(s, 'paragon_crit_dmg_pct');
   bonus += (s.playerStats.dex || 0) * 0.35;
   const dotToCrit = getPassive(s, 'dot_to_crit');
   if (dotToCrit > 0) {

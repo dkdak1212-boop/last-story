@@ -65,7 +65,8 @@ export async function attackBoss(characterId: number) {
   const passiveMap = new Map(passives.map(p => [p.key, p.value]));
   const armorPierce = passiveMap.get('armor_pierce') || 0;
   const spellAmp = mageClass ? (passiveMap.get('spell_amp') || 0) : 0;
-  const critDmgBonus = passiveMap.get('crit_damage') || 0;
+  const critDmgBonus = (passiveMap.get('crit_damage') || 0)
+    + (passiveMap.get('paragon_crit_dmg_pct') || 0); // 차원의 정수 — 잔혹
   const cdReduce = passiveMap.get('cooldown_reduce') || 0;
 
   // 장비 접두사 특수 효과 로드
