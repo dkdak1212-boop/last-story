@@ -5151,7 +5151,7 @@ setInterval(() => {
         const cid = row.character_id;
         // 이미 활성 세션이면 메인 tick 이 처리 — 스킵
         if (activeSessions.has(cid)) continue;
-        // 사망 처리: recordDeath 가 -10층/HP=0/paused=true/floor_started_at=NULL 일괄 처리
+        // 사망 처리: recordDeath 가 -1층/HP=0/paused=true/floor_started_at=NULL 일괄 처리
         const { recordDeath } = await import('../game/endlessPillar.js');
         await recordDeath(cid);
         console.log(`[endless-timeout] char ${cid} 종언 ${row.current_floor}층 60초 초과 → 자동 사망`);

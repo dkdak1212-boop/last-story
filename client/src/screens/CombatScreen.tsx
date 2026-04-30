@@ -441,7 +441,7 @@ export function CombatScreen() {
       await refreshActive();
       nav('/village');
     };
-    // 종언의 기둥 사망 모달 — 1층 회귀 + 다시 도전 / 마을로
+    // 종언의 기둥 사망 모달 — 1층 하락 + 다시 도전 / 마을로
     if (state.fieldName === '종언의 기둥' && active) {
       const reachedFloor = endlessState?.currentFloor ?? 1;
       const dailyMax = endlessState?.dailyHighestFloor ?? 0;
@@ -471,7 +471,7 @@ export function CombatScreen() {
               종언의 기둥
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#ff5050', marginBottom: 12 }}>
-              1층으로 회귀합니다
+              1층 하락합니다
             </div>
             <div style={{
               display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20,
@@ -796,14 +796,14 @@ export function CombatScreen() {
           {state.fieldName === '종언의 기둥' && active && (
             <button
               onClick={async () => {
-                if (!confirm('현재 층 진행을 포기하고 1층으로 회귀합니다. 진행하시겠습니까?')) return;
+                if (!confirm('현재 층 진행을 포기하고 1층 하락합니다. 진행하시겠습니까?')) return;
                 try {
                   await api(`/endless/${active.id}/give-up`, { method: 'POST' });
                   await refreshActive();
                   nav('/village');
                 } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
               }}
-              title="자진 포기 — 1층 회귀"
+              title="자진 포기 — 1층 하락"
               style={{
                 background: 'transparent', color: '#ff5050',
                 border: '1px solid #ff5050', fontWeight: 700,

@@ -126,13 +126,14 @@ export async function recordFloorClear(
   };
 }
 
-// 사망 — 현재 층 -10 (최소 1층 유지), total_deaths++, paused=true
+// 사망 — 현재 층 -1 (최소 1층 유지), total_deaths++, paused=true
 // 인터뷰 변경 (2026-04-27): 1층 완전 회귀 → -10층으로 완화
+// 인터뷰 변경 (2026-04-30): -10층 → -1층 으로 추가 완화
 // floor_started_at 도 초기화 — 다음 진입 시 새 60초 타이머 시작
 export async function recordDeath(characterId: number): Promise<void> {
   await query(
     `UPDATE endless_pillar_progress
-       SET current_floor = GREATEST(1, current_floor - 10),
+       SET current_floor = GREATEST(1, current_floor - 1),
            current_hp = 0,
            paused = TRUE,
            total_deaths = total_deaths + 1,
