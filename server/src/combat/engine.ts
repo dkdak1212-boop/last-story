@@ -5043,6 +5043,7 @@ setInterval(() => {
 
 // 종언의 기둥 — paused=true 상태에서 floor_started_at 기준 60초 초과 시 자동 사망 처리.
 // disconnect 후 재진입 안 해서 활성 세션 외에 있는 캐릭의 시간 어뷰즈 차단.
+// interval 5분 — 어뷰즈 정확성 충분 + DB 부담 최소화.
 setInterval(() => {
   void (async () => {
     try {
@@ -5067,7 +5068,7 @@ setInterval(() => {
       console.error('[endless-timeout] cleanup err', e);
     }
   })();
-}, 30_000);
+}, 300_000); // 5분 (이전 30초 — DB 부담 감소)
 
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
