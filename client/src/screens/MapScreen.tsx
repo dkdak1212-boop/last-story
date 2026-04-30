@@ -57,11 +57,28 @@ export function MapScreen() {
       }
       return;
     }
-    await api(`/characters/${active.id}/enter-field`, {
-      method: 'POST',
-      body: JSON.stringify({ fieldId }),
-    });
-    nav('/combat');
+    // 시공의 균열(23) — 활성 타이머가 없으면 새 30분 영속 타이머 시작 + 통행증 1장 차감.
+    // 잘못 들어가면 30분 갇히는 사고 방지로 경고창.
+    if (fieldId === 23 && riftLiveRemain === 0) {
+      const ok = confirm(
+        '⚠️ 시공의 균열 입장 안내\n\n' +
+        '· 차원의 통행증 1장이 소모됩니다\n' +
+        '· 30분 영속 타이머가 시작됩니다\n' +
+        '  (사망/탭이동/재접속 무관 30분 후 자동 마을 귀환)\n' +
+        '· 30분 안에는 동일 입장 무료 재진입 가능\n\n' +
+        '입장하시겠습니까?'
+      );
+      if (!ok) return;
+    }
+    try {
+      await api(`/characters/${active.id}/enter-field`, {
+        method: 'POST',
+        body: JSON.stringify({ fieldId }),
+      });
+      nav('/combat');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '입장 실패');
+    }
   }
 
   // 종언의 기둥은 fields API 가 반환하지만 monster_pool 비어있어 별도 표시 보강
