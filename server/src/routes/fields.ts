@@ -3,7 +3,24 @@ import { query } from '../db/pool.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
+  // 시공의 균열(23) 잔여 시간 표시를 위해 캐릭 id 옵션. 없으면 riftRemainMs 미포함.
+  const charIdRaw = req.query.characterId;
+  const charId = typeof charIdRaw === 'string' ? Number(charIdRaw) : NaN;
+  let riftRemainMs: number | null = null;
+  if (Number.isInteger(charId) && charId > 0) {
+    try {
+      const r = await query<{ rea: string | null }>(
+        'SELECT rift_entered_at::text AS rea FROM characters WHERE id = $1', [charId]
+      );
+      const enteredMs = r.rows[0]?.rea ? new Date(r.rows[0].rea).getTime() : 0;
+      if (enteredMs > 0) {
+        const remain = enteredMs + 30 * 60_000 - Date.now();
+        if (remain > 0) riftRemainMs = remain;
+      }
+    } catch { /* ignore */ }
+  }
+
   const r = await query<{
     id: number; name: string; requiredLevel: number; monsterPool: number[]; description: string;
   }>(
@@ -75,7 +92,7 @@ router.get('/', async (_req, res) => {
     }).filter(Boolean),
   }));
 
-  res.json(result);
+  res.json({ fields: result, riftRemainMs });
 });
 
 export default router;

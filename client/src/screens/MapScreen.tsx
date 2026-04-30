@@ -20,11 +20,30 @@ export function MapScreen() {
   const nav = useNavigate();
   const [fields, setFields] = useState<FieldData[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [riftExpiresAt, setRiftExpiresAt] = useState<number>(0);
+  const [nowTick, setNowTick] = useState<number>(Date.now());
   const active = useCharacterStore((s) => s.activeCharacter);
 
   useEffect(() => {
-    api<FieldData[]>('/fields').then(setFields).catch(() => {});
-  }, []);
+    const url = active ? `/fields?characterId=${active.id}` : '/fields';
+    api<FieldData[] | { fields: FieldData[]; riftRemainMs: number | null }>(url).then((res) => {
+      if (Array.isArray(res)) {
+        setFields(res);
+        setRiftExpiresAt(0);
+      } else {
+        setFields(res.fields);
+        setRiftExpiresAt(res.riftRemainMs && res.riftRemainMs > 0 ? Date.now() + res.riftRemainMs : 0);
+      }
+    }).catch(() => {});
+  }, [active]);
+
+  // 시공의 균열 카운트다운 — 1초 갱신 (만료시각 기준)
+  useEffect(() => {
+    if (riftExpiresAt <= 0) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [riftExpiresAt]);
+  const riftLiveRemain = riftExpiresAt > 0 ? Math.max(0, riftExpiresAt - nowTick) : 0;
 
   async function enter(fieldId: number) {
     if (!active) return;
@@ -85,6 +104,35 @@ export function MapScreen() {
                     <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 400 }}>
                       Lv.{f.requiredLevel}+
                     </span>
+                    {f.id === 23 && riftLiveRemain > 0 && (() => {
+                      const totalSec = Math.floor(riftLiveRemain / 1000);
+                      const m = Math.floor(totalSec / 60);
+                      const sec = totalSec % 60;
+                      const lowTime = riftLiveRemain < 5 * 60_000;
+                      return (
+                        <span style={{
+                          fontSize: 11, fontWeight: 700,
+                          padding: '2px 8px', borderRadius: 3,
+                          background: lowTime ? 'rgba(255,80,80,0.15)' : 'rgba(170,120,255,0.15)',
+                          border: `1px solid ${lowTime ? '#ff5050' : '#a24bff'}`,
+                          color: lowTime ? '#ff8888' : '#c97bff',
+                          fontFamily: 'monospace',
+                        }}>
+                          ⌛ 잔여 {m.toString().padStart(2, '0')}:{sec.toString().padStart(2, '0')} (재입장 무료)
+                        </span>
+                      );
+                    })()}
+                    {f.id === 23 && riftLiveRemain === 0 && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        padding: '2px 8px', borderRadius: 3,
+                        background: 'rgba(120,120,120,0.15)',
+                        border: '1px solid #888',
+                        color: '#bbb',
+                      }}>
+                        통행증 1장 필요
+                      </span>
+                    )}
                   </div>
                   <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 2 }}>
                     {f.description}
