@@ -5050,7 +5050,7 @@ export function sessionHasSubscriber(characterId: number): boolean {
   }
   return false;
 }
-const SESSION_MAX_MS = 30 * 60_000; // 무구독자 30분 후 자동 정리 (탭 닫힌 AFK 세션 부하 회수). keepLocation:true 라 재접속 시 자동 재시작 — 오프라인 보상 시스템과 무관.
+const SESSION_MAX_MS = 24 * 60 * 60_000; // 최대 24시간 연속 시뮬레이션 (30분 단축 시도 → cleanup 후 자동재연결 폭주로 롤백 2026-04-30)
 const RIFT_110_FIELD_ID = 23;
 const RIFT_110_TIMEOUT_MS = 30 * 60_000; // 시공의 균열 — 첫 진입 후 30분 만료 (사망/탭이동/재진입 무관 영속 타이머)
 setInterval(() => {
