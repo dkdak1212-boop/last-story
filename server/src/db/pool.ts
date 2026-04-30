@@ -12,9 +12,11 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 80,                        // Railway PG max_connections=100. burst 정체로 일시 80 (60→75→80).
-                                  // 이전 85 → 53300 too many clients 사고 후 60 복구. 80 은 안전 마진 20.
-                                  // 안정화 후 60 복원 권장.
+  max: 60,                        // Railway PG max_connections=100 고정. 85→60 (53300 too many clients 사고 후 복구).
+                                  // 단일 인스턴스 60 + 관리쿼리/마이그레이션/모니터 ~30 = ~90 (10 헤드룸 유지).
+                                  // 롤링 배포 시 2인스턴스 × 60 = 120 > 100 이지만 구 인스턴스 drain 동시 진행 →
+                                  // 50% 이상 겹치는 짧은 순간만 거부 가능. 사후 모니터링 시 잠깐의 53300 허용 범위.
+                                  // 본질 해결은 틱당 쿼리 수 절감 + refreshSessionMeta throttle (engine.ts).
   min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
   idleTimeoutMillis: 10_000,      // idle 연결 빠르게 해제해 burst 대응 가용량 확보.
   connectionTimeoutMillis: 10_000,
