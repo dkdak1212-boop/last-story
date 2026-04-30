@@ -3822,7 +3822,12 @@ async function combatTick(): Promise<void> {
   // 자동복구(/combat/state) → startCombatSession 직후 클라가 WS subscribe 보내기 전에
   // 다음 tick 이 즉시 onSessionGoOffline 호출하여 무한 루프(생성→정리→생성) 발생 방지.
   const SESSION_SUBSCRIBE_GRACE_MS = 10_000;
-  const tasks: Promise<void>[] = [];
+  // 동시 DB 풀 사용 cap — 122 세션 × 한 킬당 5~10 sequential 쿼리(loadCharacter, drops, spawn 등)
+  // 가 Promise.all 로 동시 폭발해 풀(160) 고갈, waiting=150 누적, tick 1.5~1.9s 발생.
+  // chunk 로 나눠 처리하면 풀 압박이 분산되어 skipped 틱 격감.
+  const TICK_CONCURRENCY = 32;
+  type SessionTask = { charId: number; s: ActiveSession };
+  const pending: SessionTask[] = [];
   for (const [charId, s] of activeSessions) {
     const startedAt = sessionStartedMap.get(charId) || 0;
     const inGrace = startedAt > 0 && (now - startedAt) < SESSION_SUBSCRIBE_GRACE_MS;
@@ -3832,9 +3837,12 @@ async function combatTick(): Promise<void> {
       continue;
     }
     s.offline = false;
-    const tickScale = tickScaleGlobal;
     sessionLastTickAt.set(charId, now);
-    tasks.push((async () => {
+    pending.push({ charId, s });
+  }
+
+  const runOne = async ({ charId, s }: SessionTask): Promise<void> => {
+    const tickScale = tickScaleGlobal;
     try {
       if (!s.monsterId) return;
 
@@ -4024,9 +4032,13 @@ async function combatTick(): Promise<void> {
     } catch (err) {
       console.error(`[combat] tick error for char ${charId}:`, err);
     }
-    })());
+  };
+
+  // chunk 단위로 풀 압박 분산 — chunk 내 병렬, chunk 간 순차
+  for (let i = 0; i < pending.length; i += TICK_CONCURRENCY) {
+    const chunk = pending.slice(i, i + TICK_CONCURRENCY);
+    await Promise.all(chunk.map(runOne));
   }
-  await Promise.all(tasks);
 }
 
 // ── 메타 캐시 로드 (exp/부스트/포션/길드버프를 한 번에) ──
