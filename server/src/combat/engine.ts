@@ -4419,6 +4419,9 @@ async function endOtherCharsForUser(userId: number, currentCharId: number): Prom
   }
 }
 
+// startCombatSession blocked 로그 스팸 방지 throttle — 같은 캐릭 30초 1회만 출력
+const blockedLogThrottle = new Map<number, number>();
+
 // 같은 user 의 다른 캐릭 active session 시작 시각(ms) 배열 반환.
 // settleOfflineRewards 가 본캐 오프라인 구간에 부캐 active 사냥한 시간을
 // elapsed 에서 차감하는 데 사용.
@@ -4498,7 +4501,12 @@ async function startCombatSessionInner(
           console.error('[combat] guildBoss 진입 시 오프라인 정산 실패', characterId, e);
         }
       } else {
-        console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
+        // 로그 스팸 방지 — 같은 캐릭 30초 throttle (운영 추적용 최소 빈도 유지)
+        const last = blockedLogThrottle.get(characterId) || 0;
+        if (Date.now() - last >= 30_000) {
+          console.log('[combat] startCombatSession blocked — char in offline mode', characterId);
+          blockedLogThrottle.set(characterId, Date.now());
+        }
         return;
       }
     }
