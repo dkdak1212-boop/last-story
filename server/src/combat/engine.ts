@@ -4391,6 +4391,13 @@ export function invalidateOfflineCharLimitCache(userId?: number): void {
 // 공유해 한 번만 실행.
 const startInFlight = new Map<number, Promise<void>>();
 
+// 멱등성 — 같은 char+field 가 최근 30초 내 시작됐고 활성 세션 보유 시 재시작 skip.
+// 클라이언트 자동 재연결/탭 복귀 등으로 startCombatSession 이 폭주 호출되는 사고
+// (2026-04-30 사례: 같은 char restored summons 8회 반복 → DB 폭증) 차단.
+// guildBoss 진입은 항상 새로 시작 — 별도 컨텐츠라 멱등 대상 아님.
+const recentStartAt = new Map<number, { at: number; fieldId: number }>();
+const START_DEDUP_MS = 30_000;
+
 // 같은 user 의 동시 online 세션 상한 — 계정당 최대 3캐릭 active 허용.
 // 4번째 진입 시 가장 오래된 세션부터 종료 (recordOfflineRewards: false → 단순 정리).
 // 오프라인 모드 캐릭(last_offline_at SET) 은 active session 이 아니므로 영향 없음
@@ -4444,8 +4451,22 @@ export async function startCombatSession(
 ): Promise<void> {
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
+
+  // 멱등성: guildBoss 진입이 아닐 때 최근 시작 + 같은 fieldId + 활성 세션 보유면 skip.
+  // 활성 세션 fieldId 도 일치 검사 — 사냥터 이동(다른 field) 호출은 통과해야 함.
+  if (!guildBossOpts) {
+    const last = recentStartAt.get(characterId);
+    const sess = activeSessions.get(characterId);
+    if (last && Date.now() - last.at < START_DEDUP_MS
+        && last.fieldId === fieldId
+        && sess && sess.fieldId === fieldId) {
+      return;
+    }
+  }
+
   const p = startCombatSessionInner(characterId, fieldId, guildBossOpts, opts).finally(() => {
     startInFlight.delete(characterId);
+    recentStartAt.set(characterId, { at: Date.now(), fieldId });
   });
   startInFlight.set(characterId, p);
   return p;
@@ -4793,6 +4814,7 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   // 세션 타이머 Map 도 같이 정리 — 좀비 entry 방지 (예외 경로 포함)
   sessionStartedMap.delete(characterId);
   sessionLastTickAt.delete(characterId);
+  recentStartAt.delete(characterId);
 }
 
 export async function refreshSessionSkills(characterId: number): Promise<void> {
