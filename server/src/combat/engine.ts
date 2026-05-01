@@ -242,6 +242,7 @@ interface ActiveSession {
   missStack: number; // 신중한 (miss_combo_pct) — 빗나감 누적 (cap 5)
   dodgeBurstPending: boolean; // 회피의 (evasion_burst_pct) — 회피 직후 다음 공격 보너스
   rage: number; // 전사 전용: 분노 게이지 (0~100, 100 시 다음 공격 ×3)
+  rageProcRemaining: number; // 전사 전용: 분노 폭발 잔여 행동 (0~3) — 플레이어 액션마다 −1, 0 일 때만 재발동
   manaFlowStacks: number; // 마법사 전용: 마나의 흐름 스택 (0~5)
   manaFlowActive: number; // 마법사 전용: 마나의 흐름 버스트 남은 행동 (0=비활성)
   dummyDamageTotal: number; // 허수아비 존: 누적 데미지
@@ -963,6 +964,8 @@ function applyDamagePrefixes(
   // 버프: atk_buff (자가 공격력 버프 — 전쟁의 함성 등)
   const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
   if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
+  // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (rageProcRemaining 카운터)
+  if (s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
   // 광전사 (내 HP 35% 이하)
   const berserk = s.equipPrefixes.berserk_pct || 0;
   if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
@@ -1614,18 +1617,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
         }
-        // 전사 분노 폭발 — 3행동 유지 (이전: 단일 hit ×3)
-        // 첫 hit 즉시 ×3 + atk_buff 200 으로 다음 2 hit 도 ×3 = 총 3 hit ×3.
-        // atk_buff 는 applyDamagePrefixes 에서 자동 적용 → 단일/다단/도트 분기 일괄.
-        // rage_reduce 패시브: 폭발 후 잔여 분노 (소모량 -N%)
+        // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (전용 카운터 rageProcRemaining 사용)
+        // 이전 atk_buff(source='monster') 방식은 monster 액션에서만 ticking 되어
+        // 트래시(몬스터가 행동 못하고 죽는 컨텐츠)에서 영원히 만료되지 않는 버그가 있었음.
+        // rage_reduce 패시브: 폭발 후 잔여 분노 (소모량 −N%)
         let rageProc = false;
-        if (s.className === 'warrior' && s.rage >= 100) {
+        if (s.className === 'warrior' && s.rage >= 100 && s.rageProcRemaining === 0) {
           const rageReduce = getPassive(s, 'rage_reduce');
           s.rage = rageReduce > 0 ? Math.round(s.rage * (rageReduce / 100)) : 0;
-          dmg = Math.round(dmg * 3);
-          addEffect(s, { type: 'atk_buff', value: 200, remainingActions: 2, source: 'monster' });
+          s.rageProcRemaining = 3; // 이번 액션 + 다음 2 액션
           rageProc = true;
         }
+        if (s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
         // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 — 단일 'damage' case 누락 보강 ──
         if (getPassive(s, 'paragon_heavy_blade') > 0) dmg = Math.round(dmg * 2.0);
         if (getPassive(s, 'paragon_fate_lock') > 0) dmg = Math.round(dmg * 1.75);
@@ -4244,6 +4247,8 @@ async function combatTick(): Promise<void> {
         processDots(s, 'monster');
         tickDownEffects(s, 'player', preAutoIds);
         tickShield(s);
+        // 전사 분노 폭발 카운터 — 액션 종료 시 −1
+        if (s.rageProcRemaining > 0) s.rageProcRemaining--;
         s.dirty = true;
         const dealtThisAction = Math.max(0, hpBeforePl - s.monsterHp);
         if (dealtThisAction > 0) s.sessionDamage += dealtThisAction;
@@ -4902,6 +4907,7 @@ async function startCombatSessionInner(
     missStack: 0,
     dodgeBurstPending: false,
     rage: 0, // 전사 분노 — 하단에서 DB 복원
+    rageProcRemaining: 0,
     manaFlowStacks: 0,
     manaFlowActive: 0,
     dummyDamageTotal: 0,
