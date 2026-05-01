@@ -25,7 +25,7 @@ import {
   recordDeath,
   recordFloorClear,
 } from '../game/endlessPillar.js';
-import { getItemDef, getPrefixStatKeys } from '../game/contentCache.js';
+import { getItemDef, getPrefixStatKeys, getFieldDef, getMonsterDef } from '../game/contentCache.js';
 import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
 import type { StatusEffect } from './shared.js';
@@ -585,9 +585,11 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
 }
 
 async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
-  const fr = await query<{ monster_pool: number[] }>('SELECT monster_pool FROM fields WHERE id = $1', [fieldId]);
-  if (fr.rowCount === 0) return null;
-  const pool = fr.rows[0].monster_pool;
+  // fields/monsters 메모리 캐시 사용 — 매 킬 2 sequential query 제거 (kill segment 58% → 감소).
+  // 콘텐츠는 서버 시작 시 1회 적재, 마이그레이션 시 서버 재시작이 표준 운영.
+  const f = await getFieldDef(fieldId);
+  if (!f) return null;
+  const pool = f.monster_pool;
   if (pool.length === 0) return null;
   let mid: number;
   // 시공의 균열 (id=23) — 가중 등장 (공몹 80% / 엘리트 19% / 보스 1%)
@@ -597,12 +599,8 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   } else {
     mid = pool[Math.floor(Math.random() * pool.length)];
   }
-  const mr = await query<MonsterDef>(
-    `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table,
-            COALESCE(skills, '[]'::jsonb) AS skills
-     FROM monsters WHERE id = $1`, [mid]
-  );
-  return mr.rows[0] || null;
+  const m = await getMonsterDef(mid);
+  return m ? (m as unknown as MonsterDef) : null;
 }
 
 // 장비 접두사 특수 효과 합산 로드
@@ -3430,16 +3428,13 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
       s.endlessFloor = prog.current_floor;
     }
     const monsterId = getMonsterIdForFloor(s.endlessFloor);
-    const r = await query<{ id: number; name: string; level: number; max_hp: number;
-      stats: Record<string, number | boolean>; skills: unknown[] }>(
-      `SELECT id, name, level, max_hp, stats, skills FROM monsters WHERE id = $1`, [monsterId]
-    );
-    if (r.rowCount === 0) {
+    const cached = await getMonsterDef(monsterId);
+    if (!cached) {
       s.monsterId = null;
       s.monsterDef = null;
       return;
     }
-    const m = r.rows[0];
+    const m = cached;
     const mult = getScaleMultiplier(s.endlessFloor);
     const scaledMaxHp = Math.floor(m.max_hp * mult);
     const stats = m.stats || {};

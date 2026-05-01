@@ -250,6 +250,16 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[items-cache] load error', e);
     }
+    // fields/monsters 캐시 — pickRandomMonster 의 매 킬 2 sequential query 제거.
+    try {
+      const { getFieldDef, getMonsterDef } = await import('./game/contentCache.js');
+      // 첫 호출이 캐시 적재 트리거 (id 무관)
+      await getFieldDef(1);
+      await getMonsterDef(1);
+      console.log('[content-cache] fields/monsters loaded');
+    } catch (e) {
+      console.error('[content-cache] load error', e);
+    }
     // 길드 멤버십 캐시 — 매 킬 SELECT guild_members 제거용
     try {
       await preloadGuildMemberCache();

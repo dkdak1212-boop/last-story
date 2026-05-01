@@ -1,8 +1,8 @@
 import { query } from '../db/pool.js';
 
-// 콘텐츠 테이블 (items / item_prefixes) 은 런타임 변경이 없어 서버 시작 시점
-// 한 번 메모리에 적재 후 재사용. 마이그레이션으로 데이터가 추가되면 서버
-// 재시작 시 재적재되므로 운영 흐름에 영향 없음.
+// 콘텐츠 테이블 (items / item_prefixes / fields / monsters) 은 런타임 변경이 없어
+// 서버 시작 시점 한 번 메모리에 적재 후 재사용. 마이그레이션으로 데이터가 추가되면
+// 서버 재시작 시 재적재되므로 운영 흐름에 영향 없음.
 
 export interface ItemDef {
   id: number;
@@ -13,8 +13,28 @@ export interface ItemDef {
   required_level: number;
 }
 
+// fields/monsters 는 engine.ts 의 MonsterDef 와 호환되도록 raw row 그대로 반환.
+// 호출측에서 그대로 cast.
+export interface FieldRow {
+  id: number;
+  monster_pool: number[];
+}
+export interface MonsterRow {
+  id: number;
+  name: string;
+  level: number;
+  max_hp: number;
+  exp_reward: number;
+  gold_reward: number;
+  stats: Record<string, unknown>;
+  drop_table: { itemId: number; chance: number; minQty: number; maxQty: number }[];
+  skills: unknown[];
+}
+
 let itemsCache: Map<number, ItemDef> | null = null;
 let prefixStatKeyCache: Map<number, string> | null = null;
+let fieldsCache: Map<number, FieldRow> | null = null;
+let monstersCache: Map<number, MonsterRow> | null = null;
 
 async function ensureItemsCache(): Promise<Map<number, ItemDef>> {
   if (itemsCache) return itemsCache;
@@ -65,8 +85,42 @@ export async function getPrefixStatKeys(ids: number[]): Promise<string[]> {
   return out;
 }
 
+async function ensureFieldsCache(): Promise<Map<number, FieldRow>> {
+  if (fieldsCache) return fieldsCache;
+  const r = await query<FieldRow>(`SELECT id, monster_pool FROM fields`);
+  const m = new Map<number, FieldRow>();
+  for (const row of r.rows) m.set(row.id, row);
+  fieldsCache = m;
+  return m;
+}
+
+async function ensureMonstersCache(): Promise<Map<number, MonsterRow>> {
+  if (monstersCache) return monstersCache;
+  const r = await query<MonsterRow>(
+    `SELECT id, name, level, max_hp, exp_reward, gold_reward, stats, drop_table,
+            COALESCE(skills, '[]'::jsonb) AS skills
+     FROM monsters`
+  );
+  const m = new Map<number, MonsterRow>();
+  for (const row of r.rows) m.set(row.id, row);
+  monstersCache = m;
+  return m;
+}
+
+export async function getFieldDef(id: number): Promise<FieldRow | null> {
+  const m = await ensureFieldsCache();
+  return m.get(id) ?? null;
+}
+
+export async function getMonsterDef(id: number): Promise<MonsterRow | null> {
+  const m = await ensureMonstersCache();
+  return m.get(id) ?? null;
+}
+
 // 마이그레이션/어드민 툴에서 직접 테이블을 고쳤을 때 수동 무효화용.
 export function invalidateContentCache(): void {
   itemsCache = null;
   prefixStatKeyCache = null;
+  fieldsCache = null;
+  monstersCache = null;
 }
