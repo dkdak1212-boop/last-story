@@ -968,6 +968,11 @@ function applyDamagePrefixes(
   if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
     dmg = Math.round(dmg * (1 + berserk / 100));
   }
+  // 풀피 증뎀 (HP 100% 일 때만)
+  const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
+  if (fullHpAmp > 0 && s.playerHp >= s.playerMaxHp) {
+    dmg = Math.round(dmg * (1 + fullHpAmp / 100));
+  }
   // 약점간파 (첫 공격, 1회성)
   if (consume) {
     const firstStrike = s.equipPrefixes.first_strike_pct || 0;
@@ -1153,6 +1158,9 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   // 접두사: 광전사 (내 HP 35% 이하)
   const berserk = s.equipPrefixes.berserk_pct || 0;
   if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) dmg = Math.round(dmg * (1 + berserk / 100));
+  // 풀피 증뎀
+  const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
+  if (fullHpAmp > 0 && s.playerHp >= s.playerMaxHp) dmg = Math.round(dmg * (1 + fullHpAmp / 100));
   // first_strike / ambush는 1회성 차지 — 버프류 동시 데미지에서는 발동·소비하지 않는다.
   // 사용자 의도: 메인 딜 스킬에 차지를 보존.
   // 크리 추가 배율
@@ -1561,6 +1569,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
           dmg = Math.round(dmg * (1 + berserk / 100));
           berserkProc = true;
+        }
+        // 풀피 증뎀
+        const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
+        if (fullHpAmp > 0 && s.playerHp >= s.playerMaxHp) {
+          dmg = Math.round(dmg * (1 + fullHpAmp / 100));
         }
         // 접두사: 약점간파 (첫 공격)
         const firstStrike = s.equipPrefixes.first_strike_pct || 0;

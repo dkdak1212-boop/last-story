@@ -21,6 +21,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   crit_dmg_pct: v => `치명타 데미지 ${v}% 증가`,
   // 신규 7종
   berserk_pct: v => `내 HP 35% 이하 시 데미지 +${v}%`,
+  full_hp_amp_pct: v => `풀피 시 데미지 +${v}%`,
   guardian_pct: v => `HP 50% 이상 시 받는 데미지 -${v}%`,
   thorns_pct: v => `받는 데미지 ${v}% 반사`,
   spd_pct: v => `속도증가 +${v}% (합산 100% 제한)`,
