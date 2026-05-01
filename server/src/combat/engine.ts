@@ -8,7 +8,8 @@ import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.j
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox, BASE_INVENTORY_SLOTS, type EquipPreroll } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
-import { generatePrefixes } from '../game/prefix.js';
+import { generatePrefixes, getPrefixNamesSync } from '../game/prefix.js';
+import { getCachedItem } from '../game/itemsCache.js';
 import { trackMonsterKill } from '../routes/quests.js';
 import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
@@ -488,6 +489,98 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
   }
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
+
+// ── Drop 비동기 배치 (Phase: kill segment 절감) ──
+// handleMonsterDeath 의 drops 루프가 매 드랍 INSERT 를 기다리던 것을 큐에 적재 후 1초 단위 bulk INSERT.
+// 슬롯 충돌 방지: pending 큐의 slot 들도 used 로 간주해 freeSlots 에서 제외.
+// drop_log INSERT 도 같이 큐에 넣어 batch.
+interface PendingDrop {
+  characterId: number;
+  itemId: number;
+  qty: number;
+  slot: number;
+  prefixIds: number[];
+  prefixStats: Record<string, number>;
+  quality: number;
+  boundOnPickup: boolean;
+  // drop_log batch 용 (특별 드랍만 true)
+  shouldLog: boolean;
+  charName: string;
+  fullName: string;
+  logGrade: string;
+  prefixCount: number;
+  prefixNames: string;
+  maxTier: number;
+}
+const pendingDrops = new Map<number, PendingDrop[]>();
+
+function enqueueDrop(d: PendingDrop): void {
+  let arr = pendingDrops.get(d.characterId);
+  if (!arr) { arr = []; pendingDrops.set(d.characterId, arr); }
+  arr.push(d);
+}
+
+function getPendingSlotsForChar(characterId: number): Set<number> {
+  const arr = pendingDrops.get(characterId);
+  if (!arr || arr.length === 0) return new Set();
+  return new Set(arr.map(d => d.slot));
+}
+
+export async function flushPendingDrops(): Promise<void> {
+  if (pendingDrops.size === 0) return;
+  const all: PendingDrop[] = [];
+  for (const arr of pendingDrops.values()) all.push(...arr);
+  pendingDrops.clear();
+  if (all.length === 0) return;
+
+  // character_inventory 멀티-row INSERT
+  const valuesParts: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+  for (const d of all) {
+    const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++, p5 = idx++, p6 = idx++, p7 = idx++, p8 = idx++;
+    valuesParts.push(`($${p1}, $${p2}, $${p3}, $${p4}, $${p5}, $${p6}::jsonb, $${p7}, $${p8})`);
+    params.push(d.characterId, d.itemId, d.slot, d.qty,
+      d.prefixIds.length > 0 ? d.prefixIds : [],
+      JSON.stringify(d.prefixStats),
+      d.quality,
+      d.boundOnPickup);
+  }
+  try {
+    await query(
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
+       VALUES ${valuesParts.join(', ')}
+       ON CONFLICT (character_id, slot_index) DO NOTHING`,
+      params
+    );
+  } catch (err) {
+    console.error('[drops-batch] inventory INSERT err', err);
+  }
+
+  // item_drop_log 배치 (특별 드랍만)
+  const logs = all.filter(d => d.shouldLog);
+  if (logs.length > 0) {
+    const lValues: string[] = [];
+    const lParams: unknown[] = [];
+    let lidx = 1;
+    for (const d of logs) {
+      const a1 = lidx++, a2 = lidx++, a3 = lidx++, a4 = lidx++, a5 = lidx++, a6 = lidx++, a7 = lidx++, a8 = lidx++;
+      lValues.push(`($${a1}, $${a2}, $${a3}, $${a4}, $${a5}, $${a6}, $${a7}, $${a8})`);
+      lParams.push(d.characterId, d.charName, d.fullName, d.logGrade, d.prefixCount, d.prefixNames, d.quality, d.maxTier);
+    }
+    try {
+      await query(
+        `INSERT INTO item_drop_log (character_id, character_name, item_name, item_grade, prefix_count, prefix_names, quality, max_prefix_tier)
+         VALUES ${lValues.join(', ')}`,
+        lParams
+      );
+    } catch (err) {
+      console.error('[drops-batch] log INSERT err', err);
+    }
+  }
+}
+
+setInterval(() => { flushPendingDrops().catch(err => console.error('[drops-batch] interval err', err)); }, 1000);
 
 // 길드 보스 데미지 버퍼 일괄 flush + milestone 실시간 판정 — 5초 주기
 // reentry guard: 한 사이클이 5초를 넘기면 다음 tick 스킵(풀 경합 완화)
@@ -3310,9 +3403,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await loadAutoSellCache(s);
   }
 
-  // drops 루프용 인벤토리 hint — 매 드랍 SELECT used+bonus + (special drop 경로) charName 절감.
-  // drops > 0 일 때만 1회 SELECT 후 freeSlots + characterName 묶어 hint 로 전달.
-  let dropHint: { freeSlots: number[]; maxSlots: number; characterName?: string } | undefined;
+  // drops > 0 일 때 1회 SELECT (slots/bonus/charName) — pending 큐의 slots 도 used 로 합쳐 충돌 방지.
+  // drops 자체는 INSERT 안 하고 pendingDrops 큐에 적재. 1초 interval 에서 bulk INSERT.
+  let freeSlots: number[] = [];
+  let charNameForLog = '';
   if (drops.length > 0) {
     const slotR = await query<{ bonus: number; used_slots: number[]; name: string }>(
       `SELECT
@@ -3326,15 +3420,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       [s.characterId]
     );
     const row = slotR.rows[0];
-    const used = new Set<number>(row?.used_slots || []);
+    charNameForLog = row?.name ?? '???';
+    const dbUsed = new Set<number>(row?.used_slots || []);
+    const pendingSet = getPendingSlotsForChar(s.characterId);
+    for (const ps of pendingSet) dbUsed.add(ps);
     const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
-    const freeSlots: number[] = [];
-    for (let i = 0; i < maxSlots; i++) if (!used.has(i)) freeSlots.push(i);
-    dropHint = { freeSlots, maxSlots, characterName: row?.name };
+    for (let i = 0; i < maxSlots; i++) if (!dbUsed.has(i)) freeSlots.push(i);
   }
+
   const ac = s.autoSellCache!;
-  // 정책 C: 오프라인도 온라인과 동일. 자동판매·드랍필터 그대로 적용.
-  // 자동판매 제거됨 (2026-04). 드랍필터만 유지. quality 상한도 없음.
   const dfTiers = ac.drop_filter_tiers;
   const dfCommon = ac.drop_filter_common;
   const dfProtect = new Set(ac.drop_filter_protect_prefixes);
@@ -3342,59 +3436,104 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
   for (const drop of drops) {
-    // 1) 아이템 정보 — 메모리 캐시 (items 마스터 테이블은 런타임 변경 없음)
+    const cachedItem = getCachedItem(drop.itemId);
+    if (!cachedItem) continue;
     const item = await getItemDef(drop.itemId);
+    if (!item) continue;
 
-    let preroll: EquipPreroll | undefined;
-    // 장비 + 비유니크일 때만 prerolling (유니크는 addItemToInventory에서 처리)
-    if (item && item.slot && item.grade !== 'unique') {
-      const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level);
-      const quality = Math.floor(Math.random() * 101);
-      preroll = { prefixIds, bonusStats, maxTier, quality };
+    const isEquipment = !!item.slot;
+    const isUnique = item.grade === 'unique';
+    let prefixIds: number[] = [];
+    let bonusStats: Record<string, number> = {};
+    let maxTier = 0;
+    let quality = 0;
 
-      const is3Options = prefixIds.length >= 3;
-      const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+    // 장비면 prefix 생성 (unique 도 — uniquePrefixStats 와 합치기 위해 prefix roll 필요)
+    if (isEquipment) {
+      const rolled = await generatePrefixes(item.required_level);
+      prefixIds = rolled.prefixIds;
+      bonusStats = rolled.bonusStats;
+      maxTier = rolled.maxTier;
+      quality = Math.floor(Math.random() * 101);
 
-      // 보호 접두사 검사
-      let protectStats: Set<string> | null = null;
-      if (prefixIds.length > 0 && dfProtect.size > 0) {
-        const keys = await getPrefixStatKeys(prefixIds);
-        protectStats = new Set(keys);
-      }
-      const dfHasProtected = protectStats && dfProtect.size > 0
-        ? [...protectStats].some(st => dfProtect.has(st)) : false;
-
-      // 드랍필터: 유니크 제외. common 토글 + 티어 일치 시 줍지 않음.
-      // 3옵 보호 토글 ON(기본) 이면 3옵은 예외 (줍기).
-      if (hasDropFilter) {
-        if (dfCommon && item.grade === 'common') {
-          continue;
+      // 비-유니크 장비만 드랍필터 검사 (유니크 자동 줍기)
+      if (!isUnique) {
+        const is3Options = prefixIds.length >= 3;
+        const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
+        let protectStats: Set<string> | null = null;
+        if (prefixIds.length > 0 && dfProtect.size > 0) {
+          const keys = await getPrefixStatKeys(prefixIds);
+          protectStats = new Set(keys);
         }
-        if (dfTiers > 0) {
-          const dfTierMatch = (dfTiers & tierBit) !== 0;
-          const protected3opt = is3Options && dfProtect3opt;
-          if (!protected3opt && !dfHasProtected && dfTierMatch) {
-            continue;
+        const dfHasProtected = protectStats && dfProtect.size > 0
+          ? [...protectStats].some(st => dfProtect.has(st)) : false;
+        if (hasDropFilter) {
+          if (dfCommon && item.grade === 'common') continue;
+          if (dfTiers > 0) {
+            const dfTierMatch = (dfTiers & tierBit) !== 0;
+            const protected3opt = is3Options && dfProtect3opt;
+            if (!protected3opt && !dfHasProtected && dfTierMatch) continue;
           }
         }
       }
     }
 
-    // 4) 인벤토리 저장 (preroll 그대로 전달 → 필터/판매에서 본 값과 동일하게 저장)
-    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, undefined, preroll, dropHint);
-    if (overflow > 0) {
+    // 슬롯 할당
+    if (freeSlots.length === 0) {
       addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
-    } else {
-      addLog(s, '아이템 획득!');
+      continue;
     }
-    // AFK 카운터: 드랍된 장비별 특수 메타 누적
-    if (s.afkMode && equipMetas) {
-      for (const meta of equipMetas) {
-        if (meta.isUnique) s.afkUnique++;
-        if (meta.quality100) s.afkQuality100++;
-        if (meta.isT4) s.afkT4Prefix++;
+    const slot = freeSlots.shift()!;
+
+    // 유니크 prefixStats 병합 (드랍 인벤 경로와 동일)
+    let finalPrefixStats = bonusStats;
+    if (isUnique && cachedItem.unique_prefix_stats) {
+      finalPrefixStats = { ...cachedItem.unique_prefix_stats };
+      for (const [k, v] of Object.entries(bonusStats)) {
+        finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
       }
     }
+
+    const isQualityMax = quality >= 100;
+    const is3Opt = prefixIds.length >= 3;
+    const isT4 = maxTier >= 4;
+    const shouldLog = isEquipment && (isUnique || isQualityMax || is3Opt || isT4);
+    let prefixNames = '';
+    let fullName = item.name;
+    if (shouldLog && prefixIds.length > 0) {
+      const cachedNames = getPrefixNamesSync(prefixIds);
+      if (cachedNames.length === prefixIds.length) {
+        prefixNames = cachedNames.join(' ');
+        fullName = `${prefixNames} ${item.name}`;
+      }
+    }
+
+    // AFK 카운터 (큐 적재 전에 즉시)
+    if (s.afkMode && isEquipment) {
+      if (isUnique) s.afkUnique++;
+      if (isQualityMax) s.afkQuality100++;
+      if (isT4) s.afkT4Prefix++;
+    }
+
+    enqueueDrop({
+      characterId: s.characterId,
+      itemId: item.id,
+      qty: drop.qty,
+      slot,
+      prefixIds,
+      prefixStats: finalPrefixStats,
+      quality,
+      boundOnPickup: cachedItem.bound_on_pickup,
+      shouldLog,
+      charName: charNameForLog,
+      fullName,
+      logGrade: isUnique ? 'unique' : item.grade,
+      prefixCount: prefixIds.length,
+      prefixNames,
+      maxTier,
+    });
+
+    addLog(s, '아이템 획득!');
   }
 
   // exp/골드/드롭으로 인벤토리·경험치 변동 → 메타 캐시 무효화

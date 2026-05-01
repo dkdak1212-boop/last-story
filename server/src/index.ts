@@ -281,8 +281,9 @@ async function gracefulShutdown(signal: string) {
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received — flushing state...`);
   try {
-    const { flushCharBatchAll, stopCombatLoop } = await import('./combat/engine.js');
+    const { flushCharBatchAll, stopCombatLoop, flushPendingDrops } = await import('./combat/engine.js');
     await flushCharBatchAll().catch(e => console.error('[shutdown] flush err', e));
+    await flushPendingDrops().catch(e => console.error('[shutdown] drops flush err', e));
     stopCombatLoop();
   } catch (e) { console.error('[shutdown] engine close err', e); }
   // 길드 기여도 배치 잔여분 flush (최대 5초치)
