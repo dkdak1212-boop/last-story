@@ -1017,6 +1017,7 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'spd_pct', label: '속도증가', color: '#ff8844', group: '특수' },
   { key: 'first_strike_pct', label: '선제', color: '#cc88ff', group: '특수' },
   { key: 'berserk_pct', label: '광전사', color: '#ff4444', group: '특수' },
+  { key: 'full_hp_amp_pct', label: '풀피증뎀', color: '#66ee99', group: '특수' },
   { key: 'ambush_pct', label: '각성', color: '#aa66ff', group: '특수' },
   { key: 'exp_bonus_pct', label: '경험치', color: '#aaddff', group: '보상' },
   { key: 'gold_bonus_pct', label: '골드', color: '#ffdd44', group: '보상' },

@@ -38,12 +38,14 @@ export const STAT_LABEL: Record<string, string> = {
   gold_bonus_pct: '황금',
   exp_bonus_pct: '경험',
   crit_dmg_pct: '날카로움',
+  spd_pct: '속도증가',
+  full_hp_amp_pct: '풀피증뎀',
 };
 
 const STAT_ORDER: string[] = ['atk', 'matk', 'def', 'mdef', 'hp', 'str', 'dex', 'int', 'vit', 'spd', 'cri'];
 
 // % 단위 접두사
-const PCT_STATS = new Set(['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct', 'cri']);
+const PCT_STATS = new Set(['def_reduce_pct', 'slow_pct', 'dot_amp_pct', 'gold_bonus_pct', 'exp_bonus_pct', 'crit_dmg_pct', 'cri', 'spd_pct', 'full_hp_amp_pct']);
 export function formatPrefixValue(key: string, value: number): string {
   if (key === 'lifesteal_pct') return `+${value}%`;
   if (PCT_STATS.has(key)) return `+${value}%`;
