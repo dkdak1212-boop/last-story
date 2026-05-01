@@ -3144,7 +3144,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     const clearedFloor = s.endlessFloor;
     const clearTimeMs = Math.max(0, Date.now() - s.endlessFloorStartedAt);
     try {
+      const _trf = Date.now();
       const result = await recordFloorClear(s.characterId, clearedFloor, clearTimeMs);
+      perfSeg.spRecordFloorMs += Date.now() - _trf;
+      perfSeg.spRecordFloorCalls++;
       s.endlessFloor = result.newFloor;
       // 새 층 진입 — 세션 메모리 즉시 갱신 + 더티 큐 (5s batch UPDATE 가 처리)
       if (result.newFloor !== clearedFloor) {
@@ -3728,10 +3731,13 @@ function handleDummyTick(s: ActiveSession, hpBefore: number): void {
 
 async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   // 종언의 기둥 — fieldId === 1000. floor 기반 monster 추첨 + 스케일링.
+  const _spStart = Date.now();
   if (s.fieldId === ENDLESS_FIELD_ID) {
     if (s.endlessFloor <= 0) {
+      const _t = Date.now();
       const prog = await loadOrCreateProgress(s.characterId);
       s.endlessFloor = prog.current_floor;
+      perfSeg.spEndlessLoadMs += Date.now() - _t;
     }
     const monsterId = getMonsterIdForFloor(s.endlessFloor);
     const cached = await getMonsterDef(monsterId);
@@ -3785,6 +3791,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     // 종언 — 세션 메모리(endlessFloorStartedAt) 신뢰. 0(cold-start) 일 때만 DB 1회 복원.
     // 새 층 진입은 handleMonsterDeath 에서 endlessFloorStartedDirty 큐에 적재 → 5s batch UPDATE.
     if (s.endlessFloorStartedAt === 0) {
+      const _t = Date.now();
       const fr = await query<{ fsa: string | null }>(
         `SELECT floor_started_at::text AS fsa FROM endless_pillar_progress WHERE character_id = $1`,
         [s.characterId]
@@ -3796,6 +3803,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
         s.endlessFloorStartedAt = Date.now();
         endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
       }
+      perfSeg.spEndlessFsaMs += Date.now() - _t;
     }
     // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
     s.monsterDrPct = Number(stats.dr_pct ?? 0);
@@ -3847,10 +3855,14 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     return;
   }
 
+  const _tPick = Date.now();
   const m = await pickRandomMonster(s.fieldId);
+  perfSeg.spPickMs += Date.now() - _tPick;
+  perfSeg.spPickCalls++;
   if (!m) {
     s.monsterId = null;
     s.monsterDef = null;
+    perfSeg.spOtherMs += Date.now() - _spStart - (Date.now() - _tPick);
     return;
   }
   s.monsterId = m.id;
@@ -3918,6 +3930,8 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     });
     addLog(s, '[차원의 결박] 적 첫 행동 동결!');
   }
+  // spawn other 시간 = 전체 spawn − pick − endless DB
+  perfSeg.spOtherMs += Date.now() - _spStart;
 }
 
 // ── 플레이어 사망 ──
@@ -5576,6 +5590,11 @@ let perfSeg = {
   kAddItemMs: 0, kAddItemCalls: 0,
   kGenPrefixMs: 0, kGenPrefixCalls: 0,
   kSpawnMs: 0, kLevelMs: 0,
+  // spawn 내부 sub-segment
+  spPickMs: 0, spPickCalls: 0,
+  spEndlessLoadMs: 0, spEndlessFsaMs: 0,
+  spRecordFloorMs: 0, spRecordFloorCalls: 0,
+  spOtherMs: 0,
 };
 export const _perfSeg = () => perfSeg;
 
@@ -5588,6 +5607,7 @@ setInterval(() => {
   console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
   console.log(`[combat-perf] pAct breakdown — potion=${seg.pPotionMs}ms skill=${seg.pSkillMs}ms (calls=${seg.pSkillCalls}) basic=${seg.pBasicMs}ms`);
   console.log(`[combat-perf] kill breakdown — endless=${seg.kEndlessMs}ms meta=${seg.kMetaMs}ms slot=${seg.kSlotMs}ms drops=${seg.kDropLoopMs}ms addItem=${seg.kAddItemMs}ms(${seg.kAddItemCalls}) prefix=${seg.kGenPrefixMs}ms(${seg.kGenPrefixCalls}) spawn=${seg.kSpawnMs}ms levelup=${seg.kLevelMs}ms`);
+  console.log(`[combat-perf] spawn breakdown — pick=${seg.spPickMs}ms(${seg.spPickCalls}) endlessLoad=${seg.spEndlessLoadMs}ms endlessFsa=${seg.spEndlessFsaMs}ms recordFloor=${seg.spRecordFloorMs}ms(${seg.spRecordFloorCalls}) other=${seg.spOtherMs}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
   perfSeg = {
     mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
@@ -5596,6 +5616,10 @@ setInterval(() => {
     kAddItemMs: 0, kAddItemCalls: 0,
     kGenPrefixMs: 0, kGenPrefixCalls: 0,
     kSpawnMs: 0, kLevelMs: 0,
+    spPickMs: 0, spPickCalls: 0,
+    spEndlessLoadMs: 0, spEndlessFsaMs: 0,
+    spRecordFloorMs: 0, spRecordFloorCalls: 0,
+    spOtherMs: 0,
   };
 }, 30_000);
 
