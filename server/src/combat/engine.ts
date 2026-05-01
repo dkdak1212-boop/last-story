@@ -4864,16 +4864,21 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
         );
       } catch {}
     }
+    // playerHp 방어 클램프 — Infinity/NaN/INT4 범위 초과 시 PG 파라미터 바인딩 단계에서
+    // 22003 numeric_value_out_of_range 발생 (SQL의 LEAST/GREATEST 실행 전 단계). JS 에서 미리 차단.
+    const safeHp = Number.isFinite(s.playerHp)
+      ? Math.max(1, Math.min(2_000_000_000, Math.floor(s.playerHp)))
+      : 1;
     if (opts.keepLocation) {
       // 유휴 종료: location 유지 → 유저 재접속 시 오프라인 보상 계산 트리거됨
       await query(
         'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), last_online_at=NOW() WHERE id=$2',
-        [s.playerHp, characterId]
+        [safeHp, characterId]
       );
     } else {
       await query(
         'UPDATE characters SET hp = LEAST(GREATEST(1, $1), max_hp), location=$2, last_online_at=NOW() WHERE id=$3',
-        [s.playerHp, 'village', characterId]
+        [safeHp, 'village', characterId]
       );
     }
     // 전사 분노 DB 저장 (다음 전투 세션에 이어짐)
