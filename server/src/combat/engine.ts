@@ -4614,8 +4614,8 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     snapshot.killStats = undefined;
   }
 
-  // 해당 유저의 소켓에만 emit
-  io.emit(`combat:${s.characterId}`, snapshot);
+  // 해당 캐릭 room 구독자에게만 emit (전체 fan-out 방지)
+  io.to(`combat:${s.characterId}`).emit(`combat:${s.characterId}`, snapshot);
   return true;
 }
 
