@@ -203,7 +203,7 @@ router.post('/:characterId/deposit-item', async (req: AuthedRequest, res: Respon
     if (it.soulbound) return { error: '착용한 적이 있는 장비는 길드 창고에 보관할 수 없습니다. (계정 귀속)', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 길드 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 길드 창고에 보관할 수 없습니다.', status: 400 };
-    if (it.required_level >= 110) return { error: '110제 장비는 길드 창고에 보관할 수 없습니다.', status: 400 };
+    if (it.required_level >= 100) return { error: '100제 시공균열 장비는 길드 창고에 보관할 수 없습니다.', status: 400 };
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM guild_storage_items WHERE guild_id = $1', [guildId]

@@ -123,7 +123,7 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
-    if (it.required_level >= 110) return { error: '110제 장비는 창고에 보관할 수 없습니다.', status: 400 };
+    if (it.required_level >= 100) return { error: '100제 시공균열 장비는 창고에 보관할 수 없습니다.', status: 400 };
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]
