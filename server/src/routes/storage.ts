@@ -124,8 +124,12 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
-    // 100제 시공 분쇄 세트 (id 900-909, bound_on_pickup=true) 만 캐릭 귀속 — 일반 100제 시공은 허용.
-    if (it.bound_on_pickup && it.required_level >= 100) return { error: '시공 분쇄 장비는 창고에 보관할 수 없습니다. (캐릭 귀속)', status: 400 };
+    // 100제 시공 분쇄 세트 (id 900-909) 캐릭 귀속 — 일반 100제 시공(800-838)은 허용.
+    // ID 직접 매칭: 옛 드롭 인스턴스가 character_inventory.soulbound=false 로 박혀있어도 차단.
+    // bound_on_pickup 체크는 향후 추가될 캐릭귀속 장비 대비.
+    if ((it.item_id >= 900 && it.item_id <= 909) || (it.bound_on_pickup && it.required_level >= 100)) {
+      return { error: '시공 분쇄 장비는 창고에 보관할 수 없습니다. (캐릭 귀속)', status: 400 };
+    }
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]

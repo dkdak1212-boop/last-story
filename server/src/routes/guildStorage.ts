@@ -203,6 +203,10 @@ router.post('/:characterId/deposit-item', async (req: AuthedRequest, res: Respon
     if (it.soulbound) return { error: '착용한 적이 있는 장비는 길드 창고에 보관할 수 없습니다. (계정 귀속)', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 길드 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 길드 창고에 보관할 수 없습니다.', status: 400 };
+    // 100제 시공 분쇄 세트 (id 900-909) — 옛 드롭이 soulbound=false 로 박혀있어도 ID 로 차단.
+    if (it.item_id >= 900 && it.item_id <= 909) {
+      return { error: '시공 분쇄 장비는 길드 창고에 보관할 수 없습니다. (캐릭 귀속)', status: 400 };
+    }
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM guild_storage_items WHERE guild_id = $1', [guildId]
