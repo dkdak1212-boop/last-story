@@ -108,11 +108,12 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      soulbound: boolean; item_slot: string | null; required_level: number;
+      soulbound: boolean; item_slot: string | null; required_level: number; bound_on_pickup: boolean;
     }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
-              i.slot AS item_slot, COALESCE(i.required_level, 1) AS required_level
+              i.slot AS item_slot, COALESCE(i.required_level, 1) AS required_level,
+              COALESCE(i.bound_on_pickup, FALSE) AS bound_on_pickup
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [characterId, inventorySlotIndex]
@@ -123,7 +124,8 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
-    if (it.required_level >= 100) return { error: '100제 시공균열 장비는 창고에 보관할 수 없습니다.', status: 400 };
+    // 100제 시공 분쇄 세트 (id 900-909, bound_on_pickup=true) 만 캐릭 귀속 — 일반 100제 시공은 허용.
+    if (it.bound_on_pickup && it.required_level >= 100) return { error: '시공 분쇄 장비는 창고에 보관할 수 없습니다. (캐릭 귀속)', status: 400 };
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]
