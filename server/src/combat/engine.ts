@@ -26,7 +26,7 @@ import {
   recordDeath,
   recordFloorClear,
 } from '../game/endlessPillar.js';
-import { getItemDef, getPrefixStatKeys, getFieldDef, getMonsterDef } from '../game/contentCache.js';
+import { getItemDef, getPrefixStatKeys, getFieldDef, getMonsterDef, getFieldDefSync, getMonsterDefSync, prewarmContentCache } from '../game/contentCache.js';
 import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
 import type { StatusEffect } from './shared.js';
@@ -706,10 +706,10 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
   };
 }
 
-async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
-  // fields/monsters 메모리 캐시 사용 — 매 킬 2 sequential query 제거 (kill segment 58% → 감소).
-  // 콘텐츠는 서버 시작 시 1회 적재, 마이그레이션 시 서버 재시작이 표준 운영.
-  const f = await getFieldDef(fieldId);
+// pickRandomMonster — 동기 버전. 캐시 hit 가정 (boot 시 prewarm).
+// hot path 에서 await microtask 컨텐션 제거 — 96 세션 chunk 병렬 환경에서 spawn 87ms/call → 미미.
+function pickRandomMonster(fieldId: number): MonsterDef | null {
+  const f = getFieldDefSync(fieldId);
   if (!f) return null;
   const pool = f.monster_pool;
   if (pool.length === 0) return null;
@@ -721,7 +721,7 @@ async function pickRandomMonster(fieldId: number): Promise<MonsterDef | null> {
   } else {
     mid = pool[Math.floor(Math.random() * pool.length)];
   }
-  const m = await getMonsterDef(mid);
+  const m = getMonsterDefSync(mid);
   return m ? (m as unknown as MonsterDef) : null;
 }
 
@@ -3740,7 +3740,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
       perfSeg.spEndlessLoadMs += Date.now() - _t;
     }
     const monsterId = getMonsterIdForFloor(s.endlessFloor);
-    const cached = await getMonsterDef(monsterId);
+    const cached = getMonsterDefSync(monsterId);
     if (!cached) {
       s.monsterId = null;
       s.monsterDef = null;
@@ -3856,7 +3856,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   }
 
   const _tPick = Date.now();
-  const m = await pickRandomMonster(s.fieldId);
+  const m = pickRandomMonster(s.fieldId);
   perfSeg.spPickMs += Date.now() - _tPick;
   perfSeg.spPickCalls++;
   if (!m) {

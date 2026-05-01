@@ -117,6 +117,19 @@ export async function getMonsterDef(id: number): Promise<MonsterRow | null> {
   return m.get(id) ?? null;
 }
 
+// 동기 버전 — 캐시 hit 가정. boot 시 prewarm 후 hot path 에서 await microtask 컨텐션 제거.
+// 캐시 miss 면 null 반환 (호출자가 async 폴백 또는 에러 처리).
+export function getFieldDefSync(id: number): FieldRow | null {
+  return fieldsCache?.get(id) ?? null;
+}
+export function getMonsterDefSync(id: number): MonsterRow | null {
+  return monstersCache?.get(id) ?? null;
+}
+export async function prewarmContentCache(): Promise<void> {
+  await ensureFieldsCache();
+  await ensureMonstersCache();
+}
+
 // 마이그레이션/어드민 툴에서 직접 테이블을 고쳤을 때 수동 무효화용.
 export function invalidateContentCache(): void {
   itemsCache = null;
