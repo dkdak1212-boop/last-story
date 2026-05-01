@@ -12,6 +12,9 @@ router.use(authRequired);
 // 30초 캐시 — 매 호출마다 PG round-trip 하면 53300 too-many-clients 직접적 원인.
 // 날짜는 자정에만 바뀌므로 30초 stale 무관.
 let _todayCache: { d: string; until: number } | null = null;
+export async function getTodayCached(): Promise<string> {
+  return todayFromDB();
+}
 async function todayFromDB(): Promise<string> {
   const now = Date.now();
   if (_todayCache && now < _todayCache.until) return _todayCache.d;

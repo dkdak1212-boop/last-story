@@ -11,7 +11,6 @@ import { expToNext } from '../game/leveling.js';
 import { generatePrefixes, getPrefixNamesSync } from '../game/prefix.js';
 import { getCachedItem } from '../game/itemsCache.js';
 import { trackMonsterKill } from '../routes/quests.js';
-import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
 import type { Stats } from '../game/classes.js';
 import { getActiveGlobalEvent } from '../game/globalEvent.js';
@@ -499,6 +498,88 @@ async function flushCharBatch(onlyId?: number): Promise<void> {
   }
 }
 setInterval(() => { flushCharBatch().catch(err => console.error('[combat] batch interval err', err)); }, 1000);
+
+// ── 일일퀘 트래킹 배치 ──
+// 매 스킬/킬마다 UPDATE character_daily_quests 가 22k 회/window 발생 → 풀 고갈.
+// in-memory 누적 후 1초마다 (charId, kind) 키로 합산 multi-row UPDATE 1쿼리.
+const dailyQuestPending = new Map<number, Map<string, number>>();   // charId → kind → cnt
+const dailyQuestFieldPending = new Map<number, Map<number, number>>(); // charId → fieldId → cnt (kill_field)
+function enqueueDailyQuest(charId: number, kind: string, amount = 1) {
+  let m = dailyQuestPending.get(charId);
+  if (!m) { m = new Map(); dailyQuestPending.set(charId, m); }
+  m.set(kind, (m.get(kind) || 0) + amount);
+}
+function enqueueDailyQuestKillField(charId: number, fieldId: number, amount = 1) {
+  let m = dailyQuestFieldPending.get(charId);
+  if (!m) { m = new Map(); dailyQuestFieldPending.set(charId, m); }
+  m.set(fieldId, (m.get(fieldId) || 0) + amount);
+}
+async function flushDailyQuestBatch(): Promise<void> {
+  if (dailyQuestPending.size === 0 && dailyQuestFieldPending.size === 0) return;
+  const today = await (await import('../routes/dailyQuests.js')).getTodayCached();
+  // ── kind 기반 (use_skills / kill_monsters / ...) ──
+  if (dailyQuestPending.size > 0) {
+    const rows: Array<[number, string, number]> = [];
+    for (const [charId, kindMap] of dailyQuestPending) {
+      for (const [kind, cnt] of kindMap) {
+        if (cnt > 0) rows.push([charId, kind, cnt]);
+      }
+    }
+    dailyQuestPending.clear();
+    if (rows.length > 0) {
+      const params: unknown[] = [today];
+      const valuesParts: string[] = [];
+      for (const [cid, kind, cnt] of rows) {
+        const i = params.length;
+        params.push(cid, kind, cnt);
+        valuesParts.push(`($${i + 1}::int, $${i + 2}::text, $${i + 3}::int)`);
+      }
+      const sql = `
+        UPDATE character_daily_quests cdq
+           SET progress = LEAST(cdq.progress + v.cnt, cdq.target_count),
+               completed = (cdq.progress + v.cnt >= cdq.target_count)
+          FROM (VALUES ${valuesParts.join(',')}) AS v(char_id, kind, cnt)
+         WHERE cdq.character_id = v.char_id
+           AND cdq.assigned_date = $1
+           AND cdq.kind = v.kind
+           AND cdq.completed = FALSE`;
+      try { await query(sql, params); }
+      catch (err) { console.error('[combat] daily-quest batch flush err', err); }
+    }
+  }
+  // ── kill_field (fieldId 별) ──
+  if (dailyQuestFieldPending.size > 0) {
+    const rows: Array<[number, number, number]> = [];
+    for (const [charId, fieldMap] of dailyQuestFieldPending) {
+      for (const [fid, cnt] of fieldMap) {
+        if (cnt > 0) rows.push([charId, fid, cnt]);
+      }
+    }
+    dailyQuestFieldPending.clear();
+    if (rows.length > 0) {
+      const params: unknown[] = [today];
+      const valuesParts: string[] = [];
+      for (const [cid, fid, cnt] of rows) {
+        const i = params.length;
+        params.push(cid, fid, cnt);
+        valuesParts.push(`($${i + 1}::int, $${i + 2}::int, $${i + 3}::int)`);
+      }
+      const sql = `
+        UPDATE character_daily_quests cdq
+           SET progress = LEAST(cdq.progress + v.cnt, cdq.target_count),
+               completed = (cdq.progress + v.cnt >= cdq.target_count)
+          FROM (VALUES ${valuesParts.join(',')}) AS v(char_id, fid, cnt)
+         WHERE cdq.character_id = v.char_id
+           AND cdq.assigned_date = $1
+           AND cdq.kind = 'kill_field'
+           AND cdq.target_field_id = v.fid
+           AND cdq.completed = FALSE`;
+      try { await query(sql, params); }
+      catch (err) { console.error('[combat] daily-quest field flush err', err); }
+    }
+  }
+}
+setInterval(() => { flushDailyQuestBatch().catch(err => console.error('[combat] daily-quest interval err', err)); }, 1000);
 
 // ── Drop 비동기 배치 (Phase: kill segment 절감) ──
 // handleMonsterDeath 의 drops 루프가 매 드랍 INSERT 를 기다리던 것을 큐에 적재 후 1초 단위 bulk INSERT.
@@ -1534,7 +1615,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
   // 일일퀘 스킬 사용 트래킹 (버프 자유행동은 스킵 — 성능 최적화)
   if (skill.kind !== 'buff') {
-    try { trackDailyQuestProgress(s.characterId, 'use_skills', 1); } catch {}
+    enqueueDailyQuest(s.characterId, 'use_skills', 1);
   }
 
   // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용), armor_pierce (방어 무시)
@@ -3338,8 +3419,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 일일퀘 + 업적 트래킹 — fire-and-forget (전투 루프 논블로킹)
   batchAdd(s.characterId, { killDelta: 1, goldEarnedDelta: finalGold });
-  trackDailyQuestProgress(s.characterId, 'kill_monsters', 1)
-    .catch(err => console.error('[combat] trackDailyQuestProgress err', err));
+  enqueueDailyQuest(s.characterId, 'kill_monsters', 1);
   // 업적 체크는 캐릭당 30s throttle — 매 킬마다 3쿼리(SELECT char/pvp_stats/achievements)
   // 발생해 985 세션 환경에서 풀 고갈의 주범. 임계 도달은 드물어 30s 주기로 충분.
   // 레벨업 시 즉시 1회 체크 (level 임계 즉시 반영) — 아래 levelsGained 분기에서.
