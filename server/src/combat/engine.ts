@@ -342,6 +342,15 @@ interface ActiveSession {
   // fieldId === ENDLESS_FIELD_ID (1000) 일 때만 사용. 일반 사냥과 분기 처리.
   endlessFloor: number;          // 현재 진행 층 (1~)
   endlessFloorStartedAt: number; // 현재 층 시작 시각 (ms) — 1분 타임아웃 체크용
+  // ── 인벤 슬롯 캐시 (handleMonsterDeath drop 처리 가속) ──
+  // 매 킬 LEFT JOIN aggregate 쿼리 제거. 첫 킬 시 1회 로드 후 메모리 회계.
+  // 인벤 변경(장착/판매/창고/등급업) 시 invalidateInventorySlotCache 로 무효화 + 30s 안전 만료.
+  inventorySlotCache: {
+    bonus: number;               // inventory_slots_bonus (확장권)
+    charName: string;            // log 표기용
+    freeSlots: number[];         // 정렬된 빈 슬롯 인덱스 (앞에서 pop)
+    cachedAt: number;            // ms — 30s 만료
+  } | null;
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -3465,29 +3474,43 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await loadAutoSellCache(s);
   }
 
-  // drops > 0 일 때 1회 SELECT (slots/bonus/charName) — pending 큐의 slots 도 used 로 합쳐 충돌 방지.
-  // drops 자체는 INSERT 안 하고 pendingDrops 큐에 적재. 1초 interval 에서 bulk INSERT.
+  // drops > 0 일 때 슬롯 캐시 사용. cache miss / 30s 만료 시에만 SELECT.
+  // pending 큐 슬롯도 used 로 합쳐 충돌 방지. drops 자체는 INSERT 안 하고
+  // pendingDrops 큐에 적재 → 1초 interval bulk INSERT. 캐시는 enqueue 시 shift 로 차감.
   let freeSlots: number[] = [];
   let charNameForLog = '';
   if (drops.length > 0) {
-    const slotR = await query<{ bonus: number; used_slots: number[]; name: string }>(
-      `SELECT
-         COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
-         COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots,
-         c.name
-       FROM characters c
-       LEFT JOIN character_inventory ci ON ci.character_id = c.id
-       WHERE c.id = $1
-       GROUP BY c.id, c.name`,
-      [s.characterId]
-    );
-    const row = slotR.rows[0];
-    charNameForLog = row?.name ?? '???';
-    const dbUsed = new Set<number>(row?.used_slots || []);
-    const pendingSet = getPendingSlotsForChar(s.characterId);
-    for (const ps of pendingSet) dbUsed.add(ps);
-    const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
-    for (let i = 0; i < maxSlots; i++) if (!dbUsed.has(i)) freeSlots.push(i);
+    const SLOT_CACHE_TTL_MS = 30_000;
+    const cacheStale = !s.inventorySlotCache || (Date.now() - s.inventorySlotCache.cachedAt > SLOT_CACHE_TTL_MS);
+    if (cacheStale) {
+      const slotR = await query<{ bonus: number; used_slots: number[]; name: string }>(
+        `SELECT
+           COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+           COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots,
+           c.name
+         FROM characters c
+         LEFT JOIN character_inventory ci ON ci.character_id = c.id
+         WHERE c.id = $1
+         GROUP BY c.id, c.name`,
+        [s.characterId]
+      );
+      const row = slotR.rows[0];
+      const dbUsed = new Set<number>(row?.used_slots || []);
+      const pendingSet = getPendingSlotsForChar(s.characterId);
+      for (const ps of pendingSet) dbUsed.add(ps);
+      const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
+      const free: number[] = [];
+      for (let i = 0; i < maxSlots; i++) if (!dbUsed.has(i)) free.push(i);
+      s.inventorySlotCache = {
+        bonus: row?.bonus || 0,
+        charName: row?.name ?? '???',
+        freeSlots: free,
+        cachedAt: Date.now(),
+      };
+    }
+    // 매 킬 캐시에서 freeSlots 사용. drop 처리 후 캐시에서 차감.
+    freeSlots = s.inventorySlotCache!.freeSlots;
+    charNameForLog = s.inventorySlotCache!.charName;
   }
 
   const ac = s.autoSellCache!;
@@ -4483,6 +4506,13 @@ export function invalidateAutoSellCache(characterId: number): void {
   if (s) s.autoSellCache = null;
 }
 
+// 인벤 슬롯 캐시 무효화 — 장착/판매/창고/우편 등 인벤 변경 시 호출.
+// drop 처리 외부에서 슬롯 변경 발생 시 다음 킬에 fresh SELECT 강제.
+export function invalidateInventorySlotCache(characterId: number): void {
+  const s = activeSessions.get(characterId);
+  if (s) s.inventorySlotCache = null;
+}
+
 // 세션 메타 캐시(부스트·길드버프·exp·포션) 강제 재조회 플래그.
 // 부스트 지급/변경 시 호출 — 다음 push 타이밍에 refreshSessionMeta 로 최신화.
 export function invalidateSessionMeta(characterId: number): void {
@@ -4964,6 +4994,7 @@ async function startCombatSessionInner(
     cachedCharMeta: null,
     monsterDef: null,
     autoSellCache: null,
+    inventorySlotCache: null,
     afkMode: false,
     afkStartedAt: 0,
     afkExpGained: 0,
