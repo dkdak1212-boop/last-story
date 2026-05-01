@@ -1220,8 +1220,9 @@ const MAX_SUMMONS = 3;
 
 // ── 소환수 처리 ──
 function processSummons(s: ActiveSession) {
+  const _t0 = Date.now();
   const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
-  if (summons.length === 0) return;
+  if (summons.length === 0) { perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return; }
 
   // 소환수 데미지 베이스: playerStats.matk 그대로 사용 (INT 영향은 formulas.ts 의 0.5% 증폭에 포함됨)
   const matk = s.playerStats.matk;
@@ -1324,6 +1325,8 @@ function processSummons(s: ActiveSession) {
     s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
     addLog(s, `[수호수] HP +${heal} 회복`);
   }
+  perfSeg.summonMs += Date.now() - _t0;
+  perfSeg.summonCalls++;
 }
 
 // 도적 독의 공명: 10 게이지 도달 시 독 폭발 (남은 도트 합계 × 2 데미지, 스택은 유지)
@@ -3947,14 +3950,16 @@ async function combatTick(): Promise<void> {
       const runMonsterAction = async (): Promise<'continue' | 'break' | 'return'> => {
         const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
         const hpBeforeMon = s.monsterHp;
+        const t0 = Date.now();
         monsterAction(s);
         s.monsterGauge -= GAUGE_MAX;
         processDots(s, 'player');
         tickDownEffects(s, 'monster', preMonsterActIds);
+        perfSeg.actionMs += Date.now() - t0;
         s.dirty = true;
-        if (s.playerHp <= 0) { await handlePlayerDeath(s); return 'return'; }
+        if (s.playerHp <= 0) { const td = Date.now(); await handlePlayerDeath(s); perfSeg.deathMs += Date.now() - td; return 'return'; }
         handleDummyTick(s, hpBeforeMon);
-        if (s.monsterHp <= 0 && !isDummyMonster(s)) { await handleMonsterDeath(s); return 'break'; }
+        if (s.monsterHp <= 0 && !isDummyMonster(s)) { const tk = Date.now(); await handleMonsterDeath(s); perfSeg.killMs += Date.now() - tk; return 'break'; }
         return 'continue';
       };
 
@@ -3992,11 +3997,13 @@ async function combatTick(): Promise<void> {
         // crystal flag 임시 토글 (applyDamagePrefixes 가 판독)
         const prevCrystal = s.paragonCrystalActive;
         s.paragonCrystalActive = crystalActive;
+        const ta = Date.now();
         await autoAction(s);
         // #13 paragon_time_crystal — 추가 행동 1회 (재발동)
         if (crystalActive && s.monsterHp > 0 && s.playerHp > 0) {
           await autoAction(s);
         }
+        perfSeg.actionMs += Date.now() - ta;
         s.paragonCrystalActive = prevCrystal;
         // #14 paragon_pain_lord — 자가 도트 매 행동 max_hp 0.5% (8 → 0.5 완화)
         if (getPassive(s, 'paragon_pain_lord') > 0) {
@@ -4022,8 +4029,8 @@ async function combatTick(): Promise<void> {
           s.guildBossHitsBuffer += 1;
         }
         handleDummyTick(s, hpBeforePl);
-        if (s.monsterHp <= 0 && !isDummyMonster(s)) { await handleMonsterDeath(s); return 'break'; }
-        if (s.playerHp <= 0) { await handlePlayerDeath(s); return 'return'; }
+        if (s.monsterHp <= 0 && !isDummyMonster(s)) { const tk = Date.now(); await handleMonsterDeath(s); perfSeg.killMs += Date.now() - tk; return 'break'; }
+        if (s.playerHp <= 0) { const td = Date.now(); await handlePlayerDeath(s); perfSeg.deathMs += Date.now() - td; return 'return'; }
         return 'continue';
       };
 
@@ -4050,7 +4057,9 @@ async function combatTick(): Promise<void> {
       }
       // 상태 push (dirty일 때만, 200ms throttle — push 성공 시에만 dirty 해제)
       if (s.dirty) {
+        const tp = Date.now();
         const pushed = await pushCombatState(s, true);
+        perfSeg.pushMs += Date.now() - tp;
         if (pushed) s.dirty = false;
       }
     } catch (err) {
@@ -5229,11 +5238,19 @@ setInterval(() => {
 
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
+// 30초 누적 segment 측정 — 어디가 350ms 의 대부분 차지하는지 분리해서 본다.
+// runOne 안에서 각 await 구간마다 (Date.now()) 차이를 더한다.
+let perfSeg = { actionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
+
 setInterval(() => {
   if (tickStats.count === 0 && tickStats.skipped === 0) return;
   const avg = tickStats.count > 0 ? (tickStats.totalMs / tickStats.count).toFixed(1) : '0';
   console.log(`[combat-perf] ticks=${tickStats.count} avg=${avg}ms max=${tickStats.maxMs}ms over100ms=${tickStats.overLimit} skipped=${tickStats.skipped} sessions=${activeSessions.size}`);
+  const seg = perfSeg;
+  const segSum = seg.actionMs + seg.killMs + seg.deathMs + seg.pushMs;
+  console.log(`[combat-perf] seg action=${seg.actionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
+  perfSeg = { actionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
 }, 30_000);
 
 function ensureCombatLoop() {
