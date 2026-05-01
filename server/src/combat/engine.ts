@@ -3435,6 +3435,13 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const dfProtect3opt = ac.drop_filter_protect_3opt;
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
+  // dropHint — addItemToInventory 의 stack-merge 경로용 (소모/재료). 큐 안 pending 슬롯 합산.
+  const dropHintForStackable = drops.length > 0 ? {
+    freeSlots,
+    maxSlots: BASE_INVENTORY_SLOTS,
+    characterName: charNameForLog,
+  } : undefined;
+
   for (const drop of drops) {
     const cachedItem = getCachedItem(drop.itemId);
     if (!cachedItem) continue;
@@ -3443,12 +3450,28 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
     const isEquipment = !!item.slot;
     const isUnique = item.grade === 'unique';
+
+    // ─ stack 가능 아이템 (소모/재료, stack_size > 1) — 큐 우회, addItemToInventory 호출 ─
+    // stack merge 로직 보존 (큐 일괄 INSERT 는 stack 합산 못 함).
+    if (cachedItem.stack_size > 1) {
+      try {
+        const { overflow } = await addItemToInventory(
+          s.characterId, drop.itemId, drop.qty, undefined, undefined, dropHintForStackable
+        );
+        if (overflow > 0) addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
+        else addLog(s, '아이템 획득!');
+      } catch (err) {
+        console.error('[combat] stack drop INSERT err', err);
+      }
+      continue;
+    }
+
+    // ─ 장비 (stack_size = 1) — 큐 적재 ─
     let prefixIds: number[] = [];
     let bonusStats: Record<string, number> = {};
     let maxTier = 0;
     let quality = 0;
 
-    // 장비면 prefix 생성 (unique 도 — uniquePrefixStats 와 합치기 위해 prefix roll 필요)
     if (isEquipment) {
       const rolled = await generatePrefixes(item.required_level);
       prefixIds = rolled.prefixIds;
@@ -3456,7 +3479,6 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       maxTier = rolled.maxTier;
       quality = Math.floor(Math.random() * 101);
 
-      // 비-유니크 장비만 드랍필터 검사 (유니크 자동 줍기)
       if (!isUnique) {
         const is3Options = prefixIds.length >= 3;
         const tierBit = maxTier >= 1 && maxTier <= 4 ? (1 << (maxTier - 1)) : 0;
@@ -3478,14 +3500,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     }
 
-    // 슬롯 할당
     if (freeSlots.length === 0) {
       addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
       continue;
     }
     const slot = freeSlots.shift()!;
 
-    // 유니크 prefixStats 병합 (드랍 인벤 경로와 동일)
     let finalPrefixStats = bonusStats;
     if (isUnique && cachedItem.unique_prefix_stats) {
       finalPrefixStats = { ...cachedItem.unique_prefix_stats };
@@ -3508,7 +3528,6 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     }
 
-    // AFK 카운터 (큐 적재 전에 즉시)
     if (s.afkMode && isEquipment) {
       if (isUnique) s.afkUnique++;
       if (isQualityMax) s.afkQuality100++;
