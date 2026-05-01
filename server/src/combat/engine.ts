@@ -3224,27 +3224,24 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     const _tEndless = Date.now();
     const clearedFloor = s.endlessFloor;
     const clearTimeMs = Math.max(0, Date.now() - s.endlessFloorStartedAt);
-    try {
-      const _trf = Date.now();
-      const result = await recordFloorClear(s.characterId, clearedFloor, clearTimeMs);
-      perfSeg.spRecordFloorMs += Date.now() - _trf;
-      perfSeg.spRecordFloorCalls++;
-      s.endlessFloor = result.newFloor;
-      // 새 층 진입 — 세션 메모리 즉시 갱신 + 더티 큐 (5s batch UPDATE 가 처리)
-      if (result.newFloor !== clearedFloor) {
-        s.endlessFloorStartedAt = Date.now();
-        endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
-      }
-      // 보스층 클리어 시 풀회복 (인터뷰 A3.4)
-      if (result.isBoss) {
-        s.playerHp = s.playerMaxHp;
-        addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치! HP 풀회복.`);
-      } else {
-        addLog(s, `[종언의 기둥] ${clearedFloor}층 클리어 (${(clearTimeMs / 1000).toFixed(1)}초)`);
-      }
-    } catch (e) {
-      console.error('[endless] floor clear err', s.characterId, e);
+    // newFloor / isBoss 는 순수 계산 — DB 결과 대기 X. 핫패스 동기 처리.
+    const newFloor = clearedFloor + 1;
+    const wasBoss = isBossFloor(clearedFloor);
+    s.endlessFloor = newFloor;
+    s.endlessFloorStartedAt = Date.now();
+    endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
+    if (wasBoss) {
+      s.playerHp = s.playerMaxHp;
+      addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치! HP 풀회복.`);
+    } else {
+      addLog(s, `[종언의 기둥] ${clearedFloor}층 클리어 (${(clearTimeMs / 1000).toFixed(1)}초)`);
     }
+    // DB 영속화는 fire-and-forget — newDailyHighest 결과는 어디서도 읽지 않음.
+    const _trf = Date.now();
+    recordFloorClear(s.characterId, clearedFloor, clearTimeMs)
+      .catch(e => console.error('[endless] floor clear err', s.characterId, e));
+    perfSeg.spRecordFloorMs += Date.now() - _trf;
+    perfSeg.spRecordFloorCalls++;
     s.dirty = true;
     const _tSp = Date.now();
     await spawnMonsterForSession(s);
