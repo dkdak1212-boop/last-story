@@ -377,22 +377,26 @@ export function EnhanceScreen() {
                     </div>
                   </div>
 
-                  {/* 스크롤 사용 — +21+ 단계는 비활성 */}
-                  {scrollCount > 0 && info.scrollAllowed && (
+                  {/* 스크롤 사용 — +1~+20 항상 표시 (보유 0 시 비활성). +21+ 는 사용 불가 안내. */}
+                  {info.scrollAllowed && (
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
                       fontSize: 12, color: 'var(--text-dim)',
+                      opacity: scrollCount === 0 ? 0.55 : 1,
                     }}>
                       <input
                         type="checkbox"
-                        checked={useScroll}
+                        checked={useScroll && scrollCount > 0}
                         onChange={e => setUseScroll(e.target.checked)}
-                        style={{ cursor: 'pointer', width: 16, height: 16 }}
+                        disabled={scrollCount === 0}
+                        style={{ cursor: scrollCount === 0 ? 'not-allowed' : 'pointer', width: 16, height: 16 }}
                       />
-                      <span style={{ userSelect: 'none' }}>강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개</span>
+                      <span style={{ userSelect: 'none' }}>
+                        강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개
+                      </span>
                     </div>
                   )}
-                  {!info.scrollAllowed && scrollCount > 0 && (
+                  {!info.scrollAllowed && (
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
                       +21 이상 단계는 강화 성공률 스크롤 사용 불가
                     </div>
