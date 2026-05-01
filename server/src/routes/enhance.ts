@@ -11,20 +11,43 @@ const router = Router();
 router.use(authRequired);
 
 // 강화 비용/확률/파괴율
-export function getEnhanceInfo(currentLevel: number, itemLevel: number) {
+// 강화 시스템 v2 (2026-05-01):
+// - 최대 30강
+// - 파괴 폐지 (전 단계 destroyRate=0)
+// - +1~+10 +5%/단계 / +11~+20 +10%/단계 / +21~+30 +15%/단계 (스탯 누적 배율)
+// - +15 부터 절대값 비용 (× Lv 없음). +15 250만, +16 500만 ... +20 1500만
+// - +21~+30 절대값 시작 5천만, +1천만/단계 (+30 = 1.4억)
+// - +21~+30 항상 base 1% + pity × 0.1% (실패 시 +1, 성공 시 0 리셋)
+// - +21+ 강화 스크롤 사용 불가
+export function getEnhanceInfo(currentLevel: number, itemLevel: number, pity: number = 0) {
   const next = currentLevel + 1;
   const lv = Math.max(1, itemLevel);
   let cost: number;
   let chance: number;
-  let destroyRate = 0;
-  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
-  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
-  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
-  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
-  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
-  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
-  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
-  return { cost, chance, destroyRate, nextLevel: next };
+  let scrollAllowed = true;
+  if (next <= 3)        { cost = 50 * lv;     chance = 1.0; }
+  else if (next <= 6)   { cost = 200 * lv;    chance = 0.8; }
+  else if (next <= 9)   { cost = 500 * lv;    chance = 0.5; }
+  else if (next <= 12)  { cost = 2000 * lv;   chance = 0.3; }
+  else if (next <= 14)  { cost = 5000 * lv;   chance = 0.2; }
+  else if (next === 15) { cost = 2_500_000;   chance = 0.2; }
+  else if (next <= 18)  { cost = 2_500_000 * (next - 14); chance = 0.1; }
+  else if (next <= 20)  { cost = 2_500_000 * (next - 14); chance = 0.05; }
+  else if (next <= 30)  {
+    cost = 50_000_000 + (next - 21) * 10_000_000;
+    chance = Math.min(1.0, 0.01 + Math.max(0, pity) * 0.001);
+    scrollAllowed = false;
+  }
+  else { cost = 0; chance = 0; }
+  return { cost, chance, destroyRate: 0, nextLevel: next, scrollAllowed };
+}
+
+// 강화 단계별 누적 스탯 배율 — +5/10/15% 구간식
+export function calcEnhanceMult(level: number): number {
+  const a = Math.min(10, level)                    * 0.05;
+  const b = Math.max(0, Math.min(10, level - 10))  * 0.10;
+  const c = Math.max(0, Math.min(10, level - 20))  * 0.15;
+  return 1 + a + b + c;
 }
 
 // 현재 인벤 / 장착 중 강화 가능한 아이템 목록
@@ -65,8 +88,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
 
   function enhancedStats(baseStats: Record<string, number> | null, enhLevel: number): Record<string, number> | null {
     if (!baseStats) return null;
-    const el = enhLevel || 0;
-    const mult = 1 + el * 0.075;
+    const mult = calcEnhanceMult(enhLevel || 0);
     const result: Record<string, number> = {};
     for (const [k, v] of Object.entries(baseStats)) {
       result[k] = Math.round((v as number) * mult);
@@ -224,40 +246,48 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  // 대상 아이템 조회
+  // 대상 아이템 조회 (pity 같이)
   let currentLevel: number;
+  let currentPity: number;
   let itemName = '';
   let itemGrade = '';
   if (parsed.data.kind === 'inventory') {
-    const r = await query<{ enhance_level: number; name: string; grade: string }>(
-      `SELECT ci.enhance_level, i.name, i.grade FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-       WHERE ci.character_id = $1 AND ci.slot_index = $2 AND ci.quantity = 1`,
+    const r = await query<{ enhance_level: number; enhance_pity: number; name: string; grade: string }>(
+      `SELECT ci.enhance_level, COALESCE(ci.enhance_pity, 0) AS enhance_pity, i.name, i.grade
+         FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+        WHERE ci.character_id = $1 AND ci.slot_index = $2 AND ci.quantity = 1`,
       [cid, parsed.data.slotKey]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
     currentLevel = r.rows[0].enhance_level;
+    currentPity = Number(r.rows[0].enhance_pity || 0);
     itemName = r.rows[0].name;
     itemGrade = r.rows[0].grade;
   } else {
-    const r = await query<{ enhance_level: number; name: string; grade: string }>(
-      `SELECT ce.enhance_level, i.name, i.grade FROM character_equipped ce JOIN items i ON i.id = ce.item_id
-       WHERE ce.character_id = $1 AND ce.slot = $2`,
+    const r = await query<{ enhance_level: number; enhance_pity: number; name: string; grade: string }>(
+      `SELECT ce.enhance_level, COALESCE(ce.enhance_pity, 0) AS enhance_pity, i.name, i.grade
+         FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+        WHERE ce.character_id = $1 AND ce.slot = $2`,
       [cid, parsed.data.slotKey]
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'item not found' });
     currentLevel = r.rows[0].enhance_level;
+    currentPity = Number(r.rows[0].enhance_pity || 0);
     itemName = r.rows[0].name;
     itemGrade = r.rows[0].grade;
   }
 
-  if (currentLevel >= 20) return res.status(400).json({ error: '최대 강화 단계' });
+  if (currentLevel >= 30) return res.status(400).json({ error: '최대 강화 단계' });
 
-  const info = getEnhanceInfo(currentLevel, char.level);
+  const info = getEnhanceInfo(currentLevel, char.level, currentPity);
   if (char.gold < info.cost) return res.status(400).json({ error: 'not enough gold' });
 
-  // 스크롤 사용 시 +10% 확률
+  // 스크롤 사용 — +21+ 단계는 차단
   let bonusChance = 0;
   if (parsed.data.useScroll) {
+    if (!info.scrollAllowed) {
+      return res.status(400).json({ error: '+21 이상은 강화 성공률 스크롤 사용 불가' });
+    }
     const scrollR = await query<{ id: number; quantity: number }>(
       `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND i.name = '강화 성공률 스크롤' AND ci.quantity > 0
@@ -292,15 +322,16 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   } catch {}
 
   if (success) {
+    // enhance_level + 1, pity 0 으로 리셋 (다음 단계 시도용)
     if (parsed.data.kind === 'inventory') {
       await query(
-        `UPDATE character_inventory SET enhance_level = enhance_level + 1
+        `UPDATE character_inventory SET enhance_level = enhance_level + 1, enhance_pity = 0
          WHERE character_id = $1 AND slot_index = $2`,
         [cid, parsed.data.slotKey]
       );
     } else {
       await query(
-        `UPDATE character_equipped SET enhance_level = enhance_level + 1
+        `UPDATE character_equipped SET enhance_level = enhance_level + 1, enhance_pity = 0
          WHERE character_id = $1 AND slot = $2`,
         [cid, parsed.data.slotKey]
       );
@@ -313,48 +344,47 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
         [cid, char.name, itemName, itemGrade, currentLevel, currentLevel + 1]
       );
     }
-    // 업적 트래킹 (강화 성공 시 max_enhance_level 갱신 + 업적)
     try {
       const newLv = currentLevel + 1;
       await query('UPDATE characters SET max_enhance_level = GREATEST(max_enhance_level, $1) WHERE id = $2', [newLv, cid]);
       const { checkAndUnlockAchievements } = await import('../game/achievements.js');
       await checkAndUnlockAchievements(cid);
     } catch {}
-    // 전투 세션 인메모리 스탯 갱신 (강화로 인한 atk/def 변화 즉시 반영)
     await refreshSessionStats(cid).catch(() => {});
     res.json({
       success: true, destroyed: false, cost: info.cost, chance: finalChance,
-      destroyRate: info.destroyRate, newLevel: currentLevel + 1,
+      destroyRate: 0, newLevel: currentLevel + 1, pity: 0,
     });
   } else {
-    // 10강 이후 실패 시 파괴 판정
-    const destroyed = info.destroyRate > 0 && Math.random() < info.destroyRate;
-    if (destroyed) {
+    // 파괴 폐지 — 단계 그대로. +21+ 만 pity 누적.
+    let newPity = currentPity;
+    if (currentLevel >= 20) {
+      newPity = currentPity + 1;
       if (parsed.data.kind === 'inventory') {
         await query(
-          `DELETE FROM character_inventory WHERE character_id = $1 AND slot_index = $2`,
+          `UPDATE character_inventory SET enhance_pity = enhance_pity + 1
+            WHERE character_id = $1 AND slot_index = $2`,
           [cid, parsed.data.slotKey]
         );
       } else {
         await query(
-          `DELETE FROM character_equipped WHERE character_id = $1 AND slot = $2`,
+          `UPDATE character_equipped SET enhance_pity = enhance_pity + 1
+            WHERE character_id = $1 AND slot = $2`,
           [cid, parsed.data.slotKey]
         );
       }
     }
-    // 10강 이상 실패/파괴 로그
+    // 10강 이상 실패 로그 (파괴 항상 false)
     if (currentLevel >= 9) {
       await query(
         `INSERT INTO enhance_log (character_id, character_name, item_name, item_grade, from_level, to_level, success, destroyed)
-         VALUES ($1, $2, $3, $4, $5, NULL, FALSE, $6)`,
-        [cid, char.name, itemName, itemGrade, currentLevel, destroyed]
+         VALUES ($1, $2, $3, $4, $5, NULL, FALSE, FALSE)`,
+        [cid, char.name, itemName, itemGrade, currentLevel]
       );
     }
-    // 파괴 시에도 장비 변동이 있으므로 세션 갱신
-    if (destroyed) await refreshSessionStats(cid).catch(() => {});
     res.json({
-      success: false, destroyed, cost: info.cost, chance: finalChance,
-      destroyRate: info.destroyRate, newLevel: currentLevel,
+      success: false, destroyed: false, cost: info.cost, chance: finalChance,
+      destroyRate: 0, newLevel: currentLevel, pity: newPity,
     });
   }
 });

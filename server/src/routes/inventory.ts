@@ -102,11 +102,14 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     return stats;
   }
 
-  // 강화 배율 + 품질 보너스 (덧셈 합산)
+  // 강화 배율 (구간식 +5/10/15%) + 품질 보너스 (덧셈 합산)
   function enhancedStats(baseStats: Record<string, number> | null, enhanceLevel: number, quality: number = 0): Record<string, number> | null {
     if (!baseStats) return null;
-    const el = enhanceLevel || 0;
-    const enhMult = 1 + el * 0.075;
+    const lvl = enhanceLevel || 0;
+    const a = Math.min(10, lvl)                    * 0.05;
+    const b = Math.max(0, Math.min(10, lvl - 10))  * 0.10;
+    const c = Math.max(0, Math.min(10, lvl - 20))  * 0.15;
+    const enhMult = 1 + a + b + c;
     const qualBonus = (quality || 0) / 100;
     const mult = enhMult + qualBonus;
     const result: Record<string, number> = {};
