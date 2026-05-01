@@ -765,48 +765,82 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
   if (pr.rowCount === 0) return res.status(404).json({ error: '저장된 프리셋이 없습니다' });
   const savedSlots = pr.rows[0].slots as Record<string, { itemId: number; enhanceLevel: number; prefixIds: number[]; prefixStats: any; quality: number; locked: boolean; soulbound?: boolean }>;
 
-  // 현재 장착 해제 → 인벤토리로 (soulbound 보존)
-  const curEq = await query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
-    'SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound FROM character_equipped WHERE character_id = $1', [id]
-  );
-  for (const eq of curEq.rows) {
-    const usedR = await query<{ slot_index: number }>('SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]);
-    const used = new Set(usedR.rows.map(r => r.slot_index));
-    let freeSlot = -1;
-    for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
-    if (freeSlot < 0) return res.status(400).json({ error: '인벤토리가 가득 찼습니다' });
-    await query(
-      'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound) VALUES ($1,$2,$3,1,$4,$5,$6::jsonb,$7,$8,$9)',
-      [id, eq.item_id, freeSlot, eq.enhance_level, eq.prefix_ids || [], JSON.stringify(eq.prefix_stats || {}), eq.quality, eq.locked === true, eq.soulbound === true]
-    );
-  }
-  await query('DELETE FROM character_equipped WHERE character_id = $1', [id]);
+  // ─ 전체 작업을 단일 트랜잭션으로 ─
+  // 이전 버그: INSERT inventory + DELETE equipped 사이에 락이 없어, 동시 호출/재시도 시
+  // SELECT 결과가 같아져 INSERT 가 중복 발생 → 가방에 복사본 잔존. character_equipped FOR UPDATE
+  // 로 락 + 같은 트랜잭션 안에서 처리해 모든 INSERT/DELETE 가 atomic.
+  type LoadOutcome = { ok: true; equipped: number } | { ok: false; status: number; error: string };
+  const result = await withTransaction<LoadOutcome>(async (tx) => {
+    // 캐릭/장비 락 확보 (동시 진입 차단)
+    await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [id]);
 
-  // 프리셋 아이템 장착 (인벤토리에서 매칭)
-  let equipped = 0;
-  for (const [slot, saved] of Object.entries(savedSlots)) {
-    // 인벤토리에서 동일 아이템 찾기 (item_id + enhance_level + quality 매칭)
-    const match = await query<{ id: number; slot_index: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
-      `SELECT ci.id, ci.slot_index, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, ci.locked, COALESCE(ci.soulbound, FALSE) AS soulbound
-       FROM character_inventory ci
-       WHERE ci.character_id = $1 AND ci.item_id = $2 AND ci.enhance_level = $3 AND COALESCE(ci.quality, 0) = $4
-       LIMIT 1`,
-      [id, saved.itemId, saved.enhanceLevel, saved.quality]
+    const curEq = await tx.query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
+      `SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats,
+              COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound
+         FROM character_equipped WHERE character_id = $1
+         FOR UPDATE`,
+      [id]
     );
-    if (match.rowCount === 0) continue;
-    const m = match.rows[0];
-    // 장착 시 항상 soulbound=TRUE (일반 equip 경로와 동일). 인벤에서 넘어온 soulbound 도 OR
-    const newSoulbound = m.soulbound === true || saved.soulbound === true || true;
-    await query(
-      'INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)',
-      [id, slot, saved.itemId, saved.enhanceLevel, m.prefix_ids || [], JSON.stringify(m.prefix_stats || {}), m.quality, m.locked === true, newSoulbound]
-    );
-    await query('DELETE FROM character_inventory WHERE id = $1', [m.id]);
-    equipped++;
-  }
 
+    // 1) 현재 장비 → 인벤
+    for (const eq of curEq.rows) {
+      const usedR = await tx.query<{ slot_index: number }>(
+        'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
+      );
+      const used = new Set(usedR.rows.map(r => r.slot_index));
+      let freeSlot = -1;
+      const maxSlots = 300 + (char.inventory_slots_bonus || 0);
+      for (let i = 0; i < maxSlots; i++) if (!used.has(i)) { freeSlot = i; break; }
+      if (freeSlot < 0) return { ok: false, status: 400, error: '인벤토리가 가득 찼습니다' };
+      const ins = await tx.query(
+        `INSERT INTO character_inventory
+           (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound)
+         VALUES ($1,$2,$3,1,$4,$5,$6::jsonb,$7,$8,$9)
+         ON CONFLICT (character_id, slot_index) DO NOTHING`,
+        [id, eq.item_id, freeSlot, eq.enhance_level, eq.prefix_ids || [],
+         JSON.stringify(eq.prefix_stats || {}), eq.quality, eq.locked === true, eq.soulbound === true]
+      );
+      if (!ins.rowCount) {
+        return { ok: false, status: 409, error: '슬롯 충돌 — 다시 시도해주세요.' };
+      }
+    }
+    await tx.query('DELETE FROM character_equipped WHERE character_id = $1', [id]);
+
+    // 2) 프리셋 매칭 — 사용된 inventory id 추적해서 같은 아이템을 다시 매칭하지 않도록
+    const usedInvIds = new Set<number>();
+    let equipped = 0;
+    for (const [slot, saved] of Object.entries(savedSlots)) {
+      const match = await tx.query<{ id: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
+        `SELECT ci.id, ci.prefix_ids, ci.prefix_stats,
+                COALESCE(ci.quality, 0) AS quality, ci.locked, COALESCE(ci.soulbound, FALSE) AS soulbound
+           FROM character_inventory ci
+          WHERE ci.character_id = $1 AND ci.item_id = $2
+            AND ci.enhance_level = $3 AND COALESCE(ci.quality, 0) = $4
+            ${usedInvIds.size > 0 ? `AND ci.id NOT IN (${[...usedInvIds].join(',')})` : ''}
+          ORDER BY ci.slot_index
+          LIMIT 1`,
+        [id, saved.itemId, saved.enhanceLevel, saved.quality]
+      );
+      if (match.rowCount === 0) continue;
+      const m = match.rows[0];
+      usedInvIds.add(Number(m.id));
+      const newSoulbound = true; // 장착 시 항상 soulbound
+      await tx.query(
+        `INSERT INTO character_equipped
+           (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`,
+        [id, slot, saved.itemId, saved.enhanceLevel, m.prefix_ids || [],
+         JSON.stringify(m.prefix_stats || {}), m.quality, m.locked === true, newSoulbound]
+      );
+      await tx.query('DELETE FROM character_inventory WHERE id = $1', [m.id]);
+      equipped++;
+    }
+    return { ok: true, equipped };
+  });
+
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
   await refreshCombatSessionStats(id);
-  res.json({ ok: true, equipped });
+  res.json({ ok: true, equipped: result.equipped });
 });
 
 // 프리셋 이름 변경
