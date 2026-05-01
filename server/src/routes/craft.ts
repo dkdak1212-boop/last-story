@@ -149,13 +149,15 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
 
+    // 품질 1~100 랜덤 (드랍과 달리 0% 제외 — 제작 보상 가치 보장)
+    const quality = Math.floor(Math.random() * 100) + 1;
     // bound_on_pickup → soulbound=TRUE 즉시 귀속 (110제 등 거래 불가)
     await query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, soulbound)
-       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6)`,
-      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats), itemInfo.bound_on_pickup]
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
+       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6, $7)`,
+      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats), quality, itemInfo.bound_on_pickup]
     );
-    res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, message: `${itemInfo.name} 제작 성공! (3옵 부여)` });
+    res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, quality, message: `${itemInfo.name} 제작 성공! (3옵 부여 · 품질 ${quality}%)` });
   } else {
     // 소비/재료: 접두사 없이 추가
     const { addItemToInventory: addItem } = await import('../game/inventory.js');
