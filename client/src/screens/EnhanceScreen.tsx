@@ -13,6 +13,7 @@ interface EnhanceItem {
   stats: Partial<Stats> | null; // 강화 적용된 현재 스탯
   baseStats: Partial<Stats> | null; // 원본(강화 전) 스탯
   enhanceLevel: number;
+  enhancePity?: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
   prefixStatsRaw?: Record<string, number>;
   prefixName?: string;
@@ -203,7 +204,7 @@ export function EnhanceScreen() {
   }
   useEffect(() => { load(); }, [active?.id]);
 
-  const info = selected ? getInfo(selected.enhanceLevel, active?.level ?? 1) : null;
+  const info = selected ? getInfo(selected.enhanceLevel, active?.level ?? 1, selected.enhancePity || 0) : null;
 
   async function attempt() {
     if (!active || !selected) return;
@@ -358,26 +359,26 @@ export function EnhanceScreen() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ color: 'var(--text-dim)' }}>성공 확률</span>
                       <span style={{ color: info.chance >= 0.8 ? 'var(--success)' : info.chance >= 0.5 ? 'var(--accent)' : 'var(--danger)', fontWeight: 700 }}>
-                        {Math.round((info.chance + (useScroll ? 0.10 : 0)) * 100)}%
-                        {useScroll && <span style={{ color: 'var(--success)', marginLeft: 4 }}>(+10%)</span>}
+                        {Math.round((info.chance + (useScroll && info.scrollAllowed ? 0.10 : 0)) * 100)}%
+                        {useScroll && info.scrollAllowed && <span style={{ color: 'var(--success)', marginLeft: 4 }}>(+10%)</span>}
                       </span>
                     </div>
-                    {info.destroyRate > 0 && (
+                    {(selected.enhancePity || 0) > 0 && selected.enhanceLevel >= 20 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ color: 'var(--danger)' }}>파괴 확률</span>
-                        <span style={{ color: 'var(--danger)', fontWeight: 700 }}>{Math.round(info.destroyRate * 100)}%</span>
+                        <span style={{ color: 'var(--accent)' }}>누적 보호</span>
+                        <span style={{ color: 'var(--accent)', fontWeight: 700 }}>+{((selected.enhancePity || 0) * 0.1).toFixed(1)}% (실패 {selected.enhancePity}회)</span>
                       </div>
                     )}
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
-                      {info.destroyRate > 0
-                        ? '실패 시 장비가 파괴될 수 있습니다!'
-                        : '실패 시 골드만 소모됩니다.'
+                      {selected.enhanceLevel >= 20
+                        ? '실패 시 누적 보호 +0.1% 적립. 성공 시 보호 리셋. 파괴 없음.'
+                        : '실패 시 골드만 소모됩니다. 파괴 없음.'
                       }
                     </div>
                   </div>
 
-                  {/* 스크롤 사용 옵션 — 체크박스 자체만 클릭 가능. 라벨 텍스트로 토글 방지 (강화 연타 중 오작동 방지) */}
-                  {scrollCount > 0 && (
+                  {/* 스크롤 사용 — +21+ 단계는 비활성 */}
+                  {scrollCount > 0 && info.scrollAllowed && (
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
                       fontSize: 12, color: 'var(--text-dim)',
@@ -389,6 +390,11 @@ export function EnhanceScreen() {
                         style={{ cursor: 'pointer', width: 16, height: 16 }}
                       />
                       <span style={{ userSelect: 'none' }}>강화 성공률 스크롤 사용 (+10%) · 보유: {scrollCount}개</span>
+                    </div>
+                  )}
+                  {!info.scrollAllowed && scrollCount > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 10 }}>
+                      +21 이상 단계는 강화 성공률 스크롤 사용 불가
                     </div>
                   )}
 
@@ -585,16 +591,25 @@ export function EnhanceScreen() {
   );
 }
 
-function getInfo(currentLevel: number, charLevel: number) {
+// v2 — 30강 cap, 파괴 폐지, +15+ 절대값, +21+ pity 누적
+function getInfo(currentLevel: number, charLevel: number, pity: number = 0) {
   const next = currentLevel + 1;
   const lv = Math.max(1, charLevel);
-  let cost: number; let chance: number; let destroyRate = 0;
-  if (next <= 3)       { cost = 50 * lv;    chance = 1.0; }
-  else if (next <= 6)  { cost = 200 * lv;   chance = 0.8; }
-  else if (next <= 9)  { cost = 500 * lv;   chance = 0.5; }
-  else if (next <= 12) { cost = 2000 * lv;  chance = 0.3; destroyRate = 0.10; }
-  else if (next <= 15) { cost = 5000 * lv;  chance = 0.2; destroyRate = 0.20; }
-  else if (next <= 18) { cost = 10000 * lv; chance = 0.1; destroyRate = 0.30; }
-  else                 { cost = 20000 * lv; chance = 0.05; destroyRate = 0.40; }
-  return { cost, chance, destroyRate };
+  let cost = 0;
+  let chance = 0;
+  let scrollAllowed = true;
+  if (next <= 3)        { cost = 50 * lv;     chance = 1.0; }
+  else if (next <= 6)   { cost = 200 * lv;    chance = 0.8; }
+  else if (next <= 9)   { cost = 500 * lv;    chance = 0.5; }
+  else if (next <= 12)  { cost = 2000 * lv;   chance = 0.3; }
+  else if (next <= 14)  { cost = 5000 * lv;   chance = 0.2; }
+  else if (next === 15) { cost = 2_500_000;   chance = 0.2; }
+  else if (next <= 18)  { cost = 2_500_000 * (next - 14); chance = 0.1; }
+  else if (next <= 20)  { cost = 2_500_000 * (next - 14); chance = 0.05; }
+  else if (next <= 30)  {
+    cost = 50_000_000 + (next - 21) * 10_000_000;
+    chance = Math.min(1.0, 0.01 + Math.max(0, pity) * 0.001);
+    scrollAllowed = false;
+  }
+  return { cost, chance, destroyRate: 0, scrollAllowed };
 }
