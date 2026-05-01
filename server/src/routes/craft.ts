@@ -125,14 +125,15 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   // 랜덤 결과 아이템 선택 (class_locked 시 직업 필터된 후보에서)
   const resultItemId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
 
-  // 아이템 종류 확인 (장비 vs 소비) + bound_on_pickup
-  const itemInfoR = await query<{ name: string; slot: string | null; type: string; bound_on_pickup: boolean }>(
-    'SELECT name, slot, type, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup FROM items WHERE id = $1', [resultItemId]
+  // 아이템 종류 확인 (장비 vs 소비) + bound_on_pickup + 유니크 고정 옵션
+  const itemInfoR = await query<{ name: string; slot: string | null; type: string; grade: string; bound_on_pickup: boolean; unique_prefix_stats: Record<string, number> | null }>(
+    'SELECT name, slot, type, grade, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup, unique_prefix_stats FROM items WHERE id = $1', [resultItemId]
   );
   const itemInfo = itemInfoR.rows[0];
   if (!itemInfo) return res.status(500).json({ error: 'item not found' });
 
   const isEquipment = !!itemInfo.slot;
+  const isUnique = itemInfo.grade === 'unique';
 
   // 아이템 레벨 조회 (접두사 스케일링용)
   const rlR = await query<{ required_level: number }>('SELECT COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [resultItemId]);
@@ -149,13 +150,23 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
 
+    // 유니크면 고정 특수옵션(unique_prefix_stats) 을 prefix_stats 에 병합 — 드랍 경로와 동일.
+    // 누락 시 인벤 표시는 0 이고 enhance reroll 로 마스터에서 끌어와야 보였던 버그 원인.
+    let finalPrefixStats: Record<string, number> = bonusStats;
+    if (isUnique && itemInfo.unique_prefix_stats) {
+      finalPrefixStats = { ...itemInfo.unique_prefix_stats };
+      for (const [k, v] of Object.entries(bonusStats)) {
+        finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
+      }
+    }
+
     // 품질 1~100 랜덤 (드랍과 달리 0% 제외 — 제작 보상 가치 보장)
     const quality = Math.floor(Math.random() * 100) + 1;
     // bound_on_pickup → soulbound=TRUE 즉시 귀속 (110제 등 거래 불가)
     await query(
       `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
        VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6, $7)`,
-      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(bonusStats), quality, itemInfo.bound_on_pickup]
+      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(finalPrefixStats), quality, itemInfo.bound_on_pickup]
     );
     res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, quality, message: `${itemInfo.name} 제작 성공! (3옵 부여 · 품질 ${quality}%)` });
   } else {
