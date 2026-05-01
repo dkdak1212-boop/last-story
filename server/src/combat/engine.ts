@@ -3310,18 +3310,19 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     await loadAutoSellCache(s);
   }
 
-  // drops 루프용 인벤토리 hint — 매 드랍 SELECT used+bonus 절감 (kill segment 핫스팟).
-  // drops > 0 일 때만 1회 SELECT 후 freeSlots 배열 만들어 hint 로 전달.
-  let dropHint: { freeSlots: number[]; maxSlots: number } | undefined;
+  // drops 루프용 인벤토리 hint — 매 드랍 SELECT used+bonus + (special drop 경로) charName 절감.
+  // drops > 0 일 때만 1회 SELECT 후 freeSlots + characterName 묶어 hint 로 전달.
+  let dropHint: { freeSlots: number[]; maxSlots: number; characterName?: string } | undefined;
   if (drops.length > 0) {
-    const slotR = await query<{ bonus: number; used_slots: number[] }>(
+    const slotR = await query<{ bonus: number; used_slots: number[]; name: string }>(
       `SELECT
          COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
-         COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+         COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots,
+         c.name
        FROM characters c
        LEFT JOIN character_inventory ci ON ci.character_id = c.id
        WHERE c.id = $1
-       GROUP BY c.id`,
+       GROUP BY c.id, c.name`,
       [s.characterId]
     );
     const row = slotR.rows[0];
@@ -3329,7 +3330,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
     const freeSlots: number[] = [];
     for (let i = 0; i < maxSlots; i++) if (!used.has(i)) freeSlots.push(i);
-    dropHint = { freeSlots, maxSlots };
+    dropHint = { freeSlots, maxSlots, characterName: row?.name };
   }
   const ac = s.autoSellCache!;
   // 정책 C: 오프라인도 온라인과 동일. 자동판매·드랍필터 그대로 적용.

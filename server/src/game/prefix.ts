@@ -258,3 +258,16 @@ export async function resolvePrefixes(prefixIds: number[]): Promise<{ id: number
     return { id: p.id, name: p.name, statKey: p.stat_key, value: 0 };
   }).filter(Boolean) as { id: number; name: string; statKey: string; value: number }[];
 }
+
+// 동기 — 메모리 캐시만 사용. 캐시 미준비 시 빈 배열 (드랍 로그용 사소한 경로).
+// addItemToInventory 의 special drop 경로에서 매 호출당 SELECT name FROM item_prefixes 절감.
+export function getPrefixNamesSync(prefixIds: number[]): string[] {
+  if (!prefixIds || prefixIds.length === 0) return [];
+  if (!prefixCache) return [];
+  const out: string[] = [];
+  for (const pid of prefixIds) {
+    const p = prefixCache.find(x => x.id === pid);
+    if (p) out.push(p.name);
+  }
+  return out;
+}

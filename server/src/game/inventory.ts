@@ -1,5 +1,5 @@
 import { query } from '../db/pool.js';
-import { generatePrefixes } from './prefix.js';
+import { generatePrefixes, getPrefixNamesSync } from './prefix.js';
 import { getCachedItem } from './itemsCache.js';
 
 export const BASE_INVENTORY_SLOTS = 300;
@@ -27,9 +27,11 @@ export interface EquipPreroll {
 // 드랍 핫패스 hint — 호출자가 freeSlots 와 maxSlots 를 미리 계산해 넘기면
 // addItemToInventory 가 used+bonus SELECT 를 스킵. handleMonsterDeath 의 drops 루프에서
 // 매 드랍 SELECT 가 1번만 발생하도록.
+// characterName 도 옵션 — special drop log 에 쓰는 SELECT name FROM characters 절감.
 export interface AddItemHint {
   freeSlots: number[];   // 호출자가 직접 관리 (pop 시 변경됨)
   maxSlots: number;
+  characterName?: string;
 }
 
 export async function addItemToInventory(
@@ -164,11 +166,25 @@ export async function addItemToInventory(
       // AFK 카운터용 메타 수집
       equipMetas.push({ isUnique, quality100: isQualityMax, isT4 });
       if (isUnique || isQualityMax || is3Options || isT4) {
-        const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
-        const cName = charInfo.rows[0]?.name ?? '???';
-        const prefixNameList = prefixIds.length > 0
-          ? (await query<{ name: string }>('SELECT name FROM item_prefixes WHERE id = ANY($1)', [prefixIds])).rows.map(r => r.name).join(' ')
-          : '';
+        // 캐릭명·접두사명 캐시 우선 — hint 또는 메모리 prefixCache. 매 special drop 당 SELECT 2회 절감.
+        let cName = hint?.characterName;
+        if (!cName) {
+          const charInfo = await query<{ name: string }>('SELECT name FROM characters WHERE id = $1', [characterId]);
+          cName = charInfo.rows[0]?.name ?? '???';
+        }
+        let prefixNameList: string;
+        if (prefixIds.length > 0) {
+          const cached = getPrefixNamesSync(prefixIds);
+          if (cached.length === prefixIds.length) {
+            prefixNameList = cached.join(' ');
+          } else {
+            // cache miss fallback
+            const r = await query<{ name: string }>('SELECT name FROM item_prefixes WHERE id = ANY($1)', [prefixIds]);
+            prefixNameList = r.rows.map(x => x.name).join(' ');
+          }
+        } else {
+          prefixNameList = '';
+        }
         const fullName = prefixNameList ? `${prefixNameList} ${itemName}` : itemName;
         const logGrade = isUnique ? 'unique' : itemGrade;
         await query(
