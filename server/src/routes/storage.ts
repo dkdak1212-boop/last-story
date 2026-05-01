@@ -108,11 +108,11 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      soulbound: boolean; item_slot: string | null;
+      soulbound: boolean; item_slot: string | null; required_level: number;
     }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
-              i.slot AS item_slot
+              i.slot AS item_slot, COALESCE(i.required_level, 1) AS required_level
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [characterId, inventorySlotIndex]
@@ -123,6 +123,7 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
+    if (it.required_level >= 110) return { error: '110제 장비는 창고에 보관할 수 없습니다.', status: 400 };
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM account_storage_items WHERE user_id = $1', [userId]

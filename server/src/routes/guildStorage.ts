@@ -188,11 +188,12 @@ router.post('/:characterId/deposit-item', async (req: AuthedRequest, res: Respon
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      item_name: string; soulbound: boolean;
+      item_name: string; soulbound: boolean; required_level: number;
     }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, i.name AS item_name,
-              COALESCE(ci.soulbound, FALSE) AS soulbound
+              COALESCE(ci.soulbound, FALSE) AS soulbound,
+              COALESCE(i.required_level, 1) AS required_level
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [cid, inventorySlotIndex]
@@ -202,6 +203,7 @@ router.post('/:characterId/deposit-item', async (req: AuthedRequest, res: Respon
     if (it.soulbound) return { error: '착용한 적이 있는 장비는 길드 창고에 보관할 수 없습니다. (계정 귀속)', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 길드 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 길드 창고에 보관할 수 없습니다.', status: 400 };
+    if (it.required_level >= 110) return { error: '110제 장비는 길드 창고에 보관할 수 없습니다.', status: 400 };
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM guild_storage_items WHERE guild_id = $1', [guildId]
