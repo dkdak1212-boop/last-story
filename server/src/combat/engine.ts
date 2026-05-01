@@ -583,6 +583,25 @@ export async function flushPendingDrops(): Promise<void> {
 
 setInterval(() => { flushPendingDrops().catch(err => console.error('[drops-batch] interval err', err)); }, 1000);
 
+// 종언 floor_started_at 더티 큐 — 새 층 진입 시점만 기록, 5초 batch flush
+// (이전: 매 spawn 마다 SELECT + 가끔 UPDATE → 종언 캐릭 다수 환경에서 풀 압박 주범)
+const endlessFloorStartedDirty = new Map<number, number>();
+setInterval(() => {
+  if (endlessFloorStartedDirty.size === 0) return;
+  const entries = Array.from(endlessFloorStartedDirty.entries());
+  endlessFloorStartedDirty.clear();
+  (async () => {
+    for (const [cid, ms] of entries) {
+      try {
+        await query(
+          `UPDATE endless_pillar_progress SET floor_started_at = to_timestamp($1::double precision / 1000) WHERE character_id = $2`,
+          [ms, cid]
+        );
+      } catch (e) { console.error('[endless-floor-flush]', cid, e); }
+    }
+  })().catch(e => console.error('[endless-floor-flush] outer', e));
+}, 5000);
+
 // 길드 보스 데미지 버퍼 일괄 flush + milestone 실시간 판정 — 5초 주기
 // reentry guard: 한 사이클이 5초를 넘기면 다음 tick 스킵(풀 경합 완화)
 let guildBossFlushRunning = false;
@@ -3117,6 +3136,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     try {
       const result = await recordFloorClear(s.characterId, clearedFloor, clearTimeMs);
       s.endlessFloor = result.newFloor;
+      // 새 층 진입 — 세션 메모리 즉시 갱신 + 더티 큐 (5s batch UPDATE 가 처리)
+      if (result.newFloor !== clearedFloor) {
+        s.endlessFloorStartedAt = Date.now();
+        endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
+      }
       // 보스층 클리어 시 풀회복 (인터뷰 A3.4)
       if (result.isBoss) {
         s.playerHp = s.playerMaxHp;
@@ -3715,8 +3739,9 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.hasFirstStrike = true;
     s.hasFirstSkill = true;
     s.monsterSpawnAt = Date.now();
-    // 종언 — DB 의 floor_started_at 영속값 복원. 없으면 NOW() 로 새로 박제.
-    {
+    // 종언 — 세션 메모리(endlessFloorStartedAt) 신뢰. 0(cold-start) 일 때만 DB 1회 복원.
+    // 새 층 진입은 handleMonsterDeath 에서 endlessFloorStartedDirty 큐에 적재 → 5s batch UPDATE.
+    if (s.endlessFloorStartedAt === 0) {
       const fr = await query<{ fsa: string | null }>(
         `SELECT floor_started_at::text AS fsa FROM endless_pillar_progress WHERE character_id = $1`,
         [s.characterId]
@@ -3726,10 +3751,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
         s.endlessFloorStartedAt = persistedMs;
       } else {
         s.endlessFloorStartedAt = Date.now();
-        await query(
-          `UPDATE endless_pillar_progress SET floor_started_at = NOW() WHERE character_id = $1`,
-          [s.characterId]
-        );
+        endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
       }
     }
     // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
