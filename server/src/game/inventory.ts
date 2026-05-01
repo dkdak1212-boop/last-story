@@ -24,12 +24,21 @@ export interface EquipPreroll {
   quality: number;
 }
 
+// 드랍 핫패스 hint — 호출자가 freeSlots 와 maxSlots 를 미리 계산해 넘기면
+// addItemToInventory 가 used+bonus SELECT 를 스킵. handleMonsterDeath 의 drops 루프에서
+// 매 드랍 SELECT 가 1번만 발생하도록.
+export interface AddItemHint {
+  freeSlots: number[];   // 호출자가 직접 관리 (pop 시 변경됨)
+  maxSlots: number;
+}
+
 export async function addItemToInventory(
   characterId: number,
   itemId: number,
   quantity: number,
   mailOnOverflow?: { subject: string; body: string },
-  preroll?: EquipPreroll
+  preroll?: EquipPreroll,
+  hint?: AddItemHint,
 ): Promise<{ added: number; overflow: number; equipMetas?: EquipDropMeta[] }> {
   // 아이템 조회 — in-memory 캐시 (boot 시 전체 로드). items 테이블은 시드/마이그레이션
   // 경로에서만 변경되므로 런타임 stale 우려 없음. 드랍 핫패스의 SELECT 1건 제거.
@@ -86,24 +95,31 @@ export async function addItemToInventory(
     }
   }
 
-  // 새 슬롯 찾기 — bonus 와 used 를 한 쿼리로 결합 (드랍 핫패스 q/s 절반 감소)
-  // 매 드랍 호출당 SELECT 2회 → 1회. 100 kills/sec × 1.5 drops avg × 1 query 절감 = ~150 q/s
-  const slotR = await query<{ bonus: number; used_slots: number[] }>(
-    `SELECT
-       COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
-       COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
-     FROM characters c
-     LEFT JOIN character_inventory ci ON ci.character_id = c.id
-     WHERE c.id = $1
-     GROUP BY c.id`,
-    [characterId]
-  );
-  const row = slotR.rows[0];
-  const used = new Set<number>(row?.used_slots || []);
-  const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
-  const freeSlots: number[] = [];
-  for (let i = 0; i < maxSlots; i++) {
-    if (!used.has(i)) freeSlots.push(i);
+  // 새 슬롯 찾기 — hint 가 있으면 그대로 사용 (호출자가 미리 계산), 없으면 SELECT 한 번.
+  // 드랍 루프 (handleMonsterDeath) 에선 hint 로 N drops × 1 SELECT 절감.
+  let freeSlots: number[];
+  let maxSlots: number;
+  if (hint) {
+    freeSlots = hint.freeSlots;
+    maxSlots = hint.maxSlots;
+  } else {
+    const slotR = await query<{ bonus: number; used_slots: number[] }>(
+      `SELECT
+         COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+         COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+       FROM characters c
+       LEFT JOIN character_inventory ci ON ci.character_id = c.id
+       WHERE c.id = $1
+       GROUP BY c.id`,
+      [characterId]
+    );
+    const row = slotR.rows[0];
+    const used = new Set<number>(row?.used_slots || []);
+    maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
+    freeSlots = [];
+    for (let i = 0; i < maxSlots; i++) {
+      if (!used.has(i)) freeSlots.push(i);
+    }
   }
 
   let prerollUsed = false;

@@ -6,7 +6,7 @@ import { clampCharacterPoints } from '../game/pointClamper.js';
 import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
 import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
-import { addItemToInventory, deliverToMailbox, type EquipPreroll } from '../game/inventory.js';
+import { addItemToInventory, deliverToMailbox, BASE_INVENTORY_SLOTS, type EquipPreroll } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
 import { generatePrefixes } from '../game/prefix.js';
 import { trackMonsterKill } from '../routes/quests.js';
@@ -2544,56 +2544,61 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const hpPct = s.playerHp / s.playerMaxHp;
 
   // ── 자동 포션 (아이템 — 스킬과 별개, HP 위험 시 사용) ──
-  // 오프라인 시뮬 폐지 후 항상 onLine — 소환사 70% 분기는 사문화. threshold 그대로 사용.
   const healThresholdPct = s.autoPotionThreshold || 50;
   if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
     const potionHealPct: Record<number, number> = { 108: 100, 106: 80, 104: 60, 102: 40, 100: 20 };
+    const tPot = Date.now();
     const pot = await getPotionInInventory(s.characterId, [108, 106, 104, 102, 100]);
     if (pot) {
       const pct = potionHealPct[pot.item_id] || 20;
       const heal = Math.round(s.playerMaxHp * pct / 100);
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       await consumeOneFromSlot(pot.id);
+      perfSeg.pPotionMs += Date.now() - tPot;
       s.potionCooldown = 3;
       s.metaDirty = true;
       addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
       return;
     }
+    perfSeg.pPotionMs += Date.now() - tPot;
   }
 
-  // ── 슬롯 순서대로 행동 ──
-  // 1단계: kind='buff' 스킬은 "자유 행동" — 가능한 모두 즉시 발동, 턴 소모 없음.
-  //         (쿨다운은 정상 적용 → 사이클 보존)
-  // 2단계: 비-buff 스킬 중 첫 번째 사용 가능한 것 1개 → 메인 행동
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
   const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
 
-  // 실드 스킬은 모두 중첩 — 우선순위 없이 준비된 것 전부 발동
+  // 실드 스킬은 모두 중첩
   for (const sk of sorted) {
     if (sk.kind !== 'buff') continue;
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    const tSk = Date.now();
     await executeSkill(s, sk);
+    perfSeg.pSkillMs += Date.now() - tSk;
+    perfSeg.pSkillCalls++;
   }
 
   for (const sk of sorted) {
     if (sk.kind === 'buff') continue;
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    const tSk = Date.now();
     await executeSkill(s, sk);
-    // 시간 지배자 (마법사): skill_double_chance % 확률로 스킬 1회 추가 발동
+    perfSeg.pSkillMs += Date.now() - tSk;
+    perfSeg.pSkillCalls++;
     const dblChance = getPassive(s, 'skill_double_chance');
     if (dblChance > 0 && Math.random() * 100 < dblChance) {
       addLog(s, `⏳ [시간 지배자] 스킬 재발동!`);
+      const tSk2 = Date.now();
       await executeSkill(s, sk);
+      perfSeg.pSkillMs += Date.now() - tSk2;
+      perfSeg.pSkillCalls++;
     }
-    // 소환사: 메인 스킬 후 소환수 자동 공격
     if (s.className === 'summoner') processSummons(s);
     return;
   }
 
-  // fallback: 모든 스킬이 쿨 또는 사용 불가일 때 기본 공격
-  // 기본공격 턴에도 독의 공명 폭발 체크 (스킬 미사용 시 게이지가 멈추는 문제 방지)
+  // fallback 기본 공격
+  const tBasic = Date.now();
   tryPoisonResonanceBurst(s);
   const d = calcDamage(s.playerStats, s.monsterStats, 1.0, MATK_CLASSES.has(s.className));
   if (d.miss) {
@@ -2605,6 +2610,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
     const pLsBasic = applyPrefixLifesteal(s, d.damage);
     if (pLsBasic > 0) addLog(s, `[흡혈] HP +${pLsBasic}`);
   }
+  perfSeg.pBasicMs += Date.now() - tBasic;
 }
 
 // ── 110 몬스터 스킬 처리 ──
@@ -3289,6 +3295,28 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   if (!s.autoSellCache) {
     await loadAutoSellCache(s);
   }
+
+  // drops 루프용 인벤토리 hint — 매 드랍 SELECT used+bonus 절감 (kill segment 핫스팟).
+  // drops > 0 일 때만 1회 SELECT 후 freeSlots 배열 만들어 hint 로 전달.
+  let dropHint: { freeSlots: number[]; maxSlots: number } | undefined;
+  if (drops.length > 0) {
+    const slotR = await query<{ bonus: number; used_slots: number[] }>(
+      `SELECT
+         COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+         COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+       FROM characters c
+       LEFT JOIN character_inventory ci ON ci.character_id = c.id
+       WHERE c.id = $1
+       GROUP BY c.id`,
+      [s.characterId]
+    );
+    const row = slotR.rows[0];
+    const used = new Set<number>(row?.used_slots || []);
+    const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
+    const freeSlots: number[] = [];
+    for (let i = 0; i < maxSlots; i++) if (!used.has(i)) freeSlots.push(i);
+    dropHint = { freeSlots, maxSlots };
+  }
   const ac = s.autoSellCache!;
   // 정책 C: 오프라인도 온라인과 동일. 자동판매·드랍필터 그대로 적용.
   // 자동판매 제거됨 (2026-04). 드랍필터만 유지. quality 상한도 없음.
@@ -3338,7 +3366,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
 
     // 4) 인벤토리 저장 (preroll 그대로 전달 → 필터/판매에서 본 값과 동일하게 저장)
-    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, undefined, preroll);
+    const { overflow, equipMetas } = await addItemToInventory(s.characterId, drop.itemId, drop.qty, undefined, preroll, dropHint);
     if (overflow > 0) {
       addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
     } else {
@@ -5250,10 +5278,15 @@ setInterval(() => {
 
 // 틱 성능 통계 (30초마다 요약 출력)
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
-// 30초 누적 segment 측정 — 어디가 350ms 의 대부분 차지하는지 분리해서 본다.
-// runOne 안에서 각 await 구간마다 (Date.now()) 차이를 더한다.
-// action 은 monster vs player 로 분리해서 어느 쪽 hot path 인지 식별.
-let perfSeg = { mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
+// 30초 누적 segment 측정 — pAct 내부 sub-segment 분리로 hot path 식별.
+// pPotion: getPotionInInventory + consumeOneFromSlot (HP 위험 시)
+// pSkill : executeSkill 호출 합산 (buff loop + main loop)
+// pBasic : 기본 공격 fallback (calcDamage)
+let perfSeg = {
+  mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
+  pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+};
+export const _perfSeg = () => perfSeg;
 
 setInterval(() => {
   if (tickStats.count === 0 && tickStats.skipped === 0) return;
@@ -5262,8 +5295,12 @@ setInterval(() => {
   const seg = perfSeg;
   const segSum = seg.mActionMs + seg.pActionMs + seg.killMs + seg.deathMs + seg.pushMs;
   console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
+  console.log(`[combat-perf] pAct breakdown — potion=${seg.pPotionMs}ms skill=${seg.pSkillMs}ms (calls=${seg.pSkillCalls}) basic=${seg.pBasicMs}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
-  perfSeg = { mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
+  perfSeg = {
+    mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
+    pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+  };
 }, 30_000);
 
 function ensureCombatLoop() {
