@@ -359,7 +359,7 @@ export function EnhanceScreen() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ color: 'var(--text-dim)' }}>성공 확률</span>
                       <span style={{ color: info.chance >= 0.8 ? 'var(--success)' : info.chance >= 0.5 ? 'var(--accent)' : 'var(--danger)', fontWeight: 700 }}>
-                        {Math.round((info.chance + (useScroll && info.scrollAllowed ? 0.10 : 0)) * 100)}%
+                        {((info.chance + (useScroll && info.scrollAllowed ? 0.10 : 0)) * 100).toFixed(1)}%
                         {useScroll && info.scrollAllowed && <span style={{ color: 'var(--success)', marginLeft: 4 }}>(+10%)</span>}
                       </span>
                     </div>
