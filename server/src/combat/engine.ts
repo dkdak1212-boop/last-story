@@ -1447,6 +1447,21 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
   }
 }
 
+// 마법사 시그니처 화상 도트 — 창세의 빛, 원소 대폭발 의 메인 데미지 발동 후 5행동 도트 부여.
+// 마법사 도트 계수 2.25 (DOT × class bonus) 적용. 다른 클래스는 1.0.
+function applyMageBurnDot(s: ActiveSession, skill: SkillDef): void {
+  if (skill.name !== '창세의 빛' && skill.name !== '원소 대폭발') return;
+  const useMatk = MATK_CLASSES.has(s.className);
+  const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
+  const DOT_SKILL_MULT = 2.0;
+  const classDotBonus = s.className === 'mage' ? 2.25 : 1.0;
+  const eff = DOT_SKILL_MULT * classDotBonus;
+  const dotDmg = Math.round(dotBase * eff);
+  if (dotDmg <= 0) return;
+  addEffect(s, { type: 'dot', value: dotDmg, remainingActions: 5, source: 'player', dotMult: eff, dotUseMatk: useMatk });
+  addLog(s, `[${skill.name}] 화상 도트 ${dotDmg}/행동 x5행동`);
+}
+
 async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   const useMatk = MATK_CLASSES.has(s.className);
 
@@ -1799,6 +1814,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         s.monsterHp -= cost;
         addLog(s, `[${skill.name}] 자신 HP -${cost}, 추가 데미지 +${cost}`);
       }
+      // 마법사 시그니처 — 창세의 빛 (double_chance bundle) 메인 발동 후 화상 도트 5행동
+      applyMageBurnDot(s, skill);
       break;
     }
 
@@ -1917,6 +1934,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           break;
         }
       }
+      // 마법사 시그니처 — 원소 대폭발 (multi_hit) 메인 발동 후 화상 도트 5행동
+      applyMageBurnDot(s, skill);
       break;
     }
 
@@ -1966,8 +1985,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (pLsDot > 0) addLog(s, `[흡혈] HP +${pLsDot}`);
         const dotBase = useMatk ? s.playerStats.matk : s.playerStats.atk;
         const DOT_SKILL_MULT = 2.0; // 화상 도트: 200% (1.56 → 2.0 상향)
-        // 마법사 전용: DoT 전체 +50% (틱당 피해 1.5배)
-        const classDotBonus = s.className === 'mage' ? 1.5 : 1.0;
+        // 마법사 전용: DoT 계수 추가 1.5x 상승 (1.5 → 2.25, 누적 +50%)
+        const classDotBonus = s.className === 'mage' ? 2.25 : 1.0;
         const effDotMult = DOT_SKILL_MULT * classDotBonus;
         const dotDmg = Math.round(dotBase * effDotMult);
         const stormExt = getPassive(s, 'elemental_storm') > 0 ? 1 : 0;
