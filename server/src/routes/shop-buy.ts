@@ -10,7 +10,7 @@ router.use(authRequired);
 
 // 차원의 통행증 일일 구매 제한
 const RIFT_PASS_ITEM_ID = 855;
-const RIFT_PASS_DAILY_LIMIT = 1;
+const RIFT_PASS_DAILY_LIMIT = 2;
 
 router.post('/:id/shop/buy', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
