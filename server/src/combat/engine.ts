@@ -3140,6 +3140,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // 종언의 기둥 — 골드/EXP/드랍/퀘스트/업적 등 일반 사냥 보상 일체 스킵.
   // 층 진행 + 보스층 클리어 시 풀회복 + 다음 층 스폰만 처리.
   if (s.fieldId === ENDLESS_FIELD_ID) {
+    const _tEndless = Date.now();
     const clearedFloor = s.endlessFloor;
     const clearTimeMs = Math.max(0, Date.now() - s.endlessFloorStartedAt);
     try {
@@ -3161,7 +3162,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       console.error('[endless] floor clear err', s.characterId, e);
     }
     s.dirty = true;
+    const _tSp = Date.now();
     await spawnMonsterForSession(s);
+    perfSeg.kSpawnMs += Date.now() - _tSp;
+    perfSeg.kEndlessMs += Date.now() - _tEndless;
     return;
   }
 
@@ -3231,6 +3235,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   }
 
   // 접두사 + 프리미엄 부스터 + 레벨 — 세션 캐시(cachedCharMeta) 사용. 캐시 미스 시 1회 DB 폴백.
+  const _tMeta = Date.now();
   if (!s.cachedCharMeta) {
     try {
       const r = await query<{
@@ -3268,6 +3273,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       }
     } catch {}
   }
+  perfSeg.kMetaMs += Date.now() - _tMeta;
   const charMetaCached = s.cachedCharMeta;
   const nowMs = Date.now();
   const goldBonusPct = s.equipPrefixes.gold_bonus_pct || 0;
@@ -3368,6 +3374,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     batchAdd(s.characterId, { expDelta: previewExp, goldDelta: finalGold });
     s.cachedExp = provisionalNewExp;
   } else {
+    const _tLevel = Date.now();
     // Slow path — 레벨업 가능성 또는 캐시 미스 → 정확 검증
     const char = await loadCharacter(s.characterId);
     if (!char) return;
@@ -3436,6 +3443,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         };
       }
     }
+    perfSeg.kLevelMs += Date.now() - _tLevel;
   }
 
   // 퀘스트 트래킹: 활성 퀘스트의 target_id 집합을 30s 캐시 — 매 킬마다 SELECT 절약.
@@ -3477,6 +3485,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   // drops > 0 일 때 슬롯 캐시 사용. cache miss / 30s 만료 시에만 SELECT.
   // pending 큐 슬롯도 used 로 합쳐 충돌 방지. drops 자체는 INSERT 안 하고
   // pendingDrops 큐에 적재 → 1초 interval bulk INSERT. 캐시는 enqueue 시 shift 로 차감.
+  const _tSlot = Date.now();
   let freeSlots: number[] = [];
   let charNameForLog = '';
   if (drops.length > 0) {
@@ -3512,6 +3521,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     freeSlots = s.inventorySlotCache!.freeSlots;
     charNameForLog = s.inventorySlotCache!.charName;
   }
+  perfSeg.kSlotMs += Date.now() - _tSlot;
 
   const ac = s.autoSellCache!;
   const dfTiers = ac.drop_filter_tiers;
@@ -3527,6 +3537,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     characterName: charNameForLog,
   } : undefined;
 
+  const _tDropLoop = Date.now();
   for (const drop of drops) {
     const cachedItem = getCachedItem(drop.itemId);
     if (!cachedItem) continue;
@@ -3539,6 +3550,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     // ─ stack 가능 아이템 (소모/재료, stack_size > 1) — 큐 우회, addItemToInventory 호출 ─
     // stack merge 로직 보존 (큐 일괄 INSERT 는 stack 합산 못 함).
     if (cachedItem.stack_size > 1) {
+      const _tAdd = Date.now();
       try {
         const { overflow } = await addItemToInventory(
           s.characterId, drop.itemId, drop.qty, undefined, undefined, dropHintForStackable
@@ -3548,6 +3560,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       } catch (err) {
         console.error('[combat] stack drop INSERT err', err);
       }
+      perfSeg.kAddItemMs += Date.now() - _tAdd;
+      perfSeg.kAddItemCalls++;
       continue;
     }
 
@@ -3558,7 +3572,10 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     let quality = 0;
 
     if (isEquipment) {
+      const _tPrefix = Date.now();
       const rolled = await generatePrefixes(item.required_level);
+      perfSeg.kGenPrefixMs += Date.now() - _tPrefix;
+      perfSeg.kGenPrefixCalls++;
       prefixIds = rolled.prefixIds;
       bonusStats = rolled.bonusStats;
       maxTier = rolled.maxTier;
@@ -3639,12 +3656,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
     addLog(s, '아이템 획득!');
   }
+  perfSeg.kDropLoopMs += Date.now() - _tDropLoop;
 
   // exp/골드/드롭으로 인벤토리·경험치 변동 → 메타 캐시 무효화
   s.metaDirty = true;
 
   // 다음 몬스터 스폰
+  const _tSp2 = Date.now();
   await spawnMonsterForSession(s);
+  perfSeg.kSpawnMs += Date.now() - _tSp2;
 }
 
 // 허수아비 존: 이름으로 판단 ("허수아비"로 시작하는 몬스터는 불사 + 누적 데미지 추적)
@@ -5551,6 +5571,11 @@ let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
 let perfSeg = {
   mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
   pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+  // kill 단계 sub-segment (handleMonsterDeath 내부)
+  kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
+  kAddItemMs: 0, kAddItemCalls: 0,
+  kGenPrefixMs: 0, kGenPrefixCalls: 0,
+  kSpawnMs: 0, kLevelMs: 0,
 };
 export const _perfSeg = () => perfSeg;
 
@@ -5562,10 +5587,15 @@ setInterval(() => {
   const segSum = seg.mActionMs + seg.pActionMs + seg.killMs + seg.deathMs + seg.pushMs;
   console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
   console.log(`[combat-perf] pAct breakdown — potion=${seg.pPotionMs}ms skill=${seg.pSkillMs}ms (calls=${seg.pSkillCalls}) basic=${seg.pBasicMs}ms`);
+  console.log(`[combat-perf] kill breakdown — endless=${seg.kEndlessMs}ms meta=${seg.kMetaMs}ms slot=${seg.kSlotMs}ms drops=${seg.kDropLoopMs}ms addItem=${seg.kAddItemMs}ms(${seg.kAddItemCalls}) prefix=${seg.kGenPrefixMs}ms(${seg.kGenPrefixCalls}) spawn=${seg.kSpawnMs}ms levelup=${seg.kLevelMs}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
   perfSeg = {
     mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
     pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+    kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
+    kAddItemMs: 0, kAddItemCalls: 0,
+    kGenPrefixMs: 0, kGenPrefixCalls: 0,
+    kSpawnMs: 0, kLevelMs: 0,
   };
 }, 30_000);
 
