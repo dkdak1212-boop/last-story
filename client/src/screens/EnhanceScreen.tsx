@@ -347,8 +347,8 @@ export function EnhanceScreen() {
                 </div>
               )}
 
-              {selected.enhanceLevel >= 20 ? (
-                <div style={{ color: 'var(--accent)', fontWeight: 700 }}>최대 강화 단계 (+20)</div>
+              {selected.enhanceLevel >= 30 ? (
+                <div style={{ color: 'var(--accent)', fontWeight: 700 }}>최대 강화 단계 (+30)</div>
               ) : info && (
                 <>
                   <div style={{ padding: 10, background: 'var(--bg-elev)', marginBottom: 10, fontSize: 13 }}>
