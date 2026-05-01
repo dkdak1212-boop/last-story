@@ -1614,13 +1614,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
         }
-        // 전사 분노 폭발 (rage 100 이상 → ×3)
+        // 전사 분노 폭발 — 3행동 유지 (이전: 단일 hit ×3)
+        // 첫 hit 즉시 ×3 + atk_buff 200 으로 다음 2 hit 도 ×3 = 총 3 hit ×3.
+        // atk_buff 는 applyDamagePrefixes 에서 자동 적용 → 단일/다단/도트 분기 일괄.
         // rage_reduce 패시브: 폭발 후 잔여 분노 (소모량 -N%)
         let rageProc = false;
         if (s.className === 'warrior' && s.rage >= 100) {
-          dmg = Math.round(dmg * 3);
           const rageReduce = getPassive(s, 'rage_reduce');
           s.rage = rageReduce > 0 ? Math.round(s.rage * (rageReduce / 100)) : 0;
+          dmg = Math.round(dmg * 3);
+          addEffect(s, { type: 'atk_buff', value: 200, remainingActions: 2, source: 'monster' });
           rageProc = true;
         }
         // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 — 단일 'damage' case 누락 보강 ──
@@ -1668,7 +1671,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         s.monsterHp -= dmg;
         if (rageProc) {
-          addLog(s, `🔥 [분노 폭발!] ${dmg} 데미지 (×3)`);
+          addLog(s, `[분노 폭발] 3행동 동안 데미지 ×3 발동! ${dmg} 데미지`);
         } else if (d.crit) {
           const critDmgPct = 200 + getCritDmgBonus(s);
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
