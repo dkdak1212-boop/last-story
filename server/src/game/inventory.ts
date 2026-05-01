@@ -86,13 +86,21 @@ export async function addItemToInventory(
     }
   }
 
-  // 새 슬롯 찾기
-  const usedR = await query<{ slot_index: number }>(
-    'SELECT slot_index FROM character_inventory WHERE character_id = $1',
+  // 새 슬롯 찾기 — bonus 와 used 를 한 쿼리로 결합 (드랍 핫패스 q/s 절반 감소)
+  // 매 드랍 호출당 SELECT 2회 → 1회. 100 kills/sec × 1.5 drops avg × 1 query 절감 = ~150 q/s
+  const slotR = await query<{ bonus: number; used_slots: number[] }>(
+    `SELECT
+       COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+       COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+     FROM characters c
+     LEFT JOIN character_inventory ci ON ci.character_id = c.id
+     WHERE c.id = $1
+     GROUP BY c.id`,
     [characterId]
   );
-  const used = new Set(usedR.rows.map((r) => r.slot_index));
-  const maxSlots = await getMaxSlots(characterId);
+  const row = slotR.rows[0];
+  const used = new Set<number>(row?.used_slots || []);
+  const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
   const freeSlots: number[] = [];
   for (let i = 0; i < maxSlots; i++) {
     if (!used.has(i)) freeSlots.push(i);

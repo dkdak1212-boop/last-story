@@ -3950,7 +3950,7 @@ async function combatTick(): Promise<void> {
         s.monsterGauge -= GAUGE_MAX;
         processDots(s, 'player');
         tickDownEffects(s, 'monster', preMonsterActIds);
-        perfSeg.actionMs += Date.now() - t0;
+        perfSeg.mActionMs += Date.now() - t0;
         s.dirty = true;
         if (s.playerHp <= 0) { const td = Date.now(); await handlePlayerDeath(s); perfSeg.deathMs += Date.now() - td; return 'return'; }
         handleDummyTick(s, hpBeforeMon);
@@ -3998,7 +3998,7 @@ async function combatTick(): Promise<void> {
         if (crystalActive && s.monsterHp > 0 && s.playerHp > 0) {
           await autoAction(s);
         }
-        perfSeg.actionMs += Date.now() - ta;
+        perfSeg.pActionMs += Date.now() - ta;
         s.paragonCrystalActive = prevCrystal;
         // #14 paragon_pain_lord — 자가 도트 매 행동 max_hp 0.5% (8 → 0.5 완화)
         if (getPassive(s, 'paragon_pain_lord') > 0) {
@@ -5252,17 +5252,18 @@ setInterval(() => {
 let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
 // 30초 누적 segment 측정 — 어디가 350ms 의 대부분 차지하는지 분리해서 본다.
 // runOne 안에서 각 await 구간마다 (Date.now()) 차이를 더한다.
-let perfSeg = { actionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
+// action 은 monster vs player 로 분리해서 어느 쪽 hot path 인지 식별.
+let perfSeg = { mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
 
 setInterval(() => {
   if (tickStats.count === 0 && tickStats.skipped === 0) return;
   const avg = tickStats.count > 0 ? (tickStats.totalMs / tickStats.count).toFixed(1) : '0';
   console.log(`[combat-perf] ticks=${tickStats.count} avg=${avg}ms max=${tickStats.maxMs}ms over100ms=${tickStats.overLimit} skipped=${tickStats.skipped} sessions=${activeSessions.size}`);
   const seg = perfSeg;
-  const segSum = seg.actionMs + seg.killMs + seg.deathMs + seg.pushMs;
-  console.log(`[combat-perf] seg action=${seg.actionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
+  const segSum = seg.mActionMs + seg.pActionMs + seg.killMs + seg.deathMs + seg.pushMs;
+  console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
-  perfSeg = { actionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
+  perfSeg = { mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0 };
 }, 30_000);
 
 function ensureCombatLoop() {
