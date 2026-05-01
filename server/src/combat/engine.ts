@@ -4866,8 +4866,20 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
     }
     // playerHp 방어 클램프 — Infinity/NaN/INT4 범위 초과 시 PG 파라미터 바인딩 단계에서
     // 22003 numeric_value_out_of_range 발생 (SQL의 LEAST/GREATEST 실행 전 단계). JS 에서 미리 차단.
-    const safeHp = Number.isFinite(s.playerHp)
-      ? Math.max(1, Math.min(2_000_000_000, Math.floor(s.playerHp)))
+    // 이상값 발생 시 원천 추적 — 어떤 클래스/필드/스탯 조합에서 인플레이션이 일어났는지.
+    const rawHp = s.playerHp;
+    const isAnomaly = !Number.isFinite(rawHp) || rawHp < 0 || rawHp > 2_000_000_000;
+    if (isAnomaly) {
+      console.warn(
+        `[hp-anomaly] char=${characterId} class=${s.className} field=${s.fieldId} ` +
+        `playerHp=${rawHp} maxHp=${s.playerMaxHp} ` +
+        `atk=${s.playerStats?.atk} matk=${s.playerStats?.matk} ` +
+        `prefixes=${JSON.stringify(s.equipPrefixes)} ` +
+        `effects=${s.statusEffects.length} actions=${s.actionCount} sessionDmg=${s.sessionDamage}`
+      );
+    }
+    const safeHp = Number.isFinite(rawHp)
+      ? Math.max(1, Math.min(2_000_000_000, Math.floor(rawHp)))
       : 1;
     if (opts.keepLocation) {
       // 유휴 종료: location 유지 → 유저 재접속 시 오프라인 보상 계산 트리거됨
