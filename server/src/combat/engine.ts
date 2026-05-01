@@ -3844,10 +3844,10 @@ async function combatTick(): Promise<void> {
   // 자동복구(/combat/state) → startCombatSession 직후 클라가 WS subscribe 보내기 전에
   // 다음 tick 이 즉시 onSessionGoOffline 호출하여 무한 루프(생성→정리→생성) 발생 방지.
   const SESSION_SUBSCRIBE_GRACE_MS = 10_000;
-  // 동시 DB 풀 사용 cap — Promise.all 로 동시 폭발 시 풀(160) 고갈해 waiting 누적·tick 슬로우 발생.
-  // 32 로 조였더니 풀은 안정(waiting=0)인데 chunk 직렬화 오버헤드로 500ms 잔존 → 64 로 완화.
-  // 138 세션 ÷ 64 ≈ 3 chunks. 풀 사용은 64×평균 1~2 = 64~128 으로 burst 마진 32~96 확보.
-  const TICK_CONCURRENCY = 64;
+  // 동시 DB 풀 사용 cap — Promise.all 동시 폭발 시 풀(160) 고갈해 waiting 누적.
+  // 64 → waiting=121 재발 (chunk 내 64 세션 × 킬당 2~3 awaits = 192 conn 필요, pool 초과).
+  // 48 로 후퇴: 48 × 3 = 144 < 160. burst 마진 16. chunk 수: 160/48 ≈ 3.3.
+  const TICK_CONCURRENCY = 48;
   type SessionTask = { charId: number; s: ActiveSession };
   const pending: SessionTask[] = [];
   for (const [charId, s] of activeSessions) {
