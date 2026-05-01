@@ -14,6 +14,9 @@ export interface StatusEffect {
   element?: string;
   // 소환수 원본 스킬명 — 전투 화면 아이콘 표시용
   summonSkillName?: string;
+  // 소환 고정 데미지 — 무기 없는 저레벨에서도 일정 데미지 보장 (예: 늑대 500)
+  // processSummons 에서 matk×mult 결과에 더해진다 (스킬 row 의 flat_damage 값)
+  summonFlatDamage?: number;
 }
 
 // 도트는 방어력의 50%만 무시 (= def × 0.5 × 0.5 = def × 0.25 차감)

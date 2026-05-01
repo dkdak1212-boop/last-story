@@ -1277,8 +1277,10 @@ function processSummons(s: ActiveSession) {
     const lifesteal = globalLifesteal + eb.lifesteal;
 
     const mult = sm.value / 100; // value = 퍼센트 (80 = 0.8x)
+    const flatBase = sm.summonFlatDamage || 0; // 늑대 등 고정 데미지 (무기 없을 때도 보장)
     for (let h = 0; h < hits; h++) {
-      let dmg = Math.round(matk * mult * buffMult * (1 + dmgBonus / 100));
+      // matk×mult 와 flat 합산 후 버프/증폭. 저레벨 무기 없을 때 flat 이 데미지 바닥 형성.
+      let dmg = Math.round((matk * mult + flatBase) * buffMult * (1 + dmgBonus / 100));
       // 방어 적용 (관통 % 만큼 방어 무시)
       const defVal = s.monsterStats.mdef;
       const effectiveDef = defVal * (1 - Math.min(100, penetration) / 100);
@@ -2317,7 +2319,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const healMarker = skill.effect_type === 'summon_heal' ? -1 : 0;
       const multiHits = skill.effect_type === 'summon_multi' ? 3 : 1;
       const effectiveValue = skill.effect_type === 'summon_multi' ? skill.effect_value * multiHits : skill.effect_value;
-      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined, summonSkillName: skill.name });
+      addEffect(s, { type: 'summon', value: effectiveValue, remainingActions: dur, source: 'player', dotMult: healMarker, element: skill.element || undefined, summonSkillName: skill.name, summonFlatDamage: skill.flat_damage || 0 });
       addLog(s, `[${skill.name}] 소환! (MATK x${skill.effect_value}%${multiHits > 1 ? ` x${multiHits}회` : ''}, 무한)`);
       // 소환_도트: 추가로 화상 도트도 부여 (소환수와 함께 무한 지속)
       if (skill.effect_type === 'summon_dot') {
