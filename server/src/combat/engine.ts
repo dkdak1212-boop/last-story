@@ -8,6 +8,7 @@ import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.j
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox, type EquipPreroll } from '../game/inventory.js';
 import { expToNext } from '../game/leveling.js';
+import { generatePrefixes } from '../game/prefix.js';
 import { trackMonsterKill } from '../routes/quests.js';
 import { trackDailyQuestProgress } from '../routes/dailyQuests.js';
 import { checkAndUnlockAchievements } from '../game/achievements.js';
@@ -3161,69 +3162,93 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.afkExpGained += previewExp;
   }
 
-  const char = await loadCharacter(s.characterId);
-  if (!char) return;
-
-  // 부스터 + 접두사 + 길드 + 영토 경험 보너스 + 글로벌 이벤트 + 레벨차 페널티
-  const boostActive = char.exp_boost_until && new Date(char.exp_boost_until) > new Date();
-  const boostedExp = Math.floor(m.exp_reward * (boostActive ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * (1 + territoryBonus.expPct / 100) * ge.exp * levelDiffMult * eventExpMult * personalExpMult * offlineMult);
-  const result = applyExpGain(char.level, char.exp, boostedExp, char.class_name);
-  // 길드 EXP 5% 기여 (비동기 fire-and-forget)
-  contributeGuildExp(s.characterId, boostedExp);
+  // 길드 EXP 5% 기여 (비동기 fire-and-forget) — boostedExp ≡ previewExp (territoryBonus 0 정책)
+  contributeGuildExp(s.characterId, previewExp);
   // 영토 점수 +1 (사냥 처치 횟수 누적)
   // 영토 점령전 일시 비활성 — 점수 적립 중단
   // addTerritoryScore(s.characterId, s.fieldId).catch(() => {});
 
-  if (result.levelsGained > 0) {
-    addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
-    // 레벨업 → 업적 throttle 무시하고 즉시 1회 체크 (level 조건 즉시 반영)
-    lastAchievementCheckAt.set(s.characterId, Date.now());
-    checkAndUnlockAchievements(s.characterId)
-      .catch(err => console.error('[combat] level-up achievement check err', err));
-    // 레벨업은 exp를 절대값으로 덮어쓰므로 pending batch를 먼저 flush
-    await flushCharBatch(s.characterId);
-    await query(
-      `UPDATE characters SET level=$1, exp=$2, gold=gold+$3::int,
-              max_hp=max_hp+$4, hp=max_hp+$4,
-              node_points=node_points+$5,
-              stat_points=COALESCE(stat_points,0)+$7
-       WHERE id=$6`,
-      [result.newLevel, result.newExp, finalGold,
-       result.hpGained, result.nodePointsGained, s.characterId,
-       result.statPointsGained]
-    );
-    clampCharacterPoints(s.characterId).catch(() => {});
-    // 차원새싹상자 마일스톤 체크 — oldLevel < L <= newLevel 인 L 에 대해 발송
-    (async () => {
-      try {
-        const { checkSproutMilestones } = await import('../routes/sproutBox.js');
-        await checkSproutMilestones(s.characterId, char.level, result.newLevel);
-      } catch (e) { console.error('[sprout-box] milestone fail', e); }
-    })();
-    // 캐시된 레벨도 즉시 갱신 (다음 킬의 개인 EXP 배율 상한 체크 정확도 개선)
-    if (s.cachedCharMeta) s.cachedCharMeta.level = result.newLevel;
-    // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
-    const updatedChar = await loadCharacter(s.characterId);
-    const newEff = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);
-    // 2차 버프 적용 (접두사·노드 패시브) — 누락 시 소환사·마법사 데미지 20~40% 감소 버그
-    applyCombatStatBoost(newEff, s.passives, s.equipPrefixes, updatedChar?.max_hp ?? (char.max_hp + result.hpGained));
-    s.playerStats = newEff;
-    s.playerMaxHp = newEff.maxHp;
-    s.playerHp = s.playerMaxHp; // 레벨업 시 풀회복
-    s.playerSpeed = newEff.spd;
-    // 활성 도트 데미지 재계산 (레벨업으로 MATK 변한 것 반영)
-    for (const effItem of s.statusEffects) {
-      if ((effItem.type === 'dot' || effItem.type === 'poison') && effItem.source === 'player' && effItem.dotMult !== undefined) {
-        const base = effItem.dotUseMatk ? newEff.matk : newEff.atk;
-        effItem.value = Math.round(base * effItem.dotMult);
+  // 레벨업 사전 판정 — 캐시(level + cachedExp)로 임계 체크. 일반 킬(99%) 은 fast path 진입.
+  // 캐시 미스(첫 킬) 또는 임계 도달 시에만 loadCharacter + applyExpGain 풀 실행.
+  // 부작용: cachedExp 가 30s 내 수동 admin grant 로 갱신 안 된 경우 1킬 지연 — 허용.
+  const cachedLvl = charMetaCached?.level;
+  const cachedExpNow = s.cachedExp ?? 0;
+  const provisionalNewExp = cachedExpNow + previewExp;
+  const willLevelUp = cachedLvl != null && cachedLvl < 100 && provisionalNewExp >= expToNext(cachedLvl);
+
+  if (!willLevelUp && cachedLvl != null) {
+    // Fast path — DB load 없이 batch 적립
+    batchAdd(s.characterId, { expDelta: previewExp, goldDelta: finalGold });
+    s.cachedExp = provisionalNewExp;
+  } else {
+    // Slow path — 레벨업 가능성 또는 캐시 미스 → 정확 검증
+    const char = await loadCharacter(s.characterId);
+    if (!char) return;
+    const result = applyExpGain(char.level, char.exp, previewExp, char.class_name);
+
+    if (result.levelsGained > 0) {
+      addLog(s, `레벨업! Lv.${result.newLevel} (스탯포인트 +${result.statPointsGained})`);
+      // 레벨업 → 업적 throttle 무시하고 즉시 1회 체크 (level 조건 즉시 반영)
+      lastAchievementCheckAt.set(s.characterId, Date.now());
+      checkAndUnlockAchievements(s.characterId)
+        .catch(err => console.error('[combat] level-up achievement check err', err));
+      // 레벨업은 exp를 절대값으로 덮어쓰므로 pending batch를 먼저 flush
+      await flushCharBatch(s.characterId);
+      await query(
+        `UPDATE characters SET level=$1, exp=$2, gold=gold+$3::int,
+                max_hp=max_hp+$4, hp=max_hp+$4,
+                node_points=node_points+$5,
+                stat_points=COALESCE(stat_points,0)+$7
+         WHERE id=$6`,
+        [result.newLevel, result.newExp, finalGold,
+         result.hpGained, result.nodePointsGained, s.characterId,
+         result.statPointsGained]
+      );
+      clampCharacterPoints(s.characterId).catch(() => {});
+      // 차원새싹상자 마일스톤 체크 — oldLevel < L <= newLevel 인 L 에 대해 발송
+      (async () => {
+        try {
+          const { checkSproutMilestones } = await import('../routes/sproutBox.js');
+          await checkSproutMilestones(s.characterId, char.level, result.newLevel);
+        } catch (e) { console.error('[sprout-box] milestone fail', e); }
+      })();
+      // 캐시된 레벨도 즉시 갱신 (다음 킬의 개인 EXP 배율 상한 체크 정확도 개선)
+      if (s.cachedCharMeta) s.cachedCharMeta.level = result.newLevel;
+      s.cachedExp = result.newExp;
+      // 스탯 반영된 캐릭터 다시 로드 (장비/노드 HP 보너스 포함)
+      const updatedChar = await loadCharacter(s.characterId);
+      const newEff = await getEffectiveStats(updatedChar || { ...char, level: result.newLevel, max_hp: char.max_hp + result.hpGained } as any);
+      // 2차 버프 적용 (접두사·노드 패시브) — 누락 시 소환사·마법사 데미지 20~40% 감소 버그
+      applyCombatStatBoost(newEff, s.passives, s.equipPrefixes, updatedChar?.max_hp ?? (char.max_hp + result.hpGained));
+      s.playerStats = newEff;
+      s.playerMaxHp = newEff.maxHp;
+      s.playerHp = s.playerMaxHp; // 레벨업 시 풀회복
+      s.playerSpeed = newEff.spd;
+      // 활성 도트 데미지 재계산 (레벨업으로 MATK 변한 것 반영)
+      for (const effItem of s.statusEffects) {
+        if ((effItem.type === 'dot' || effItem.type === 'poison') && effItem.source === 'player' && effItem.dotMult !== undefined) {
+          const base = effItem.dotUseMatk ? newEff.matk : newEff.atk;
+          effItem.value = Math.round(base * effItem.dotMult);
+        }
+      }
+      // 새 스킬 학습
+      s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
+    } else {
+      // 레벨업 없음 → 배치 누적 (exp/gold 델타). 캐시 미스로 진입한 경우 동기화.
+      batchAdd(s.characterId, { expDelta: result.newExp - char.exp, goldDelta: finalGold });
+      s.cachedExp = result.newExp;
+      // 캐시 미스 케이스: cachedCharMeta 보강
+      if (!charMetaCached) {
+        s.cachedCharMeta = {
+          level: char.level,
+          expBoostUntilMs: char.exp_boost_until ? new Date(char.exp_boost_until).getTime() : null,
+          goldBoostUntilMs: null, dropBoostUntilMs: null,
+          eventExpPct: 0, eventExpUntilMs: null, eventExpMaxLevel: null,
+          eventDropPct: 0, eventDropUntilMs: null,
+          personalExpMult: 1, personalExpMultMaxLevel: null,
+        };
       }
     }
-    // 새 스킬 학습
-    s.skills = await getCharSkills(s.characterId, char.class_name, result.newLevel);
-  } else {
-    // 레벨업 없음 → 배치 누적 (exp/gold 델타)
-    batchAdd(s.characterId, { expDelta: result.newExp - char.exp, goldDelta: finalGold });
-    s.cachedExp = result.newExp;
   }
 
   // 퀘스트 트래킹: 활성 퀘스트의 target_id 집합을 30s 캐시 — 매 킬마다 SELECT 절약.
@@ -3270,16 +3295,13 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const dfProtect3opt = ac.drop_filter_protect_3opt;
   const hasDropFilter = dfTiers > 0 || dfCommon;
 
-  const needPrefixModule = drops.length > 0 && hasDropFilter;
-  const generatePrefixes = needPrefixModule ? (await import('../game/prefix.js')).generatePrefixes : null;
-
   for (const drop of drops) {
     // 1) 아이템 정보 — 메모리 캐시 (items 마스터 테이블은 런타임 변경 없음)
     const item = await getItemDef(drop.itemId);
 
     let preroll: EquipPreroll | undefined;
     // 장비 + 비유니크일 때만 prerolling (유니크는 addItemToInventory에서 처리)
-    if (item && item.slot && item.grade !== 'unique' && generatePrefixes) {
+    if (item && item.slot && item.grade !== 'unique') {
       const { prefixIds, bonusStats, maxTier } = await generatePrefixes(item.required_level);
       const quality = Math.floor(Math.random() * 101);
       preroll = { prefixIds, bonusStats, maxTier, quality };
