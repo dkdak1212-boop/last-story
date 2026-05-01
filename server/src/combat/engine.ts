@@ -2547,20 +2547,34 @@ async function autoAction(s: ActiveSession): Promise<void> {
   const healThresholdPct = s.autoPotionThreshold || 50;
   if (hpPct * 100 < healThresholdPct && s.autoPotionEnabled && s.potionCooldown <= 0) {
     const potionHealPct: Record<number, number> = { 108: 100, 106: 80, 104: 60, 102: 40, 100: 20 };
-    const tPot = Date.now();
-    const pot = await getPotionInInventory(s.characterId, [108, 106, 104, 102, 100]);
-    if (pot) {
-      const pct = potionHealPct[pot.item_id] || 20;
-      const heal = Math.round(s.playerMaxHp * pct / 100);
-      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
-      await consumeOneFromSlot(pot.id);
+    // 캐시 보유량 우선 체크 — 0 이면 DB 쿼리 자체 스킵 (HP 위험 + 포션 없는 경우의 핫스팟 절감).
+    // 캐시는 refreshSessionMeta 가 30s 주기로 갱신 → consume 후 즉시 -1 로 로컬 동기화.
+    const cp = s.cachedPotions;
+    const hasAnyPotion = cp && (cp.supreme + cp.max + cp.high + cp.mid + cp.small) > 0;
+    if (hasAnyPotion) {
+      const tPot = Date.now();
+      const pot = await getPotionInInventory(s.characterId, [108, 106, 104, 102, 100]);
+      if (pot) {
+        const pct = potionHealPct[pot.item_id] || 20;
+        const heal = Math.round(s.playerMaxHp * pct / 100);
+        s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        await consumeOneFromSlot(pot.id);
+        // 캐시 즉시 동기화 — 다음 액션의 hasAnyPotion 판정 정확도 유지.
+        if (cp) {
+          if (pot.item_id === 108 && cp.supreme > 0) cp.supreme--;
+          else if (pot.item_id === 106 && cp.max > 0) cp.max--;
+          else if (pot.item_id === 104 && cp.high > 0) cp.high--;
+          else if (pot.item_id === 102 && cp.mid > 0) cp.mid--;
+          else if (pot.item_id === 100 && cp.small > 0) cp.small--;
+        }
+        perfSeg.pPotionMs += Date.now() - tPot;
+        s.potionCooldown = 3;
+        s.metaDirty = true;
+        addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
+        return;
+      }
       perfSeg.pPotionMs += Date.now() - tPot;
-      s.potionCooldown = 3;
-      s.metaDirty = true;
-      addLog(s, `체력 물약 사용 — HP +${heal} (${pct}%) [쿨타임 3턴]`);
-      return;
     }
-    perfSeg.pPotionMs += Date.now() - tPot;
   }
 
   const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
@@ -3872,10 +3886,9 @@ async function combatTick(): Promise<void> {
   // 자동복구(/combat/state) → startCombatSession 직후 클라가 WS subscribe 보내기 전에
   // 다음 tick 이 즉시 onSessionGoOffline 호출하여 무한 루프(생성→정리→생성) 발생 방지.
   const SESSION_SUBSCRIBE_GRACE_MS = 10_000;
-  // 동시 DB 풀 사용 cap — Promise.all 동시 폭발 시 풀(160) 고갈해 waiting 누적.
-  // 64 → waiting=121 재발 (chunk 내 64 세션 × 킬당 2~3 awaits = 192 conn 필요, pool 초과).
-  // 48 로 후퇴: 48 × 3 = 144 < 160. burst 마진 16. chunk 수: 160/48 ≈ 3.3.
-  const TICK_CONCURRENCY = 48;
+  // 동시 DB 풀 사용 cap. 48 후퇴는 chunk 수 ↑ → 직렬 cascade 누적 (avg 1035ms 회귀).
+  // 64 로 복귀 (drops hint 적용 후 per-kill 쿼리 줄어 풀 압박 완화 기대).
+  const TICK_CONCURRENCY = 64;
   type SessionTask = { charId: number; s: ActiveSession };
   const pending: SessionTask[] = [];
   for (const [charId, s] of activeSessions) {

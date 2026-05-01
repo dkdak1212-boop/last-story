@@ -67,6 +67,29 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
       const isEquipment = !!itemR.rows[0].slot;
       const stackSize = itemR.rows[0].stack_size;
 
+      // 슬롯 충돌 방어 — drops 등 동시 INSERT 와 race 시 ON CONFLICT 로 재시도.
+      // 단일 mailbox 수령 안에서도 used set 을 로컬 갱신해 같은 슬롯 두 번 시도 방지.
+      const SLOT_CAP = 300;
+      const pickFree = async (used: Set<number>): Promise<number> => {
+        const fresh = await tx.query<{ slot_index: number }>(
+          'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
+        );
+        for (const r of fresh.rows) used.add(r.slot_index);
+        for (let s = 0; s < SLOT_CAP; s++) if (!used.has(s)) return s;
+        return -1;
+      };
+      const insertRetry = async (sql: string, params: (n: number) => unknown[]): Promise<boolean> => {
+        const used = new Set<number>();
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const slot = await pickFree(used);
+          if (slot < 0) return false;
+          const r = await tx.query(sql, params(slot));
+          if (r.rowCount && r.rowCount > 0) return true;
+          used.add(slot); // 충돌 → 다음 슬롯
+        }
+        return false;
+      };
+
       if (isEquipment) {
         const enhLv = m.enhance_level ?? 0;
         const pIds = m.prefix_ids && m.prefix_ids.length > 0 ? m.prefix_ids : [];
@@ -74,36 +97,25 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
         const qual = m.quality ?? 0;
 
         for (let i = 0; i < m.item_quantity; i++) {
-          const usedR = await tx.query<{ slot_index: number }>(
-            'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
-          );
-          const used = new Set(usedR.rows.map(r => r.slot_index));
-          let freeSlot = -1;
-          for (let s = 0; s < 300; s++) if (!used.has(s)) { freeSlot = s; break; }
-          if (freeSlot < 0) return { error: 'inventory full', status: 400 };
-          await tx.query(
+          const ok = await insertRetry(
             `INSERT INTO character_inventory
                (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-             VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)`,
-            [id, m.item_id, freeSlot, enhLv, pIds, pStatsJson, qual]
+             VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7)
+             ON CONFLICT (character_id, slot_index) DO NOTHING`,
+            slot => [id, m.item_id, slot, enhLv, pIds, pStatsJson, qual]
           );
+          if (!ok) return { error: 'inventory full', status: 400 };
         }
       } else if (m.item_id >= 846 && m.item_id <= 851) {
-        // 차원새싹상자 (소비형) — 거래불가 플래그 TRUE 로 인벤 삽입
         let remaining = m.item_quantity;
         while (remaining > 0) {
-          const usedR = await tx.query<{ slot_index: number }>(
-            'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
-          );
-          const used = new Set(usedR.rows.map(r => r.slot_index));
-          let freeSlot = -1;
-          for (let s = 0; s < 300; s++) if (!used.has(s)) { freeSlot = s; break; }
-          if (freeSlot < 0) return { error: 'inventory full', status: 400 };
-          await tx.query(
+          const ok = await insertRetry(
             `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
-             VALUES ($1, $2, $3, 1, TRUE)`,
-            [id, m.item_id, freeSlot]
+             VALUES ($1, $2, $3, 1, TRUE)
+             ON CONFLICT (character_id, slot_index) DO NOTHING`,
+            slot => [id, m.item_id, slot]
           );
+          if (!ok) return { error: 'inventory full', status: 400 };
           remaining -= 1;
         }
       } else {
@@ -123,18 +135,14 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
         }
 
         while (remaining > 0) {
-          const usedR = await tx.query<{ slot_index: number }>(
-            'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
-          );
-          const used = new Set(usedR.rows.map(r => r.slot_index));
-          let freeSlot = -1;
-          for (let s = 0; s < 300; s++) if (!used.has(s)) { freeSlot = s; break; }
-          if (freeSlot < 0) return { error: 'inventory full', status: 400 };
           const qty = Math.min(remaining, stackSize);
-          await tx.query(
-            'INSERT INTO character_inventory (character_id, item_id, slot_index, quantity) VALUES ($1, $2, $3, $4)',
-            [id, m.item_id, freeSlot, qty]
+          const ok = await insertRetry(
+            `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (character_id, slot_index) DO NOTHING`,
+            slot => [id, m.item_id, slot, qty]
           );
+          if (!ok) return { error: 'inventory full', status: 400 };
           remaining -= qty;
         }
       }
