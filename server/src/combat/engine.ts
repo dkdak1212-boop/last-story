@@ -234,6 +234,9 @@ interface ActiveSession {
   _effectVer?: number;
   _effectIdx?: Map<string, StatusEffect[]>;
   _effectIdxVer?: number;
+  // 활성 소환수 캐시 — statusEffects 와 양립 (push/setEffects 시 동기화).
+  // 핫 read (processSummons / pushCombatState / executeSkill) 가 큰 statusEffects 배열을 풀스캔하지 않도록.
+  _summons?: StatusEffect[];
   actionCount: number;
   log: string[];
   skills: SkillDef[];
@@ -756,7 +759,7 @@ setInterval(async () => {
   // 소환사 세션: 소환수/쿨다운 상태 저장 (복원용)
   for (const [charId, s] of activeSessions) {
     if (s.className !== 'summoner') continue;
-    const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+    const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     try {
       const cdObj: Record<string, number> = {};
@@ -979,8 +982,13 @@ function addLog(s: ActiveSession, msg: string) {
 // 핫 리드(executeSkill, snapshot, monster AI)에서 array.find/some/filter 매번 풀 스캔하던 것을
 // 타입별 Map<string, StatusEffect[]> lazy 캐시로 교체. 1 tick = 한 번 rebuild × N reads.
 // 모든 mutation(push/reassign)은 _effectVer++ 해야 인덱스가 stale 인지 알 수 있음.
+// 글로벌 활성 소환수 cap — 세션당 최대치. 초과 시 oldest (statusEffects 순서 가장 앞) 제거.
+const SUMMON_GLOBAL_CAP = 12;
+
 function bumpEffectVer(s: ActiveSession): void {
   s._effectVer = (s._effectVer || 0) + 1;
+  // summons 캐시도 stale — rebuild on next access via syncSummons
+  s._summons = undefined;
 }
 function rebuildEffectIndex(s: ActiveSession): void {
   const m = new Map<string, StatusEffect[]>();
@@ -990,6 +998,16 @@ function rebuildEffectIndex(s: ActiveSession): void {
   }
   s._effectIdx = m;
   s._effectIdxVer = s._effectVer || 0;
+}
+// 활성 소환수 fast 캐시 — bumpEffectVer 시 무효화. 핫 read 가 statusEffects 풀스캔 회피.
+function getActiveSummons(s: ActiveSession): StatusEffect[] {
+  if (s._summons) return s._summons;
+  const out: StatusEffect[] = [];
+  for (const e of s.statusEffects) {
+    if (e.type === 'summon' && e.source === 'player' && e.remainingActions > 0) out.push(e);
+  }
+  s._summons = out;
+  return out;
 }
 const _EMPTY_EFFECTS: ReadonlyArray<StatusEffect> = [];
 function getEffectsOfType(s: ActiveSession, type: string): ReadonlyArray<StatusEffect> {
@@ -1080,6 +1098,28 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
       return;
     }
   }
+  // ── 글로벌 소환수 cap — 신규 summon 추가 시 oldest 제거하여 SUMMON_GLOBAL_CAP 유지 ──
+  if (effect.type === 'summon' && effect.source === 'player') {
+    let active = 0;
+    let oldestIdx = -1;
+    for (let i = 0; i < s.statusEffects.length; i++) {
+      const e = s.statusEffects[i];
+      if (e.type === 'summon' && e.source === 'player' && e.remainingActions > 0) {
+        active++;
+        if (oldestIdx < 0) oldestIdx = i;
+      }
+    }
+    while (active >= SUMMON_GLOBAL_CAP && oldestIdx >= 0) {
+      s.statusEffects.splice(oldestIdx, 1);
+      active--;
+      oldestIdx = -1;
+      for (let i = 0; i < s.statusEffects.length; i++) {
+        const e = s.statusEffects[i];
+        if (e.type === 'summon' && e.source === 'player' && e.remainingActions > 0) { oldestIdx = i; break; }
+      }
+    }
+  }
+
   // dot/poison: 중첩 허용 (그대로 push)
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
   bumpEffectVer(s);
@@ -1489,7 +1529,7 @@ const MAX_SUMMONS = 3;
 // ── 소환수 처리 ──
 function processSummons(s: ActiveSession) {
   const _t0 = Date.now();
-  const summons = getEffectsOfType(s, 'summon').filter(e => e.source === 'player' && e.remainingActions > 0);
+  const summons = getActiveSummons(s);
   if (summons.length === 0) { perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return; }
 
   // 소환수 데미지 베이스: playerStats.matk 그대로 사용 (INT 영향은 formulas.ts 의 0.5% 증폭에 포함됨)
@@ -2575,7 +2615,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'summon_multi': {
       // 같은 종류 소환수 캡 = 3 (per-type)
       const PER_TYPE_CAP = 3;
-      const sameType = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.summonSkillName === skill.name);
+      const sameType = getActiveSummons(s).filter(e => e.summonSkillName === skill.name);
       if (sameType.length >= PER_TYPE_CAP) {
         // 같은 종류 중 가장 오래된 것 교체
         const oldestSame = sameType.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
@@ -2585,7 +2625,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       }
       // 전체 소환수 캡 (글로벌) — 다른 종류 보호: 가장 많이 차지한 종류부터 우선 제거
       const maxSummons = MAX_SUMMONS + getPassive(s, 'summon_max_extra') + (s.equipPrefixes.summon_max_extra || 0);
-      const activeSummons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
+      const activeSummons = getActiveSummons(s);
       if (activeSummons.length >= maxSummons) {
         // 종류별 카운트
         const typeCount = new Map<string, number>();
@@ -2717,7 +2757,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'summon_sacrifice': {
       // 희생: 가장 강한 소환수 파괴 → 폭발 데미지
-      const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player');
+      const summons = getActiveSummons(s);
       if (summons.length === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
       const strongest = summons.reduce((a, b) => a.value > b.value ? a : b);
       s.statusEffects = s.statusEffects.filter(e => e.id !== strongest.id);
@@ -2730,7 +2770,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'summon_storm': {
       // 영혼 폭풍: 소환수 수 × MATK × mult
-      const cnt = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player').length;
+      const cnt = getActiveSummons(s).length;
       if (cnt === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
       const stormDmg = Math.round(s.playerStats.matk * skill.damage_mult * cnt);
       s.monsterHp -= stormDmg;
@@ -2814,11 +2854,11 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'summon_storm':
     case 'summon_sacrifice': {
       // 활성 소환수가 없으면 낭비 — 스킵
-      return someEffectOfType(s, 'summon', e => e.source === 'player' && e.remainingActions > 0);
+      return getActiveSummons(s).length > 0;
     }
     case 'summon_all': {
       // 활성 소환수가 없으면 낭비 — 스킵
-      const hasSummon = someEffectOfType(s, 'summon', e => e.source === 'player' && e.remainingActions > 0);
+      const hasSummon = getActiveSummons(s).length > 0;
       if (!hasSummon) return false;
       // 슬롯 안에 ready 상태인 소환수 생성 스킬이 있으면 그게 먼저 — 모든 소환수 공격은 후순위 fallback.
       // 사용자가 슬롯 1 에 모든 소환수 공격을 두어도 소환 사이클이 막히지 않도록.
@@ -4795,13 +4835,11 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   }
   // 소환사 소환수 목록
   if (s.className === 'summoner') {
-    snapshot.summons = s.statusEffects
-      .filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0)
-      .map(e => ({
-        skillName: e.summonSkillName || '',
-        element: e.element,
-        remainingActions: e.remainingActions,
-      }));
+    snapshot.summons = getActiveSummons(s).map(e => ({
+      skillName: e.summonSkillName || '',
+      element: e.element,
+      remainingActions: e.remainingActions,
+    }));
   }
   // 처치 시간 통계 (전 직업 공통, 허수아비 제외)
   if (!isDummyMonster(s)) {
@@ -5346,7 +5384,7 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   if (s) {
     // 소환수 상태 저장 (복원용)
     if (s.className === 'summoner') {
-      const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+      const summons = getActiveSummons(s);
       const cdObj: Record<string, number> = {};
       for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
       try {
@@ -5826,7 +5864,7 @@ export async function flushCharBatchAll(): Promise<void> {
   // 소환사 세션 마지막 상태 DB 에 저장 (graceful shutdown 용)
   for (const [charId, s] of activeSessions) {
     if (s.className !== 'summoner') continue;
-    const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+    const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     const cdObj: Record<string, number> = {};
     for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
