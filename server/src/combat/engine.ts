@@ -4010,6 +4010,8 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     perfSeg.spOtherMs += Date.now() - _spStart - (Date.now() - _tPick);
     return;
   }
+  // ── 세그먼트 별 계측 (B5 perf 진단) ──
+  const _tStats = Date.now();
   s.monsterId = m.id;
   s.monsterDef = m; // handleMonsterDeath 에서 재사용 (중복 쿼리 제거)
   s.monsterName = m.name;
@@ -4030,7 +4032,10 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
   s.hasFirstSkill = true; // 새 몬스터 → shadow_strike 다시
   s.monsterSpawnAt = Date.now(); // 처치 시간 측정 시작
+  perfSeg.spStatsMs += Date.now() - _tStats;
+
   // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지
+  const _tFilter = Date.now();
   s.statusEffects = s.statusEffects.filter(e =>
     e.source === 'monster' ||
     e.type === 'summon' ||
@@ -4038,6 +4043,9 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     e.type === 'summon_frenzy_active'
   );
   bumpEffectVer(s);
+  perfSeg.spFilterMs += Date.now() - _tFilter;
+
+  const _tClass = Date.now();
   // 마법사 오버킬 캐리: 전 처치 시 발생한 초과 데미지의 50% 적용
   if (s.className === 'mage' && s.mageOverkillCarry > 0 && !isDummyMonster(s)) {
     const carry = Math.min(s.monsterHp - 1, s.mageOverkillCarry); // 즉사 방지 — 최소 1 HP 유지
@@ -4068,6 +4076,9 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     addLog(s, `[독 전이] 이전 몬스터의 독 ${transferCount}스택 이월 (잔여 50%)`);
     s.rogueDotCarry = [];
   }
+  perfSeg.spClassMs += Date.now() - _tClass;
+
+  const _tLog = Date.now();
   addLog(s, `${m.name}이(가) 나타났다!`);
   // #10 paragon_dim_chain — 적 첫 행동 시 자동 동결 1턴 (보스 무효)
   if (getPassive(s, 'paragon_dim_chain') > 0 && !s.guildBossRunId) {
@@ -4077,6 +4088,8 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     bumpEffectVer(s);
     addLog(s, '[차원의 결박] 적 첫 행동 동결!');
   }
+  perfSeg.spLogMs += Date.now() - _tLog;
+
   // spawn other 시간 = 전체 spawn − pick − endless DB
   perfSeg.spOtherMs += Date.now() - _spStart;
 }
@@ -5744,6 +5757,8 @@ let perfSeg = {
   spEndlessLoadMs: 0, spEndlessFsaMs: 0,
   spRecordFloorMs: 0, spRecordFloorCalls: 0,
   spOtherMs: 0,
+  // spawn 정상 path 세부 (B5 진단)
+  spStatsMs: 0, spFilterMs: 0, spClassMs: 0, spLogMs: 0,
 };
 export const _perfSeg = () => perfSeg;
 
@@ -5757,6 +5772,9 @@ setInterval(() => {
   console.log(`[combat-perf] pAct breakdown — potion=${seg.pPotionMs}ms skill=${seg.pSkillMs}ms (calls=${seg.pSkillCalls}) basic=${seg.pBasicMs}ms`);
   console.log(`[combat-perf] kill breakdown — endless=${seg.kEndlessMs}ms meta=${seg.kMetaMs}ms slot=${seg.kSlotMs}ms drops=${seg.kDropLoopMs}ms addItem=${seg.kAddItemMs}ms(${seg.kAddItemCalls}) prefix=${seg.kGenPrefixMs}ms(${seg.kGenPrefixCalls}) spawn=${seg.kSpawnMs}ms levelup=${seg.kLevelMs}ms`);
   console.log(`[combat-perf] spawn breakdown — pick=${seg.spPickMs}ms(${seg.spPickCalls}) endlessLoad=${seg.spEndlessLoadMs}ms endlessFsa=${seg.spEndlessFsaMs}ms recordFloor=${seg.spRecordFloorMs}ms(${seg.spRecordFloorCalls}) other=${seg.spOtherMs}ms`);
+  // 정상 spawn path 세부: kSpawnMs - spOtherMs = await/event-loop 오버헤드 (microtask 스케줄링)
+  const spAwaitGap = Math.max(0, seg.kSpawnMs - seg.spOtherMs);
+  console.log(`[combat-perf] spawn detail — stats=${seg.spStatsMs}ms filter=${seg.spFilterMs}ms class=${seg.spClassMs}ms log=${seg.spLogMs}ms awaitGap=${spAwaitGap}ms`);
   tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
   perfSeg = {
     mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
@@ -5769,6 +5787,7 @@ setInterval(() => {
     spEndlessLoadMs: 0, spEndlessFsaMs: 0,
     spRecordFloorMs: 0, spRecordFloorCalls: 0,
     spOtherMs: 0,
+    spStatsMs: 0, spFilterMs: 0, spClassMs: 0, spLogMs: 0,
   };
 }, 30_000);
 
