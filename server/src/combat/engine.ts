@@ -3310,7 +3310,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     perfSeg.spRecordFloorCalls++;
     s.dirty = true;
     const _tSp = Date.now();
-    await spawnMonsterForSession(s);
+    spawnMonsterForSession(s);
     perfSeg.kSpawnMs += Date.now() - _tSp;
     perfSeg.kEndlessMs += Date.now() - _tEndless;
     return;
@@ -3809,7 +3809,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   // 다음 몬스터 스폰
   const _tSp2 = Date.now();
-  await spawnMonsterForSession(s);
+  spawnMonsterForSession(s);
   perfSeg.kSpawnMs += Date.now() - _tSp2;
 }
 
@@ -3872,15 +3872,15 @@ function handleDummyTick(s: ActiveSession, hpBefore: number): void {
   if (s.monsterHp < s.monsterMaxHp) s.monsterHp = s.monsterMaxHp;
 }
 
-async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
+function spawnMonsterForSession(s: ActiveSession): void {
   // 종언의 기둥 — fieldId === 1000. floor 기반 monster 추첨 + 스케일링.
+  // (endless 진행 데이터 / floor_started_at 은 startCombatSession 에서 미리 로드되어 있음.
+  //  cold-start 가드 — 정상 흐름에선 fire 안됨.)
   const _spStart = Date.now();
   if (s.fieldId === ENDLESS_FIELD_ID) {
     if (s.endlessFloor <= 0) {
-      const _t = Date.now();
-      const prog = await loadOrCreateProgress(s.characterId);
-      s.endlessFloor = prog.current_floor;
-      perfSeg.spEndlessLoadMs += Date.now() - _t;
+      console.warn('[combat] endless cold-start in spawn — should be preloaded', s.characterId);
+      s.endlessFloor = 1;  // 안전 fallback
     }
     const monsterId = getMonsterIdForFloor(s.endlessFloor);
     const cached = getMonsterDefSync(monsterId);
@@ -3931,22 +3931,10 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.hasFirstStrike = true;
     s.hasFirstSkill = true;
     s.monsterSpawnAt = Date.now();
-    // 종언 — 세션 메모리(endlessFloorStartedAt) 신뢰. 0(cold-start) 일 때만 DB 1회 복원.
-    // 새 층 진입은 handleMonsterDeath 에서 endlessFloorStartedDirty 큐에 적재 → 5s batch UPDATE.
+    // 종언 — endlessFloorStartedAt 은 startCombatSession 에서 미리 로드. cold-start 가드.
     if (s.endlessFloorStartedAt === 0) {
-      const _t = Date.now();
-      const fr = await query<{ fsa: string | null }>(
-        `SELECT floor_started_at::text AS fsa FROM endless_pillar_progress WHERE character_id = $1`,
-        [s.characterId]
-      );
-      const persistedMs = fr.rows[0]?.fsa ? new Date(fr.rows[0].fsa).getTime() : 0;
-      if (persistedMs > 0) {
-        s.endlessFloorStartedAt = persistedMs;
-      } else {
-        s.endlessFloorStartedAt = Date.now();
-        endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
-      }
-      perfSeg.spEndlessFsaMs += Date.now() - _t;
+      s.endlessFloorStartedAt = Date.now();
+      endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
     }
     // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
     s.monsterDrPct = Number(stats.dr_pct ?? 0);
@@ -5306,15 +5294,29 @@ async function startCombatSessionInner(
   }
 
   // 종언의 기둥 — 진행 데이터 로드. paused 였던 세션 재개 시 current_hp 복원.
+  // floor_started_at 도 동시 fetch — spawnMonsterForSession 의 cold-start await 제거 위해 여기서 미리 로드.
   if (fieldId === ENDLESS_FIELD_ID) {
-    const prog = await loadOrCreateProgress(characterId);
+    const [prog, fsaR] = await Promise.all([
+      loadOrCreateProgress(characterId),
+      query<{ fsa: string | null }>(
+        `SELECT floor_started_at::text AS fsa FROM endless_pillar_progress WHERE character_id = $1`,
+        [characterId]
+      ),
+    ]);
     session.endlessFloor = prog.current_floor;
     if (prog.current_hp > 0) {
       session.playerHp = Math.min(prog.current_hp, session.playerMaxHp);
     }
+    const persistedMs = fsaR.rows[0]?.fsa ? new Date(fsaR.rows[0].fsa).getTime() : 0;
+    if (persistedMs > 0) {
+      session.endlessFloorStartedAt = persistedMs;
+    } else {
+      session.endlessFloorStartedAt = Date.now();
+      endlessFloorStartedDirty.set(characterId, session.endlessFloorStartedAt);
+    }
   }
 
-  await spawnMonsterForSession(session);
+  spawnMonsterForSession(session);
 
   // 전사 분노 DB 복원 — 전투 세션 사이 이전
   if (char.class_name === 'warrior') {
