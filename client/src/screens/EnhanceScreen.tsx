@@ -204,13 +204,34 @@ export function EnhanceScreen() {
   }
   useEffect(() => { load(); }, [active?.id]);
 
+  // 탭 다시 활성화·창 포커스 복귀 시 자동 재요청 — stale items / selected 의 pity 표시 고침
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return;
+      load().then(fresh => {
+        // 선택 중 아이템 있으면 fresh 데이터로 갱신 (enhancePity 등)
+        if (!fresh || !selected) return;
+        const match = selected.kind === 'inventory'
+          ? fresh.inventory.find(x => x.slotIndex === selected.slotIndex)
+          : fresh.equipped.find(x => x.equipSlot === selected.equipSlot);
+        if (match) setSelected(match);
+      });
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [active?.id, selected?.kind, selected?.slotIndex, selected?.equipSlot]);
+
   const info = selected ? getInfo(selected.enhanceLevel, active?.level ?? 1, selected.enhancePity || 0) : null;
 
   async function attempt() {
     if (!active || !selected) return;
     setBusy(true); setResult(null);
     try {
-      const r = await api<{ success: boolean; newLevel: number; cost: number; chance: number; destroyed?: boolean }>(
+      const r = await api<{ success: boolean; newLevel: number; cost: number; chance: number; destroyed?: boolean; pity?: number }>(
         `/enhance/${active.id}/attempt`,
         {
           method: 'POST',
@@ -234,7 +255,8 @@ export function EnhanceScreen() {
               : fresh.equipped.find(x => x.equipSlot === selected.equipSlot))
           : undefined;
         if (match) setSelected(match);
-        else setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel } : null);
+        // fallback — 서버 pity 같이 반영 (이전: enhanceLevel 만 → 누적 확률 잠시 사라져 보임)
+        else setSelected((s) => s ? { ...s, enhanceLevel: r.newLevel, enhancePity: r.pity ?? s.enhancePity } : null);
       }
       // 스크롤 체크 상태는 유지 — 유저가 직접 해제할 때까지 지속 (연속 강화 편의)
       // 스크롤 소진 시 (scrollCount=0) 체크박스 자체가 숨겨지므로 자동 비활성화 효과는 보장됨

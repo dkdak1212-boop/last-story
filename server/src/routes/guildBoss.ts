@@ -336,22 +336,29 @@ router.post('/open-chest/:characterId', async (req: AuthedRequest, res: Response
     return res.status(400).json({ error: 'tier 는 gold|silver|copper 중 하나여야 합니다.' });
   }
 
-  // 인벤에서 해당 상자 아이템 1개 조회
+  // 인벤에서 해당 상자 아이템 조회 — quantity > 0 우선, 없으면 ghost(quantity<=0) row 도 검사
   const itemId = chestItemId(tier);
   const stackR = await query<{ id: number; quantity: number }>(
     `SELECT id, quantity FROM character_inventory
-     WHERE character_id = $1 AND item_id = $2 AND quantity > 0
-     ORDER BY slot_index LIMIT 1`,
+     WHERE character_id = $1 AND item_id = $2
+     ORDER BY (quantity > 0) DESC, slot_index LIMIT 1`,
     [characterId, itemId]
   );
-  if (stackR.rowCount === 0) return res.status(400).json({ error: '해당 상자를 보유하고 있지 않습니다.' });
+  if (stackR.rowCount === 0) {
+    return res.status(400).json({ error: '해당 상자를 보유하고 있지 않습니다.' });
+  }
   const stack = stackR.rows[0];
+  // quantity 0 ghost row — 자동 cleanup 후 다시 안내 (사용자 재시도하면 깔끔히 사라짐)
+  if (Number(stack.quantity) <= 0) {
+    await query('DELETE FROM character_inventory WHERE id = $1', [stack.id]);
+    return res.status(400).json({ error: '비어있는 상자 슬롯을 정리했습니다. 새로고침 후 다시 확인해주세요.' });
+  }
 
   // 보상 지급 먼저 (실패 시 상자 소모 X — use-unique-ticket 패턴과 동일)
   const chestReward = await grantChest(characterId, tier);
 
   // 상자 1개 소모
-  if (stack.quantity <= 1) {
+  if (Number(stack.quantity) <= 1) {
     await query('DELETE FROM character_inventory WHERE id = $1', [stack.id]);
   } else {
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [stack.id]);
