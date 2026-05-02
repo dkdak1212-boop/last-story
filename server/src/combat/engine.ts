@@ -229,6 +229,11 @@ interface ActiveSession {
   skillCooldowns: Map<number, number>;  // skillId → remaining actions
   skillLastUsed: Map<number, number>;  // skillId → actionCount when last used (LRU)
   statusEffects: StatusEffect[];
+  // 타입별 인덱스 (lazy 캐시) — pushEffect/setEffects 호출 시 _effectVer 증가, get 측에서 stale 시 rebuild.
+  // 직접 statusEffects 변경하면 인덱스 stale 되므로 반드시 헬퍼 사용 OR _effectVer 증가.
+  _effectVer?: number;
+  _effectIdx?: Map<string, StatusEffect[]>;
+  _effectIdxVer?: number;
   actionCount: number;
   log: string[];
   skills: SkillDef[];
@@ -970,6 +975,54 @@ function addLog(s: ActiveSession, msg: string) {
   s.dirty = true;
 }
 
+// ── statusEffects 인덱싱 ──
+// 핫 리드(executeSkill, snapshot, monster AI)에서 array.find/some/filter 매번 풀 스캔하던 것을
+// 타입별 Map<string, StatusEffect[]> lazy 캐시로 교체. 1 tick = 한 번 rebuild × N reads.
+// 모든 mutation(push/reassign)은 _effectVer++ 해야 인덱스가 stale 인지 알 수 있음.
+function bumpEffectVer(s: ActiveSession): void {
+  s._effectVer = (s._effectVer || 0) + 1;
+}
+function rebuildEffectIndex(s: ActiveSession): void {
+  const m = new Map<string, StatusEffect[]>();
+  for (const e of s.statusEffects) {
+    const arr = m.get(e.type);
+    if (arr) arr.push(e); else m.set(e.type, [e]);
+  }
+  s._effectIdx = m;
+  s._effectIdxVer = s._effectVer || 0;
+}
+const _EMPTY_EFFECTS: ReadonlyArray<StatusEffect> = [];
+function getEffectsOfType(s: ActiveSession, type: string): ReadonlyArray<StatusEffect> {
+  if (!s._effectIdx || s._effectIdxVer !== (s._effectVer || 0)) rebuildEffectIndex(s);
+  return s._effectIdx!.get(type) || _EMPTY_EFFECTS;
+}
+function findEffectOfType(
+  s: ActiveSession, type: string, pred?: (e: StatusEffect) => boolean,
+): StatusEffect | undefined {
+  const arr = getEffectsOfType(s, type);
+  if (!pred) return arr[0];
+  for (const e of arr) if (pred(e)) return e;
+  return undefined;
+}
+function someEffectOfType(
+  s: ActiveSession, type: string, pred?: (e: StatusEffect) => boolean,
+): boolean {
+  const arr = getEffectsOfType(s, type);
+  if (!pred) return arr.length > 0;
+  for (const e of arr) if (pred(e)) return true;
+  return false;
+}
+// mutation wrapper — push 후 인덱스 stale flag.
+function pushEffect(s: ActiveSession, e: StatusEffect): void {
+  s.statusEffects.push(e);
+  bumpEffectVer(s);
+}
+// 배열 reassign wrapper.
+function setEffects(s: ActiveSession, arr: StatusEffect[]): void {
+  s.statusEffects = arr;
+  bumpEffectVer(s);
+}
+
 // 길드 보스에 면역인 CC 계열 이펙트 (플레이어가 몬스터에게 거는 디버프)
 const CC_EFFECT_TYPES = new Set(['stun', 'gauge_freeze', 'gauge_reset', 'accuracy_debuff', 'damage_taken_up']);
 
@@ -1029,6 +1082,7 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   }
   // dot/poison: 중첩 허용 (그대로 push)
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
+  bumpEffectVer(s);
   // 도적 독의 공명: 독 스택이 적에게 쌓일 때마다 +1 게이지 (최대 10)
   if (s.className === 'rogue' && effect.type === 'poison' && effect.source === 'player') {
     s.poisonResonance = Math.min(10, s.poisonResonance + 1);
@@ -1042,12 +1096,13 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
         id: `ice_tongue_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         type: 'gauge_freeze', value: 0, remainingActions: 1, source: 'player',
       });
+      bumpEffectVer(s);
     }
   }
 }
 
 function hasEffect(s: ActiveSession, target: 'player' | 'monster', type: string): boolean {
-  return s.statusEffects.some(e => e.source === target && e.type === type && e.remainingActions > 0);
+  return someEffectOfType(s, type, e => e.source === target && e.remainingActions > 0);
 }
 
 // 플레이어 빗맞 시 후처리 — missStack 증가 + paragon_failure_glory 펜딩 세팅
@@ -1068,10 +1123,10 @@ function applyDamagePrefixes(
 ): number {
   const consume = opts.consumeOneShot !== false;
   // 디버프: damage_taken_up (적이 받는 데미지 증가 — 방패 강타 등)
-  const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+  const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
   if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
   // 버프: atk_buff (자가 공격력 버프 — 전쟁의 함성 등)
-  const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+  const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
   if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
   // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (rageProcRemaining 카운터)
   if (s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
@@ -1256,10 +1311,10 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   }
   let dmg = d.damage;
   // damage_taken_up 디버프
-  const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+  const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
   if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
   // atk_buff (자가 공격력 버프)
-  const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+  const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
   if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
   // spell_amp (마법 증폭)
   const spellAmp = getPassive(s, 'spell_amp');
@@ -1352,6 +1407,7 @@ function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActio
     }
   }
   s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
+  bumpEffectVer(s);
 }
 
 // 쉴드 전용 턴 감소 — 플레이어 행동 시에만 호출
@@ -1365,6 +1421,7 @@ function tickShield(s: ActiveSession) {
     }
   }
   s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
+  bumpEffectVer(s);
 }
 
 // ── 도트 데미지 처리 ──
@@ -1432,7 +1489,7 @@ const MAX_SUMMONS = 3;
 // ── 소환수 처리 ──
 function processSummons(s: ActiveSession) {
   const _t0 = Date.now();
-  const summons = s.statusEffects.filter(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+  const summons = getEffectsOfType(s, 'summon').filter(e => e.source === 'player' && e.remainingActions > 0);
   if (summons.length === 0) { perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return; }
 
   // 소환수 데미지 베이스: playerStats.matk 그대로 사용 (INT 영향은 formulas.ts 의 0.5% 증폭에 포함됨)
@@ -1440,10 +1497,10 @@ function processSummons(s: ActiveSession) {
   const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
   // summon_buff 효과 (지휘/군주의 위엄)
-  const buffEff = s.statusEffects.find(e => e.type === 'summon_buff_active' && e.remainingActions > 0);
+  const buffEff = findEffectOfType(s, 'summon_buff_active', e => e.remainingActions > 0);
   const buffMult = buffEff ? (1 + buffEff.value / 100) : 1.0;
   // summon_frenzy (야수의 분노 — 2회 공격)
-  const frenzyEff = s.statusEffects.find(e => e.type === 'summon_frenzy_active' && e.remainingActions > 0);
+  const frenzyEff = findEffectOfType(s, 'summon_frenzy_active', e => e.remainingActions > 0);
   const hits = frenzyEff ? 2 : 1;
 
   // v0.9.6 신규 노드 효과: 원소/오오라/타입 (per-summon element 적용)
@@ -1652,7 +1709,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const totalFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
       const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, totalFlat, criBonus);
       // 도적 기습: 치명타 확정 상태 — 원래 크리가 아니었다면 강제로 2배 + 크리 플래그
-      const critGuaranteed = s.statusEffects.find(e => e.type === 'crit_guaranteed' && e.source === 'monster' && e.remainingActions > 0);
+      const critGuaranteed = findEffectOfType(s, 'crit_guaranteed', e => e.source === 'monster' && e.remainingActions > 0);
       if (critGuaranteed && !d.miss && !d.crit) {
         d.damage = Math.round(d.damage * 2); // 기본 크리 배율 200%
         d.crit = true;
@@ -1665,10 +1722,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       } else {
         let dmg = d.damage;
         // 디버프: damage_taken_up (방패 강타 등 — 적이 받는 데미지 증가)
-        const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+        const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
         if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
         // 버프: atk_buff (전쟁의 함성 등 — 플레이어 공격력 증가)
-        const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+        const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
         if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
         // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
@@ -1677,17 +1734,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (judgeAmp > 0 && s.className === 'cleric') dmg = Math.round(dmg * (1 + judgeAmp / 100));
         // 마법사 고유 패시브: 도트(dot/poison) 걸린 적에게 +30%
         if (s.className === 'mage') {
-          const monsterDot = s.statusEffects.some(e =>
-            (e.type === 'dot' || e.type === 'poison') && e.source === 'player' && e.remainingActions > 0);
+          const playerActive = (e: StatusEffect) => e.source === 'player' && e.remainingActions > 0;
+          const monsterDot = someEffectOfType(s, 'dot', playerActive) || someEffectOfType(s, 'poison', playerActive);
           if (monsterDot) { dmg = Math.round(dmg * 1.3); addLog(s, `[원소 침식] 도트 상태 +30%`); }
           // 마력 과부하: 자신 스피드 감소 디버프 중일 때 마법 데미지 +80%
-          const selfSlow = s.statusEffects.some(e =>
-            e.type === 'speed_mod' && e.source === 'monster' && e.value < 0 && e.remainingActions > 0);
+          const selfSlow = someEffectOfType(s, 'speed_mod', e => e.source === 'monster' && e.value < 0 && e.remainingActions > 0);
           if (selfSlow) { dmg = Math.round(dmg * 1.8); addLog(s, `[마력 과부하] 과부하 상태 +80%`); }
         }
         // 성직자 심판자의 권능: 자신 실드 보유 시 +50% 추가
         if (skill.name === '심판자의 권능') {
-          const ownShield = s.statusEffects.find(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+          const ownShield = findEffectOfType(s, 'shield', e => e.source === 'monster' && e.value > 0);
           if (ownShield) { dmg = Math.round(dmg * 1.5); addLog(s, `[심판자의 권능] 실드 보유 +50%`); }
         }
         // 접두사: 광전사 (내 HP 35% 이하)
@@ -2363,17 +2419,18 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
       dealBuffSkillDamage(s, skill, useMatk);
       // 쉴드 중첩 불가 + 끊김 없는 유지: 활성 쉴드 remainingActions > 1 이면 새 쉴드 보류 (만료 직전에 덮어쓰기 허용).
-      const activeShield = s.statusEffects.find(e =>
-        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 1
+      const activeShield = findEffectOfType(s, 'shield', e =>
+        e.source === 'monster' && e.value > 0 && e.remainingActions > 1
       );
       if (activeShield) {
         addLog(s, `[${skill.name}] 기존 실드 유지 (잔여 ${activeShield.remainingActions}행동)`);
         break;
       }
       // remainingActions <= 1 인 만료 직전 쉴드는 즉시 제거 후 새 쉴드 적용 (오버랩 0턴 → 끊김 없음)
-      const expiringShields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster');
+      const expiringShields = getEffectsOfType(s, 'shield').filter(e => e.source === 'monster');
       if (expiringShields.length > 0) {
         s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield' && e.source === 'monster'));
+        bumpEffectVer(s);
       }
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
@@ -2414,10 +2471,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           parts.push(`HP ${skill.effect_value}% +${hpBonus}`);
         }
         // 디버프: damage_taken_up (적이 받는 데미지 증가)
-        const dtUp = s.statusEffects.find(e => e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0);
+        const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
         if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
         // 버프: atk_buff (전쟁의 함성 등 — 플레이어 공격력 증가)
-        const atkBuff = s.statusEffects.find(e => e.type === 'atk_buff' && e.source === 'monster' && e.remainingActions > 0);
+        const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
         if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
         // 패시브: spell_amp (마법 증폭)
         if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
@@ -2472,6 +2529,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'judgment_day': {
       // 심판의 날 — 실드 파괴 + 데미지 + 자신 방어력 50% 3턴 버프
       s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield'));
+      bumpEffectVer(s);
       const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
       if (!d.miss) {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
@@ -2522,6 +2580,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         // 같은 종류 중 가장 오래된 것 교체
         const oldestSame = sameType.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
         s.statusEffects = s.statusEffects.filter(e => e.id !== oldestSame.id);
+        bumpEffectVer(s);
         addLog(s, `[${skill.name}] 같은 종류 교체!`);
       }
       // 전체 소환수 캡 (글로벌) — 다른 종류 보호: 가장 많이 차지한 종류부터 우선 제거
@@ -2552,6 +2611,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (candidates.length > 0) {
           const oldest = candidates.reduce((a, b) => a.remainingActions < b.remainingActions ? a : b);
           s.statusEffects = s.statusEffects.filter(e => e.id !== oldest.id);
+          bumpEffectVer(s);
           addLog(s, `[소환] ${skill.name} 교체 소환! (${dominantType} 정리)`);
         }
       }
@@ -2576,6 +2636,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (skill.effect_type === 'summon_tank') {
         // 기존 damage_reduce 제거 (소환수 본체와 별개로 단일 인스턴스 유지)
         s.statusEffects = s.statusEffects.filter(e => !(e.type === 'damage_reduce' && e.source === 'monster' && e.value === 20));
+        bumpEffectVer(s);
         const dmgReduceDur = skill.effect_duration;
         addEffect(s, { type: 'damage_reduce', value: 20, remainingActions: dmgReduceDur, source: 'monster' });
         addLog(s, `[${skill.name}] 받는 데미지 20% 감소 ${dmgReduceDur}행동 (갱신)`);
@@ -2586,6 +2647,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'summon_buff': {
       // 소환수 버프 (지휘/군주의 위엄) — 중복 제거 후 단일 인스턴스 갱신
       s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_buff_active');
+      bumpEffectVer(s);
       addEffect(s, { type: 'summon_buff_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 소환수 데미지 +${skill.effect_value}% ${skill.effect_duration}행동!`);
       break;
@@ -2598,6 +2660,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         !(e.type === 'atk_buff' && e.source === 'monster') &&
         e.type !== 'summon_buff_active'
       );
+      bumpEffectVer(s);
       addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addEffect(s, { type: 'summon_buff_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 자기 + 소환수 마공 +${skill.effect_value}% ${skill.effect_duration}행동!`);
@@ -2622,6 +2685,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'summon_frenzy': {
       // 야수의 분노 — 소환수 2회 공격, 단일 인스턴스 갱신
       s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_frenzy_active');
+      bumpEffectVer(s);
       addEffect(s, { type: 'summon_frenzy_active', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
       addLog(s, `[${skill.name}] 소환수 ${skill.effect_value}회 공격 ${skill.effect_duration}행동!`);
       break;
@@ -2657,6 +2721,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (summons.length === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
       const strongest = summons.reduce((a, b) => a.value > b.value ? a : b);
       s.statusEffects = s.statusEffects.filter(e => e.id !== strongest.id);
+      bumpEffectVer(s);
       const sacDmg = Math.round(s.playerStats.matk * strongest.value / 100 * skill.damage_mult);
       s.monsterHp -= sacDmg;
       addLog(s, `[${skill.name}] 소환수 희생! ${sacDmg.toLocaleString()} 폭발 데미지`);
@@ -2715,7 +2780,7 @@ function findReady(s: ActiveSession, ...types: string[]): SkillDef | undefined {
 
 // 특정 이펙트가 이미 걸려있는지
 function hasActivePlayerBuff(s: ActiveSession, type: string): boolean {
-  return s.statusEffects.some(e => e.type === type && e.remainingActions > 0 &&
+  return someEffectOfType(s, type, e => e.remainingActions > 0 &&
     (e.source === 'monster' /* player self-buffs stored as monster source */));
 }
 
@@ -2727,8 +2792,8 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'shield':
       // 끊김 없는 쉴드 유지: 활성 쉴드의 remainingActions <= 1 일 때 (이번 턴 끝나면 만료) 새 쉴드 시전 허용 → 1턴 오버랩으로 공백 제거.
       // damage_mult > 0 인 공격형 쉴드 스킬은 데미지 발생을 위해 항상 허용.
-      return sk.damage_mult > 0 || !s.statusEffects.some(e =>
-        e.type === 'shield' && e.source === 'monster' && e.value > 0 && e.remainingActions > 1
+      return sk.damage_mult > 0 || !someEffectOfType(s, 'shield', e =>
+        e.source === 'monster' && e.value > 0 && e.remainingActions > 1
       );
     case 'damage_reduce':
       return sk.damage_mult > 0 || !hasActivePlayerBuff(s, 'damage_reduce');
@@ -2749,12 +2814,11 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'summon_storm':
     case 'summon_sacrifice': {
       // 활성 소환수가 없으면 낭비 — 스킵
-      const hasSummon = s.statusEffects.some(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
-      return hasSummon;
+      return someEffectOfType(s, 'summon', e => e.source === 'player' && e.remainingActions > 0);
     }
     case 'summon_all': {
       // 활성 소환수가 없으면 낭비 — 스킵
-      const hasSummon = s.statusEffects.some(e => e.type === 'summon' && e.source === 'player' && e.remainingActions > 0);
+      const hasSummon = someEffectOfType(s, 'summon', e => e.source === 'player' && e.remainingActions > 0);
       if (!hasSummon) return false;
       // 슬롯 안에 ready 상태인 소환수 생성 스킬이 있으면 그게 먼저 — 모든 소환수 공격은 후순위 fallback.
       // 사용자가 슬롯 1 에 모든 소환수 공격을 두어도 소환 사이클이 막히지 않도록.
@@ -2771,8 +2835,8 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       if (sk.effect_value <= 0) return true;
       // 양수 자가 버프 — 이미 같은 부호(+)의 자가 버프가 있을 때만 차단
       // (과부하 -50 같은 음수 디버프가 걸려 있어도 집중은 사용 가능)
-      const hasPositiveSelfSpd = s.statusEffects.some(e =>
-        e.type === 'speed_mod' && e.source === 'monster' && e.value > 0 && e.remainingActions > 0);
+      const hasPositiveSelfSpd = someEffectOfType(s, 'speed_mod', e =>
+        e.source === 'monster' && e.value > 0 && e.remainingActions > 0);
       return !hasPositiveSelfSpd;
     }
     default:
@@ -2817,7 +2881,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
     }
   }
 
-  const poisonCount = s.statusEffects.filter(e => e.type === 'poison' && e.source === 'player').length;
+  const poisonCount = getEffectsOfType(s, 'poison').reduce((n, e) => e.source === 'player' ? n + 1 : n, 0);
   const sorted = [...s.skills].sort((a, b) => a.slot_order - b.slot_order);
 
   // 실드 스킬은 모두 중첩
@@ -2934,6 +2998,7 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
       s.statusEffects.push({
         id: `time_warp_${Date.now()}`, type: 'speed_mod', value: -40, remainingActions: 5, source: 'monster',
       });
+      bumpEffectVer(s);
       addLog(s, `[${sk.name}] 플레이어 스피드 -40% (5행동)`);
       s.monsterSkillCooldowns.set(sk.id, cdActions);
     }
@@ -2991,7 +3056,7 @@ function monsterAction(s: ActiveSession): void {
     playerDefStats = { ...s.playerStats, def: Math.round(s.playerStats.def * (1 + guardInstinct / 100)) };
   }
   // 스킬 def_buff (심판의 날 등)
-  const defBuff = s.statusEffects.find(e => e.type === 'def_buff' && e.source === 'monster' && e.remainingActions > 0);
+  const defBuff = findEffectOfType(s, 'def_buff', e => e.source === 'monster' && e.remainingActions > 0);
   if (defBuff) {
     playerDefStats = {
       ...playerDefStats,
@@ -3042,7 +3107,7 @@ function monsterAction(s: ActiveSession): void {
   const d = calcDamage(s.monsterStats, playerDefStats, skillMultForAttack, false);
 
   // 명중률 디버프
-  const accDebuff = s.statusEffects.find(e => e.type === 'accuracy_debuff' && e.source === 'player');
+  const accDebuff = findEffectOfType(s, 'accuracy_debuff', e => e.source === 'player');
   if (accDebuff && Math.random() * 100 < accDebuff.value) {
     addLog(s, '몬스터 공격 빗나감! (연막)');
     return;
@@ -3074,7 +3139,7 @@ function monsterAction(s: ActiveSession): void {
     }
 
     // 실드 체크 — 여러 실드가 중첩된 경우 순차 흡수 (균열-cleric 시 쉴드 통과분만)
-    const shields = s.statusEffects.filter(e => e.type === 'shield' && e.source === 'monster' && e.value > 0);
+    const shields = getEffectsOfType(s, 'shield').filter(e => e.source === 'monster' && e.value > 0);
     if (shields.length > 0 && dmg > 0) {
       let absorbed = 0;
       for (const shield of shields) {
@@ -3108,7 +3173,7 @@ function monsterAction(s: ActiveSession): void {
     const preReduceDmg = dmg;
 
     // 데미지 감소
-    const reduce = s.statusEffects.find(e => e.type === 'damage_reduce' && e.source === 'monster');
+    const reduce = findEffectOfType(s, 'damage_reduce', e => e.source === 'monster');
     if (reduce && dmg > 0) {
       dmg = Math.round(dmg * (1 - reduce.value / 100));
     }
@@ -3160,6 +3225,7 @@ function monsterAction(s: ActiveSession): void {
         s.statusEffects.push({
           id: `slh_${Date.now()}`, type: 'shield', value: shieldAmt, remainingActions: 5, source: 'monster',
         });
+        bumpEffectVer(s);
         s.shieldOnLowHpUsedAt = Date.now();
         addLog(s, `[저체력 쉴드] HP ${slh}% 보호막 발동 (${shieldAmt})`);
       }
@@ -3896,6 +3962,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.statusEffects = s.statusEffects.filter(e =>
       e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
     );
+    bumpEffectVer(s);
     const floorLabel = isBossFloor(s.endlessFloor) ? `${s.endlessFloor}층 — 보스` : `${s.endlessFloor}층`;
     addLog(s, `[종언의 기둥 ${floorLabel}] ${m.name} 등장!`);
     return;
@@ -3928,6 +3995,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.statusEffects = s.statusEffects.filter(e =>
       e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
     );
+    bumpEffectVer(s);
     addLog(s, `${boss.name}이(가) 나타났다!`);
     return;
   }
@@ -3969,6 +4037,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     e.type === 'summon_buff_active' ||
     e.type === 'summon_frenzy_active'
   );
+  bumpEffectVer(s);
   // 마법사 오버킬 캐리: 전 처치 시 발생한 초과 데미지의 50% 적용
   if (s.className === 'mage' && s.mageOverkillCarry > 0 && !isDummyMonster(s)) {
     const carry = Math.min(s.monsterHp - 1, s.mageOverkillCarry); // 즉사 방지 — 최소 1 HP 유지
@@ -4005,6 +4074,7 @@ async function spawnMonsterForSession(s: ActiveSession): Promise<void> {
     s.statusEffects.push({
       id: `dim_chain_${Date.now()}`, type: 'gauge_freeze', value: 0, remainingActions: 1, source: 'player',
     });
+    bumpEffectVer(s);
     addLog(s, '[차원의 결박] 적 첫 행동 동결!');
   }
   // spawn other 시간 = 전체 spawn − pick − endless DB
@@ -4043,6 +4113,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
       s.statusEffects = s.statusEffects.filter(e => e.type !== 'resurrect');
       s.statusEffects.push({ id: 'resurrect_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
       s.statusEffects.push({ id: 'gb_revive_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+      bumpEffectVer(s);  // filter + 2 push 일괄 1회만 bump
       addLog(s, `부활의 기적! HP ${s.playerHp} 회복! (길드 보스 1회 한정)`);
       return;
     }
@@ -4076,6 +4147,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     s.playerHp = Math.round(s.playerMaxHp * healPct / 100);
     s.statusEffects = s.statusEffects.filter(e => e.type !== 'resurrect');
     s.statusEffects.push({ id: 'resurrect_used', type: 'resurrect', value: 0, remainingActions: 0, source: 'player' });
+    bumpEffectVer(s);  // filter + push 일괄 1회만 bump
     addLog(s, `부활의 기적! HP ${s.playerHp} 회복! (전투당 1회)`);
     return;
   }
