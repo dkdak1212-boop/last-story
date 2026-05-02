@@ -22,6 +22,8 @@ interface InspectData {
   equipment: { slot: string; name: string; enhance: number }[];
   guild: string | null;
   skills: string[];
+  defenseMode?: 'snapshot' | 'live';
+  snapshotUpdatedAt?: string | null;
 }
 
 const CLASS_LABEL: Record<string, string> = {
@@ -388,6 +390,28 @@ function InspectModal({ data, onClose }: { data: InspectData; onClose: () => voi
             </span>
           </div>
           {data.guild && <span style={{ fontSize: 12, color: 'var(--accent)' }}>[{data.guild}]</span>}
+        </div>
+
+        {/* 방어 모드 라벨 — 스냅샷 / 라이브 */}
+        <div style={{
+          padding: '6px 10px', marginBottom: 10, fontSize: 11, lineHeight: 1.5,
+          background: data.defenseMode === 'snapshot' ? 'rgba(102,204,102,0.10)' : 'rgba(255,136,68,0.10)',
+          border: `1px solid ${data.defenseMode === 'snapshot' ? '#66cc66' : '#ff8844'}`,
+          borderRadius: 4,
+        }}>
+          {data.defenseMode === 'snapshot' ? (
+            <>
+              <span style={{ color: '#66cc66', fontWeight: 700 }}>📸 방어 스냅샷 적용</span>
+              <span style={{ color: 'var(--text-dim)' }}> — 아래 정보는 저장된 세팅 기준 (실제 전투도 동일).
+                {data.snapshotUpdatedAt && ` 저장: ${new Date(data.snapshotUpdatedAt).toLocaleString('ko-KR')}`}
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: '#ff8844', fontWeight: 700 }}>⚡ 라이브 방어</span>
+              <span style={{ color: 'var(--text-dim)' }}> — 방어자가 세팅 미저장. 공격 시점 PvE 상태로 방어합니다.</span>
+            </>
+          )}
         </div>
 
         {/* PVP 전적 */}

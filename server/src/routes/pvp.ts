@@ -88,6 +88,8 @@ router.get('/opponents/:characterId', async (req: AuthedRequest, res: Response) 
 });
 
 // 상대 상세 정보 (공격 전 프리뷰)
+// 방어 스냅샷이 있으면 스냅샷 기준 — 실제 전투(realtimeEngine) 도 스냅샷을 사용하므로 일관성 보장.
+// 스냅샷 없으면 라이브 폴백 (방어자가 세팅 미저장 → 공격 시점 라이브 상태로 방어).
 router.get('/inspect/:characterId', async (req: AuthedRequest, res: Response) => {
   const cid = Number(req.params.characterId);
 
@@ -97,10 +99,14 @@ router.get('/inspect/:characterId', async (req: AuthedRequest, res: Response) =>
   if (charR.rowCount === 0) return res.status(404).json({ error: 'not found' });
   const ch = charR.rows[0];
 
-  // 스탯
-  const { getEffectiveStats, loadCharacter } = await import('../game/character.js');
-  const fullChar = await loadCharacter(cid);
-  const eff = fullChar ? await getEffectiveStats(fullChar) : null;
+  // 방어 세팅 스냅샷 — 있으면 우선 사용
+  const snapR = await query<{
+    effective_stats: any; equipment_summary: any; skills: any; updated_at: string;
+  }>(
+    `SELECT effective_stats, equipment_summary, skills, updated_at::text
+       FROM pvp_defense_loadouts WHERE character_id = $1`, [cid]
+  );
+  const snap = snapR.rows[0] ?? null;
 
   // PVP 전적
   const pvpR = await query<{ wins: number; losses: number; elo: number }>(
@@ -108,33 +114,71 @@ router.get('/inspect/:characterId', async (req: AuthedRequest, res: Response) =>
   );
   const pvp = pvpR.rows[0] || { wins: 0, losses: 0, elo: 1000 };
 
-  // 장비
-  const eqR = await query<{ slot: string; item_name: string; enhance_level: number }>(
-    `SELECT ce.slot, i.name AS item_name, ce.enhance_level
-     FROM character_equipped ce JOIN items i ON i.id = ce.item_id
-     WHERE ce.character_id = $1`, [cid]
-  );
-
   // 길드
   const guildR = await query<{ guild_name: string }>(
     `SELECT g.name AS guild_name FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`, [cid]
   );
 
-  // 스킬
-  const skillR = await query<{ name: string; effect_type: string }>(
-    `SELECT s.name, s.effect_type FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
-     WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0
-     ORDER BY s.required_level ASC LIMIT 6`, [cid]
-  );
+  let stats: any = null;
+  let equipment: { slot: string; name: string; enhance: number }[] = [];
+  let skills: string[] = [];
+
+  if (snap) {
+    // 스냅샷 모드 — 저장된 effective_stats / equipment_summary / skills 그대로 노출
+    const eff = snap.effective_stats;
+    if (eff) {
+      stats = {
+        atk: Math.round(Number(eff.atk || 0)),
+        matk: Math.round(Number(eff.matk || 0)),
+        def: Math.round(Number(eff.def || 0)),
+        mdef: Math.round(Number(eff.mdef || 0)),
+        spd: Number(eff.spd || 0),
+        cri: Number(eff.cri || 0),
+        dodge: Number(eff.dodge || 0),
+        accuracy: Number(eff.accuracy || 0),
+      };
+    }
+    if (Array.isArray(snap.equipment_summary)) {
+      equipment = snap.equipment_summary.map((e: any) => ({
+        slot: String(e.slot || ''), name: String(e.name || ''), enhance: Number(e.enhance || 0),
+      }));
+    }
+    if (Array.isArray(snap.skills)) {
+      skills = snap.skills.map((s: any) => String(s.name || '')).filter(Boolean).slice(0, 7);
+    }
+  } else {
+    // 라이브 폴백 (스냅샷 없음)
+    const { getEffectiveStats, loadCharacter } = await import('../game/character.js');
+    const fullChar = await loadCharacter(cid);
+    const eff = fullChar ? await getEffectiveStats(fullChar) : null;
+    if (eff) {
+      stats = { atk: Math.round(eff.atk), matk: Math.round(eff.matk), def: Math.round(eff.def), mdef: Math.round(eff.mdef), spd: eff.spd, cri: eff.cri, dodge: eff.dodge, accuracy: eff.accuracy };
+    }
+    const eqR = await query<{ slot: string; item_name: string; enhance_level: number }>(
+      `SELECT ce.slot, i.name AS item_name, ce.enhance_level
+       FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+       WHERE ce.character_id = $1`, [cid]
+    );
+    equipment = eqR.rows.map(e => ({ slot: e.slot, name: e.item_name, enhance: e.enhance_level }));
+    const skillR = await query<{ name: string }>(
+      `SELECT s.name FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+       WHERE cs.character_id = $1 AND cs.auto_use = TRUE AND s.cooldown_actions > 0
+       ORDER BY s.required_level ASC LIMIT 6`, [cid]
+    );
+    skills = skillR.rows.map(s => s.name);
+  }
 
   res.json({
     name: ch.name, className: ch.class_name, level: ch.level,
     maxHp: ch.max_hp,
-    stats: eff ? { atk: Math.round(eff.atk), matk: Math.round(eff.matk), def: Math.round(eff.def), mdef: Math.round(eff.mdef), spd: eff.spd, cri: eff.cri, dodge: eff.dodge, accuracy: eff.accuracy } : null,
+    stats,
     pvp: { wins: pvp.wins, losses: pvp.losses, elo: pvp.elo },
-    equipment: eqR.rows.map(e => ({ slot: e.slot, name: e.item_name, enhance: e.enhance_level })),
+    equipment,
     guild: guildR.rows[0]?.guild_name || null,
-    skills: skillR.rows.map(s => s.name),
+    skills,
+    // 클라가 "스냅샷" / "라이브" 라벨 표기에 사용
+    defenseMode: snap ? 'snapshot' : 'live',
+    snapshotUpdatedAt: snap ? snap.updated_at : null,
   });
 });
 
