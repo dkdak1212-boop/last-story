@@ -180,9 +180,9 @@ const PASSIVE_LABEL: Record<string, string> = {
 type BonusCategory = { label: string; entries: [string, number, string][] };
 const SET_KEY_LABEL: Record<string, string> = {
   ...PREFIX_LABEL,
-  str: '힘 +', dex: '민첩 +', int: '지능 +', vit: '체력 +', spd: '스피드 +', cri: '치명타 확률 +',
-  atk: '물리 공격 +', matk: '마법 공격 +', def: '방어력 +', mdef: '마법 방어 +', hp: 'HP +',
-  accuracy: '명중 +', dodge: '회피 +',
+  str: '힘', dex: '민첩', int: '지능', vit: '체력', spd: '스피드', cri: '치명타 확률',
+  atk: '물리 공격', matk: '마법 공격', def: '방어력', mdef: '마법 방어', hp: 'HP',
+  accuracy: '명중', dodge: '회피',
 };
 function categorizeBonuses(
   prefixes: Record<string, number>,
