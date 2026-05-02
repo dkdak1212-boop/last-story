@@ -4209,6 +4209,8 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
   // 최종 상태 push — 사망 알림은 throttle 무시 (force=true)
   await pushCombatState(s, true, true);
   activeSessions.delete(s.characterId);
+  // dedup 캐시 정리 — 사망 직후 재도전·재입장 30초 차단 방지
+  recentStartAt.delete(s.characterId);
 }
 
 // ── 메인 틱 루프 ──
@@ -5052,13 +5054,11 @@ export async function startCombatSession(
   if (existing) return existing;
 
   // 멱등성: guildBoss 진입이 아닐 때 최근 시작(같은 fieldId)이 30초 내 있으면 skip.
-  // activeSession 존재 여부는 체크하지 않음 — inner 가 DB 타임아웃 등으로 실패 시
-  // session 이 set 안 돼도 재시도 폭주를 차단하기 위함. 사냥터 이동(다른 field) 은 통과.
-  // 정상 stopCombatSession 시 recentStartAt 도 같이 delete 되므로 명시적 재시작은 영향 없음.
-  // recentStartAt 은 inner 진입 직전에 즉시 set — 실패한 시도도 30초간 재시도 차단.
+  // 단, 활성 세션이 실제로 존재할 때만 dedup — 사망/예외로 세션이 사라졌다면 dedup 무시.
+  // (이전: 죽고 즉시 재도전/재입장 시 recentStartAt 만 남고 세션은 없어 무한 "전투 준비 중..." 멈춤 버그.)
   if (!guildBossOpts) {
     const last = recentStartAt.get(characterId);
-    if (last && Date.now() - last.at < START_DEDUP_MS && last.fieldId === fieldId) {
+    if (last && Date.now() - last.at < START_DEDUP_MS && last.fieldId === fieldId && activeSessions.has(characterId)) {
       return;
     }
   }

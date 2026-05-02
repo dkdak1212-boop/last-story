@@ -460,9 +460,16 @@ export function CombatScreen() {
       const allTimeMax = endlessState?.highestFloor ?? 0;
       const retry = async () => {
         try {
+          // 죽은 세션 상태 즉시 비우고 (모달 닫고) 신규 세션 fetch.
+          // window.location.reload() 는 stale state 가 잠깐 보이고 freeze 체감 → 제거.
+          setState(null);
+          prevLogRef.current = null;
           await api(`/endless/${active.id}/enter`, { method: 'POST' });
-          // 페이지 새로고침으로 세션 재구성
-          window.location.reload();
+          const fresh = await api<CombatSnapshot>(`/characters/${active.id}/combat/state`);
+          setState(fresh);
+          prevLogRef.current = [...fresh.log];
+          // WS 재구독 — 기존 socket 가 살아있으면 그대로 사용, 끊겼으면 effect 가 재연결.
+          socketRef.current?.emit('combat:subscribe', active.id);
         } catch (e) { alert(e instanceof Error ? e.message : '재도전 실패'); }
       };
       return (
