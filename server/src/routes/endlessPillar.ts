@@ -43,6 +43,9 @@ router.get('/:characterId/state', endlessAccessRequired, async (req: AuthedReque
     totalDeaths: prog.total_deaths,
     nextBossFloor: Math.ceil(prog.current_floor / 100) * 100,
     isCurrentBossFloor: isBossFloor(prog.current_floor),
+    // 60초 타이머 클라 카운트다운용 — 서버가 영속 보관한 시작 시각.
+    // 마을 다녀와도 같은 시각 기준 이어감 (re-enter 시 60초 새로 안 줌).
+    floorStartedAt: prog.floor_started_at ? new Date(prog.floor_started_at).getTime() : null,
   });
 });
 

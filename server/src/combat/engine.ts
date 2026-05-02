@@ -4249,6 +4249,25 @@ export async function onSessionGoOffline(
     sessionLastTickAt.delete(charId);
     return;
   }
+
+  // 길드 보스 — 구독자 끊기면 진행 중 run 그대로 dangling 남기지 않고 즉시 마감.
+  // 마지막 버퍼 flush 후 markRunEndedByEngine('logout') 으로 임계값 통과 시 우편 자동 발송.
+  // (이전: session 만 삭제되어 run 은 ended_at NULL 로 남고, 재로그인 후 /exit 호출해야 정산.
+  //  탭만 닫고 잊어버린 케이스에서 보상 청구 누락 → 보상 증발로 체감.)
+  if (s.guildBossRunId && !s.guildBossPractice) {
+    try {
+      await flushGuildBossDamage(s);
+    } catch (e) {
+      console.error('[guild-boss-go-offline] flush', charId, e);
+    }
+    try {
+      await markRunEndedByEngine(s.guildBossRunId, 'logout');
+    } catch (e) {
+      console.error('[guild-boss-go-offline] markRunEnded', charId, e);
+    }
+    s.guildBossRunId = null;
+    s.guildBossBoss = null;
+  }
   // 누적 배치 먼저 flush — 마지막 100ms 분량의 exp/gold/kill/drop 누락 방지
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
 

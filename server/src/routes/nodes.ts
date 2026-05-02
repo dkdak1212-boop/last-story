@@ -226,12 +226,16 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   // paragon zone 노드는 paragon_points 로, 나머지는 node_points 로 분리 환불.
   // 이전 통합 환불은 paragon 노드 cost 도 node_points 로 잘못 가산해 paragon_points 가
   // 사라지는 버그가 있었음 (두둥게 보고).
-  const totalR = await query<{ paragon_total: string; normal_total: string }>(
+  // LEFT JOIN — node_definitions 가 삭제된 orphan character_nodes 도 포함.
+  // (이전 INNER JOIN 은 orphan 누락 → 환불 부족: 99 기대 → 92 환불 사용자 보고.)
+  // orphan 의 cost/zone 은 알 수 없으니 기본값 1·normal 로 가정.
+  const totalR = await query<{ paragon_total: string; normal_total: string; total_count: number }>(
     `SELECT
-        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN nd.cost ELSE 0 END), 0)::text AS paragon_total,
-        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN 0 ELSE nd.cost END), 0)::text AS normal_total
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN COALESCE(nd.cost, 0) ELSE 0 END), 0)::text AS paragon_total,
+        COALESCE(SUM(CASE WHEN nd.zone IS NULL OR nd.zone <> 'paragon' THEN COALESCE(nd.cost, 1) ELSE 0 END), 0)::text AS normal_total,
+        COUNT(*)::int AS total_count
        FROM character_nodes cn
-       JOIN node_definitions nd ON nd.id = cn.node_id
+       LEFT JOIN node_definitions nd ON nd.id = cn.node_id
       WHERE cn.character_id = $1`,
     [id]
   );
@@ -314,12 +318,13 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   const targetNodeIds = pr.rows[0].node_ids;
 
   // 현재 노드 환불 — paragon zone 과 normal 분리 (reset 라우트와 동일 정책)
+  // LEFT JOIN — orphan character_nodes 누락 차단.
   const totalR = await query<{ paragon_total: string; normal_total: string }>(
     `SELECT
-        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN nd.cost ELSE 0 END), 0)::text AS paragon_total,
-        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN 0 ELSE nd.cost END), 0)::text AS normal_total
+        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN COALESCE(nd.cost, 0) ELSE 0 END), 0)::text AS paragon_total,
+        COALESCE(SUM(CASE WHEN nd.zone IS NULL OR nd.zone <> 'paragon' THEN COALESCE(nd.cost, 1) ELSE 0 END), 0)::text AS normal_total
        FROM character_nodes cn
-       JOIN node_definitions nd ON nd.id = cn.node_id
+       LEFT JOIN node_definitions nd ON nd.id = cn.node_id
       WHERE cn.character_id = $1`,
     [id]
   );

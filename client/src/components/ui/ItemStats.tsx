@@ -52,10 +52,13 @@ export function formatPrefixValue(key: string, value: number): string {
   return `+${value}`;
 }
 
-// 강화 배율 계산 (EnhanceScreen과 동일): +5%/단계
+// 강화 배율 계산: +1~10 +5%, +11~20 +10%, +21~30 +15% 누적
 export function getEnhanceMult(el: number): number {
   if (el <= 0) return 1;
-  return 1 + el * 0.05;
+  const a = Math.min(10, el)                    * 0.05;
+  const b = Math.max(0, Math.min(10, el - 10))  * 0.10;
+  const c = Math.max(0, Math.min(10, el - 20))  * 0.15;
+  return 1 + a + b + c;
 }
 
 // 스탯 jsonb → 라인 배열 (강화 배율 + 품질 보너스 덧셈)

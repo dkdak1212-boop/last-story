@@ -205,6 +205,15 @@ router.post('/enter/:characterId', async (req: AuthedRequest, res: Response) => 
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'character not found' });
 
+  // 오프라인 모드 캐릭은 보상 정산 전 신규 컨텐츠 진입 차단.
+  // (last_offline_at 잔존 시 길드보스 진입 → 사망 시 offline 보상까지 일괄 증발하던 문제 차단.)
+  const offR = await query<{ last_offline_at: string | null }>(
+    'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
+  );
+  if (offR.rows[0]?.last_offline_at) {
+    return res.status(400).json({ error: '오프라인 보상 정산 후 길드 보스에 입장할 수 있습니다.' });
+  }
+
   // 일반 유저도 길드보스 접근 허용 — 길드 미가입자는 개인 run 진행만 가능
   // (길드 누적·티어 상자·처치 보상은 길드 소속 시에만 반영)
   const guildId = await getCharacterGuildId(characterId);
@@ -273,6 +282,14 @@ router.post('/practice/:characterId', async (req: AuthedRequest, res: Response) 
   const characterId = Number(req.params.characterId);
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'character not found' });
+
+  // 오프라인 모드 캐릭은 정식 입장과 동일 정책 — 보상 정산 후 진입.
+  const offR = await query<{ last_offline_at: string | null }>(
+    'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
+  );
+  if (offR.rows[0]?.last_offline_at) {
+    return res.status(400).json({ error: '오프라인 보상 정산 후 길드 보스에 입장할 수 있습니다.' });
+  }
 
   // 일반 유저도 길드보스 접근 허용 — 길드 미가입자는 개인 run 진행만 가능
   // (길드 누적·티어 상자·처치 보상은 길드 소속 시에만 반영)

@@ -22,6 +22,7 @@ export function CombatScreen() {
   const [endlessState, setEndlessState] = useState<{
     currentFloor: number; highestFloor: number; dailyHighestFloor: number;
     nextBossFloor: number; isCurrentBossFloor: boolean; totalKills: number; totalDeaths: number;
+    floorStartedAt?: number | null;
   } | null>(null);
   const [endlessFloorStartedAt, setEndlessFloorStartedAt] = useState<number>(0);
   const [endlessNowTick, setEndlessNowTick] = useState<number>(Date.now());
@@ -232,10 +233,19 @@ export function CombatScreen() {
     const id = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [isEndless, active]);
+  // 종언의 기둥 — 60초 타이머 시작 시각: 서버 floor_started_at(영속) 단일 소스.
+  // 마을 다녀오거나 재접속해도 같은 시각 기준 이어감 (re-enter 시 60초 새로 안 줌).
+  // 서버 batch flush 로 5초까지 stale 가능 — 그동안은 마지막 알고있던 값 유지.
   useEffect(() => {
-    if (!isEndless) return;
-    setEndlessFloorStartedAt(Date.now());
-  }, [isEndless, state?.monster?.name]);
+    if (!isEndless) { setEndlessFloorStartedAt(0); return; }
+    const serverFsa = endlessState?.floorStartedAt ?? null;
+    if (serverFsa && serverFsa > 0) {
+      setEndlessFloorStartedAt(serverFsa);
+    } else if (endlessFloorStartedAt === 0) {
+      // cold-start 폴백 (서버 응답 도착 전) — 일단 now, 첫 폴링 응답에서 덮어씀.
+      setEndlessFloorStartedAt(Date.now());
+    }
+  }, [isEndless, endlessState?.floorStartedAt]);
   useEffect(() => {
     if (!isEndless && !isRift) return;
     const id = setInterval(() => setEndlessNowTick(Date.now()), 500);

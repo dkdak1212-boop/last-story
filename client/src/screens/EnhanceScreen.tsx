@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import type { ItemGrade, Stats } from '../types';
-import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL } from '../components/ui/ItemStats';
+import { GRADE_COLOR, GRADE_LABEL, STAT_LABEL, getEnhanceMult } from '../components/ui/ItemStats';
 import { PrefixDisplay } from '../components/ui/PrefixDisplay';
 
 interface PrefixDetail { id: number; statKey: string; tier: number; scaledMin: number; scaledMax: number; }
@@ -350,9 +350,9 @@ export function EnhanceScreen() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>강화 후 스탯 (+{selected.enhanceLevel + 1})</div>
                   {Object.entries(selected.baseStats).map(([k, v]) => {
-                    // 강화 배율: +5%/단계 + 품질 보너스
+                    // 강화 배율: 구간식 +5/10/15% + 품질 보너스
                     const qBonus = (selected.quality || 0) / 100;
-                    const getMult = (el: number) => 1 + el * 0.05 + qBonus;
+                    const getMult = (el: number) => getEnhanceMult(el) + qBonus;
                     const cur = Math.round((v as number) * getMult(selected.enhanceLevel));
                     const next = Math.round((v as number) * getMult(selected.enhanceLevel + 1));
                     return (

@@ -447,7 +447,7 @@ export function StatusScreen() {
           <div>· <span style={{ color: 'var(--text)' }}>CC 면역</span>: 스턴/동결이 걸린 후 지속시간 + 3턴 동안 추가 CC 차단</div>
           <div>· <span style={{ color: 'var(--text)' }}>사망</span>: HP 100% 회복 후 마을 귀환, 패널티 없음</div>
           <div>· <span style={{ color: 'var(--text)' }}>품질</span>: 드롭 시 0~100% 랜덤, 기본 스탯에 추가 배율 (품질/100 만큼 덧셈)</div>
-          <div>· <span style={{ color: 'var(--text)' }}>강화</span>: 단계당 +7.5% 스탯 / +1~3(100%) → +19~20(5%/파괴 40%)</div>
+          <div>· <span style={{ color: 'var(--text)' }}>강화</span>: +1~10 단계당 +5%, +11~20 +10%, +21~30 +15% (누적). 파괴 폐지, +21~30 항상 base 1% + pity ×0.1%</div>
           <div>· <span style={{ color: 'var(--text)' }}>접두사</span>: 1~3옵(1옵 90%/2옵 9%/3옵 1%), T1~T4 등급 (T4 0.1%), 강화당 수치 +5%</div>
           <div>· <span style={{ color: 'var(--text)' }}>길드 버프</span>: 체력/골드/경험/드랍 4종 스킬, 영토 점령 시 경험/드랍 +15% 추가</div>
           <div>· <span style={{ color: 'var(--text)' }}>일일 임무</span>: 3개 완료 시 EXP/골드/드랍 +50% 3시간 + 찢어진 스크롤 1개 (KST 자정 초기화)</div>

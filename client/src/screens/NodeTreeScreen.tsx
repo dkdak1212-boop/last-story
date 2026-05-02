@@ -460,7 +460,21 @@ export function NodeTreeScreen() {
     setLoading(false);
   }
 
-  async function resetAll() { if (!active || loading || !confirm('전체 리셋 (5,000G)')) return; setLoading(true); try { await api(`/characters/${active.id}/nodes/reset-all`, { method: 'POST' }); await fetchNodes(); await refreshActive(); setMsg('리셋 완료!'); } catch (e: any) { setMsg(e?.message || '실패'); } setLoading(false); }
+  async function resetAll() {
+    if (!active || loading || !confirm('전체 리셋 (5,000G)')) return;
+    setLoading(true);
+    try {
+      const r = await api<{ refundedPoints: number; refundedParagonPoints: number }>(
+        `/characters/${active.id}/nodes/reset-all`, { method: 'POST' }
+      );
+      await fetchNodes(); await refreshActive();
+      const parts: string[] = [];
+      if (r.refundedPoints > 0) parts.push(`노드 ${r.refundedPoints}pt`);
+      if (r.refundedParagonPoints > 0) parts.push(`차원의 정수 ${r.refundedParagonPoints}pt`);
+      setMsg(parts.length > 0 ? `리셋 완료! 환불: ${parts.join(' / ')}` : '리셋 완료!');
+    } catch (e: any) { setMsg(e?.message || '실패'); }
+    setLoading(false);
+  }
 
   if (!treeState) return <div style={{ color: 'var(--text-dim)' }}>로딩 중...</div>;
 
