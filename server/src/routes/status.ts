@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
-import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects, getNodePassives } from '../game/character.js';
+import { loadCharacterOwned, getEquippedItems, getEffectiveStats, getNodeEffects, getNodePassives, getSetBonus } from '../game/character.js';
 import { sumEquipmentStats, sumNodeStats } from '../game/formulas.js';
 import { expToNext } from '../game/leveling.js';
 import { getCombatHp, refreshSessionStats } from '../combat/engine.js';
@@ -181,6 +181,16 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     passiveTotals[p.key] = (passiveTotals[p.key] || 0) + p.value;
   }
 
+  // 장비 세트 보너스 — 2/4/6셋 효과 합산. 효과는 character.ts/engine.ts 에서 이미 적용 중이지만
+  // 상태창 "추가 능력치" 패널에 표기되지 않던 키 (multi_hit_amp_pct/gauge_on_crit_pct/def_pierce_pct/
+  // predator_pct/damage_taken_down_pct/crit_dmg_pct 등) 가시화.
+  // STATS 키(atk_pct/matk_pct/max_hp_pct 등도 포함) — 클라가 별 섹션으로 표기.
+  const setBonusRaw = await getSetBonus(cid);
+  const setBonusTotals: Record<string, number> = {};
+  for (const [k, v] of Object.entries(setBonusRaw)) {
+    if (typeof v === 'number' && v !== 0) setBonusTotals[k] = v;
+  }
+
   const gr = await query<{ name: string; stat_buff_pct: number }>(
     `SELECT g.name, g.stat_buff_pct FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id WHERE gm.character_id = $1`,
     [cid]
@@ -291,6 +301,7 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     guildBuff: guildBuff ? { name: guildBuff.name, pct: guildBuff.stat_buff_pct } : null,
     prefixBonuses: prefixTotals,
     passiveBonuses: passiveTotals,
+    setBonuses: setBonusTotals,
     gainBonuses,
   });
 });

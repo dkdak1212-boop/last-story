@@ -23,6 +23,7 @@ interface CharStatus {
   guildBuff: { name: string; pct: number } | null;
   prefixBonuses: Record<string, number>;
   passiveBonuses: Record<string, number>;
+  setBonuses?: Record<string, number>;
   gainBonuses?: { gold: GainBreakdown; exp: GainBreakdown; drop: GainBreakdown };
 }
 
@@ -66,6 +67,7 @@ const PREFIX_LABEL: Record<string, string> = {
   drop_rate_pct: '드랍률 +%',
   multi_hit_amp_pct: '다단 타격 데미지 +%',
   def_pierce_pct: '방어 추가 무시 %',
+  gauge_on_crit_pct: '치명타 시 게이지/속도 +%',
   miss_combo_pct: '빗나감 누적 보너스 +%',
   evasion_burst_pct: '회피 직후 다음 공격 +%',
   // 유니크 전용
@@ -176,7 +178,17 @@ const PASSIVE_LABEL: Record<string, string> = {
 };
 
 type BonusCategory = { label: string; entries: [string, number, string][] };
-function categorizeBonuses(prefixes: Record<string, number>, passives: Record<string, number>): BonusCategory[] {
+const SET_KEY_LABEL: Record<string, string> = {
+  ...PREFIX_LABEL,
+  str: '힘 +', dex: '민첩 +', int: '지능 +', vit: '체력 +', spd: '스피드 +', cri: '치명타 확률 +',
+  atk: '물리 공격 +', matk: '마법 공격 +', def: '방어력 +', mdef: '마법 방어 +', hp: 'HP +',
+  accuracy: '명중 +', dodge: '회피 +',
+};
+function categorizeBonuses(
+  prefixes: Record<string, number>,
+  passives: Record<string, number>,
+  sets: Record<string, number> = {}
+): BonusCategory[] {
   const cats: BonusCategory[] = [];
   const prefixEntries: [string, number, string][] = [];
   for (const [k, v] of Object.entries(prefixes)) {
@@ -184,6 +196,13 @@ function categorizeBonuses(prefixes: Record<string, number>, passives: Record<st
     prefixEntries.push([k, v, PREFIX_LABEL[k] || k]);
   }
   if (prefixEntries.length > 0) cats.push({ label: '장비 접두사', entries: prefixEntries });
+
+  const setEntries: [string, number, string][] = [];
+  for (const [k, v] of Object.entries(sets)) {
+    if (v === 0) continue;
+    setEntries.push([k, v, SET_KEY_LABEL[k] || k]);
+  }
+  if (setEntries.length > 0) cats.push({ label: '장비 세트', entries: setEntries });
 
   const passiveEntries: [string, number, string][] = [];
   for (const [k, v] of Object.entries(passives)) {
@@ -404,7 +423,7 @@ export function StatusScreen() {
 
       {/* 추가 능력치 (접두사 + 노드 패시브) */}
       {(() => {
-        const cats = categorizeBonuses(status.prefixBonuses || {}, status.passiveBonuses || {});
+        const cats = categorizeBonuses(status.prefixBonuses || {}, status.passiveBonuses || {}, status.setBonuses || {});
         if (cats.length === 0) return null;
         return (
           <div style={{ marginTop: 14, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
