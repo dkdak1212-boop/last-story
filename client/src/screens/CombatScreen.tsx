@@ -551,7 +551,7 @@ export function CombatScreen() {
               {deathLine && <div style={{ color: '#ff5050' }}>{deathLine}</div>}
             </div>
           )}
-          {(state.sessionDamage ?? 0) > 0 && (
+          {state.guildBossRunId && (state.sessionDamage ?? 0) > 0 && (
             <div style={{
               marginTop: 12, padding: '10px 14px',
               background: 'rgba(218,165,32,0.12)', border: '1px solid rgba(218,165,32,0.4)',
