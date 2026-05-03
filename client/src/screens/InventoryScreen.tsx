@@ -141,6 +141,34 @@ export function InventoryScreen() {
     e.stopPropagation(); if (!active) return;
     await api(`/characters/${active.id}/lock`, { method: 'POST', body: JSON.stringify({ slotIndex }) }); refresh();
   }
+
+  // T4 접두사 장비 → 신비한 가루 1 추출
+  async function extractItem(invId: number, itemName: string, e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return;
+    if (!confirm(`[${itemName}] 추출\n\n장비를 영구 삭제하고 신비한 가루 1개로 변환합니다.\n계속하시겠습니까?`)) return;
+    setMsg('');
+    try {
+      const r = await api<{ extracted: string; rewardName: string; rewardQty: number; message: string }>(
+        `/craft/extract`, { method: 'POST', body: JSON.stringify({ characterId: active.id, invId }) }
+      );
+      setMsg(r.message);
+      await refresh();
+    } catch (err) { setMsg(err instanceof Error ? err.message : '추출 실패'); }
+  }
+
+  // T3 추첨권 사용 — 대상 장비 invId 선택
+  async function useT3Voucher(targetInvId: number, targetName: string, e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return;
+    if (!confirm(`[${targetName}] 의 접두사를 T3 보장 + 일반 분포 2 옵으로 재굴림합니다.\n추첨권 1 개 소비.\n계속하시겠습니까?`)) return;
+    setMsg('');
+    try {
+      const r = await api<{ targetName: string; maxTier: number; message: string }>(
+        `/craft/use-voucher`, { method: 'POST', body: JSON.stringify({ characterId: active.id, targetInvId }) }
+      );
+      setMsg(r.message);
+      await refresh();
+    } catch (err) { setMsg(err instanceof Error ? err.message : '추첨권 사용 실패'); }
+  }
   async function depositToStorage(slotIndex: number, itemName: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
     setMsg('');
@@ -747,13 +775,27 @@ export function InventoryScreen() {
                       </span>
                     );
                   })()}
+                  {/* 미확인 배지 — 거래소 구매 시 옵션 결정 */}
+                  {(s as any).unidentified && (
+                    <div style={{
+                      position: 'absolute', top: 4, right: 6,
+                      background: 'linear-gradient(135deg, #6a4ca8 0%, #a35bd1 100%)',
+                      color: '#fff', fontSize: 10, fontWeight: 800,
+                      padding: '2px 8px', borderRadius: 999,
+                      letterSpacing: 0.5, zIndex: 5,
+                      boxShadow: '0 0 6px rgba(163,91,209,0.6)',
+                    }}>? 미확인</div>
+                  )}
                   {/* 헤더 행 — 우측 absolute 라벨(품질·잠금) 영역 확보용 paddingRight */}
                   <div className="inv-item-header" style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 80 }}>
                     <ItemIcon slot={s.item.slot} grade={s.item.grade} itemName={(s.item as any).baseName || s.item.name} size={24} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' }}>
-                        {(s as any).prefixName && (
+                        {(s as any).prefixName && !(s as any).unidentified && (
                           <span style={{ color: '#66ccff', fontWeight: 700, fontSize: 13 }}>{(s as any).prefixName}</span>
+                        )}
+                        {(s as any).unidentified && (
+                          <span style={{ color: '#a35bd1', fontWeight: 700, fontSize: 13 }}>???</span>
                         )}
                         <span style={nameStyle(s.item.grade, 13)}>{(s.item as any).baseName || s.item.name}</span>
                         {/* 품질/클래스 전용은 카드 우측 절대 위치로 이동 */}
@@ -952,6 +994,25 @@ export function InventoryScreen() {
                           <button onClick={(e) => openListModal(s, e)}
                             style={actionBtn('#ffd66b')}>💰 거래소 등록</button>
                         )}
+                        {/* T4 접두사 추출 — 장비, 미확인 아님, 추첨권 아님, T4 접두사 보유 시만 노출 */}
+                        {isEquipment && !locked && !(s as any).unidentified && (() => {
+                          const tiers = (s as any).prefixTiers as Record<string, number> | undefined;
+                          const hasT4 = tiers && Object.values(tiers).some(t => t === 4);
+                          if (!hasT4) return null;
+                          return (
+                            <button onClick={(e) => extractItem((s as any).invId, s.item.name, e)}
+                              style={actionBtn('#a35bd1')}>✨ 추출 (가루+1)</button>
+                          );
+                        })()}
+                        {/* T3 추첨권 사용 — 장비에만, 추첨권 보유 시 */}
+                        {isEquipment && !locked && !(s as any).unidentified && (() => {
+                          const hasVoucher = inv.some((it: any) => it.item.id === 911 && it.quantity > 0);
+                          if (!hasVoucher) return null;
+                          return (
+                            <button onClick={(e) => useT3Voucher((s as any).invId, s.item.name, e)}
+                              style={actionBtn('#66dd99')}>🎟 T3 추첨권 사용</button>
+                          );
+                        })()}
                         {isEquipment && !locked && (() => {
                           const eInfo = getEnhanceInfo(s.enhanceLevel || 0, active?.level || 1);
                           const maxed = (s.enhanceLevel || 0) >= 20;

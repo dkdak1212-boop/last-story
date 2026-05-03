@@ -77,6 +77,7 @@ export interface Item {
 }
 
 export interface InventorySlot {
+  invId?: number;                   // character_inventory.id (추출/추첨권 사용 시 필요)
   slotIndex: number;
   item: Item;
   quantity: number;
@@ -85,6 +86,9 @@ export interface InventorySlot {
   prefixStats: Record<string, number>;
   locked?: boolean;
   soulbound?: boolean;
+  unidentified?: boolean;
+  prefixName?: string;
+  quality?: number;
 }
 
 export interface Equipped {

@@ -18,6 +18,7 @@ interface Listing {
   baseItemName?: string;
   requiredLevel?: number;
   settled?: boolean; cancelled?: boolean;
+  unidentified?: boolean;
 }
 
 // 무기 이름 → 직업 추론 (검=전사, 단검/대검=도적/전사, 지팡이=마법사, 홀=성직자, 구슬=소환사)
@@ -607,6 +608,13 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
                 background: 'rgba(102,204,255,0.12)', border: '1px solid #66ccff',
                 color: '#66ccff', fontWeight: 700,
               }}>Lv.{a.requiredLevel}+</span>
+            )}
+            {(a as any).unidentified && (
+              <span style={{
+                fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 800,
+                background: 'linear-gradient(135deg, #6a4ca8, #a35bd1)', color: '#fff',
+                boxShadow: '0 0 8px rgba(163,91,209,0.5)',
+              }}>? 미확인 — 구매 시 옵션 결정</span>
             )}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>

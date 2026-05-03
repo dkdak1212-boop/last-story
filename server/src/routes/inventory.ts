@@ -74,13 +74,15 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean;
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
-    class_restriction: string | null; quality: number; soulbound: boolean;
+    class_restriction: string | null; quality: number; soulbound: boolean; unidentified: boolean;
+    inv_id: number;
   }>(
-    `SELECT ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
+    `SELECT ci.id AS inv_id, ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
             i.class_restriction, COALESCE(ci.quality, 0) AS quality,
-            COALESCE(ci.soulbound, FALSE) AS soulbound
+            COALESCE(ci.soulbound, FALSE) AS soulbound,
+            COALESCE(ci.unidentified, FALSE) AS unidentified
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ${orderClause}`,
     [id]
@@ -123,24 +125,30 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     const pIds = r.prefix_ids || [];
     const pName = buildPrefixName(pIds, prefixNames);
     const pTiers = buildPrefixTiers(pIds, prefixNames);
+    const isUnid = r.unidentified === true;
     return {
+      invId: r.inv_id,                                  // 추출/추첨권 사용 endpoint 에 필요
       slotIndex: r.slot_index,
       quantity: r.quantity,
       enhanceLevel: r.enhance_level,
-      prefixIds: pIds,
-      prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
-      prefixName: pName,
-      prefixTiers: pTiers,
+      // 미확인: 옵션 미정 — 클라가 ??? 로 표기
+      prefixIds: isUnid ? [] : pIds,
+      prefixStats: isUnid ? {} : safePrefixStats(r.prefix_stats, r.enhance_level),
+      prefixName: isUnid ? '???' : pName,
+      prefixTiers: isUnid ? [] : pTiers,
       locked: r.locked,
       soulbound: r.soulbound === true,
+      unidentified: isUnid,
       quality: r.quality || 0,
       item: {
-        id: r.item_id, name: pName ? `${pName} ${r.name}` : r.name,
+        id: r.item_id,
+        name: isUnid ? `${r.name} (미확인)` : (pName ? `${pName} ${r.name}` : r.name),
         baseName: r.name,
         type: r.type, grade: r.grade, slot: r.slot,
-        stats: enhancedStats(r.stats, r.enhance_level, r.quality),
+        stats: isUnid ? null : enhancedStats(r.stats, r.enhance_level, r.quality),
         baseStats: r.stats,
-        description: r.description, stackSize: r.stack_size, sellPrice: r.sell_price,
+        description: isUnid ? '미확인 — 거래소에서 구매 시 옵션이 결정됩니다.' : r.description,
+        stackSize: r.stack_size, sellPrice: r.sell_price,
         requiredLevel: (r as any).required_level || 1,
         classRestriction: r.class_restriction,
       },

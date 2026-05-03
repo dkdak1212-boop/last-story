@@ -68,9 +68,11 @@ router.get('/', async (req, res) => {
     item_stats: Record<string, number> | null; item_description: string;
     enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
     quality: number; class_restriction: string | null; required_level: number;
+    unidentified: boolean;
   }>(
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at,
             a.enhance_level, a.prefix_ids, a.prefix_stats, COALESCE(a.quality, 0) AS quality,
+            COALESCE(a.unidentified, FALSE) AS unidentified,
             i.name AS item_name, i.grade AS item_grade, i.type AS item_type, i.slot AS item_slot,
             i.stats AS item_stats, i.description AS item_description, i.class_restriction,
             COALESCE(i.required_level, 1) AS required_level
@@ -107,23 +109,27 @@ router.get('/', async (req, res) => {
   }
 
   res.json(r.rows.map(row => {
-    const prefixName = buildPrefixName(row.prefix_ids);
+    const isUnid = row.unidentified === true;
+    const prefixName = isUnid ? '???' : buildPrefixName(row.prefix_ids);
     return {
       id: row.id, itemId: row.item_id, itemQuantity: row.item_quantity,
       price: row.buyout_price ? Number(row.buyout_price) : 0,
       endsAt: row.ends_at,
-      itemName: prefixName ? `${prefixName} ${row.item_name}` : row.item_name,
+      itemName: isUnid ? `${row.item_name} (미확인)` : (prefixName ? `${prefixName} ${row.item_name}` : row.item_name),
       baseItemName: row.item_name,
       prefixName,
       itemGrade: row.item_grade, itemType: row.item_type, itemSlot: row.item_slot,
-      itemStats: row.item_stats, // 강화 안 된 raw stats
-      itemDescription: row.item_description,
-      enhanceLevel: row.enhance_level || 0,
-      prefixStats: displayPrefixStats(row.prefix_stats, row.enhance_level || 0),
-      prefixTiers: buildPrefixTiers(row.prefix_ids),
-      quality: row.quality || 0,
+      itemStats: isUnid ? null : row.item_stats,
+      itemDescription: isUnid
+        ? '미확인 — 구매 시 옵션이 결정됩니다 (3옵 보장 + 유니크 고정 옵션 + 품질 1~100)'
+        : row.item_description,
+      enhanceLevel: isUnid ? 0 : (row.enhance_level || 0),
+      prefixStats: isUnid ? {} : displayPrefixStats(row.prefix_stats, row.enhance_level || 0),
+      prefixTiers: isUnid ? {} : buildPrefixTiers(row.prefix_ids),
+      quality: isUnid ? 0 : (row.quality || 0),
       classRestriction: row.class_restriction,
       requiredLevel: row.required_level || 1,
+      unidentified: isUnid,
     };
   }));
 });
