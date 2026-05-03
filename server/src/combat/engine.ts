@@ -237,6 +237,9 @@ interface ActiveSession {
   // 활성 소환수 캐시 — statusEffects 와 양립 (push/setEffects 시 동기화).
   // 핫 read (processSummons / pushCombatState / executeSkill) 가 큰 statusEffects 배열을 풀스캔하지 않도록.
   _summons?: StatusEffect[];
+  // pushCombatState 핫패스용 source 별 분리 캐시 (filter() 회피)
+  _playerSourcedEffects?: StatusEffect[];
+  _monsterSourcedEffects?: StatusEffect[];
   actionCount: number;
   log: string[];
   skills: SkillDef[];
@@ -989,6 +992,24 @@ function bumpEffectVer(s: ActiveSession): void {
   s._effectVer = (s._effectVer || 0) + 1;
   // summons 캐시도 stale — rebuild on next access via syncSummons
   s._summons = undefined;
+  // 소스별 분리 캐시 invalidate (pushCombatState 의 filter() 회피용)
+  s._playerSourcedEffects = undefined;
+  s._monsterSourcedEffects = undefined;
+}
+// pushCombatState 핫패스 — source 별 분리 캐시 (130 세션 × 7000 push/cycle 의 filter 비용 제거)
+function getEffectsBySource(s: ActiveSession): { fromMonster: StatusEffect[]; fromPlayer: StatusEffect[] } {
+  if (s._playerSourcedEffects && s._monsterSourcedEffects) {
+    return { fromMonster: s._monsterSourcedEffects, fromPlayer: s._playerSourcedEffects };
+  }
+  const fromMonster: StatusEffect[] = [];
+  const fromPlayer: StatusEffect[] = [];
+  for (const e of s.statusEffects) {
+    if (e.source === 'monster') fromMonster.push(e);
+    else if (e.source === 'player') fromPlayer.push(e);
+  }
+  s._monsterSourcedEffects = fromMonster;
+  s._playerSourcedEffects = fromPlayer;
+  return { fromMonster, fromPlayer };
 }
 function rebuildEffectIndex(s: ActiveSession): void {
   const m = new Map<string, StatusEffect[]>();
@@ -4804,6 +4825,8 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     }
   }
 
+  // source 별 분리 캐시 사용 — 매 push 마다 .filter() 두 번 회피 (statusEffects 50~100 길이 환경)
+  const { fromMonster, fromPlayer } = getEffectsBySource(s);
   const snapshot: CombatSnapshot = {
     inCombat,
     fieldName: s.fieldName,
@@ -4814,7 +4837,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       maxHp: s.playerMaxHp,
       gauge: Math.min(GAUGE_MAX, s.playerGauge),
       speed: s.playerSpeed,
-      effects: s.statusEffects.filter(e => e.source === 'monster'),
+      effects: fromMonster,
     },
     monster: s.monsterId ? {
       name: s.monsterName,
@@ -4823,7 +4846,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       level: s.monsterLevel,
       gauge: Math.min(GAUGE_MAX, s.monsterGauge),
       speed: s.monsterSpeed,
-      effects: s.statusEffects.filter(e => e.source === 'player'),
+      effects: fromPlayer,
     } : undefined,
     skills: s.skills.map(sk => ({
       id: sk.id,
