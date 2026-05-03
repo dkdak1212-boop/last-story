@@ -195,7 +195,8 @@ export function InventoryScreen() {
       );
       setMsg(r.message);
       setVoucherTarget(null);
-      await refresh();
+      // 장착중인 장비의 접두사가 바뀌면 캐릭 스탯도 변경됨 → active 캐릭 동시 갱신
+      await Promise.all([refresh(), refreshActive()]);
     } catch (err) { setMsg(err instanceof Error ? err.message : '추첨권 사용 실패'); }
   }
   async function depositToStorage(slotIndex: number, itemName: string, e: React.MouseEvent) {
