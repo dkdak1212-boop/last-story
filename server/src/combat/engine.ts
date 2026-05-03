@@ -25,6 +25,13 @@ import {
   recordDeath,
   recordFloorClear,
 } from '../game/endlessPillar.js';
+
+// 종언의 기둥 HP% 면역 시작 시각 — 2026-05-04 00:00 KST = 2026-05-03 15:00 UTC.
+// 이 시각 전(=금일 자정 이전)에는 HP% 데미지·즉사가 평소처럼 들어감.
+const ENDLESS_HP_PCT_IMMUNE_FROM_MS = Date.UTC(2026, 4, 3, 15, 0, 0);
+function endlessHpPctImmune(s: ActiveSession): boolean {
+  return s.fieldId === ENDLESS_FIELD_ID && Date.now() >= ENDLESS_HP_PCT_IMMUNE_FROM_MS;
+}
 import { getItemDef, getPrefixStatKeys, getFieldDef, getMonsterDef, getFieldDefSync, getMonsterDefSync, prewarmContentCache } from '../game/contentCache.js';
 import { applyDamageToRun, markRunEndedByEngine, getBossById, ELEMENTS as GB_ELEMENTS, type GuildBossData } from './guildBossHelpers.js';
 // StatusEffect는 combat/shared.ts로 이동됨 — 레이드 보스(worldEvent.ts)와 공유
@@ -1451,8 +1458,8 @@ function applyDamagePrefixes(
   if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
     dmg = Math.round(dmg * 1.5);
   }
-  // #8 암살자의 역설 — 적 HP 100% ×3, 50% 이하 ×0.3 (종언의 기둥 면역)
-  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && s.fieldId !== ENDLESS_FIELD_ID) {
+  // #8 암살자의 역설 — 적 HP 100% ×3, 50% 이하 ×0.3 (종언의 기둥 면역, 자정 이후 발동)
+  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
     const ratio = s.monsterHp / s.monsterMaxHp;
     if (ratio >= 1.0) dmg = Math.round(dmg * 3);
     else if (ratio <= 0.5) dmg = Math.round(dmg * 0.3);
@@ -1492,17 +1499,17 @@ function applyDamagePrefixes(
     );
     if (ccApplied) dmg = Math.round(dmg * 1.5);
   }
-  // 마지막 일격 — 적 HP 30% 이하 시 ×2.0 (종언의 기둥 면역)
-  if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.fieldId !== ENDLESS_FIELD_ID && s.monsterHp / s.monsterMaxHp <= 0.30) {
+  // 마지막 일격 — 적 HP 30% 이하 시 ×2.0 (종언의 기둥 면역, 자정 이후 발동)
+  if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.30) {
     dmg = Math.round(dmg * 2.0);
   }
   // 혼의 강타 — 매 5번째 액션 ×3
   if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
     dmg = Math.round(dmg * 3);
   }
-  // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N% (종언의 기둥 면역)
+  // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N% (종언의 기둥 면역, 자정 이후 발동)
   const executePct = s.equipPrefixes.execute_pct || 0;
-  if (executePct > 0 && s.monsterMaxHp > 0 && s.fieldId !== ENDLESS_FIELD_ID && s.monsterHp / s.monsterMaxHp <= 0.20) {
+  if (executePct > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.20) {
     dmg = Math.round(dmg * (1 + executePct / 100));
   }
   // 110 몬스터 dr_pct — 받는 데미지 감쇠 (마지막 단계에 적용)
@@ -1525,9 +1532,9 @@ function applyDamagePrefixes(
   if (isCrit) {
     const critDmgBonus = getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
-    // assassin_execute: 치명타 시 적 HP 15% 이하면 즉사 확률 (종언의 기둥 면역)
+    // assassin_execute: 치명타 시 적 HP 15% 이하면 즉사 확률 (종언의 기둥 면역, 자정 이후 발동)
     const execute = getPassive(s, 'assassin_execute');
-    if (execute > 0 && s.monsterHp > 0 && s.fieldId !== ENDLESS_FIELD_ID && s.monsterHp <= s.monsterMaxHp * 0.15) {
+    if (execute > 0 && s.monsterHp > 0 && !endlessHpPctImmune(s) && s.monsterHp <= s.monsterMaxHp * 0.15) {
       if (Math.random() * 100 < execute) {
         dmg = s.monsterHp + 1;
         addLog(s, `[그림자 처형] 즉사!`);
@@ -2155,7 +2162,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             addLog(s, `[${skill.name}] HP% 데미지 무효 (허수아비)`);
           } else if (s.guildBossRunId) {
             addLog(s, `[${skill.name}] HP% 데미지 무효 (길드 보스)`);
-          } else if (s.fieldId === ENDLESS_FIELD_ID) {
+          } else if (endlessHpPctImmune(s)) {
             addLog(s, `[${skill.name}] HP% 데미지 무효 (종언의 기둥)`);
           } else {
             const extra = Math.round(Math.max(0, s.monsterHp) * skill.effect_value / 100);
@@ -2331,10 +2338,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         addLog(s, `[${skill.name}] 격앙! 다른 스킬 쿨다운 초기화!`);
       }
-      // 도적 암흑의 심판: 적 HP 30% 이하면 즉사 (보스/길드보스/종언의 기둥 전체 제외, PVP는 별도 엔진)
+      // 도적 암흑의 심판: 적 HP 30% 이하면 즉사 (보스/길드보스 + 자정 이후 종언의 기둥 제외, PVP는 별도 엔진)
       if (skill.name === '암흑의 심판' && s.monsterHp > 0) {
         const isBossLike = !!s.guildBossRunId
-          || s.fieldId === ENDLESS_FIELD_ID
+          || endlessHpPctImmune(s)
           || s.monsterName.startsWith('보스:')
           || s.monsterMaxHp >= 100_000_000;
         if (!isBossLike && s.monsterHp <= s.monsterMaxHp * 0.30) {
