@@ -148,12 +148,28 @@ export async function flushGuildContributions(): Promise<void> {
   }
   pendingContrib.clear();
 
-  // guild_contributions 다중 upsert — 한 INSERT 문에 모든 (guild, char) 쌍
+  // 삭제된 캐릭의 pending 이 남아있으면 FK 위반으로 batch 전체가 실패함.
+  // characters 존재 여부 사전 검증 — 없는 char 는 batch에서 제외 + 캐시 무효화.
   try {
+    const ids = batch.map(b => b.characterId);
+    const exR = await query<{ id: number }>(
+      'SELECT id FROM characters WHERE id = ANY($1::int[])', [ids]
+    );
+    const exists = new Set(exR.rows.map(r => Number(r.id)));
+    const missing = batch.filter(b => !exists.has(b.characterId));
+    if (missing.length > 0) {
+      for (const m of missing) {
+        memberGuildCache.delete(m.characterId);
+      }
+      console.warn(`[guild-contrib-flush] 삭제된 캐릭 ${missing.length}건 제외 (id: ${missing.map(m => m.characterId).join(',')})`);
+    }
+    const valid = batch.filter(b => exists.has(b.characterId));
+    if (valid.length === 0) return;
+
     const values: string[] = [];
     const params: unknown[] = [];
     let i = 1;
-    for (const b of batch) {
+    for (const b of valid) {
       values.push(`($${i++}, $${i++}, $${i++}, 0)`);
       params.push(b.guildId, b.characterId, b.exp);
     }
