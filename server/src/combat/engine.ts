@@ -702,59 +702,91 @@ function enqueueStackDrop(d: PendingStackDrop): void {
   arr.push(d);
 }
 
+// 모든 캐릭의 pending stack 드랍을 4 round-trip 으로 일괄 flush.
+// 이전: 캐릭 N명 × 4 query = 4N round-trip 을 1초마다 burst → pool 14160/160 점유 → SLOW TICK 폭증.
+// 현재: 4 query 총합 (캐릭 정보 / 기존 stack / UPDATE / INSERT 모두 한 번에) → 250ms 주기로 분산.
 export async function flushPendingStackDrops(): Promise<void> {
   if (pendingStackDrops.size === 0) return;
   const snap: Array<[number, PendingStackDrop[]]> = [];
   for (const [cid, arr] of pendingStackDrops) snap.push([cid, arr]);
   pendingStackDrops.clear();
 
+  // 캐릭별 (itemId → {qty, stackSize, bound}) 합산
+  type CharBucket = { byItem: Map<number, { qty: number; stackSize: number; bound: boolean }> };
+  const byChar = new Map<number, CharBucket>();
+  const allCharIds: number[] = [];
+  const charItemPairs: Array<{ cid: number; iid: number }> = [];
   for (const [characterId, drops] of snap) {
     if (drops.length === 0) continue;
-
-    // 같은 itemId 합산
     const byItem = new Map<number, { qty: number; stackSize: number; bound: boolean }>();
     for (const d of drops) {
       const ex = byItem.get(d.itemId);
       if (ex) ex.qty += d.qty;
       else byItem.set(d.itemId, { qty: d.qty, stackSize: d.stackSize, bound: d.boundOnPickup });
     }
-    const itemIds = [...byItem.keys()];
+    byChar.set(characterId, { byItem });
+    allCharIds.push(characterId);
+    for (const iid of byItem.keys()) charItemPairs.push({ cid: characterId, iid });
+  }
+  if (allCharIds.length === 0) return;
 
-    try {
-      // freeSlots + 기존 stack 한 번에 조회
-      const slotR = await query<{ bonus: number; used_slots: number[] }>(
-        `SELECT
-           COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
-           COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+  try {
+    // ── Q1: 캐릭별 freeSlots + bonus + used_slots 일괄 조회 ──
+    const slotR = await query<{ id: number; bonus: number; used_slots: number[] }>(
+      `SELECT c.id, COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+              COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
          FROM characters c
          LEFT JOIN character_inventory ci ON ci.character_id = c.id
-         WHERE c.id = $1
+         WHERE c.id = ANY($1::int[])
          GROUP BY c.id`,
-        [characterId]
-      );
-      if (slotR.rowCount === 0) continue;
-      const used = new Set<number>(slotR.rows[0].used_slots || []);
-      const maxSlots = BASE_INVENTORY_SLOTS + (slotR.rows[0].bonus || 0);
-      // 동시 진행 중인 equipment drop 큐의 slot 도 used 로 간주
-      const eqPending = getPendingSlotsForChar(characterId);
-      for (const ps of eqPending) used.add(ps);
+      [allCharIds]
+    );
+    const charInfo = new Map<number, { used: Set<number>; maxSlots: number }>();
+    for (const row of slotR.rows) {
+      const used = new Set<number>(row.used_slots || []);
+      // equipment drop 큐의 slot 도 used 로 간주 (충돌 방지)
+      for (const ps of getPendingSlotsForChar(row.id)) used.add(ps);
+      charInfo.set(row.id, { used, maxSlots: BASE_INVENTORY_SLOTS + (row.bonus || 0) });
+    }
 
-      const stacksR = await query<{ id: number; item_id: number; quantity: number }>(
-        `SELECT id, item_id, quantity FROM character_inventory
-          WHERE character_id = $1 AND item_id = ANY($2::int[])
-          ORDER BY item_id, slot_index ASC`,
-        [characterId, itemIds]
+    await Promise.resolve(); // event loop yield
+
+    // ── Q2: 모든 (캐릭, itemId) 의 기존 stack 일괄 조회 ──
+    let stacksByCharItem = new Map<string, Array<{ id: number; quantity: number }>>();
+    if (charItemPairs.length > 0) {
+      const cidArr = charItemPairs.map(p => p.cid);
+      const iidArr = charItemPairs.map(p => p.iid);
+      const stacksR = await query<{ character_id: number; item_id: number; id: number; quantity: number }>(
+        `SELECT ci.character_id, ci.item_id, ci.id, ci.quantity
+           FROM character_inventory ci
+           JOIN (SELECT UNNEST($1::int[]) AS cid, UNNEST($2::int[]) AS iid) v
+             ON v.cid = ci.character_id AND v.iid = ci.item_id
+          ORDER BY ci.character_id, ci.item_id, ci.slot_index ASC`,
+        [cidArr, iidArr]
       );
-      const existingByItem = new Map<number, Array<{ id: number; quantity: number }>>();
       for (const row of stacksR.rows) {
-        let arr = existingByItem.get(row.item_id);
-        if (!arr) { arr = []; existingByItem.set(row.item_id, arr); }
+        const key = `${row.character_id}:${row.item_id}`;
+        let arr = stacksByCharItem.get(key);
+        if (!arr) { arr = []; stacksByCharItem.set(key, arr); }
         arr.push({ id: row.id, quantity: row.quantity });
       }
+    }
 
-      // 계획: 기존 partial stack 우선 채우기 → 부족분 신규 슬롯
-      const updates: Array<{ id: number; addQty: number }> = [];
-      const inserts: Array<{ itemId: number; slot: number; qty: number; bound: boolean }> = [];
+    await Promise.resolve(); // event loop yield
+
+    // ── 계획: 캐릭별 merge(UPDATE) + 신규 슬롯(INSERT) 결정 ──
+    const allUpdates: Array<{ id: number; addQty: number }> = [];
+    const allInserts: Array<{ characterId: number; itemId: number; slot: number; qty: number; bound: boolean }> = [];
+    const insertsByChar = new Map<number, number[]>(); // 캐시 갱신용 — slot 인덱스만 모음
+
+    for (const characterId of allCharIds) {
+      const bucket = byChar.get(characterId);
+      if (!bucket) continue;
+      const info = charInfo.get(characterId);
+      if (!info) continue; // 캐릭 삭제됨
+
+      const used = info.used;
+      const maxSlots = info.maxSlots;
       let nextFreeSlot = 0;
       const claimSlot = (): number | null => {
         while (nextFreeSlot < maxSlots) {
@@ -764,73 +796,81 @@ export async function flushPendingStackDrops(): Promise<void> {
         return null;
       };
 
-      for (const [itemId, info] of byItem) {
-        let remaining = info.qty;
-        const existing = existingByItem.get(itemId) ?? [];
+      for (const [itemId, dInfo] of bucket.byItem) {
+        let remaining = dInfo.qty;
+        const existing = stacksByCharItem.get(`${characterId}:${itemId}`) ?? [];
         for (const ex of existing) {
           if (remaining <= 0) break;
-          const room = info.stackSize - ex.quantity;
+          const room = dInfo.stackSize - ex.quantity;
           if (room <= 0) continue;
           const add = Math.min(remaining, room);
-          updates.push({ id: ex.id, addQty: add });
+          allUpdates.push({ id: ex.id, addQty: add });
           ex.quantity += add;
           remaining -= add;
         }
         while (remaining > 0) {
           const slot = claimSlot();
-          if (slot === null) break; // 가방 full — 조용히 폐기 (UI 는 이미 "획득" 표시함)
-          const qty = Math.min(remaining, info.stackSize);
-          inserts.push({ itemId, slot, qty, bound: info.bound });
+          if (slot === null) break;  // 가방 full
+          const qty = Math.min(remaining, dInfo.stackSize);
+          allInserts.push({ characterId, itemId, slot, qty, bound: dInfo.bound });
+          let arr = insertsByChar.get(characterId);
+          if (!arr) { arr = []; insertsByChar.set(characterId, arr); }
+          arr.push(slot);
           remaining -= qty;
         }
       }
+    }
 
-      // UPDATE 일괄 (UNNEST 로 1 round-trip)
-      if (updates.length > 0) {
-        const idsArr = updates.map(u => u.id);
-        const qtyArr = updates.map(u => u.addQty);
-        await query(
-          `UPDATE character_inventory ci
-              SET quantity = ci.quantity + v.add_qty
-             FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS add_qty) v
-            WHERE ci.id = v.id`,
-          [idsArr, qtyArr]
-        );
+    await Promise.resolve(); // event loop yield
+
+    // ── Q3: UPDATE 모든 merge 일괄 ──
+    if (allUpdates.length > 0) {
+      const idsArr = allUpdates.map(u => u.id);
+      const qtyArr = allUpdates.map(u => u.addQty);
+      await query(
+        `UPDATE character_inventory ci
+            SET quantity = ci.quantity + v.add_qty
+           FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS add_qty) v
+          WHERE ci.id = v.id`,
+        [idsArr, qtyArr]
+      );
+    }
+
+    await Promise.resolve(); // event loop yield
+
+    // ── Q4: INSERT 모든 신규 슬롯 일괄 ──
+    if (allInserts.length > 0) {
+      const valuesParts: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+      for (const ins of allInserts) {
+        const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++, p5 = idx++;
+        valuesParts.push(`($${p1}, $${p2}, $${p3}, $${p4}, $${p5})`);
+        params.push(ins.characterId, ins.itemId, ins.slot, ins.qty, ins.bound);
       }
+      await query(
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
+         VALUES ${valuesParts.join(', ')}
+         ON CONFLICT (character_id, slot_index) DO NOTHING`,
+        params
+      );
+    }
 
-      // INSERT 일괄 (multi-row VALUES)
-      if (inserts.length > 0) {
-        const valuesParts: string[] = [];
-        const params: unknown[] = [characterId];
-        let idx = 2;
-        for (const ins of inserts) {
-          const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++;
-          valuesParts.push(`($1, $${p1}, $${p2}, $${p3}, $${p4})`);
-          params.push(ins.itemId, ins.slot, ins.qty, ins.bound);
-        }
-        await query(
-          `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
-           VALUES ${valuesParts.join(', ')}
-           ON CONFLICT (character_id, slot_index) DO NOTHING`,
-          params
-        );
-      }
-
-      // 슬롯 캐시 in-place 갱신 — invalidate 후 다음 kill 마다 LEFT JOIN aggregate 재실행되는
-      // 부하 회피 (cache invalidation 비용이 stack 배치 절감 효과를 상쇄하던 문제).
-      // 신규로 점유된 slot 만 캐시의 freeSlots 에서 제거. UPDATE 만 한 stack merge 는 슬롯 변동 없음.
+    // ── 슬롯 캐시 in-place 갱신 (DB SELECT 없이) ──
+    for (const [characterId, slots] of insertsByChar) {
       const sess = activeSessions.get(characterId);
-      if (sess && sess.inventorySlotCache && inserts.length > 0) {
-        const usedNew = new Set(inserts.map(ins => ins.slot));
+      if (sess && sess.inventorySlotCache) {
+        const usedNew = new Set(slots);
         sess.inventorySlotCache.freeSlots = sess.inventorySlotCache.freeSlots.filter(s => !usedNew.has(s));
       }
-    } catch (err) {
-      console.error('[stack-drops-batch] err', characterId, err);
     }
+  } catch (err) {
+    console.error('[stack-drops-batch] err', err);
   }
 }
 
-setInterval(() => { flushPendingStackDrops().catch(err => console.error('[stack-drops-batch] interval err', err)); }, 1000);
+// 250ms 주기 — 1s burst 분산 (pool 점유 1/4)
+setInterval(() => { flushPendingStackDrops().catch(err => console.error('[stack-drops-batch] interval err', err)); }, 250);
 
 // 종언 floor_started_at 더티 큐 — 새 층 진입 시점만 기록, 5초 batch flush
 // (이전: 매 spawn 마다 SELECT + 가끔 UPDATE → 종언 캐릭 다수 환경에서 풀 압박 주범)
