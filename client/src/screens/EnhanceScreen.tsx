@@ -85,7 +85,6 @@ export function EnhanceScreen() {
   async function useTierTicket(tier: 1 | 2 | 3) {
     if (!active || !selected || usingTier !== null) return;
     if (rerollIndex === null) { alert(`T${tier} 추첨권은 특정 접두사 1개를 선택해야 합니다. 아래 "접두사 선택" 에서 하나 골라주세요.`); return; }
-    if (selected.grade === 'unique') { alert('유니크 장비는 사용 불가'); return; }
     const count = tier === 1 ? t1TicketCount : tier === 2 ? t2TicketCount : t3TicketCount;
     if (count <= 0) { alert(`T${tier} 접두사 보장 추첨권이 없습니다.`); return; }
     if (!confirm(`선택한 접두사 1개를 T${tier} 티어로 재굴림합니다. 진행하시겠습니까?`)) return;
@@ -110,7 +109,6 @@ export function EnhanceScreen() {
 
   async function use3PrefixTicket() {
     if (!active || !selected || usingP3) return;
-    if (selected.grade === 'unique') { alert('유니크 장비는 사용 불가'); return; }
     if (p3TicketCount <= 0) { alert('3옵 보장 굴림권이 없습니다.'); return; }
     if (!confirm('기존 접두사를 모두 폐기하고 3옵을 새로 굴립니다. 진행하시겠습니까?')) return;
     setUsingP3(true);
@@ -571,8 +569,8 @@ export function EnhanceScreen() {
                 </div>
               ) : null}
 
-              {/* T1/T2/T3 보장 추첨권 / 3옵 보장 굴림권 */}
-              {selected.itemSlot && selected.grade !== 'unique' ? (
+              {/* T1/T2/T3 보장 추첨권 / 3옵 보장 굴림권 — 유니크에도 사용 가능 (고정 옵션 보존) */}
+              {selected.itemSlot ? (
                 <div style={{ marginTop: 12, padding: 10, border: '1px solid #a24bff', borderRadius: 4 }}>
                   <div style={{ fontSize: 11, color: '#a24bff', marginBottom: 8, fontWeight: 700 }}>접두사 보장 추첨권</div>
                   {([1, 2, 3] as const).map(tier => {

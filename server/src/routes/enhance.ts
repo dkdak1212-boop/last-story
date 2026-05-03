@@ -602,7 +602,7 @@ async function handleTierTicketUse(req: AuthedRequest, res: Response, tier: 1 | 
          WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
   if (!load.rowCount) { res.status(404).json({ error: 'item not found' }); return; }
   const row = load.rows[0];
-  if (row.grade === 'unique') { res.status(400).json({ error: '유니크 장비는 사용 불가' }); return; }
+  // 유니크도 사용 가능 — unique_prefix_stats(고정 옵션) 는 보존, 일반 접두사 부분만 재굴림.
 
   const prefixIds = row.prefix_ids || [];
   if (parsed.data.prefixIndex >= prefixIds.length) { res.status(400).json({ error: '존재하지 않는 접두사 인덱스' }); return; }
@@ -623,9 +623,23 @@ async function handleTierTicketUse(req: AuthedRequest, res: Response, tier: 1 | 
 
   const newIds = [...prefixIds];
   newIds[parsed.data.prefixIndex] = rolled.prefixId;
-  const newStats: Record<string, number> = { ...(row.prefix_stats || {}) };
-  delete newStats[targetStatKey];
-  newStats[rolled.statKey] = (newStats[rolled.statKey] ?? 0) + rolled.value;
+
+  // 유니크 고정 옵션과 일반 접두사 합산이 같은 키일 수 있어, unique 부분 보존 후 재합치기.
+  const uniq = row.unique_prefix_stats || {};
+  // 1) 일반 접두사 portion = prefix_stats - unique_prefix_stats
+  const purePrefixStats: Record<string, number> = { ...(row.prefix_stats || {}) };
+  for (const [k, v] of Object.entries(uniq)) {
+    purePrefixStats[k] = (purePrefixStats[k] ?? 0) - (v as number);
+    if (purePrefixStats[k] <= 0) delete purePrefixStats[k];
+  }
+  // 2) 옛 접두사 stat 제거 + 새 접두사 stat 추가
+  delete purePrefixStats[targetStatKey];
+  purePrefixStats[rolled.statKey] = (purePrefixStats[rolled.statKey] ?? 0) + rolled.value;
+  // 3) unique 다시 합산 → 최종 prefix_stats
+  const newStats: Record<string, number> = { ...purePrefixStats };
+  for (const [k, v] of Object.entries(uniq)) {
+    newStats[k] = (newStats[k] ?? 0) + (v as number);
+  }
 
   if (ticket.quantity <= 1) {
     await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
@@ -693,13 +707,17 @@ router.post('/:characterId/use-3prefix-ticket', async (req: AuthedRequest, res: 
          WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, parsed.data.slotKey]);
   if (!load.rowCount) return res.status(404).json({ error: 'item not found' });
   const row = load.rows[0];
-  if (row.grade === 'unique') return res.status(400).json({ error: '유니크 장비는 사용 불가' });
+  // 유니크도 사용 가능 — 기존 접두사 폐기 후 3옵 새로 굴리고 unique 고정 옵션을 다시 합산.
 
   const { prefixIds, bonusStats } = await generateGuaranteed3Prefixes(row.required_level);
   if (prefixIds.length < 3) return res.status(500).json({ error: '접두사 3개 생성 실패' });
 
-  // 유니크 고유옵은 없는 일반 장비라 가정 (위에서 unique 차단)
   const newStats: Record<string, number> = { ...bonusStats };
+  if (row.grade === 'unique' && row.unique_prefix_stats) {
+    for (const [k, v] of Object.entries(row.unique_prefix_stats)) {
+      newStats[k] = (newStats[k] ?? 0) + (v as number);
+    }
+  }
 
   // 티켓 소모
   if (ticket.quantity <= 1) {
