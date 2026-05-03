@@ -154,9 +154,10 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
       return { error: `계정당 동시 등록은 ${MAX_LISTINGS_PER_ACCOUNT}개까지 가능합니다. (현재 ${activeCnt}개 활성)`, status: 400 };
     }
 
-    const inv = await tx.query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; soulbound: boolean; item_slot: string | null }>(
+    const inv = await tx.query<{ id: number; item_id: number; quantity: number; enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; soulbound: boolean; unidentified: boolean; item_slot: string | null }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
+              COALESCE(ci.unidentified, FALSE) AS unidentified,
               i.slot AS item_slot
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
@@ -177,14 +178,15 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
     const listedAt = new Date(Date.now() + delayMinutes * 60_000).toISOString();
     const endsAt = new Date(Date.now() + LISTING_HOURS * 3600 * 1000 + delayMinutes * 60_000).toISOString();
     await tx.query(
-      `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality, listed_at)
-       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
+      `INSERT INTO auctions (seller_id, item_id, item_quantity, start_price, buyout_price, ends_at, enhance_level, prefix_ids, prefix_stats, quality, listed_at, unidentified)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)`,
       [characterId, invRow.item_id, quantity, price, endsAt,
        invRow.enhance_level || 0,
        invRow.prefix_ids || null,
        invRow.prefix_stats ? JSON.stringify(invRow.prefix_stats) : null,
        invRow.quality || 0,
-       listedAt]
+       listedAt,
+       invRow.unidentified]
     );
     return { ok: true };
   });
@@ -227,9 +229,11 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
       seller_id: number; buyout_price: string | null; item_id: number; item_quantity: number;
       settled: boolean; cancelled: boolean; ends_at: string; listed_at: string;
       enhance_level: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
+      unidentified: boolean;
     }>(
       `SELECT seller_id, buyout_price, item_id, item_quantity, settled, cancelled, ends_at, listed_at,
-              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality,
+              COALESCE(unidentified, FALSE) AS unidentified
        FROM auctions WHERE id = $1 FOR UPDATE`,
       [auctionId]
     );
@@ -272,10 +276,31 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
        sellerGet]
     );
 
-    const enhLv = au.enhance_level || 0;
-    const pIds = au.prefix_ids || [];
-    const pStats = au.prefix_stats ? JSON.stringify(au.prefix_stats) : '{}';
-    const qual = au.quality || 0;
+    let enhLv = au.enhance_level || 0;
+    let pIds: number[] = au.prefix_ids || [];
+    let pStats = au.prefix_stats ? JSON.stringify(au.prefix_stats) : '{}';
+    let qual = au.quality || 0;
+
+    // ── 미확인 아이템: 구매 시 옵션 굴림 (3옵 보장 + 시공균열 unique 고정 옵션 병합) ──
+    if (au.unidentified) {
+      const { generateGuaranteed3Prefixes } = await import('../game/prefix.js');
+      // 시공균열 세트는 itemLevel ≥ 100 (110 제). required_level 조회.
+      const lvR = await tx.query<{ required_level: number; unique_prefix_stats: Record<string, number> | null }>(
+        `SELECT COALESCE(required_level, 100) AS required_level, unique_prefix_stats FROM items WHERE id = $1`,
+        [au.item_id]
+      );
+      const itemLv = lvR.rows[0]?.required_level ?? 100;
+      const uniqStats = lvR.rows[0]?.unique_prefix_stats || null;
+      const rolled = await generateGuaranteed3Prefixes(itemLv);
+      pIds = rolled.prefixIds;
+      const merged: Record<string, number> = uniqStats ? { ...uniqStats } : {};
+      for (const [k, v] of Object.entries(rolled.bonusStats)) {
+        merged[k] = (merged[k] || 0) + (v as number);
+      }
+      pStats = JSON.stringify(merged);
+      qual = Math.floor(Math.random() * 100) + 1;     // 1~100 보장
+      enhLv = 0;
+    }
 
     const usedR = await tx.query<{ slot_index: number }>(
       'SELECT slot_index FROM character_inventory WHERE character_id = $1', [parsed.data.characterId]

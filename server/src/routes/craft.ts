@@ -75,12 +75,31 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 레시피 조회
+  // 레시피 조회 (extra_materials 포함)
   const recipeR = await query<{
     material_item_id: number; material_qty: number; result_item_ids: number[]; result_type: string;
-  }>('SELECT material_item_id, material_qty, result_item_ids, result_type FROM craft_recipes WHERE id = $1', [recipeId]);
+    extra_materials: Array<{ itemId: number; qty: number }> | null;
+  }>('SELECT material_item_id, material_qty, result_item_ids, result_type, extra_materials FROM craft_recipes WHERE id = $1', [recipeId]);
   if (recipeR.rowCount === 0) return res.status(404).json({ error: 'recipe not found' });
   const recipe = recipeR.rows[0];
+
+  // 멀티 재료: 메인 + extra 통합 보유 체크
+  const allMats: Array<{ itemId: number; qty: number; name?: string }> = [
+    { itemId: recipe.material_item_id, qty: recipe.material_qty },
+    ...(Array.isArray(recipe.extra_materials) ? recipe.extra_materials : []),
+  ];
+  for (const mat of allMats) {
+    const haveR = await query<{ total: string; name: string }>(
+      `SELECT COALESCE(SUM(ci.quantity), 0)::text AS total, MAX(i.name) AS name
+       FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+       WHERE ci.character_id = $1 AND ci.item_id = $2`,
+      [characterId, mat.itemId]
+    );
+    const have = Number(haveR.rows[0].total);
+    if (have < mat.qty) {
+      return res.status(400).json({ error: `재료 부족 — ${haveR.rows[0].name || `id ${mat.itemId}`}: ${have}/${mat.qty}` });
+    }
+  }
 
   // class_locked 레시피 (110제 무기 등) — 캐릭 직업 무기만 선택지에 남김
   let candidateIds = recipe.result_item_ids;
@@ -94,32 +113,23 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     }
   }
 
-  // 재료 보유 확인
-  const matR = await query<{ total: string }>(
-    `SELECT COALESCE(SUM(quantity), 0)::text AS total FROM character_inventory ci
-     WHERE ci.character_id = $1 AND ci.item_id = $2`,
-    [characterId, recipe.material_item_id]
-  );
-  const have = Number(matR.rows[0].total);
-  if (have < recipe.material_qty) {
-    return res.status(400).json({ error: `재료 부족 (보유: ${have}개, 필요: ${recipe.material_qty}개)` });
-  }
-
-  // 재료 차감
-  let remaining = recipe.material_qty;
-  const slots = await query<{ id: number; quantity: number }>(
-    `SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = $2 ORDER BY slot_index`,
-    [characterId, recipe.material_item_id]
-  );
-  for (const slot of slots.rows) {
-    if (remaining <= 0) break;
-    const take = Math.min(remaining, slot.quantity);
-    if (take >= slot.quantity) {
-      await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
-    } else {
-      await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, slot.id]);
+  // 모든 재료 일괄 차감 (멀티 재료 지원)
+  for (const mat of allMats) {
+    let remaining = mat.qty;
+    const slots = await query<{ id: number; quantity: number }>(
+      `SELECT id, quantity FROM character_inventory WHERE character_id = $1 AND item_id = $2 ORDER BY slot_index`,
+      [characterId, mat.itemId]
+    );
+    for (const slot of slots.rows) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, slot.quantity);
+      if (take >= slot.quantity) {
+        await query('DELETE FROM character_inventory WHERE id = $1', [slot.id]);
+      } else {
+        await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, slot.id]);
+      }
+      remaining -= take;
     }
-    remaining -= take;
   }
 
   // 랜덤 결과 아이템 선택 (class_locked 시 직업 필터된 후보에서)
@@ -140,8 +150,7 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   const craftItemLevel = rlR.rows[0]?.required_level ?? 35;
 
   if (isEquipment) {
-    // 장비: 3옵 접두사 강제 부여
-    const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
+    // 인벤 빈 슬롯 확보
     const usedR = await query<{ slot_index: number }>(
       'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
     );
@@ -150,8 +159,26 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
 
+    // ─ unidentified_set 분기: 옵션 미정 + 거래 가능 (soulbound=FALSE 강제) ─
+    if (recipe.result_type === 'unidentified_set') {
+      // 품질도 미확인 — 0 으로 두고 buyout 시 굴림. (단순화: quality 만 미리 굴려도 됨)
+      await query(
+        `INSERT INTO character_inventory
+           (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound, unidentified)
+         VALUES ($1, $2, $3, 1, NULL, '{}'::jsonb, 0, FALSE, TRUE)`,
+        [characterId, resultItemId, freeSlot]
+      );
+      return res.json({
+        ok: true, itemName: itemInfo.name, prefixCount: 0, quality: 0,
+        unidentified: true,
+        message: `${itemInfo.name} (미확인) 제작 성공! 거래소에 등록 가능, 구매 시 옵션 결정.`,
+      });
+    }
+
+    // 장비: 3옵 접두사 강제 부여
+    const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
+
     // 유니크면 고정 특수옵션(unique_prefix_stats) 을 prefix_stats 에 병합 — 드랍 경로와 동일.
-    // 누락 시 인벤 표시는 0 이고 enhance reroll 로 마스터에서 끌어와야 보였던 버그 원인.
     let finalPrefixStats: Record<string, number> = bonusStats;
     if (isUnique && itemInfo.unique_prefix_stats) {
       finalPrefixStats = { ...itemInfo.unique_prefix_stats };
@@ -207,5 +234,65 @@ async function generate3Prefixes(itemLevel: number = 35): Promise<{ prefixIds: n
 
   return { prefixIds, bonusStats };
 }
+
+// ── 추출(Extract) — T4 접두사 장비를 신비한 가루 1 개로 변환 ──
+const MYSTIC_POWDER_ID = 910;
+router.post('/extract', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterId: z.number().int().positive(),
+    invId:       z.number().int().positive(),     // character_inventory.id
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  const { characterId, invId } = parsed.data;
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 인벤 슬롯 조회
+  const invR = await query<{
+    id: number; character_id: number; item_id: number; slot_index: number;
+    prefix_ids: number[] | null; soulbound: boolean; unidentified: boolean;
+    item_name: string; item_slot: string | null;
+  }>(
+    `SELECT ci.id, ci.character_id, ci.item_id, ci.slot_index,
+            ci.prefix_ids, COALESCE(ci.soulbound, FALSE) AS soulbound,
+            COALESCE(ci.unidentified, FALSE) AS unidentified,
+            i.name AS item_name, i.slot AS item_slot
+       FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+      WHERE ci.id = $1 AND ci.character_id = $2`, [invId, characterId]
+  );
+  if (invR.rowCount === 0) return res.status(404).json({ error: 'item not found' });
+  const row = invR.rows[0];
+  if (!row.item_slot) return res.status(400).json({ error: '장비만 추출 가능' });
+  if (row.unidentified) return res.status(400).json({ error: '미확인 아이템은 식별 후 추출' });
+  if (!row.prefix_ids || row.prefix_ids.length === 0) {
+    return res.status(400).json({ error: 'T4 접두사가 있어야 추출 가능' });
+  }
+
+  // T4 접두사 보유 검증 — item_prefixes.tier=4 와 매칭
+  const tierR = await query<{ has_t4: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM item_prefixes
+       WHERE id = ANY($1::int[]) AND tier = 4
+     ) AS has_t4`, [row.prefix_ids]
+  );
+  if (!tierR.rows[0].has_t4) {
+    return res.status(400).json({ error: 'T4 접두사가 없는 장비는 추출 불가' });
+  }
+
+  // 추출 — 장비 삭제 + 신비한 가루 1 개 추가
+  await query('DELETE FROM character_inventory WHERE id = $1', [invId]);
+  const { addItemToInventory } = await import('../game/inventory.js');
+  await addItemToInventory(characterId, MYSTIC_POWDER_ID, 1);
+
+  res.json({
+    ok: true,
+    extracted: row.item_name,
+    rewardItemId: MYSTIC_POWDER_ID,
+    rewardName: '신비한 가루',
+    rewardQty: 1,
+    message: `${row.item_name} 추출 완료 — 신비한 가루 +1`,
+  });
+});
 
 export default router;
