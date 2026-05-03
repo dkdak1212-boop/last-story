@@ -211,21 +211,44 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
     // 캐릭터 row 락 — 동일 캐릭의 모든 인벤·장착 변경 직렬화
     await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [id]);
 
-    const invR = await tx.query<{ item_id: number; slot: string | null; enhance_level: number; enhance_pity: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number; class_restriction: string | null; quality: number }>(
+    const invR = await tx.query<{ item_id: number; slot: string | null; enhance_level: number; enhance_pity: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; required_level: number; class_restriction: string | null; quality: number; unidentified: boolean; unique_prefix_stats: Record<string, number> | null }>(
       `SELECT ci.item_id, i.slot, ci.enhance_level, COALESCE(ci.enhance_pity, 0) AS enhance_pity,
               ci.prefix_ids, ci.prefix_stats, ci.locked,
-              COALESCE(i.required_level, 1) AS required_level, i.class_restriction, COALESCE(ci.quality, 0) AS quality
+              COALESCE(i.required_level, 1) AS required_level, i.class_restriction, COALESCE(ci.quality, 0) AS quality,
+              COALESCE(ci.unidentified, FALSE) AS unidentified, i.unique_prefix_stats
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2`,
       [id, parsed.data.slotIndex]
     );
     if (invR.rowCount === 0) return { ok: false, status: 404, error: 'item not found' };
-    const { item_id, slot, enhance_level, enhance_pity, prefix_ids, prefix_stats, required_level, class_restriction, quality } = invR.rows[0];
+    let { item_id, slot, enhance_level, enhance_pity, prefix_ids, prefix_stats, required_level, class_restriction, quality } = invR.rows[0];
+    const isUnid = invR.rows[0].unidentified === true;
+    const uniquePrefixStats = invR.rows[0].unique_prefix_stats;
     if (!slot) return { ok: false, status: 400, error: 'not equippable' };
     if (char.level < required_level) return { ok: false, status: 400, error: `Lv.${required_level} 이상만 장착 가능` };
     if (class_restriction && class_restriction !== char.class_name) {
       const classKr: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
       return { ok: false, status: 400, error: `${classKr[class_restriction] || class_restriction} 전용 무기입니다.` };
+    }
+
+    // 미확인 장비 장착 — 옵션 굴림 (3옵 보장 + 유니크 고정 옵션 병합 + 품질 1~100)
+    // character_equipped 는 자동으로 soulbound=TRUE → 장착 후 거래 불가.
+    if (isUnid) {
+      const { generateGuaranteed3Prefixes } = await import('../game/prefix.js');
+      const rolled = await generateGuaranteed3Prefixes(required_level);
+      const merged: Record<string, number> = uniquePrefixStats ? { ...uniquePrefixStats } : {};
+      for (const [k, v] of Object.entries(rolled.bonusStats)) {
+        merged[k] = (merged[k] || 0) + (v as number);
+      }
+      prefix_ids = rolled.prefixIds;
+      prefix_stats = merged;
+      quality = Math.floor(Math.random() * 100) + 1;
+      enhance_level = 0;
+      // 미확인 플래그도 인벤토리 행에서 제거 (해제 시 식별된 상태로 복귀)
+      await tx.query(
+        `UPDATE character_inventory SET unidentified = FALSE WHERE character_id = $1 AND slot_index = $2`,
+        [id, parsed.data.slotIndex]
+      );
     }
 
     const existing = await tx.query<{ item_id: number; enhance_level: number; enhance_pity: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; locked: boolean; quality: number; soulbound: boolean }>(
