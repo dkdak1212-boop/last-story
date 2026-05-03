@@ -235,16 +235,17 @@ async function generate3Prefixes(itemLevel: number = 35): Promise<{ prefixIds: n
   return { prefixIds, bonusStats };
 }
 
-// ── T3 추첨권 사용 — 인벤토리 장비 1 개의 prefix 를 T3 보장 + 일반 분포 2 옵으로 재굴림 ──
+// ── T3 추첨권 사용 — 선택한 1 옵션만 T3 보장으로 재굴림 (다른 옵션은 그대로 보존) ──
 const T3_VOUCHER_ID = 911;
 router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
-    targetInvId: z.number().int().positive(),    // 적용할 장비 (character_inventory.id)
+    targetInvId: z.number().int().positive(),
+    prefixIndex: z.number().int().min(0).max(2),     // 0/1/2 — 재굴림할 슬롯
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const { characterId, targetInvId } = parsed.data;
+  const { characterId, targetInvId, prefixIndex } = parsed.data;
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
@@ -260,11 +261,12 @@ router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
 
   // 2) 대상 장비 조회·검증
   const tgtR = await query<{
-    id: number; item_id: number; prefix_ids: number[] | null; soulbound: boolean; unidentified: boolean;
+    id: number; item_id: number; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null;
+    soulbound: boolean; unidentified: boolean;
     item_name: string; item_slot: string | null; required_level: number;
     unique_prefix_stats: Record<string, number> | null;
   }>(
-    `SELECT ci.id, ci.item_id, ci.prefix_ids,
+    `SELECT ci.id, ci.item_id, ci.prefix_ids, ci.prefix_stats,
             COALESCE(ci.soulbound, FALSE) AS soulbound,
             COALESCE(ci.unidentified, FALSE) AS unidentified,
             i.name AS item_name, i.slot AS item_slot,
@@ -278,20 +280,23 @@ router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
   const tgt = tgtR.rows[0];
   if (!tgt.item_slot) return res.status(400).json({ error: '장비에만 사용 가능' });
   if (tgt.unidentified) return res.status(400).json({ error: '미확인 아이템은 식별 후 사용' });
+  const curIds = tgt.prefix_ids || [];
+  if (prefixIndex >= curIds.length) return res.status(400).json({ error: '해당 슬롯에 접두사 없음' });
 
-  // 3) T3 보장 + 일반 분포 2 옵 재굴림
-  const { generateT3Guaranteed3Prefixes } = await import('../game/prefix.js');
-  const rolled = await generateT3Guaranteed3Prefixes(tgt.required_level);
-  // 유니크 고정 옵션 병합 (드랍 경로 동일)
-  const merged: Record<string, number> = tgt.unique_prefix_stats ? { ...tgt.unique_prefix_stats } : {};
-  for (const [k, v] of Object.entries(rolled.bonusStats)) {
-    merged[k] = (merged[k] || 0) + (v as number);
-  }
+  // 3) 선택 슬롯만 T3 보장 재굴림 (다른 슬롯 보존)
+  const { rerollSinglePrefixT3 } = await import('../game/prefix.js');
+  const rolled = await rerollSinglePrefixT3(
+    curIds,
+    tgt.prefix_stats || {},
+    tgt.unique_prefix_stats || null,
+    prefixIndex,
+    tgt.required_level,
+  );
 
   // 4) 적용 + 추첨권 1 차감
   await query(
     `UPDATE character_inventory SET prefix_ids = $1, prefix_stats = $2::jsonb WHERE id = $3`,
-    [rolled.prefixIds, JSON.stringify(merged), targetInvId]
+    [rolled.prefixIds, JSON.stringify(rolled.bonusStats), targetInvId]
   );
   if (voucher.quantity <= 1) {
     await query(`DELETE FROM character_inventory WHERE id = $1`, [voucher.id]);
@@ -302,10 +307,10 @@ router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
   res.json({
     ok: true,
     targetName: tgt.item_name,
-    newPrefixIds: rolled.prefixIds,
-    newPrefixStats: merged,
-    maxTier: rolled.maxTier,
-    message: `${tgt.item_name} 접두사 재굴림 완료 (T3 보장 + 2 옵)`,
+    slotIndex: prefixIndex,
+    oldName: rolled.oldName,
+    newName: rolled.newName,
+    message: `${tgt.item_name} ${prefixIndex + 1}번 옵션 재굴림: ${rolled.oldName} → ${rolled.newName} (T3)`,
   });
 });
 

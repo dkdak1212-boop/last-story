@@ -156,16 +156,32 @@ export function InventoryScreen() {
     } catch (err) { setMsg(err instanceof Error ? err.message : '추출 실패'); }
   }
 
-  // T3 추첨권 사용 — 대상 장비 invId 선택
-  async function useT3Voucher(targetInvId: number, targetName: string, e: React.MouseEvent) {
+  // T3 추첨권 — 슬롯 선택 모달 (선택한 1 옵션만 T3 로 재굴림)
+  const [voucherTarget, setVoucherTarget] = useState<{
+    invId: number; name: string; prefixIds: number[]; prefixNames: string[]
+  } | null>(null);
+  function openVoucherModal(targetInvId: number, targetName: string, prefixIds: number[], prefixName: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
-    if (!confirm(`[${targetName}] 의 접두사를 T3 보장 + 일반 분포 2 옵으로 재굴림합니다.\n추첨권 1 개 소비.\n계속하시겠습니까?`)) return;
+    if (prefixIds.length === 0) { setMsg('이 장비는 접두사가 없습니다.'); return; }
+    // prefixName 은 공백 구분된 접두사 이름들 ("광폭 흡혈 약화"). 슬롯 수와 매칭.
+    const names = prefixName ? prefixName.trim().split(/\s+/) : [];
+    setVoucherTarget({
+      invId: targetInvId,
+      name: targetName,
+      prefixIds,
+      prefixNames: names.length === prefixIds.length ? names : prefixIds.map((_, i) => `${i + 1}번 옵션`),
+    });
+  }
+  async function applyVoucherReroll(prefixIndex: number) {
+    if (!active || !voucherTarget) return;
     setMsg('');
     try {
-      const r = await api<{ targetName: string; maxTier: number; message: string }>(
-        `/craft/use-voucher`, { method: 'POST', body: JSON.stringify({ characterId: active.id, targetInvId }) }
+      const r = await api<{ targetName: string; oldName: string; newName: string; message: string }>(
+        `/craft/use-voucher`,
+        { method: 'POST', body: JSON.stringify({ characterId: active.id, targetInvId: voucherTarget.invId, prefixIndex }) }
       );
       setMsg(r.message);
+      setVoucherTarget(null);
       await refresh();
     } catch (err) { setMsg(err instanceof Error ? err.message : '추첨권 사용 실패'); }
   }
@@ -1004,13 +1020,14 @@ export function InventoryScreen() {
                               style={actionBtn('#a35bd1')}>✨ 추출 (가루+1)</button>
                           );
                         })()}
-                        {/* T3 추첨권 사용 — 장비에만, 추첨권 보유 시 */}
+                        {/* T3 추첨권 사용 — 슬롯 선택 모달 (1 옵션만 T3 보장 재굴림) */}
                         {isEquipment && !locked && !(s as any).unidentified && (() => {
                           const hasVoucher = inv.some((it: any) => it.item.id === 911 && it.quantity > 0);
-                          if (!hasVoucher) return null;
+                          if (!hasVoucher || !s.prefixIds || s.prefixIds.length === 0) return null;
                           return (
-                            <button onClick={(e) => useT3Voucher((s as any).invId, s.item.name, e)}
-                              style={actionBtn('#66dd99')}>🎟 T3 추첨권 사용</button>
+                            <button onClick={(e) => openVoucherModal(
+                              (s as any).invId, s.item.name, s.prefixIds, (s as any).prefixName || '', e
+                            )} style={actionBtn('#66dd99')}>🎟 T3 추첨권</button>
                           );
                         })()}
                         {isEquipment && !locked && (() => {
@@ -1047,6 +1064,44 @@ export function InventoryScreen() {
         </>
       )}
 
+      {/* T3 추첨권 슬롯 선택 모달 */}
+      {voucherTarget && (
+        <div onClick={() => setVoucherTarget(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: 'var(--bg-panel)', border: '1px solid #66dd99', borderRadius: 8,
+            padding: 24, maxWidth: 460, width: '92vw',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#66dd99', marginBottom: 8 }}>
+              🎟 T3 추첨권 — 재굴림할 옵션 선택
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>
+              <b style={{ color: 'var(--text)' }}>{voucherTarget.name}</b> 의 접두사 중 하나를 T3 보장으로 재굴림합니다.
+              <br />선택한 옵션만 새로 굴리고 나머지는 그대로 유지됩니다. 추첨권 1 개 소비.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {voucherTarget.prefixIds.map((_, i) => (
+                <button key={i} onClick={() => applyVoucherReroll(i)} style={{
+                  padding: '12px 16px', fontSize: 14, fontWeight: 700,
+                  background: 'rgba(102,221,153,0.10)', color: '#66dd99',
+                  border: '1px solid #66dd99', borderRadius: 6, cursor: 'pointer',
+                  textAlign: 'left',
+                }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 8 }}>{i + 1}번 옵션</span>
+                  {voucherTarget.prefixNames[i] || '???'} 재굴림
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setVoucherTarget(null)} style={{
+              marginTop: 14, padding: '8px 14px', fontSize: 12,
+              background: 'transparent', color: 'var(--text-dim)',
+              border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', width: '100%',
+            }}>취소</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

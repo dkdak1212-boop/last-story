@@ -171,6 +171,64 @@ export async function generateGuaranteed3Prefixes(
   return { prefixIds, bonusStats, maxTier };
 }
 
+// 단일 슬롯 T3 보장 재굴림 — 추첨권 사용 시 선택한 인덱스만 T3 로 교체.
+// 다른 두 슬롯은 prefix_id·기여 값 그대로 보존.
+// 가정: 같은 stat_key 가 두 슬롯에 동시 존재 X (generate3Prefixes 가 usedKeys 로 차단).
+//      이 가정 덕에 prefix_stats[oldKey] - unique_prefix_stats[oldKey] = 해당 슬롯의 순수 값.
+export async function rerollSinglePrefixT3(
+  currentPrefixIds: number[],
+  currentStats: Record<string, number>,
+  uniqueStats: Record<string, number> | null,
+  targetIndex: number,
+  itemLevel: number,
+): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; oldName: string; newName: string }> {
+  if (targetIndex < 0 || targetIndex >= currentPrefixIds.length) {
+    throw new Error('invalid prefix index');
+  }
+  const prefixes = await loadPrefixes();
+  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+
+  const oldPrefix = prefixes.find(p => p.id === currentPrefixIds[targetIndex]);
+  if (!oldPrefix) throw new Error('old prefix not found in cache');
+  const oldKey = oldPrefix.stat_key;
+  const uniqueVal = uniqueStats?.[oldKey] || 0;
+  const oldSlotValue = Math.max(0, (currentStats[oldKey] || 0) - uniqueVal);
+
+  // 다른 슬롯 stat_key 수집 — 중복 stat 차단
+  const otherKeys = new Set<string>();
+  for (let i = 0; i < currentPrefixIds.length; i++) {
+    if (i === targetIndex) continue;
+    const p = prefixes.find(x => x.id === currentPrefixIds[i]);
+    if (p) otherKeys.add(p.stat_key);
+  }
+  // T3 후보 (다른 슬롯 stat 과 안 겹침)
+  let candidates = prefixes.filter(p => p.tier === 3 && !otherKeys.has(p.stat_key));
+  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === 3);
+  if (candidates.length === 0) throw new Error('no T3 prefix available');
+
+  const picked = candidates[Math.floor(Math.random() * candidates.length)];
+  const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
+  const newValue = Math.max(1, Math.round(baseValue * levelScale));
+
+  const newPrefixIds = [...currentPrefixIds];
+  newPrefixIds[targetIndex] = picked.id;
+
+  // bonusStats — 옛 슬롯 기여 빼고 새 슬롯 더하기 (unique 부분은 보존)
+  const newStats: Record<string, number> = { ...currentStats };
+  if (oldKey === picked.stat_key) {
+    // 같은 키 재굴림 — 옛 값 빼고 새 값 더함 (net 만 반영)
+    newStats[oldKey] = (newStats[oldKey] || 0) - oldSlotValue + newValue;
+  } else {
+    if (oldSlotValue > 0) {
+      newStats[oldKey] = (newStats[oldKey] || 0) - oldSlotValue;
+      if ((newStats[oldKey] || 0) <= 0) delete newStats[oldKey];
+    }
+    newStats[picked.stat_key] = (newStats[picked.stat_key] || 0) + newValue;
+  }
+
+  return { prefixIds: newPrefixIds, bonusStats: newStats, oldName: oldPrefix.name, newName: picked.name };
+}
+
 // T3 보장 + 나머지 2 옵 무작위 (T1~T4 분포 그대로). 추첨권 사용 시.
 export async function generateT3Guaranteed3Prefixes(
   itemLevel: number,
