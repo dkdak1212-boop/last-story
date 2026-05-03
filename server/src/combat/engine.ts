@@ -3551,7 +3551,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.rogueDotCarry = carry;
   }
 
-  // 처치 시간 기록 (최근 10킬 유지) — 오프라인 보상 계산용 DB 저장도 함께
+  // 처치 시간 기록 (최근 10킬 유지) — 오프라인 보상 계산용 DB 저장도 함께.
+  // 시공균열(field 23) 활동 중이면 별도 컬럼(recent_avg_kill_time_rift_sec) 도 동시 갱신 → 클래스 균형 분석용.
   if (s.monsterSpawnAt > 0) {
     const elapsedSec = (Date.now() - s.monsterSpawnAt) / 1000;
     if (elapsedSec > 0 && elapsedSec < 600) {
@@ -3560,7 +3561,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       // 10킬 쌓일 때마다 평균을 DB에 저장 (오프라인 보상 시 사용)
       if (s.recentKillTimes.length >= 5 && s.recentKillTimes.length % 5 === 0) {
         const avg = s.recentKillTimes.reduce((a, b) => a + b, 0) / s.recentKillTimes.length;
-        query('UPDATE characters SET recent_avg_kill_time_sec = $1 WHERE id = $2', [avg.toFixed(3), s.characterId])
+        const isRift = s.fieldId === RIFT_110_FIELD_ID;
+        const sql = isRift
+          ? 'UPDATE characters SET recent_avg_kill_time_sec = $1, recent_avg_kill_time_rift_sec = $1 WHERE id = $2'
+          : 'UPDATE characters SET recent_avg_kill_time_sec = $1 WHERE id = $2';
+        query(sql, [avg.toFixed(3), s.characterId])
           .catch(e => console.error('[kill-time-save]', e));
       }
     }
