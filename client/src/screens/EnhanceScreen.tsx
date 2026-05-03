@@ -103,6 +103,7 @@ export function EnhanceScreen() {
       const all = [...refreshed.equipped, ...refreshed.inventory];
       const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
       if (match) setSelected(match);
+      await refreshActive();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
     finally { setUsingTier(null); }
   }
@@ -125,6 +126,7 @@ export function EnhanceScreen() {
       const all = [...refreshed.equipped, ...refreshed.inventory];
       const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
       if (match) setSelected(match);
+      await refreshActive();
     } catch (e) { alert(e instanceof Error ? e.message : '실패'); }
     finally { setUsingP3(false); }
   }
@@ -165,6 +167,7 @@ export function EnhanceScreen() {
         return sameSlot ? updated : it;
       }));
       setRerollCount(c => Math.max(0, c - 1));
+      await refreshActive();
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setRerolling(false); }
@@ -196,6 +199,7 @@ export function EnhanceScreen() {
         return sameSlot ? updated : it;
       }));
       setQualityRerollCount(c => Math.max(0, c - 1));
+      await refreshActive();
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
     } finally { setQualityRerolling(false); }
