@@ -702,24 +702,6 @@ function enqueueStackDrop(d: PendingStackDrop): void {
   arr.push(d);
 }
 
-// inventorySlotCache 재빌드 시 stack 큐가 점유 예약한 신규 슬롯도 used 로 반영해야 슬롯 충돌 방지.
-// 큐 안 stack 드랍은 "기존 stack merge 우선 → 부족분만 신규 슬롯" 으로 flush 하므로
-// 보수적으로 stack 큐 안 itemId × ceil(qty/stackSize) 만큼 임시 슬롯이 필요할 수 있다고 가정 (overshoot 무방).
-function getPendingStackSlotsForChar(characterId: number): number {
-  const arr = pendingStackDrops.get(characterId);
-  if (!arr || arr.length === 0) return 0;
-  // 합산 qty 만 추정 — 실제 소비 슬롯은 flush 시 정확히 계산. 여기선 freeSlots 에서 빼두면 충분.
-  const byItem = new Map<number, { qty: number; stackSize: number }>();
-  for (const d of arr) {
-    const ex = byItem.get(d.itemId);
-    if (ex) ex.qty += d.qty;
-    else byItem.set(d.itemId, { qty: d.qty, stackSize: d.stackSize });
-  }
-  let est = 0;
-  for (const v of byItem.values()) est += Math.ceil(v.qty / v.stackSize);
-  return est;
-}
-
 export async function flushPendingStackDrops(): Promise<void> {
   if (pendingStackDrops.size === 0) return;
   const snap: Array<[number, PendingStackDrop[]]> = [];
@@ -834,9 +816,14 @@ export async function flushPendingStackDrops(): Promise<void> {
         );
       }
 
-      // 슬롯 캐시 무효화 (다음 킬에서 정확한 freeSlots 재산출)
+      // 슬롯 캐시 in-place 갱신 — invalidate 후 다음 kill 마다 LEFT JOIN aggregate 재실행되는
+      // 부하 회피 (cache invalidation 비용이 stack 배치 절감 효과를 상쇄하던 문제).
+      // 신규로 점유된 slot 만 캐시의 freeSlots 에서 제거. UPDATE 만 한 stack merge 는 슬롯 변동 없음.
       const sess = activeSessions.get(characterId);
-      if (sess) sess.inventorySlotCache = null;
+      if (sess && sess.inventorySlotCache && inserts.length > 0) {
+        const usedNew = new Set(inserts.map(ins => ins.slot));
+        sess.inventorySlotCache.freeSlots = sess.inventorySlotCache.freeSlots.filter(s => !usedNew.has(s));
+      }
     } catch (err) {
       console.error('[stack-drops-batch] err', characterId, err);
     }
@@ -3878,9 +3865,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
       const free: number[] = [];
       for (let i = 0; i < maxSlots; i++) if (!dbUsed.has(i)) free.push(i);
-      // stack 큐가 신규 슬롯을 점유할 가능성 — 앞쪽 N개를 보수적으로 비활성 (다음 flush 가 채울 자리)
-      const stackReserve = getPendingStackSlotsForChar(s.characterId);
-      if (stackReserve > 0 && free.length > stackReserve) free.splice(0, stackReserve);
+      // stack 큐 예약은 1) 대부분 merge 로 신규 슬롯 불필요 2) 충돌 시 flush 의 claimSlot 이
+      // ON CONFLICT 로 다음 자리 시도. 보수 reserve 제거 — 캐시 무효화 회피로 slot/prefix segment 회복.
       s.inventorySlotCache = {
         bonus: row?.bonus || 0,
         charName: row?.name ?? '???',
