@@ -315,18 +315,21 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
     let freeSlot = -1;
     for (let i = 0; i < 300; i++) if (!usedSlots.has(i)) { freeSlot = i; break; }
 
+    // 미확인 → 구매 시점에 식별됨 (unidentified=FALSE) + 재거래 차단 (soulbound=TRUE).
+    // 일반 거래: soulbound=FALSE 유지 (재판매 가능).
+    const becameSoulbound = au.unidentified === true;
     if (freeSlot >= 0) {
       await tx.query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-        [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual]
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound, unidentified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, FALSE)`,
+        [parsed.data.characterId, au.item_id, freeSlot, au.item_quantity, enhLv, pIds, pStats, qual, becameSoulbound]
       );
     } else {
       await tx.query(
-        `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, enhance_level, prefix_ids, prefix_stats, quality)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+        `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
         [parsed.data.characterId, '거래소 구매', '가방이 가득 차서 우편 발송',
-         au.item_id, au.item_quantity, enhLv, pIds.length > 0 ? pIds : null, au.prefix_stats ? JSON.stringify(au.prefix_stats) : null, qual]
+         au.item_id, au.item_quantity, enhLv, pIds.length > 0 ? pIds : null, pStats, qual, becameSoulbound]
       );
     }
 
