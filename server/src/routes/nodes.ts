@@ -8,6 +8,47 @@ import { refreshSessionStats } from '../combat/engine.js';
 const router = Router();
 router.use(authRequired);
 
+// ── 반대의 균형 어뷰즈 차단 ──
+// 분배된 VIT/DEX 의 max_hp 기여는 inversion 보유 시 (DEX×20) / 미보유 시 (VIT×20).
+// 노드 toggle 시 (invest/reset/preset-load) 직후 max_hp 를 정확히 재계산해 무한 중첩 차단.
+async function hasBalanceInversion(characterId: number): Promise<boolean> {
+  const r = await query<{ ex: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM character_nodes cn
+       JOIN node_definitions nd ON nd.id = cn.node_id
+       WHERE cn.character_id = $1
+         AND nd.effects::text LIKE '%paragon_balance_inversion%'
+     ) AS ex`,
+    [characterId]
+  );
+  return !!r.rows[0]?.ex;
+}
+async function applyInversionMaxHpDiff(characterId: number, hadBefore: boolean, hasAfter: boolean): Promise<void> {
+  if (hadBefore === hasAfter) return;
+  const { CLASS_START } = await import('../game/classes.js');
+  const cR = await query<{ class_name: string; stats: any; max_hp: number }>(
+    `SELECT class_name, stats, max_hp FROM characters WHERE id = $1`, [characterId]
+  );
+  if (cR.rowCount === 0) return;
+  const c = cR.rows[0];
+  const start = (CLASS_START as any)[c.class_name];
+  if (!start) return;
+  const cur = c.stats || {};
+  const spentVit = Math.max(0, (cur.vit ?? start.stats.vit) - start.stats.vit);
+  const spentDex = Math.max(0, (cur.dex ?? start.stats.dex) - start.stats.dex);
+  const oldContrib = (hadBefore ? spentDex : spentVit) * 20;
+  const newContrib = (hasAfter  ? spentDex : spentVit) * 20;
+  const diff = newContrib - oldContrib;
+  if (diff === 0) return;
+  await query(
+    `UPDATE characters
+        SET max_hp = GREATEST(1, max_hp + $1),
+            hp     = LEAST(hp, GREATEST(1, max_hp + $1))
+      WHERE id = $2`,
+    [diff, characterId]
+  );
+}
+
 // 노드 트리 전체 조회 + 캐릭터 투자 현황
 router.get('/:id/nodes', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
@@ -147,6 +188,9 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(400).json({ error: 'already invested' });
 
+  // 반대의 균형 toggle 추적 — invest 전 상태
+  const hadInvBefore = await hasBalanceInversion(id);
+
   // 4포인트 노드: 경로상 미습득 선행 노드 자동 습득
   const investedR = await query<{ node_id: number }>(
     'SELECT node_id FROM character_nodes WHERE character_id = $1', [id]
@@ -204,6 +248,10 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
   }
 
+  // 반대의 균형 toggle 후 max_hp diff 적용 (어뷰즈 차단)
+  const hasInvAfter = await hasBalanceInversion(id);
+  await applyInversionMaxHpDiff(id, hadInvBefore, hasInvAfter);
+
   // 전투 중 노드 투자 시 인메모리 세션 갱신 (패시브/스탯 즉시 반영)
   await refreshSessionStats(id).catch(() => {});
 
@@ -242,6 +290,9 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   const paragonRefund = Number(totalR.rows[0].paragon_total);
   const normalRefund = Number(totalR.rows[0].normal_total);
 
+  // 반대의 균형 toggle 추적 — reset 전 상태
+  const hadInvBefore = await hasBalanceInversion(id);
+
   await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
   await query(
     `UPDATE characters
@@ -251,6 +302,10 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
       WHERE id = $4`,
     [normalRefund, paragonRefund, cost, id]
   );
+
+  // 반대의 균형 사라진 경우 max_hp diff 적용
+  await applyInversionMaxHpDiff(id, hadInvBefore, false);
+
   await refreshSessionStats(id).catch(() => {});
 
   res.json({
@@ -330,6 +385,10 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   );
   const paragonRefund = Number(totalR.rows[0].paragon_total);
   const normalRefund = Number(totalR.rows[0].normal_total);
+
+  // 반대의 균형 toggle 추적 — preset-load 전 상태
+  const hadInvBefore = await hasBalanceInversion(id);
+
   await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
   await query(
     `UPDATE characters
@@ -370,6 +429,11 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
     'UPDATE characters SET node_points = $1, paragon_points = $2 WHERE id = $3',
     [points, paragonPoints, id]
   );
+
+  // 반대의 균형 toggle 후 max_hp diff 적용
+  const hasInvAfter = await hasBalanceInversion(id);
+  await applyInversionMaxHpDiff(id, hadInvBefore, hasInvAfter);
+
   await refreshSessionStats(id).catch(() => {});
 
   res.json({ ok: true, invested, remainingPoints: points, remainingParagonPoints: paragonPoints });
