@@ -49,6 +49,14 @@ function rollTier(): number {
   return 1;
 }
 
+// T1 제외 분포 — 원본 9:0.9:0.1 정규화 → T2 90%, T3 9%, T4 1%
+function rollTierMinT2(): number {
+  const roll = Math.random() * 100;
+  if (roll < 1.0) return 4;
+  if (roll < 10.0) return 3;
+  return 2;
+}
+
 // 접두사 1~3개 생성 (장비 아이템 드롭 시 호출)
 // 1옵 90%, 2옵 9%, 3옵 1%
 // itemLevel: 아이템 요구 레벨 (1~70). 접두사 값을 레벨 비례 스케일링
@@ -146,8 +154,10 @@ export async function generate3PrefixesT1T2(
 }
 
 // 3옵 보장 — 지정된 stat_key 중복 없이 새 prefix 3개 생성 (tier는 정상 확률 분포)
+// minTier: 옵션 — 지정 시 해당 티어 미만은 굴리지 않음 (예: 거래소 미확인 구매 = T2 이상)
 export async function generateGuaranteed3Prefixes(
   itemLevel: number,
+  minTier: 1 | 2 = 1,
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
   const prefixes = await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
@@ -155,8 +165,9 @@ export async function generateGuaranteed3Prefixes(
   const bonusStats: Record<string, number> = {};
   const usedStatKeys = new Set<string>();
   let maxTier = 0;
+  const tierFn = minTier >= 2 ? rollTierMinT2 : rollTier;
   for (let i = 0; i < 3; i++) {
-    const tier = rollTier();
+    const tier = tierFn();
     let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
     if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
     if (candidates.length === 0) continue;

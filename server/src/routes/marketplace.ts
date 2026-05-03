@@ -121,7 +121,7 @@ router.get('/', async (req, res) => {
       itemGrade: row.item_grade, itemType: row.item_type, itemSlot: row.item_slot,
       itemStats: isUnid ? null : row.item_stats,
       itemDescription: isUnid
-        ? '미확인 — 구매 시 옵션이 결정됩니다 (3옵 보장 + 유니크 고정 옵션 + 품질 1~100)'
+        ? '미확인 — 구매 시 옵션이 결정됩니다 (3옵 보장, 최소 T2 / 유니크 고정 옵션 / 품질 1~100)'
         : row.item_description,
       enhanceLevel: isUnid ? 0 : (row.enhance_level || 0),
       prefixStats: isUnid ? {} : displayPrefixStats(row.prefix_stats, row.enhance_level || 0),
@@ -297,7 +297,8 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
       );
       const itemLv = lvR.rows[0]?.required_level ?? 100;
       const uniqStats = lvR.rows[0]?.unique_prefix_stats || null;
-      const rolled = await generateGuaranteed3Prefixes(itemLv);
+      // 거래소 미확인 구매는 최소 T2 보장 (T1 제외, T2/T3/T4 분포 = 90/9/1)
+      const rolled = await generateGuaranteed3Prefixes(itemLv, 2);
       pIds = rolled.prefixIds;
       const merged: Record<string, number> = uniqStats ? { ...uniqStats } : {};
       for (const [k, v] of Object.entries(rolled.bonusStats)) {
