@@ -4603,9 +4603,10 @@ async function combatTick(): Promise<void> {
   // 자동복구(/combat/state) → startCombatSession 직후 클라가 WS subscribe 보내기 전에
   // 다음 tick 이 즉시 onSessionGoOffline 호출하여 무한 루프(생성→정리→생성) 발생 방지.
   const SESSION_SUBSCRIBE_GRACE_MS = 10_000;
-  // 동시 DB 풀 사용 cap. 96 → 48 로 감축 (96 chunk 단일 처리 시 wall clock 컨텐션 ↑,
-  // pool waiting 재발). 48 = 144 세션 ≈ 3 chunks. 컨텐션 ~절반 + DB 풀 여유 확보.
-  const TICK_CONCURRENCY = 48;
+  // 동시 DB 풀 사용 cap. 2026-05-04: 48 → 32 로 추가 감축.
+  // 사유: avg 380→509ms 악화 + SLOW TICK 700ms 다발. 작은 chunk = GC 부분실행 기회 ↑,
+  // 메모리 동시 할당 압박 ↓. 110 세션 ≈ 4 chunks (48 시 3 chunks).
+  const TICK_CONCURRENCY = 32;
   type SessionTask = { charId: number; s: ActiveSession };
   const pending: SessionTask[] = [];
   for (const [charId, s] of activeSessions) {
@@ -4822,10 +4823,14 @@ async function combatTick(): Promise<void> {
     }
   };
 
-  // chunk 단위로 풀 압박 분산 — chunk 내 병렬, chunk 간 순차
+  // chunk 단위로 풀 압박 분산 — chunk 내 병렬, chunk 간 setImmediate yield 로 이벤트루프 양보
+  // (큰 Promise.all 만 연속 await 하면 GC 가 한꺼번에 ~200ms 정지하는 패턴 발생. 사이 양보로 분산.)
   for (let i = 0; i < pending.length; i += TICK_CONCURRENCY) {
     const chunk = pending.slice(i, i + TICK_CONCURRENCY);
     await Promise.all(chunk.map(runOne));
+    if (i + TICK_CONCURRENCY < pending.length) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
   }
 }
 
