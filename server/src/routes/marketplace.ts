@@ -355,9 +355,11 @@ router.post('/:auctionId/cancel', async (req: AuthedRequest, res: Response) => {
       settled: boolean; cancelled: boolean;
       enhance_level: number; prefix_ids: number[] | null;
       prefix_stats: Record<string, number> | null; quality: number;
+      unidentified: boolean;
     }>(
       `SELECT seller_id, item_id, item_quantity, settled, cancelled,
-              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+              enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality,
+              COALESCE(unidentified, FALSE) AS unidentified
        FROM auctions WHERE id = $1 FOR UPDATE`, [auctionId]
     );
     if (a.rowCount === 0) return { error: 'not found', status: 404 };
@@ -368,14 +370,15 @@ router.post('/:auctionId/cancel', async (req: AuthedRequest, res: Response) => {
     await tx.query('UPDATE auctions SET cancelled = TRUE WHERE id = $1', [auctionId]);
     await tx.query(
       `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
-                             enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8::jsonb, $9)`,
+                             enhance_level, prefix_ids, prefix_stats, quality, unidentified)
+       VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8::jsonb, $9, $10)`,
       [parsed.data.characterId, '거래소 등록 취소', '취소된 아이템을 돌려드립니다.',
        ar.item_id, ar.item_quantity,
        ar.enhance_level || 0,
        ar.prefix_ids && ar.prefix_ids.length > 0 ? ar.prefix_ids : null,
        ar.prefix_stats ? JSON.stringify(ar.prefix_stats) : null,
-       ar.quality || 0]
+       ar.quality || 0,
+       ar.unidentified === true]
     );
     return { ok: true };
   });
@@ -420,15 +423,17 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
   })));
 });
 
-// 만료 정산 — 미판매 아이템 반환 (옵션 보존)
+// 만료 정산 — 미판매 아이템 반환 (옵션 + 미확인 플래그 보존)
 export async function settleExpiredAuctions() {
   const r = await query<{
     id: number; seller_id: number; item_id: number; item_quantity: number;
     enhance_level: number; prefix_ids: number[] | null;
     prefix_stats: Record<string, number> | null; quality: number;
+    unidentified: boolean;
   }>(
     `SELECT id, seller_id, item_id, item_quantity,
-            enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality
+            enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality,
+            COALESCE(unidentified, FALSE) AS unidentified
      FROM auctions
      WHERE settled = FALSE AND cancelled = FALSE AND ends_at <= NOW()`
   );
@@ -441,6 +446,7 @@ export async function settleExpiredAuctions() {
         prefixIds: a.prefix_ids || null,
         prefixStats: a.prefix_stats || null,
         quality: a.quality || 0,
+        unidentified: a.unidentified === true,
       }
     );
     await query('UPDATE auctions SET settled = TRUE WHERE id = $1', [a.id]);

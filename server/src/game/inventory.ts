@@ -328,6 +328,8 @@ export interface MailItemOptions {
   prefixIds?: number[] | null;
   prefixStats?: Record<string, number> | null;
   quality?: number;
+  unidentified?: boolean;   // 거래소 미확인 cancel/expire 반환 시 플래그 보존
+  soulbound?: boolean;      // 거래소 미확인 구매 → overflow 우편 시 귀속 보존
 }
 
 export async function deliverToMailbox(
@@ -343,14 +345,16 @@ export async function deliverToMailbox(
   if (itemId > 0) {
     await query(
       `INSERT INTO mailbox (character_id, subject, body, item_id, item_quantity, gold,
-                             enhance_level, prefix_ids, prefix_stats, quality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+                             enhance_level, prefix_ids, prefix_stats, quality, unidentified, soulbound)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)`,
       [
         characterId, subject, body, itemId, quantity, gold,
         options?.enhanceLevel ?? null,
         options?.prefixIds && options.prefixIds.length > 0 ? options.prefixIds : null,
         options?.prefixStats ? JSON.stringify(options.prefixStats) : null,
         options?.quality ?? null,
+        options?.unidentified === true,
+        options?.soulbound === true,
       ]
     );
   } else {

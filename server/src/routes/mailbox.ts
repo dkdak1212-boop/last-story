@@ -47,10 +47,11 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
       item_id: number | null; item_quantity: number | null; gold: string | null; read_at: string | null;
       enhance_level: number | null; prefix_ids: number[] | null;
       prefix_stats: Record<string, number> | null; quality: number | null;
-      soulbound: boolean;
+      soulbound: boolean; unidentified: boolean;
     }>(
       `SELECT item_id, item_quantity, gold, read_at, enhance_level, prefix_ids, prefix_stats, quality,
-              COALESCE(soulbound, FALSE) AS soulbound
+              COALESCE(soulbound, FALSE) AS soulbound,
+              COALESCE(unidentified, FALSE) AS unidentified
        FROM mailbox WHERE id = $1 AND character_id = $2 FOR UPDATE`,
       [mailId, id]
     );
@@ -101,10 +102,10 @@ router.post('/:id/mailbox/:mailId/claim', async (req: AuthedRequest, res: Respon
         for (let i = 0; i < m.item_quantity; i++) {
           const ok = await insertRetry(
             `INSERT INTO character_inventory
-               (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
-             VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7, $8)
+               (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound, unidentified)
+             VALUES ($1, $2, $3, 1, $4, $5, $6::jsonb, $7, $8, $9)
              ON CONFLICT (character_id, slot_index) DO NOTHING`,
-            slot => [id, m.item_id, slot, enhLv, pIds, pStatsJson, qual, m.soulbound === true]
+            slot => [id, m.item_id, slot, enhLv, pIds, pStatsJson, qual, m.soulbound === true, m.unidentified === true]
           );
           if (!ok) return { error: 'inventory full', status: 400 };
         }
