@@ -4365,7 +4365,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
       ['village', s.characterId]
     );
     await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
-    pushCombatState(s, true, true);
+    await pushCombatState(s, true, true);
     activeSessions.delete(s.characterId);
     return;
   }
@@ -4403,7 +4403,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
       ['village', s.characterId]
     );
     await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
-    pushCombatState(s, true, true);
+    await pushCombatState(s, true, true);
     activeSessions.delete(s.characterId);
     return;
   }
@@ -4811,10 +4811,9 @@ async function combatTick(): Promise<void> {
         }
       }
       // 상태 push (dirty일 때만, 200ms throttle — push 성공 시에만 dirty 해제)
-      // 동기 호출로 변경 (microtask 오버헤드 제거) + meta refresh 는 fire-and-forget
       if (s.dirty) {
         const tp = Date.now();
-        const pushed = pushCombatState(s, true);
+        const pushed = await pushCombatState(s, true);
         perfSeg.pushMs += Date.now() - tp;
         if (pushed) s.dirty = false;
       }
@@ -5000,7 +4999,7 @@ export function invalidateSessionMeta(characterId: number): void {
 const PUSH_THROTTLE_FULL_MS = 200; // 진입 후 1분간 — 5fps (150→200, 이벤트루프 CPU 절감)
 const PUSH_THROTTLE_LITE_MS = 1500; // 이후 — 0.67fps (1000→1500, egress·CPU 절감)
 const FULL_FPS_DURATION_MS = 60_000; // 5분 → 1분 (대부분 유저는 1분 내 적응)
-function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): boolean {
+async function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): Promise<boolean> {
   const io = getIo();
   if (!io) return false;
 
@@ -5023,13 +5022,13 @@ function pushCombatState(s: ActiveSession, inCombat: boolean, force = false): bo
     s.lastPushAt = Date.now();
   }
 
-  // metaDirty refresh 30s throttle — push 핫패스에서 await 제거, fire-and-forget 으로 다음 push 부터 반영.
-  // exp 는 cachedExp 로컬 갱신이 있고 boost 타이머는 30s 지연 표시 허용.
+  // metaDirty refresh 30s throttle. await 유지 — sync 화 시도(2026-05-04) 했으나 풀 saturation
+  // + skill avg 5ms→30ms 회귀 발견하여 롤백. 향후 별도 워커/배치로 분리 검토.
   if (s.metaDirty) {
     const lastMeta = lastMetaRefreshAt.get(s.characterId) ?? 0;
     if (Date.now() - lastMeta >= 30_000) {
+      await refreshSessionMeta(s);
       lastMetaRefreshAt.set(s.characterId, Date.now());
-      refreshSessionMeta(s).catch(e => console.error('[push] meta refresh err', s.characterId, e));
     }
   }
 
