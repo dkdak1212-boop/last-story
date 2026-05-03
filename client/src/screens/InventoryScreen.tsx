@@ -185,6 +185,8 @@ export function InventoryScreen() {
   }
   async function applyVoucherReroll(prefixIndex: number, forceTier: number) {
     if (!active || !voucherTarget) return;
+    const curName = voucherTarget.prefixNames[prefixIndex] || '???';
+    if (!confirm(`${voucherTarget.name} 의 ${prefixIndex + 1}번 옵션 "${curName}" 를 T${forceTier} 로 재굴림합니다.\n추첨권 1개가 소모됩니다. 진행하시겠습니까?`)) return;
     setMsg('');
     try {
       const r = await api<{ targetName: string; oldName: string; newName: string; tier: number; message: string }>(
