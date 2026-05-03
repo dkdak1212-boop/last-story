@@ -3546,8 +3546,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.endlessFloorStartedAt = Date.now();
     endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
     if (wasBoss) {
-      s.playerHp = s.playerMaxHp;
-      addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치! HP 풀회복.`);
+      addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치!`);
     } else {
       addLog(s, `[종언의 기둥] ${clearedFloor}층 클리어 (${(clearTimeMs / 1000).toFixed(1)}초)`);
     }

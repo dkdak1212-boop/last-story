@@ -20,7 +20,7 @@
 
 ### 1.2 HP 회복 정책
 - 일반 층 사이: 회복 없음 (HP 끌고 감)
-- 100층 / 200층 / 300층 ... 보스 층 클리어 시: 풀회복
+- 보스 층 클리어 시에도 회복 없음 (HP 끌고 감)
 
 ### 1.3 패배 (= 1층 회귀) 트리거
 1. 플레이어 HP 0
@@ -278,8 +278,6 @@ on monster killed:
   log floor cleared (endless_pillar_floor_log)
   progress.current_floor++
   update daily_highest_floor / highest_floor if needed
-  if progress.current_floor % 100 == 1 (즉 직전이 보스):
-    full HP heal
   spawn next floor monster
   reset 60s timer
 
