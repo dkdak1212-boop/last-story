@@ -235,28 +235,40 @@ async function generate3Prefixes(itemLevel: number = 35): Promise<{ prefixIds: n
   return { prefixIds, bonusStats };
 }
 
-// ── T3 추첨권 사용 — 선택한 1 옵션만 T3 보장으로 재굴림 (다른 옵션은 그대로 보존) ──
-const T3_VOUCHER_ID = 911;
+// ── 접두사 보장 추첨권 사용 — 선택한 1 옵션만 강제 티어로 재굴림 (다른 옵션 보존) ──
+// 추첨권 item_id → 강제 티어 매핑 (T1/T2/T3 각 ID 통합)
+const VOUCHER_TIER_MAP: Record<number, number> = {
+  857: 1,    // T1 접두사 보장 추첨권
+  856: 2,    // T2 접두사 보장 추첨권
+  840: 3,    // T3 접두사 보장 추첨권 (구 ID, 강화 메뉴 호환)
+  911: 3,    // T3 접두사 보장 추첨권 (신규, 인벤 통합)
+};
 router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     targetInvId: z.number().int().positive(),
-    prefixIndex: z.number().int().min(0).max(2),     // 0/1/2 — 재굴림할 슬롯
+    prefixIndex: z.number().int().min(0).max(2),
+    forceTier:   z.number().int().min(1).max(3),     // 1 / 2 / 3 — 추첨권 티어 선택
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  const { characterId, targetInvId, prefixIndex } = parsed.data;
+  const { characterId, targetInvId, prefixIndex, forceTier } = parsed.data;
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 1) 추첨권 보유 체크
-  const voucherR = await query<{ id: number; quantity: number }>(
-    `SELECT id, quantity FROM character_inventory
-      WHERE character_id = $1 AND item_id = $2 AND quantity > 0
+  // 1) 해당 티어 추첨권 보유 체크 — 4 종 ID 중 하나라도 있으면 OK
+  const voucherIds = Object.entries(VOUCHER_TIER_MAP)
+    .filter(([, tier]) => tier === forceTier)
+    .map(([id]) => Number(id));
+  if (voucherIds.length === 0) return res.status(400).json({ error: 'invalid forceTier' });
+
+  const voucherR = await query<{ id: number; quantity: number; item_id: number }>(
+    `SELECT id, quantity, item_id FROM character_inventory
+      WHERE character_id = $1 AND item_id = ANY($2::int[]) AND quantity > 0
       ORDER BY slot_index LIMIT 1`,
-    [characterId, T3_VOUCHER_ID]
+    [characterId, voucherIds]
   );
-  if (voucherR.rowCount === 0) return res.status(400).json({ error: 'T3 추첨권 없음' });
+  if (voucherR.rowCount === 0) return res.status(400).json({ error: `T${forceTier} 추첨권 없음` });
   const voucher = voucherR.rows[0];
 
   // 2) 대상 장비 조회·검증
@@ -283,14 +295,15 @@ router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
   const curIds = tgt.prefix_ids || [];
   if (prefixIndex >= curIds.length) return res.status(400).json({ error: '해당 슬롯에 접두사 없음' });
 
-  // 3) 선택 슬롯만 T3 보장 재굴림 (다른 슬롯 보존)
-  const { rerollSinglePrefixT3 } = await import('../game/prefix.js');
-  const rolled = await rerollSinglePrefixT3(
+  // 3) 선택 슬롯만 강제 티어로 재굴림 (다른 슬롯 보존)
+  const { rerollSinglePrefixForcedTier } = await import('../game/prefix.js');
+  const rolled = await rerollSinglePrefixForcedTier(
     curIds,
     tgt.prefix_stats || {},
     tgt.unique_prefix_stats || null,
     prefixIndex,
     tgt.required_level,
+    forceTier,
   );
 
   // 4) 적용 + 추첨권 1 차감
@@ -310,7 +323,8 @@ router.post('/use-voucher', async (req: AuthedRequest, res: Response) => {
     slotIndex: prefixIndex,
     oldName: rolled.oldName,
     newName: rolled.newName,
-    message: `${tgt.item_name} ${prefixIndex + 1}번 옵션 재굴림: ${rolled.oldName} → ${rolled.newName} (T3)`,
+    tier: rolled.tier,
+    message: `${tgt.item_name} ${prefixIndex + 1}번 옵션 재굴림: ${rolled.oldName} → ${rolled.newName} (T${rolled.tier})`,
   });
 });
 

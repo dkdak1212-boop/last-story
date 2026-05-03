@@ -156,29 +156,40 @@ export function InventoryScreen() {
     } catch (err) { setMsg(err instanceof Error ? err.message : '추출 실패'); }
   }
 
-  // T3 추첨권 — 슬롯 선택 모달 (선택한 1 옵션만 T3 로 재굴림)
+  // 접두사 추첨권 — 슬롯+티어 선택 모달 (T1/T2/T3 통합)
+  const VOUCHER_IDS_BY_TIER: Record<number, number[]> = { 1: [857], 2: [856], 3: [840, 911] };
   const [voucherTarget, setVoucherTarget] = useState<{
-    invId: number; name: string; prefixIds: number[]; prefixNames: string[]
+    invId: number; name: string; prefixIds: number[]; prefixNames: string[];
+    counts: Record<number, number>;     // tier → 보유 추첨권 수
   } | null>(null);
+  function getVoucherCounts(): Record<number, number> {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0 };
+    for (const it of inv as any[]) {
+      for (const [tier, ids] of Object.entries(VOUCHER_IDS_BY_TIER)) {
+        if (ids.includes(it.item.id)) counts[Number(tier)] += it.quantity || 0;
+      }
+    }
+    return counts;
+  }
   function openVoucherModal(targetInvId: number, targetName: string, prefixIds: number[], prefixName: string, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
     if (prefixIds.length === 0) { setMsg('이 장비는 접두사가 없습니다.'); return; }
-    // prefixName 은 공백 구분된 접두사 이름들 ("광폭 흡혈 약화"). 슬롯 수와 매칭.
     const names = prefixName ? prefixName.trim().split(/\s+/) : [];
     setVoucherTarget({
       invId: targetInvId,
       name: targetName,
       prefixIds,
       prefixNames: names.length === prefixIds.length ? names : prefixIds.map((_, i) => `${i + 1}번 옵션`),
+      counts: getVoucherCounts(),
     });
   }
-  async function applyVoucherReroll(prefixIndex: number) {
+  async function applyVoucherReroll(prefixIndex: number, forceTier: number) {
     if (!active || !voucherTarget) return;
     setMsg('');
     try {
-      const r = await api<{ targetName: string; oldName: string; newName: string; message: string }>(
+      const r = await api<{ targetName: string; oldName: string; newName: string; tier: number; message: string }>(
         `/craft/use-voucher`,
-        { method: 'POST', body: JSON.stringify({ characterId: active.id, targetInvId: voucherTarget.invId, prefixIndex }) }
+        { method: 'POST', body: JSON.stringify({ characterId: active.id, targetInvId: voucherTarget.invId, prefixIndex, forceTier }) }
       );
       setMsg(r.message);
       setVoucherTarget(null);
@@ -1020,14 +1031,15 @@ export function InventoryScreen() {
                               style={actionBtn('#a35bd1')}>✨ 추출 (가루+1)</button>
                           );
                         })()}
-                        {/* T3 추첨권 사용 — 슬롯 선택 모달 (1 옵션만 T3 보장 재굴림) */}
+                        {/* 접두사 추첨권 사용 — T1/T2/T3 중 1개라도 보유 시 */}
                         {isEquipment && !locked && !(s as any).unidentified && (() => {
-                          const hasVoucher = inv.some((it: any) => it.item.id === 911 && it.quantity > 0);
+                          const VOUCHER_IDS = [857, 856, 840, 911];
+                          const hasVoucher = inv.some((it: any) => VOUCHER_IDS.includes(it.item.id) && it.quantity > 0);
                           if (!hasVoucher || !s.prefixIds || s.prefixIds.length === 0) return null;
                           return (
                             <button onClick={(e) => openVoucherModal(
                               (s as any).invId, s.item.name, s.prefixIds, (s as any).prefixName || '', e
-                            )} style={actionBtn('#66dd99')}>🎟 T3 추첨권</button>
+                            )} style={actionBtn('#66dd99')}>🎟 접두사 추첨권</button>
                           );
                         })()}
                         {isEquipment && !locked && (() => {
@@ -1064,7 +1076,7 @@ export function InventoryScreen() {
         </>
       )}
 
-      {/* T3 추첨권 슬롯 선택 모달 */}
+      {/* 접두사 추첨권 — 슬롯 + 티어 선택 모달 (T1/T2/T3 통합) */}
       {voucherTarget && (
         <div onClick={() => setVoucherTarget(null)} style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
@@ -1072,27 +1084,57 @@ export function InventoryScreen() {
         }}>
           <div onClick={(e) => e.stopPropagation()} style={{
             background: 'var(--bg-panel)', border: '1px solid #66dd99', borderRadius: 8,
-            padding: 24, maxWidth: 460, width: '92vw',
+            padding: 24, maxWidth: 540, width: '94vw',
           }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: '#66dd99', marginBottom: 8 }}>
-              🎟 T3 추첨권 — 재굴림할 옵션 선택
+              🎟 접두사 추첨권 — 옵션 + 티어 선택
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>
-              <b style={{ color: 'var(--text)' }}>{voucherTarget.name}</b> 의 접두사 중 하나를 T3 보장으로 재굴림합니다.
-              <br />선택한 옵션만 새로 굴리고 나머지는 그대로 유지됩니다. 추첨권 1 개 소비.
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 12 }}>
+              <b style={{ color: 'var(--text)' }}>{voucherTarget.name}</b> 의 접두사 중 1 개를 보장 티어로 재굴림합니다.
+              나머지 두 옵션은 변경 없이 유지됩니다.
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8, display: 'flex', gap: 10 }}>
+              보유:
+              <span style={{ color: voucherTarget.counts[1] > 0 ? '#9fd87a' : 'var(--text-mute)' }}>T1 ×{voucherTarget.counts[1]}</span>
+              <span style={{ color: voucherTarget.counts[2] > 0 ? '#7eb6d6' : 'var(--text-mute)' }}>T2 ×{voucherTarget.counts[2]}</span>
+              <span style={{ color: voucherTarget.counts[3] > 0 ? '#daa520' : 'var(--text-mute)' }}>T3 ×{voucherTarget.counts[3]}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {voucherTarget.prefixIds.map((_, i) => (
-                <button key={i} onClick={() => applyVoucherReroll(i)} style={{
-                  padding: '12px 16px', fontSize: 14, fontWeight: 700,
-                  background: 'rgba(102,221,153,0.10)', color: '#66dd99',
-                  border: '1px solid #66dd99', borderRadius: 6, cursor: 'pointer',
-                  textAlign: 'left',
-                }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-dim)', marginRight: 8 }}>{i + 1}번 옵션</span>
-                  {voucherTarget.prefixNames[i] || '???'} 재굴림
-                </button>
-              ))}
+              {voucherTarget.prefixIds.map((_, i) => {
+                const TIER_COLORS: Record<number, string> = { 1: '#9fd87a', 2: '#7eb6d6', 3: '#daa520' };
+                return (
+                  <div key={i} style={{
+                    padding: 10, border: '1px solid var(--border)', borderRadius: 6,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{i + 1}번 옵션</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{voucherTarget.prefixNames[i] || '???'}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[1, 2, 3].map(tier => {
+                        const hasVoucher = voucherTarget.counts[tier] > 0;
+                        const color = TIER_COLORS[tier];
+                        return (
+                          <button
+                            key={tier}
+                            disabled={!hasVoucher}
+                            onClick={() => applyVoucherReroll(i, tier)}
+                            style={{
+                              padding: '6px 12px', fontSize: 12, fontWeight: 800,
+                              background: hasVoucher ? `${color}22` : 'transparent',
+                              color: hasVoucher ? color : 'var(--text-mute)',
+                              border: `1px solid ${hasVoucher ? color : 'var(--border)'}`,
+                              borderRadius: 4,
+                              cursor: hasVoucher ? 'pointer' : 'not-allowed',
+                              opacity: hasVoucher ? 1 : 0.4,
+                            }}>T{tier}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <button onClick={() => setVoucherTarget(null)} style={{
               marginTop: 14, padding: '8px 14px', fontSize: 12,

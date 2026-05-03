@@ -171,17 +171,16 @@ export async function generateGuaranteed3Prefixes(
   return { prefixIds, bonusStats, maxTier };
 }
 
-// 단일 슬롯 T3 보장 재굴림 — 추첨권 사용 시 선택한 인덱스만 T3 로 교체.
+// 단일 슬롯 보장 티어 재굴림 — 추첨권(T1/T2/T3) 공통.
 // 다른 두 슬롯은 prefix_id·기여 값 그대로 보존.
-// 가정: 같은 stat_key 가 두 슬롯에 동시 존재 X (generate3Prefixes 가 usedKeys 로 차단).
-//      이 가정 덕에 prefix_stats[oldKey] - unique_prefix_stats[oldKey] = 해당 슬롯의 순수 값.
-export async function rerollSinglePrefixT3(
+export async function rerollSinglePrefixForcedTier(
   currentPrefixIds: number[],
   currentStats: Record<string, number>,
   uniqueStats: Record<string, number> | null,
   targetIndex: number,
   itemLevel: number,
-): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; oldName: string; newName: string }> {
+  forceTier: number,                                 // 1 | 2 | 3
+): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; oldName: string; newName: string; tier: number }> {
   if (targetIndex < 0 || targetIndex >= currentPrefixIds.length) {
     throw new Error('invalid prefix index');
   }
@@ -201,10 +200,10 @@ export async function rerollSinglePrefixT3(
     const p = prefixes.find(x => x.id === currentPrefixIds[i]);
     if (p) otherKeys.add(p.stat_key);
   }
-  // T3 후보 (다른 슬롯 stat 과 안 겹침)
-  let candidates = prefixes.filter(p => p.tier === 3 && !otherKeys.has(p.stat_key));
-  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === 3);
-  if (candidates.length === 0) throw new Error('no T3 prefix available');
+  // 강제 티어 후보 (다른 슬롯 stat 과 안 겹침)
+  let candidates = prefixes.filter(p => p.tier === forceTier && !otherKeys.has(p.stat_key));
+  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === forceTier);
+  if (candidates.length === 0) throw new Error(`no T${forceTier} prefix available`);
 
   const picked = candidates[Math.floor(Math.random() * candidates.length)];
   const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -226,7 +225,18 @@ export async function rerollSinglePrefixT3(
     newStats[picked.stat_key] = (newStats[picked.stat_key] || 0) + newValue;
   }
 
-  return { prefixIds: newPrefixIds, bonusStats: newStats, oldName: oldPrefix.name, newName: picked.name };
+  return { prefixIds: newPrefixIds, bonusStats: newStats, oldName: oldPrefix.name, newName: picked.name, tier: picked.tier };
+}
+
+// 호환 wrapper — 기존 T3 호출처 보존
+export async function rerollSinglePrefixT3(
+  currentPrefixIds: number[],
+  currentStats: Record<string, number>,
+  uniqueStats: Record<string, number> | null,
+  targetIndex: number,
+  itemLevel: number,
+) {
+  return rerollSinglePrefixForcedTier(currentPrefixIds, currentStats, uniqueStats, targetIndex, itemLevel, 3);
 }
 
 // T3 보장 + 나머지 2 옵 무작위 (T1~T4 분포 그대로). 추첨권 사용 시.
