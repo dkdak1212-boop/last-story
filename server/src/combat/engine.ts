@@ -3149,8 +3149,10 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     const tSk = Date.now();
     await executeSkill(s, sk);
-    perfSeg.pSkillMs += Date.now() - tSk;
+    const dt = Date.now() - tSk;
+    perfSeg.pSkillMs += dt;
     perfSeg.pSkillCalls++;
+    addSkillTime(s.className, dt);
   }
 
   for (const sk of sorted) {
@@ -3159,15 +3161,19 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     const tSk = Date.now();
     await executeSkill(s, sk);
-    perfSeg.pSkillMs += Date.now() - tSk;
+    const dt = Date.now() - tSk;
+    perfSeg.pSkillMs += dt;
     perfSeg.pSkillCalls++;
+    addSkillTime(s.className, dt);
     const dblChance = getPassive(s, 'skill_double_chance');
     if (dblChance > 0 && Math.random() * 100 < dblChance) {
       addLog(s, `⏳ [시간 지배자] 스킬 재발동!`);
       const tSk2 = Date.now();
       await executeSkill(s, sk);
-      perfSeg.pSkillMs += Date.now() - tSk2;
+      const dt2 = Date.now() - tSk2;
+      perfSeg.pSkillMs += dt2;
       perfSeg.pSkillCalls++;
+      addSkillTime(s.className, dt2);
     }
     if (s.className === 'summoner') processSummons(s);
     return;
@@ -6029,9 +6035,16 @@ let tickStats = { count: 0, totalMs: 0, maxMs: 0, overLimit: 0, skipped: 0 };
 // pPotion: getPotionInInventory + consumeOneFromSlot (HP 위험 시)
 // pSkill : executeSkill 호출 합산 (buff loop + main loop)
 // pBasic : 기본 공격 fallback (calcDamage)
+type ClassPerf = { ms: number; calls: number };
+const newClassPerf = (): Record<string, ClassPerf> => ({
+  warrior: { ms: 0, calls: 0 }, mage: { ms: 0, calls: 0 }, rogue: { ms: 0, calls: 0 },
+  cleric: { ms: 0, calls: 0 }, summoner: { ms: 0, calls: 0 }, other: { ms: 0, calls: 0 },
+});
 let perfSeg = {
   mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
   pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+  // 클래스별 skill 시간/호출수 — skill 핫패스 50% 점유 진단용
+  pSkillByClass: newClassPerf(),
   // kill 단계 sub-segment (handleMonsterDeath 내부)
   kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
   kAddItemMs: 0, kAddItemCalls: 0,
@@ -6045,6 +6058,14 @@ let perfSeg = {
   // spawn 정상 path 세부 (B5 진단)
   spStatsMs: 0, spFilterMs: 0, spClassMs: 0, spLogMs: 0,
 };
+
+// 클래스별 skill 시간 누적 헬퍼 (5클래스 외에는 'other' 버킷)
+function addSkillTime(className: string | undefined, ms: number) {
+  const k = (className === 'warrior' || className === 'mage' || className === 'rogue'
+    || className === 'cleric' || className === 'summoner') ? className : 'other';
+  perfSeg.pSkillByClass[k].ms += ms;
+  perfSeg.pSkillByClass[k].calls += 1;
+}
 export const _perfSeg = () => perfSeg;
 
 setInterval(() => {
@@ -6055,6 +6076,13 @@ setInterval(() => {
   const segSum = seg.mActionMs + seg.pActionMs + seg.killMs + seg.deathMs + seg.pushMs;
   console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
   console.log(`[combat-perf] pAct breakdown — potion=${seg.pPotionMs}ms skill=${seg.pSkillMs}ms (calls=${seg.pSkillCalls}) basic=${seg.pBasicMs}ms`);
+  const sbc = seg.pSkillByClass;
+  const fmt = (k: string) => {
+    const c = sbc[k];
+    const avg = c.calls > 0 ? (c.ms / c.calls).toFixed(2) : '0';
+    return `${k}=${c.ms}ms/${c.calls}(avg ${avg}ms)`;
+  };
+  console.log(`[combat-perf] skill by class — ${fmt('warrior')} ${fmt('mage')} ${fmt('rogue')} ${fmt('cleric')} ${fmt('summoner')} ${fmt('other')}`);
   console.log(`[combat-perf] kill breakdown — endless=${seg.kEndlessMs}ms meta=${seg.kMetaMs}ms slot=${seg.kSlotMs}ms drops=${seg.kDropLoopMs}ms addItem=${seg.kAddItemMs}ms(${seg.kAddItemCalls}) prefix=${seg.kGenPrefixMs}ms(${seg.kGenPrefixCalls}) spawn=${seg.kSpawnMs}ms levelup=${seg.kLevelMs}ms`);
   console.log(`[combat-perf] spawn breakdown — pick=${seg.spPickMs}ms(${seg.spPickCalls}) endlessLoad=${seg.spEndlessLoadMs}ms endlessFsa=${seg.spEndlessFsaMs}ms recordFloor=${seg.spRecordFloorMs}ms(${seg.spRecordFloorCalls}) other=${seg.spOtherMs}ms`);
   // 정상 spawn path 세부: kSpawnMs - spOtherMs = await/event-loop 오버헤드 (microtask 스케줄링)
@@ -6064,6 +6092,7 @@ setInterval(() => {
   perfSeg = {
     mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
     pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
+    pSkillByClass: newClassPerf(),
     kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
     kAddItemMs: 0, kAddItemCalls: 0,
     kGenPrefixMs: 0, kGenPrefixCalls: 0,
