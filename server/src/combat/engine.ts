@@ -3152,7 +3152,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
     const dt = Date.now() - tSk;
     perfSeg.pSkillMs += dt;
     perfSeg.pSkillCalls++;
-    addSkillTime(s.className, dt);
+    addSkillTime(s.className, dt, sk.name);
   }
 
   for (const sk of sorted) {
@@ -3164,7 +3164,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
     const dt = Date.now() - tSk;
     perfSeg.pSkillMs += dt;
     perfSeg.pSkillCalls++;
-    addSkillTime(s.className, dt);
+    addSkillTime(s.className, dt, sk.name);
     const dblChance = getPassive(s, 'skill_double_chance');
     if (dblChance > 0 && Math.random() * 100 < dblChance) {
       addLog(s, `⏳ [시간 지배자] 스킬 재발동!`);
@@ -3173,7 +3173,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       const dt2 = Date.now() - tSk2;
       perfSeg.pSkillMs += dt2;
       perfSeg.pSkillCalls++;
-      addSkillTime(s.className, dt2);
+      addSkillTime(s.className, dt2, sk.name);
     }
     if (s.className === 'summoner') processSummons(s);
     return;
@@ -4606,7 +4606,7 @@ async function combatTick(): Promise<void> {
   // 동시 DB 풀 사용 cap. 2026-05-04: 48 → 32 로 추가 감축.
   // 사유: avg 380→509ms 악화 + SLOW TICK 700ms 다발. 작은 chunk = GC 부분실행 기회 ↑,
   // 메모리 동시 할당 압박 ↓. 110 세션 ≈ 4 chunks (48 시 3 chunks).
-  const TICK_CONCURRENCY = 32;
+  const TICK_CONCURRENCY = 24;
   type SessionTask = { charId: number; s: ActiveSession };
   const pending: SessionTask[] = [];
   for (const [charId, s] of activeSessions) {
@@ -6048,6 +6048,8 @@ let perfSeg = {
   pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
   // 클래스별 skill 시간/호출수 — skill 핫패스 50% 점유 진단용
   pSkillByClass: newClassPerf(),
+  // 스킬명별 시간/호출수 — Map (top N 출력용, key = `${className}:${skillName}`)
+  pSkillByName: new Map<string, ClassPerf>(),
   // kill 단계 sub-segment (handleMonsterDeath 내부)
   kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
   kAddItemMs: 0, kAddItemCalls: 0,
@@ -6063,11 +6065,19 @@ let perfSeg = {
 };
 
 // 클래스별 skill 시간 누적 헬퍼 (5클래스 외에는 'other' 버킷)
-function addSkillTime(className: string | undefined, ms: number) {
+function addSkillTime(className: string | undefined, ms: number, skillName?: string) {
   const k = (className === 'warrior' || className === 'mage' || className === 'rogue'
     || className === 'cleric' || className === 'summoner') ? className : 'other';
   perfSeg.pSkillByClass[k].ms += ms;
   perfSeg.pSkillByClass[k].calls += 1;
+  // 스킬명 단위 누적 — top-K 출력에 사용
+  if (skillName) {
+    const key = `${k}:${skillName}`;
+    let bucket = perfSeg.pSkillByName.get(key);
+    if (!bucket) { bucket = { ms: 0, calls: 0 }; perfSeg.pSkillByName.set(key, bucket); }
+    bucket.ms += ms;
+    bucket.calls += 1;
+  }
 }
 export const _perfSeg = () => perfSeg;
 
@@ -6086,6 +6096,17 @@ setInterval(() => {
     return `${k}=${c.ms}ms/${c.calls}(avg ${avg}ms)`;
   };
   console.log(`[combat-perf] skill by class — ${fmt('warrior')} ${fmt('mage')} ${fmt('rogue')} ${fmt('cleric')} ${fmt('summoner')} ${fmt('other')}`);
+  // top-8 스킬 (총 ms 기준) — 핫스킬 1~2개가 클래스 전체 시간을 점유하는지 확인
+  const topSkills = Array.from(seg.pSkillByName.entries())
+    .sort((a, b) => b[1].ms - a[1].ms)
+    .slice(0, 8)
+    .map(([key, v]) => {
+      const avg = v.calls > 0 ? (v.ms / v.calls).toFixed(1) : '0';
+      return `${key} ${v.ms}ms/${v.calls}(avg ${avg}ms)`;
+    });
+  if (topSkills.length > 0) {
+    console.log(`[combat-perf] top skills — ${topSkills.join(' · ')}`);
+  }
   console.log(`[combat-perf] kill breakdown — endless=${seg.kEndlessMs}ms meta=${seg.kMetaMs}ms slot=${seg.kSlotMs}ms drops=${seg.kDropLoopMs}ms addItem=${seg.kAddItemMs}ms(${seg.kAddItemCalls}) prefix=${seg.kGenPrefixMs}ms(${seg.kGenPrefixCalls}) spawn=${seg.kSpawnMs}ms levelup=${seg.kLevelMs}ms`);
   console.log(`[combat-perf] spawn breakdown — pick=${seg.spPickMs}ms(${seg.spPickCalls}) endlessLoad=${seg.spEndlessLoadMs}ms endlessFsa=${seg.spEndlessFsaMs}ms recordFloor=${seg.spRecordFloorMs}ms(${seg.spRecordFloorCalls}) other=${seg.spOtherMs}ms`);
   // 정상 spawn path 세부: kSpawnMs - spOtherMs = await/event-loop 오버헤드 (microtask 스케줄링)
@@ -6096,6 +6117,7 @@ setInterval(() => {
     mActionMs: 0, pActionMs: 0, killMs: 0, deathMs: 0, pushMs: 0, summonMs: 0, summonCalls: 0,
     pPotionMs: 0, pSkillMs: 0, pSkillCalls: 0, pBasicMs: 0,
     pSkillByClass: newClassPerf(),
+    pSkillByName: new Map<string, ClassPerf>(),
     kEndlessMs: 0, kMetaMs: 0, kSlotMs: 0, kDropLoopMs: 0,
     kAddItemMs: 0, kAddItemCalls: 0,
     kGenPrefixMs: 0, kGenPrefixCalls: 0,
