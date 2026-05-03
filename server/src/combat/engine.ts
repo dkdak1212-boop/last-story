@@ -684,6 +684,167 @@ export async function flushPendingDrops(): Promise<void> {
 
 setInterval(() => { flushPendingDrops().catch(err => console.error('[drops-batch] interval err', err)); }, 1000);
 
+// ── Stack drop 배치 (소모/재료 stack_size > 1 — kill segment addItem 비용 절감) ──
+// 기존: 매 stack 드랍마다 addItemToInventory → SELECT existing + UPDATE/INSERT round-trip (480~640 calls/window).
+// 개선: pendingStackDrops 큐 적재 후 1초 단위 캐릭별 일괄 SELECT + UPDATE + INSERT (round-trip 1/3 수준).
+interface PendingStackDrop {
+  characterId: number;
+  itemId: number;
+  qty: number;
+  stackSize: number;
+  boundOnPickup: boolean;
+}
+const pendingStackDrops = new Map<number, PendingStackDrop[]>();
+
+function enqueueStackDrop(d: PendingStackDrop): void {
+  let arr = pendingStackDrops.get(d.characterId);
+  if (!arr) { arr = []; pendingStackDrops.set(d.characterId, arr); }
+  arr.push(d);
+}
+
+// inventorySlotCache 재빌드 시 stack 큐가 점유 예약한 신규 슬롯도 used 로 반영해야 슬롯 충돌 방지.
+// 큐 안 stack 드랍은 "기존 stack merge 우선 → 부족분만 신규 슬롯" 으로 flush 하므로
+// 보수적으로 stack 큐 안 itemId × ceil(qty/stackSize) 만큼 임시 슬롯이 필요할 수 있다고 가정 (overshoot 무방).
+function getPendingStackSlotsForChar(characterId: number): number {
+  const arr = pendingStackDrops.get(characterId);
+  if (!arr || arr.length === 0) return 0;
+  // 합산 qty 만 추정 — 실제 소비 슬롯은 flush 시 정확히 계산. 여기선 freeSlots 에서 빼두면 충분.
+  const byItem = new Map<number, { qty: number; stackSize: number }>();
+  for (const d of arr) {
+    const ex = byItem.get(d.itemId);
+    if (ex) ex.qty += d.qty;
+    else byItem.set(d.itemId, { qty: d.qty, stackSize: d.stackSize });
+  }
+  let est = 0;
+  for (const v of byItem.values()) est += Math.ceil(v.qty / v.stackSize);
+  return est;
+}
+
+export async function flushPendingStackDrops(): Promise<void> {
+  if (pendingStackDrops.size === 0) return;
+  const snap: Array<[number, PendingStackDrop[]]> = [];
+  for (const [cid, arr] of pendingStackDrops) snap.push([cid, arr]);
+  pendingStackDrops.clear();
+
+  for (const [characterId, drops] of snap) {
+    if (drops.length === 0) continue;
+
+    // 같은 itemId 합산
+    const byItem = new Map<number, { qty: number; stackSize: number; bound: boolean }>();
+    for (const d of drops) {
+      const ex = byItem.get(d.itemId);
+      if (ex) ex.qty += d.qty;
+      else byItem.set(d.itemId, { qty: d.qty, stackSize: d.stackSize, bound: d.boundOnPickup });
+    }
+    const itemIds = [...byItem.keys()];
+
+    try {
+      // freeSlots + 기존 stack 한 번에 조회
+      const slotR = await query<{ bonus: number; used_slots: number[] }>(
+        `SELECT
+           COALESCE(c.inventory_slots_bonus, 0)::int AS bonus,
+           COALESCE(array_agg(ci.slot_index) FILTER (WHERE ci.slot_index IS NOT NULL), '{}'::int[]) AS used_slots
+         FROM characters c
+         LEFT JOIN character_inventory ci ON ci.character_id = c.id
+         WHERE c.id = $1
+         GROUP BY c.id`,
+        [characterId]
+      );
+      if (slotR.rowCount === 0) continue;
+      const used = new Set<number>(slotR.rows[0].used_slots || []);
+      const maxSlots = BASE_INVENTORY_SLOTS + (slotR.rows[0].bonus || 0);
+      // 동시 진행 중인 equipment drop 큐의 slot 도 used 로 간주
+      const eqPending = getPendingSlotsForChar(characterId);
+      for (const ps of eqPending) used.add(ps);
+
+      const stacksR = await query<{ id: number; item_id: number; quantity: number }>(
+        `SELECT id, item_id, quantity FROM character_inventory
+          WHERE character_id = $1 AND item_id = ANY($2::int[])
+          ORDER BY item_id, slot_index ASC`,
+        [characterId, itemIds]
+      );
+      const existingByItem = new Map<number, Array<{ id: number; quantity: number }>>();
+      for (const row of stacksR.rows) {
+        let arr = existingByItem.get(row.item_id);
+        if (!arr) { arr = []; existingByItem.set(row.item_id, arr); }
+        arr.push({ id: row.id, quantity: row.quantity });
+      }
+
+      // 계획: 기존 partial stack 우선 채우기 → 부족분 신규 슬롯
+      const updates: Array<{ id: number; addQty: number }> = [];
+      const inserts: Array<{ itemId: number; slot: number; qty: number; bound: boolean }> = [];
+      let nextFreeSlot = 0;
+      const claimSlot = (): number | null => {
+        while (nextFreeSlot < maxSlots) {
+          const sl = nextFreeSlot++;
+          if (!used.has(sl)) { used.add(sl); return sl; }
+        }
+        return null;
+      };
+
+      for (const [itemId, info] of byItem) {
+        let remaining = info.qty;
+        const existing = existingByItem.get(itemId) ?? [];
+        for (const ex of existing) {
+          if (remaining <= 0) break;
+          const room = info.stackSize - ex.quantity;
+          if (room <= 0) continue;
+          const add = Math.min(remaining, room);
+          updates.push({ id: ex.id, addQty: add });
+          ex.quantity += add;
+          remaining -= add;
+        }
+        while (remaining > 0) {
+          const slot = claimSlot();
+          if (slot === null) break; // 가방 full — 조용히 폐기 (UI 는 이미 "획득" 표시함)
+          const qty = Math.min(remaining, info.stackSize);
+          inserts.push({ itemId, slot, qty, bound: info.bound });
+          remaining -= qty;
+        }
+      }
+
+      // UPDATE 일괄 (UNNEST 로 1 round-trip)
+      if (updates.length > 0) {
+        const idsArr = updates.map(u => u.id);
+        const qtyArr = updates.map(u => u.addQty);
+        await query(
+          `UPDATE character_inventory ci
+              SET quantity = ci.quantity + v.add_qty
+             FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS add_qty) v
+            WHERE ci.id = v.id`,
+          [idsArr, qtyArr]
+        );
+      }
+
+      // INSERT 일괄 (multi-row VALUES)
+      if (inserts.length > 0) {
+        const valuesParts: string[] = [];
+        const params: unknown[] = [characterId];
+        let idx = 2;
+        for (const ins of inserts) {
+          const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++;
+          valuesParts.push(`($1, $${p1}, $${p2}, $${p3}, $${p4})`);
+          params.push(ins.itemId, ins.slot, ins.qty, ins.bound);
+        }
+        await query(
+          `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
+           VALUES ${valuesParts.join(', ')}
+           ON CONFLICT (character_id, slot_index) DO NOTHING`,
+          params
+        );
+      }
+
+      // 슬롯 캐시 무효화 (다음 킬에서 정확한 freeSlots 재산출)
+      const sess = activeSessions.get(characterId);
+      if (sess) sess.inventorySlotCache = null;
+    } catch (err) {
+      console.error('[stack-drops-batch] err', characterId, err);
+    }
+  }
+}
+
+setInterval(() => { flushPendingStackDrops().catch(err => console.error('[stack-drops-batch] interval err', err)); }, 1000);
+
 // 종언 floor_started_at 더티 큐 — 새 층 진입 시점만 기록, 5초 batch flush
 // (이전: 매 spawn 마다 SELECT + 가끔 UPDATE → 종언 캐릭 다수 환경에서 풀 압박 주범)
 const endlessFloorStartedDirty = new Map<number, number>();
@@ -3717,6 +3878,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const maxSlots = BASE_INVENTORY_SLOTS + (row?.bonus || 0);
       const free: number[] = [];
       for (let i = 0; i < maxSlots; i++) if (!dbUsed.has(i)) free.push(i);
+      // stack 큐가 신규 슬롯을 점유할 가능성 — 앞쪽 N개를 보수적으로 비활성 (다음 flush 가 채울 자리)
+      const stackReserve = getPendingStackSlotsForChar(s.characterId);
+      if (stackReserve > 0 && free.length > stackReserve) free.splice(0, stackReserve);
       s.inventorySlotCache = {
         bonus: row?.bonus || 0,
         charName: row?.name ?? '???',
@@ -3754,21 +3918,21 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     const isEquipment = !!item.slot;
     const isUnique = item.grade === 'unique';
 
-    // ─ stack 가능 아이템 (소모/재료, stack_size > 1) — 큐 우회, addItemToInventory 호출 ─
-    // stack merge 로직 보존 (큐 일괄 INSERT 는 stack 합산 못 함).
+    // ─ stack 가능 아이템 (소모/재료, stack_size > 1) — 큐 적재, 1초 단위 일괄 flush ─
+    // 동일 itemId 합산 + 기존 partial stack merge → 신규 슬롯 순으로 1 round-trip 처리.
+    // overflow 시 "가방 가득" 로그는 표기 못하나, UI 는 이미 optimistic 으로 "획득" 표시.
     if (cachedItem.stack_size > 1) {
       const _tAdd = Date.now();
-      try {
-        const { overflow } = await addItemToInventory(
-          s.characterId, drop.itemId, drop.qty, undefined, undefined, dropHintForStackable
-        );
-        if (overflow > 0) addLog(s, '가방이 가득 차서 아이템을 버렸습니다.');
-        else addLog(s, '아이템 획득!');
-      } catch (err) {
-        console.error('[combat] stack drop INSERT err', err);
-      }
+      enqueueStackDrop({
+        characterId: s.characterId,
+        itemId: drop.itemId,
+        qty: drop.qty,
+        stackSize: cachedItem.stack_size,
+        boundOnPickup: cachedItem.bound_on_pickup,
+      });
       perfSeg.kAddItemMs += Date.now() - _tAdd;
       perfSeg.kAddItemCalls++;
+      addLog(s, '아이템 획득!');
       continue;
     }
 
