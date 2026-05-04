@@ -1859,14 +1859,14 @@ function processSummons(s: ActiveSession) {
 // (×3 → ×2 하향: 폭발 피크 데미지 33% 완화, 지속 독 틱은 유지)
 function tryPoisonResonanceBurst(s: ActiveSession): void {
   if (s.className !== 'rogue' || s.poisonResonance < 10) return;
-  const poisons = s.statusEffects.filter(e =>
-    e.type === 'poison' && e.source === 'player' && e.remainingActions > 0
-  );
+  // 인덱싱 캐시 사용 (statusEffects.filter 풀스캔 회피).
+  const arr = getEffectsOfType(s, 'poison');
   let burst = 0;
-  for (const p of poisons) burst += p.value * p.remainingActions * 2;
+  for (const p of arr) {
+    if (p.source === 'player' && p.remainingActions > 0) burst += p.value * p.remainingActions * 2;
+  }
   if (burst > 0) {
     s.monsterHp -= burst;
-    // raw 숫자로 출력 — 콤마 포맷이 들어가면 클라 DPS 미터 regex가 마지막 자리만 캡처함
     addLog(s, `💀 [독의 공명] 폭발! ${burst} 데미지`);
     s.poisonResonance = 0;
   }
