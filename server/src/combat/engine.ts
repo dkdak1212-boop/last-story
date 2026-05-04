@@ -1771,16 +1771,24 @@ function processSummons(s: ActiveSession) {
   const activeElements = new Set(summons.map(sm => sm.element).filter(Boolean));
   const synergyBonus = activeElements.size >= 2 ? elementSynergy : 0;
 
-  // 원소별 보너스 테이블 (summon 하나가 해당 원소면 이 값들 적용)
-  function elementBonuses(el: string | undefined) {
-    if (!el) return { dmg: 0, pen: 0, crit: 0, critDmg: 0, lifesteal: 0 };
-    return {
+  // 원소별 보너스 테이블 — **이 액션에 등장하는 고유 원소만** 한 번씩 룩업해 캐싱.
+  // 9~12 소환수가 같은 원소를 공유하는 경우가 많아 같은 키 5번 룩업이 반복되던 핫패스.
+  type ElemBonus = { dmg: number; pen: number; crit: number; critDmg: number; lifesteal: number };
+  const _ELEM_ZERO: ElemBonus = { dmg: 0, pen: 0, crit: 0, critDmg: 0, lifesteal: 0 };
+  const elemCache = new Map<string, ElemBonus>();
+  function elementBonuses(el: string | undefined): ElemBonus {
+    if (!el) return _ELEM_ZERO;
+    const cached = elemCache.get(el);
+    if (cached) return cached;
+    const v: ElemBonus = {
       dmg: getPassive(s, `summon_${el}_dmg`),
       pen: getPassive(s, `summon_${el}_pen`),
       crit: getPassive(s, `summon_${el}_crit`),
       critDmg: getPassive(s, `summon_${el}_crit_dmg`),
       lifesteal: el === 'dark' ? getPassive(s, 'summon_dark_lifesteal') : 0,
     };
+    elemCache.set(el, v);
+    return v;
   }
 
   // 글로벌(모든 소환수 적용)
