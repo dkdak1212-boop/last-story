@@ -11,17 +11,18 @@ const router = Router();
 router.use(authRequired);
 
 // 강화 비용/확률/파괴율
-// 강화 시스템 v2 (2026-05-01):
+// 강화 시스템 v3 (2026-05-04):
 // - 최대 30강
 // - 파괴 폐지 (전 단계 destroyRate=0)
+// - **레벨 무관 균일 비용 (1Lv ~ 100Lv 동일)** — 어뷰즈(저렙템 강화→100Lv 변환) 차단.
+//   기존 cost = base × itemLevel 이 1Lv 템 100배 저렴하던 구멍 메움. lv=100 기준 고정.
 // - +1~+10 +5%/단계 / +11~+20 +10%/단계 / +21~+30 +15%/단계 (스탯 누적 배율)
-// - +15 부터 절대값 비용 (× Lv 없음). +15 250만, +16 500만 ... +20 1500만
-// - +21~+30 절대값 시작 5천만, +1천만/단계 (+30 = 1.4억)
 // - +21~+30 항상 base 1% + pity × 0.1% (실패 시 +1, 성공 시 0 리셋)
 // - +21+ 강화 스크롤 사용 불가
-export function getEnhanceInfo(currentLevel: number, itemLevel: number, pity: number = 0) {
+export function getEnhanceInfo(currentLevel: number, _itemLevel: number, pity: number = 0) {
   const next = currentLevel + 1;
-  const lv = Math.max(1, itemLevel);
+  // itemLevel 무시 — 100Lv 기준 고정 비용
+  const lv = 100;
   let cost: number;
   let chance: number;
   let scrollAllowed = true;

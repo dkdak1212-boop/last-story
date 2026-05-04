@@ -345,12 +345,13 @@ router.post('/extract', async (req: AuthedRequest, res: Response) => {
   const invR = await query<{
     id: number; character_id: number; item_id: number; slot_index: number;
     prefix_ids: number[] | null; soulbound: boolean; unidentified: boolean;
-    item_name: string; item_slot: string | null;
+    item_name: string; item_slot: string | null; required_level: number;
   }>(
     `SELECT ci.id, ci.character_id, ci.item_id, ci.slot_index,
             ci.prefix_ids, COALESCE(ci.soulbound, FALSE) AS soulbound,
             COALESCE(ci.unidentified, FALSE) AS unidentified,
-            i.name AS item_name, i.slot AS item_slot
+            i.name AS item_name, i.slot AS item_slot,
+            COALESCE(i.required_level, 1) AS required_level
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
       WHERE ci.id = $1 AND ci.character_id = $2`, [invId, characterId]
   );
@@ -360,6 +361,10 @@ router.post('/extract', async (req: AuthedRequest, res: Response) => {
   if (row.unidentified) return res.status(400).json({ error: '미확인 아이템은 식별 후 추출' });
   if (!row.prefix_ids || row.prefix_ids.length === 0) {
     return res.status(400).json({ error: 'T4 접두사가 있어야 추출 가능' });
+  }
+  // 어뷰즈 차단 — 레벨 99 미만 장비는 신비한 가루 추출 불가 (저렙템 접두사 굴려 추출 farming 차단)
+  if (row.required_level < 99) {
+    return res.status(400).json({ error: `99레벨 이상 장비만 추출 가능 (현재 ${row.required_level}레벨)` });
   }
 
   // T4 접두사 보유 검증 — item_prefixes.tier=4 와 매칭
