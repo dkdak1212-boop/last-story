@@ -1369,32 +1369,122 @@ function onPlayerMiss(s: ActiveSession) {
   }
 }
 
+// 멀티히트 캐스트 단위 STABLE 분기 캐시 — applyDamagePrefixes 의 분기 중
+// 캐스트 동안 변하지 않는 것들만 미리 평가해 둠 (monsterHp/consume 분기는 제외).
+// **수식과 순서, Math.round 단계는 applyDamagePrefixes 와 100% 동일 보존**.
+// 천 개의 칼날(7회)/무쌍난무(3타 ×최대 2회)/암흑의 심판(2타) 등 multi_hit 핫패스에서
+// 매 hit 마다 30+ Map.get / 3 array.find 를 1회로 줄임.
+type DmgPrefixCache = {
+  hasDtUp: boolean; dtUpVal: number;
+  hasAtkBuff: boolean; atkBuffVal: number;
+  rageProc: boolean;
+  berserkPct: number;       // active 시 % 값, 아니면 0
+  fullHpAmpPct: number;
+  judgeAmpPct: number;      // cleric 적용 시 합계, 아니면 0
+  pHeavyBlade: boolean;
+  pFateLock: boolean;
+  pPainAttunement: boolean; // s.playerHp ≤ 0.35 만족 시 true
+  pMadnessSlideMult: number; // 활성 시 mult, 아니면 -1
+  pQuickDecision: boolean;
+  pCrystalActive: boolean;
+  pIsolation: boolean;       // (paragon_isolation > 0) ∧ (CC applied) 양쪽 만족 시 true
+  pSoulStrike: boolean;      // (passive > 0) ∧ (action % 5 == 0)
+  monsterDrPct: number;
+  comboBonusTotal: number;   // (combo_kill_bonus * stacks), 0 if none
+  speedToDmgFlat: number;    // SPD bonus to add (아니면 0)
+  critDmgBonusPct: number;   // crit hit 시 추가 mult (사전 계산), -1 if none
+  assassinExecutePct: number; // crit + monsterHp ≤ 15% 분기에 사용
+};
+function buildDmgPrefixCache(s: ActiveSession): DmgPrefixCache {
+  const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
+  const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+  const berserkP = s.equipPrefixes.berserk_pct || 0;
+  const berserkActive = berserkP > 0 && s.playerHp / s.playerMaxHp <= 0.35;
+  const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
+  const fullHpActive = fullHpAmp > 0 && s.playerHp >= s.playerMaxHp;
+  const judgeRaw = s.className === 'cleric' ? (getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge')) : 0;
+  const painAtt = getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35;
+  let madMult = -1;
+  if (getPassive(s, 'paragon_madness_slide') > 0) {
+    const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
+    madMult = 0.5 + 2.5 * (1 - hpRatio);
+  }
+  const isolEnabled = getPassive(s, 'paragon_isolation_instinct') > 0;
+  const isolMatch = isolEnabled && s.statusEffects.some(e =>
+    e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
+  );
+  const soulStrike = getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0;
+  const comboBonus = getPassive(s, 'combo_kill_bonus');
+  const comboTotal = (comboBonus > 0 && s.comboKills > 0) ? comboBonus * Math.min(5, s.comboKills) : 0;
+  const speedToDmg = getPassive(s, 'speed_to_dmg');
+  const speedFlat = speedToDmg > 0 ? Math.round(s.playerStats.spd * speedToDmg / 100) : 0;
+  return {
+    hasDtUp: !!dtUp, dtUpVal: dtUp ? dtUp.value : 0,
+    hasAtkBuff: !!atkBuff, atkBuffVal: atkBuff ? atkBuff.value : 0,
+    rageProc: s.rageProcRemaining > 0,
+    berserkPct: berserkActive ? berserkP : 0,
+    fullHpAmpPct: fullHpActive ? fullHpAmp : 0,
+    judgeAmpPct: judgeRaw,
+    pHeavyBlade: getPassive(s, 'paragon_heavy_blade') > 0,
+    pFateLock: getPassive(s, 'paragon_fate_lock') > 0,
+    pPainAttunement: painAtt,
+    pMadnessSlideMult: madMult,
+    pQuickDecision: getPassive(s, 'paragon_quick_decision') > 0,
+    pCrystalActive: !!s.paragonCrystalActive,
+    pIsolation: isolMatch,
+    pSoulStrike: soulStrike,
+    monsterDrPct: s.monsterDrPct || 0,
+    comboBonusTotal: comboTotal,
+    speedToDmgFlat: speedFlat,
+    critDmgBonusPct: getCritDmgBonus(s),
+    assassinExecutePct: getPassive(s, 'assassin_execute'),
+  };
+}
+
 // 데미지 스킬 공통 접두사 파이프라인 — atk_buff/damage_taken_up/광전사/약점간파/각성/치명 데미지를 일괄 적용
 // consumeOneShot=false 면 first_strike / ambush 소비를 건너뜀 (multi_hit 후속 타격용)
+// cache 가 주어지면 STABLE 분기는 cache 값을 사용 (수식·순서·Math.round 단계 동일).
 function applyDamagePrefixes(
   s: ActiveSession,
   dmg: number,
   isCrit: boolean,
   opts: { consumeOneShot?: boolean; skillName?: string } = {},
+  cache?: DmgPrefixCache,
 ): number {
   const consume = opts.consumeOneShot !== false;
   // 디버프: damage_taken_up (적이 받는 데미지 증가 — 방패 강타 등)
-  const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
-  if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+  if (cache) {
+    if (cache.hasDtUp) dmg = Math.round(dmg * (1 + cache.dtUpVal / 100));
+  } else {
+    const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
+    if (dtUp) dmg = Math.round(dmg * (1 + dtUp.value / 100));
+  }
   // 버프: atk_buff (자가 공격력 버프 — 전쟁의 함성 등)
-  const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
-  if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
+  if (cache) {
+    if (cache.hasAtkBuff) dmg = Math.round(dmg * (1 + cache.atkBuffVal / 100));
+  } else {
+    const atkBuff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+    if (atkBuff) dmg = Math.round(dmg * (1 + atkBuff.value / 100));
+  }
   // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (rageProcRemaining 카운터)
-  if (s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
+  if (cache ? cache.rageProc : s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
   // 광전사 (내 HP 35% 이하)
-  const berserk = s.equipPrefixes.berserk_pct || 0;
-  if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
-    dmg = Math.round(dmg * (1 + berserk / 100));
+  if (cache) {
+    if (cache.berserkPct > 0) dmg = Math.round(dmg * (1 + cache.berserkPct / 100));
+  } else {
+    const berserk = s.equipPrefixes.berserk_pct || 0;
+    if (berserk > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
+      dmg = Math.round(dmg * (1 + berserk / 100));
+    }
   }
   // 풀피 증뎀 (HP 100% 일 때만)
-  const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
-  if (fullHpAmp > 0 && s.playerHp >= s.playerMaxHp) {
-    dmg = Math.round(dmg * (1 + fullHpAmp / 100));
+  if (cache) {
+    if (cache.fullHpAmpPct > 0) dmg = Math.round(dmg * (1 + cache.fullHpAmpPct / 100));
+  } else {
+    const fullHpAmp = s.equipPrefixes.full_hp_amp_pct || 0;
+    if (fullHpAmp > 0 && s.playerHp >= s.playerMaxHp) {
+      dmg = Math.round(dmg * (1 + fullHpAmp / 100));
+    }
   }
   // 약점간파 (첫 공격, 1회성)
   if (consume) {
@@ -1437,9 +1527,9 @@ function applyDamagePrefixes(
     }
   }
   // judge_amp / holy_judge (성직자 공격 노드 — 심판의 대천사 / 신의 심판 등)
-  // case 'damage' 단일 hit 은 별도 곱연산되지만 multi_hit / multi_hit_poison / dot 등
-  // applyDamagePrefixes 호출 케이스에선 누락되어 있던 버그. 천상 강림 / 신의 타격 정상화.
-  {
+  if (cache) {
+    if (cache.judgeAmpPct > 0) dmg = Math.round(dmg * (1 + cache.judgeAmpPct / 100));
+  } else {
     const judgeAmp = getPassive(s, 'judge_amp') + getPassive(s, 'holy_judge');
     if (judgeAmp > 0 && s.className === 'cleric') {
       dmg = Math.round(dmg * (1 + judgeAmp / 100));
@@ -1447,15 +1537,15 @@ function applyDamagePrefixes(
   }
   // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 ──
   // #5 무거운 검 — 데미지 ×2.0
-  if (getPassive(s, 'paragon_heavy_blade') > 0) {
+  if (cache ? cache.pHeavyBlade : getPassive(s, 'paragon_heavy_blade') > 0) {
     dmg = Math.round(dmg * 2.0);
   }
   // #2 운명의 결박 — cri/dodge 0 페널티 보상으로 균일 데미지 ×1.75
-  if (getPassive(s, 'paragon_fate_lock') > 0) {
+  if (cache ? cache.pFateLock : getPassive(s, 'paragon_fate_lock') > 0) {
     dmg = Math.round(dmg * 1.75);
   }
   // #3 고통의 조율 — HP 35% 이하 시 +50%
-  if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) {
+  if (cache ? cache.pPainAttunement : (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35)) {
     dmg = Math.round(dmg * 1.5);
   }
   // #8 암살자의 역설 — 적 HP 100% ×3, 50% 이하 ×0.3 (종언의 기둥 면역, 자정 이후 발동)
@@ -1471,14 +1561,16 @@ function applyDamagePrefixes(
     addLog(s, '[잠재된 폭발] 다음 공격 ×3!');
   }
   // #12 광기의 슬라이드 — HP 100% 시 −50%, HP 0%로 갈수록 +200% 선형 보간
-  if (getPassive(s, 'paragon_madness_slide') > 0) {
+  if (cache) {
+    if (cache.pMadnessSlideMult >= 0) dmg = Math.round(dmg * cache.pMadnessSlideMult);
+  } else if (getPassive(s, 'paragon_madness_slide') > 0) {
     const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
     // ratio=1 → ×0.5, ratio=0 → ×3.0 (선형: mult = 0.5 + 2.5 × (1−ratio))
     const mult = 0.5 + 2.5 * (1 - hpRatio);
     dmg = Math.round(dmg * mult);
   }
   // #15 빠른 결단 — 데미지 −30%
-  if (getPassive(s, 'paragon_quick_decision') > 0) {
+  if (cache ? cache.pQuickDecision : getPassive(s, 'paragon_quick_decision') > 0) {
     dmg = Math.round(dmg * 0.7);
   }
   // #17 실패의 영광 — 직전 빗맞 펜딩 시 ×3
@@ -1489,11 +1581,13 @@ function applyDamagePrefixes(
   }
   // #10 차원의 결박 — (받는 데미지 +30% 는 receivedDmg 쪽에서 처리됨)
   // #13 시간의 결정 — 10번째 액션 ×3 (paragonCrystalActive 가 액션 동안 true)
-  if (s.paragonCrystalActive) {
+  if (cache ? cache.pCrystalActive : s.paragonCrystalActive) {
     dmg = Math.round(dmg * 3);
   }
   // 고립 본능 — 적이 CC 계열 상태이상 (stun/gauge_freeze/gauge_reset/accuracy_debuff/damage_taken_up) 일 때 ×1.5
-  if (getPassive(s, 'paragon_isolation_instinct') > 0) {
+  if (cache) {
+    if (cache.pIsolation) dmg = Math.round(dmg * 1.5);
+  } else if (getPassive(s, 'paragon_isolation_instinct') > 0) {
     const ccApplied = s.statusEffects.some(e =>
       e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
     );
@@ -1504,7 +1598,7 @@ function applyDamagePrefixes(
     dmg = Math.round(dmg * 2.0);
   }
   // 혼의 강타 — 매 5번째 액션 ×3
-  if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
+  if (cache ? cache.pSoulStrike : (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0)) {
     dmg = Math.round(dmg * 3);
   }
   // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N% (종언의 기둥 면역, 자정 이후 발동)
@@ -1513,27 +1607,36 @@ function applyDamagePrefixes(
     dmg = Math.round(dmg * (1 + executePct / 100));
   }
   // 110 몬스터 dr_pct — 받는 데미지 감쇠 (마지막 단계에 적용)
-  if (s.monsterDrPct > 0) {
-    dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
+  {
+    const drPct = cache ? cache.monsterDrPct : (s.monsterDrPct || 0);
+    if (drPct > 0) dmg = Math.round(dmg * (1 - Math.min(95, drPct) / 100));
   }
   // combo_kill_bonus: 연속킬 데미지 보너스 (최대 5중첩)
-  const comboBonus = getPassive(s, 'combo_kill_bonus');
-  if (comboBonus > 0 && s.comboKills > 0) {
-    const stacks = Math.min(5, s.comboKills);
-    dmg = Math.round(dmg * (1 + (comboBonus * stacks) / 100));
+  if (cache) {
+    if (cache.comboBonusTotal > 0) dmg = Math.round(dmg * (1 + cache.comboBonusTotal / 100));
+  } else {
+    const comboBonus = getPassive(s, 'combo_kill_bonus');
+    if (comboBonus > 0 && s.comboKills > 0) {
+      const stacks = Math.min(5, s.comboKills);
+      dmg = Math.round(dmg * (1 + (comboBonus * stacks) / 100));
+    }
   }
   // speed_to_dmg: SPD → ATK 변환
-  const speedToDmg = getPassive(s, 'speed_to_dmg');
-  if (speedToDmg > 0) {
-    const spdBonus = Math.round(s.playerStats.spd * speedToDmg / 100);
-    if (spdBonus > 0) dmg += spdBonus;
+  if (cache) {
+    if (cache.speedToDmgFlat > 0) dmg += cache.speedToDmgFlat;
+  } else {
+    const speedToDmg = getPassive(s, 'speed_to_dmg');
+    if (speedToDmg > 0) {
+      const spdBonus = Math.round(s.playerStats.spd * speedToDmg / 100);
+      if (spdBonus > 0) dmg += spdBonus;
+    }
   }
   // 크리 추가 배율 (crit_damage 패시브 + 날카로움)
   if (isCrit) {
-    const critDmgBonus = getCritDmgBonus(s);
+    const critDmgBonus = cache ? cache.critDmgBonusPct : getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
     // assassin_execute: 치명타 시 적 HP 15% 이하면 즉사 확률 (종언의 기둥 면역, 자정 이후 발동)
-    const execute = getPassive(s, 'assassin_execute');
+    const execute = cache ? cache.assassinExecutePct : getPassive(s, 'assassin_execute');
     if (execute > 0 && s.monsterHp > 0 && !endlessHpPctImmune(s) && s.monsterHp <= s.monsterMaxHp * 0.15) {
       if (Math.random() * 100 < execute) {
         dmg = s.monsterHp + 1;
@@ -2262,6 +2365,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const bladeStormAmp = getPassive(s, 'blade_storm_amp');
       const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
+      // 캐스트당 1회 STABLE 분기 캐시 (천 개의 칼날 7회 / 무쌍난무 3타 ×최대 2회 / 신의 타격 등)
+      const _prefixCache = buildDmgPrefixCache(s);
       // multi_hit_amp_pct 는 hit_mult 가 아니라 최종 데미지에 적용 (아래 dmg × (1+multiAmp/100)).
       // 이전엔 damage_mult 에만 곱해져 신의 타격/천상 강림처럼 damage_mult=0 + flat 베이스인
       // 스킬에 효과가 없었음. 이제 mult/flat 모두 동일하게 +multiAmp% 보강.
@@ -2303,7 +2408,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
               consumeOneShot: firstLandedHit,
               skillName: skill.name,
-            });
+            }, _prefixCache);
             // 다단 효과 강화 — damage_mult 와 flat 데미지 모두에 동일 비율로 적용
             if (multiAmp > 0) dmg = Math.round(dmg * (1 + multiAmp / 100));
             firstLandedHit = false;
@@ -2387,6 +2492,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const poisonHitMult = multiAmpPoison > 0 ? baseChain * (1 + multiAmpPoison / 100) : baseChain;
+      // 캐스트당 1회 STABLE 분기 캐시
+      const _prefixCacheMP = buildDmgPrefixCache(s);
       let firstLandedHitMP = true;
       for (let i = 0; i < hits; i++) {
         const d = calcDamage(s.playerStats, s.monsterStats, poisonHitMult, useMatk);
@@ -2394,7 +2501,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const dmg = applyDamagePrefixes(s, d.damage, d.crit, {
             consumeOneShot: firstLandedHitMP,
             skillName: skill.name,
-          });
+          }, _prefixCacheMP);
           firstLandedHitMP = false;
           s.monsterHp -= dmg;
           addLog(s, `[${skill.name}] ${i + 1}타 ${dmg}${d.crit ? '!' : ''}`);
