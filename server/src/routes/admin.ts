@@ -623,6 +623,38 @@ router.post('/grant', async (req: AuthedRequest, res: Response) => {
   res.json({ ok: true, message: `${charR.rows[0].name}: ${results.join(', ')}` });
 });
 
+// 길드 보스 키 지급 — 닉네임으로 검색, 오늘(KST) keys_remaining += qty (없으면 INSERT)
+router.post('/grant-gb-keys', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    name: z.string().min(1).max(32),
+    qty: z.number().int().min(1).max(99),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { name, qty } = parsed.data;
+  const charR = await query<{ id: number; name: string }>(
+    'SELECT id, name FROM characters WHERE name = $1',
+    [name]
+  );
+  if (charR.rowCount === 0) return res.status(404).json({ error: `캐릭터 "${name}" 없음` });
+  const charId = charR.rows[0].id;
+  // 오늘 KST 날짜
+  const dr = await query<{ d: string }>("SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date AS d");
+  const today = dr.rows[0].d;
+  // 기본 keys 2 + 지급 qty (오늘 row 가 없을 때). 이미 있으면 += qty.
+  await query(
+    `INSERT INTO guild_boss_daily (character_id, date, keys_remaining, daily_damage_total)
+     VALUES ($1, $2, $3, 0)
+     ON CONFLICT (character_id, date) DO UPDATE
+       SET keys_remaining = guild_boss_daily.keys_remaining + $4`,
+    [charId, today, 2 + qty, qty]
+  );
+  const cur = await query<{ keys_remaining: number }>(
+    'SELECT keys_remaining FROM guild_boss_daily WHERE character_id = $1 AND date = $2',
+    [charId, today]
+  );
+  res.json({ ok: true, name: charR.rows[0].name, keysRemaining: cur.rows[0].keys_remaining, granted: qty });
+});
+
 // ========== 캐릭터 수정 (레벨/스탯/HP/위치) ==========
 router.post('/characters/:id/modify', async (req: AuthedRequest, res: Response) => {
   const charId = Number(req.params.id);
@@ -1557,7 +1589,7 @@ router.post('/grant-item-pro', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({
     characterId: z.number().int().positive(),
     itemId: z.number().int().positive(),
-    enhanceLevel: z.number().int().min(0).max(15).default(0),
+    enhanceLevel: z.number().int().min(0).max(30).default(0),
     quality: z.number().int().min(0).max(100).default(0),
     prefixes: z.array(z.object({
       id: z.number().int().positive(),

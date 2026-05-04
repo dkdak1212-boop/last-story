@@ -1516,8 +1516,8 @@ function GrantProTab() {
                 <>
                   <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
                     <label style={{ fontSize: 12 }}>강화:
-                      <input type="number" min={0} max={15} value={enhanceLevel}
-                        onChange={e => setEnhanceLevel(Math.max(0, Math.min(15, Number(e.target.value))))}
+                      <input type="number" min={0} max={30} value={enhanceLevel}
+                        onChange={e => setEnhanceLevel(Math.max(0, Math.min(30, Number(e.target.value))))}
                         style={{ width: 60, marginLeft: 6 }} />
                     </label>
                     <label style={{ fontSize: 12 }}>품질:
