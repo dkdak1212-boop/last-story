@@ -1,0 +1,32 @@
+name: Auto redeploy (zero-downtime)
+
+# 30분마다 빈 커밋 push → Railway rolling deploy 트리거 → 무중단 인스턴스 교체.
+# 기존 사용자 socket 끊김 X (새 인스턴스 healthy 후 트래픽 전환).
+# 수동 트리거도 가능 (workflow_dispatch).
+
+on:
+  schedule:
+    # cron 은 UTC. */30 = 매 30분 (00, 30분).
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # 빈 커밋 push 권한
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push empty commit
+        run: |
+          git config user.email "auto-redeploy@github.actions"
+          git config user.name "auto-redeploy"
+          NOW=$(date -u '+%Y-%m-%d %H:%M UTC')
+          git commit --allow-empty -m "[chore] auto-redeploy ${NOW}"
+          git push origin HEAD:main
