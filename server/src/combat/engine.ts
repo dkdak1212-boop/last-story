@@ -1181,8 +1181,7 @@ function addLog(s: ActiveSession, msg: string) {
 // 타입별 Map<string, StatusEffect[]> lazy 캐시로 교체. 1 tick = 한 번 rebuild × N reads.
 // 모든 mutation(push/reassign)은 _effectVer++ 해야 인덱스가 stale 인지 알 수 있음.
 // 글로벌 활성 소환수 cap — 세션당 최대치. 초과 시 oldest (statusEffects 순서 가장 앞) 제거.
-// 소환사 14종 × 같은 스킬 3마리 = 42마리까지 허용.
-const SUMMON_GLOBAL_CAP = 42;
+const SUMMON_GLOBAL_CAP = 12;
 
 function bumpEffectVer(s: ActiveSession): void {
   s._effectVer = (s._effectVer || 0) + 1;
@@ -1844,8 +1843,7 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 // ── 스킬 실행 ──
 // 마법 클래스: matk 사용 고정
 const MATK_CLASSES = new Set(['mage', 'cleric', 'summoner']);
-// 14종 × 종류당 3마리 = 42 (PER_TYPE_CAP=3과 곱해 같은 스킬 3마리 누적 소환을 글로벌이 막지 않도록).
-const MAX_SUMMONS = 42;
+const MAX_SUMMONS = 3;
 
 // ── 소환수 처리 ──
 function processSummons(s: ActiveSession) {
