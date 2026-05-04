@@ -535,8 +535,9 @@ router.post('/:characterId/reroll-quality', async (req: AuthedRequest, res: Resp
     await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [ticket.id]);
   }
 
-  // 새 품질 굴림 (0~100)
-  const newQuality = Math.floor(Math.random() * 101);
+  // 새 품질 굴림 — 최소 55% 보장 (재굴림권은 55~100 균등 분포)
+  const QUALITY_REROLL_MIN = 55;
+  const newQuality = QUALITY_REROLL_MIN + Math.floor(Math.random() * (101 - QUALITY_REROLL_MIN));
 
   if (parsed.data.kind === 'inventory') {
     const r = await query(

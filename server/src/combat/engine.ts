@@ -2298,8 +2298,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
                 const critDmgBonus = getCritDmgBonus(s);
                 if (critDmgBonus > 0) dmg2 = Math.round(dmg2 * (1 + critDmgBonus / 100));
               }
+              // 전사 분노 폭발 — 2회차 추가타에도 ×3 적용 (이전 누락: 최후의 일격/치명 절격 등)
+              if (s.rageProcRemaining > 0) dmg2 = Math.round(dmg2 * 3);
               s.monsterHp -= dmg2;
-              addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}`);
+              addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}${s.rageProcRemaining > 0 ? ' 🔥분노' : ''}`);
               // 치명타 후속 (재충전·흡혈) — 2회차 타격에도 적용 (이전 누락)
               applyCritPostEffects(s, dmg2, d2.crit, '2회차');
               // 도적 치명 절격: 2회차에도 독 추가 1 stack (총 5~6 stack)
@@ -4926,12 +4928,15 @@ async function combatTick(): Promise<void> {
           if (r === 'break') playerDone = true;
         }
       }
-      // 상태 push (dirty일 때만, 200ms throttle — push 성공 시에만 dirty 해제)
+      // 상태 push — fire-and-forget. pushCombatState 내부 200ms throttle 이 중복 emit 방지.
+      // 실패 시(throttle skip 등) dirty 유지되어 다음 tick 에서 재시도. 이전: await 가 chunk wall 을 30ms 증가시킴.
       if (s.dirty) {
         const tp = Date.now();
-        const pushed = await pushCombatState(s, true);
+        s.dirty = false;
+        pushCombatState(s, true)
+          .then(pushed => { if (!pushed) s.dirty = true; })
+          .catch(err => { console.error('[combat] push err', err); s.dirty = true; });
         perfSeg.pushMs += Date.now() - tp;
-        if (pushed) s.dirty = false;
       }
     } catch (err) {
       console.error(`[combat] tick error for char ${charId}:`, err);

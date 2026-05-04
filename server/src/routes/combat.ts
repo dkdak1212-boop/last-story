@@ -61,6 +61,16 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
     const enteredMs = stat.rows[0]?.rea ? new Date(stat.rows[0].rea).getTime() : 0;
     const isWithinTimer = enteredMs > 0 && Date.now() - enteredMs < 30 * 60_000;
     if (!isWithinTimer) {
+      // 30분 타이머 만료 직후 3분 재입장 쿨다운 — 더블클릭/연타로 통행증 2장 소모 방지.
+      // 30분 ≤ 경과 < 33분 → 거절.
+      const RIFT_REENTER_COOLDOWN_MS = 3 * 60_000;
+      if (enteredMs > 0) {
+        const sinceLast = Date.now() - enteredMs;
+        if (sinceLast >= 30 * 60_000 && sinceLast < 30 * 60_000 + RIFT_REENTER_COOLDOWN_MS) {
+          const remainSec = Math.ceil((30 * 60_000 + RIFT_REENTER_COOLDOWN_MS - sinceLast) / 1000);
+          return res.status(400).json({ error: `시공의 균열 재입장 쿨다운 — ${remainSec}초 남음 (이중 진입 방지)` });
+        }
+      }
       // 새 타이머가 필요한 입장 — 차원의 통행증(item 855) 1장 차감.
       // 같은 타이머 안의 재진입(사망/탭이동 후)은 무료.
       const passR = await query<{ id: number; quantity: number }>(
