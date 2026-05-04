@@ -386,6 +386,10 @@ router.post('/:id/combat/go-offline', async (req: AuthedRequest, res: Response) 
   if (sess.guildBossRunId) {
     return res.status(400).json({ error: '길드 보스에서는 오프라인 전환이 불가능합니다.' });
   }
+  // 허수아비 존(불사 더미 몬스터) — 오프라인 모드 차단. 보상 0 인 dps 측정 컨텐츠라 누적 의미 없음 + 어뷰즈 차단.
+  if (sess.monsterName && sess.monsterName.startsWith('허수아비')) {
+    return res.status(400).json({ error: '허수아비 존에서는 오프라인 전환이 불가능합니다.' });
+  }
 
   // 계정당 오프라인 모드 캐릭 갯수 체크 (자기 자신 제외, max 2)
   const cntR = await query<{ n: number }>(
