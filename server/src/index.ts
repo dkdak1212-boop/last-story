@@ -218,22 +218,20 @@ const httpServer = createServer(app);
 const io = initWebSocket(httpServer);
 setIo(io);
 
-// ── 30분 자동 재시작 — Railway 가 프로세스 종료 시 자동 respawn 활용.
-// AUTO_RESTART_MIN=0 으로 끄기 가능. 기본 30분.
+// ── 자동 재시작 — 사용자 요청으로 비활성화 (2026-05-04). 필요 시 AUTO_RESTART_MIN=30 환경변수로 재활성.
 {
-  const minStr = process.env.AUTO_RESTART_MIN ?? '30';
+  const minStr = process.env.AUTO_RESTART_MIN ?? '0';
   const min = Number(minStr);
   if (Number.isFinite(min) && min > 0) {
     const ms = min * 60 * 1000;
     setTimeout(() => {
       console.log(`[auto-restart] ${min}분 경과 — graceful shutdown (Railway 자동 재시작)`);
-      // graceful: 새 연결 차단 + 1.5s 대기 후 종료. 진행 중 액션은 클라가 재연결로 복구.
       try { httpServer.close(); } catch {}
       setTimeout(() => process.exit(0), 1500);
     }, ms);
     console.log(`[auto-restart] enabled — ${min}분 후 graceful shutdown 예정`);
   } else {
-    console.log('[auto-restart] disabled (AUTO_RESTART_MIN=0)');
+    console.log('[auto-restart] disabled');
   }
 }
 
