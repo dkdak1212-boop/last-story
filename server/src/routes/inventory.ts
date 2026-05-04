@@ -807,8 +807,9 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
     await withTransaction(async (tx) => {
       await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [id]);
 
-      const curEq = await tx.query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
-        `SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats,
+      const curEq = await tx.query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
+        `SELECT slot, item_id, enhance_level, COALESCE(enhance_pity, 0) AS enhance_pity,
+                prefix_ids, prefix_stats,
                 COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound
            FROM character_equipped WHERE character_id = $1
            FOR UPDATE`,
@@ -828,13 +829,15 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
       for (const eq of curEq.rows) {
         if (freeQueue.length === 0) throw new LoadFail(400, '인벤토리가 가득 찼습니다');
         const freeSlot = freeQueue.shift()!;
+        // enhance_pity 보존 — 프리셋 스왑 시 강화 누적 카운터 유지
         const ins = await tx.query(
           `INSERT INTO character_inventory
-             (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound)
-           VALUES ($1,$2,$3,1,$4,$5,$6::jsonb,$7,$8,$9)
+             (character_id, item_id, slot_index, quantity, enhance_level, enhance_pity, prefix_ids, prefix_stats, quality, locked, soulbound)
+           VALUES ($1,$2,$3,1,$4,$5,$6,$7::jsonb,$8,$9,$10)
            ON CONFLICT (character_id, slot_index) DO NOTHING`,
-          [id, eq.item_id, freeSlot, eq.enhance_level, eq.prefix_ids || [],
-           JSON.stringify(eq.prefix_stats || {}), eq.quality, eq.locked === true, eq.soulbound === true]
+          [id, eq.item_id, freeSlot, eq.enhance_level, Number(eq.enhance_pity || 0),
+           eq.prefix_ids || [], JSON.stringify(eq.prefix_stats || {}),
+           eq.quality, eq.locked === true, eq.soulbound === true]
         );
         if (!ins.rowCount) throw new LoadFail(409, '슬롯 충돌 — 다시 시도해주세요.');
       }
@@ -843,8 +846,9 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
       // 2) 프리셋 매칭 — usedInvIds 추적해 동일 inventory row 재선택 차단
       const usedInvIds = new Set<number>();
       for (const [slot, saved] of Object.entries(savedSlots)) {
-        const match = await tx.query<{ id: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
-          `SELECT ci.id, ci.prefix_ids, ci.prefix_stats,
+        const match = await tx.query<{ id: number; enhance_pity: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
+          `SELECT ci.id, COALESCE(ci.enhance_pity, 0) AS enhance_pity,
+                  ci.prefix_ids, ci.prefix_stats,
                   COALESCE(ci.quality, 0) AS quality, ci.locked, COALESCE(ci.soulbound, FALSE) AS soulbound
              FROM character_inventory ci
             WHERE ci.character_id = $1 AND ci.item_id = $2
@@ -857,12 +861,14 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
         if (match.rowCount === 0) continue;
         const m = match.rows[0];
         usedInvIds.add(Number(m.id));
+        // enhance_pity 보존 — 인벤 → 장착 이동 시 누적 카운터 유지
         await tx.query(
           `INSERT INTO character_equipped
-             (character_id, slot, item_id, enhance_level, prefix_ids, prefix_stats, quality, locked, soulbound)
-           VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`,
-          [id, slot, saved.itemId, saved.enhanceLevel, m.prefix_ids || [],
-           JSON.stringify(m.prefix_stats || {}), m.quality, m.locked === true, true]
+             (character_id, slot, item_id, enhance_level, enhance_pity, prefix_ids, prefix_stats, quality, locked, soulbound)
+           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)`,
+          [id, slot, saved.itemId, saved.enhanceLevel, Number(m.enhance_pity || 0),
+           m.prefix_ids || [], JSON.stringify(m.prefix_stats || {}),
+           m.quality, m.locked === true, true]
         );
         await tx.query('DELETE FROM character_inventory WHERE id = $1', [m.id]);
         equipped++;
