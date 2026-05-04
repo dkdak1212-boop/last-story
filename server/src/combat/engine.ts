@@ -1896,11 +1896,20 @@ function processSummons(s: ActiveSession) {
 
   // 글로벌(모든 소환수 적용)
   const globalDmgBonus = summonAmp + allElementDmg + auraDmg + dpsAtk + hybridAll + synergyBonus;
-  const globalPen = getPassive(s, 'aura_pen') * auraMultiplier;
+  // paragon_destroyer_will — 파괴자의 의지 (방관 +50): 소환수 공격에도 적용
+  const summonDestroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
+  const globalPen = getPassive(s, 'aura_pen') * auraMultiplier + summonDestroyerWill;
   const globalCrit = getPassive(s, 'aura_crit') * auraMultiplier;
   const globalLifesteal = getPassive(s, 'aura_lifesteal') * auraMultiplier;
   // 원소 폭발 (원소 군주 huge): 15% 확률 추가 데미지 100%
   const elementBurst = getPassive(s, 'summon_element_burst');
+  // 초월 노드 데미지 배수 (소환수 공격에도 적용)
+  const pHeavyBlade = getPassive(s, 'paragon_heavy_blade') > 0 ? 2.0 : 1.0;
+  const pFateLock   = getPassive(s, 'paragon_fate_lock') > 0 ? 1.75 : 1.0;
+  const pPainAttune = (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) ? 1.5 : 1.0;
+  const pLastStrike = (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.30) ? 2.0 : 1.0;
+  const pSoulStrike = (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) ? 3.0 : 1.0;
+  const paragonMult = pHeavyBlade * pFateLock * pPainAttune * pLastStrike * pSoulStrike;
 
   let totalSummonDmg = 0;
   let totalLifesteal = 0;
@@ -1935,6 +1944,8 @@ function processSummons(s: ActiveSession) {
       if (sm.element && elementBurst > 0 && Math.random() * 100 < elementBurst) {
         dmg = Math.round(dmg * 2);
       }
+      // 초월 노드 데미지 배수 — 소환수 공격에도 적용 (혼의강타 ×3 / 파괴자의 의지 방관 등)
+      if (paragonMult !== 1.0) dmg = Math.round(dmg * paragonMult);
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
@@ -3186,6 +3197,17 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
       return sk.damage_mult > 0 || !hasEffect(s, 'player', 'accuracy_debuff');
     case 'poison_burst':
       return poisonCount > 0; // 독 없으면 낭비
+    case 'summon':
+    case 'summon_tank':
+    case 'summon_dot':
+    case 'summon_heal':
+    case 'summon_multi': {
+      // 같은 소환 스킬이 이미 활성 중이면 재소환 스킵 — 슬롯 안 빼도 딜로스 X.
+      // (이전: default: true 라 매 액션 재소환 → 극심한 딜로스 — 사용자 보고)
+      const exists = someEffectOfType(s, 'summon', e =>
+        e.source === 'player' && e.remainingActions > 0 && e.summonSkillName === sk.name);
+      return !exists;
+    }
     case 'summon_storm':
     case 'summon_sacrifice': {
       // 활성 소환수가 없으면 낭비 — 스킵
