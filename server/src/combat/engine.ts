@@ -3349,6 +3349,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
     if (pLsBasic > 0) addLog(s, `[흡혈] HP +${pLsBasic}`);
   }
   perfSeg.pBasicMs += Date.now() - tBasic;
+  // 소환수는 본체 액션 종류와 무관하게 매 액션 1회 공격 (버프/소환생성/기본공격 턴에도 발동)
+  if (s.className === 'summoner') processSummons(s);
 }
 
 // ── 110 몬스터 스킬 처리 ──
