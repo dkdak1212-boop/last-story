@@ -1181,8 +1181,8 @@ function addLog(s: ActiveSession, msg: string) {
 // 타입별 Map<string, StatusEffect[]> lazy 캐시로 교체. 1 tick = 한 번 rebuild × N reads.
 // 모든 mutation(push/reassign)은 _effectVer++ 해야 인덱스가 stale 인지 알 수 있음.
 // 글로벌 활성 소환수 cap — 세션당 최대치. 초과 시 oldest (statusEffects 순서 가장 앞) 제거.
-// 소환사 14종 소환 스킬을 모두 슬롯에 넣었을 때 모두 동시 활성 가능하도록 14로 설정.
-const SUMMON_GLOBAL_CAP = 14;
+// 소환사 14종 × 같은 스킬 3마리 = 42마리까지 허용.
+const SUMMON_GLOBAL_CAP = 42;
 
 function bumpEffectVer(s: ActiveSession): void {
   s._effectVer = (s._effectVer || 0) + 1;
@@ -1844,8 +1844,8 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 // ── 스킬 실행 ──
 // 마법 클래스: matk 사용 고정
 const MATK_CLASSES = new Set(['mage', 'cleric', 'summoner']);
-// 슬롯에 등록한 소환 스킬 종류 수만큼 동시 활성 — 14종 모두 등록해도 1마리도 안 잘리도록.
-const MAX_SUMMONS = 14;
+// 14종 × 종류당 3마리 = 42 (PER_TYPE_CAP=3과 곱해 같은 스킬 3마리 누적 소환을 글로벌이 막지 않도록).
+const MAX_SUMMONS = 42;
 
 // ── 소환수 처리 ──
 function processSummons(s: ActiveSession) {
@@ -3204,11 +3204,19 @@ function isSkillContextuallyUsable(s: ActiveSession, sk: SkillDef, hpPct: number
     case 'summon_dot':
     case 'summon_heal':
     case 'summon_multi': {
-      // 같은 소환 스킬이 이미 활성 중이면 재소환 스킵 — 슬롯 안 빼도 딜로스 X.
-      // (이전: default: true 라 매 액션 재소환 → 극심한 딜로스 — 사용자 보고)
-      const exists = someEffectOfType(s, 'summon', e =>
-        e.source === 'player' && e.remainingActions > 0 && e.summonSkillName === sk.name);
-      return !exists;
+      // 같은 소환 스킬은 PER_TYPE_CAP(=3)마리까지 누적 소환 가능 — 그 이상은 스킵.
+      // (스킬 case 안의 PER_TYPE_CAP 로직은 4마리째 시전 시 oldest 교체용이지만,
+      //  무한지속이라 같은 스킬이 자동 줄어들지 않으니 contextual 단계에서 3 도달 시 차단해
+      //  쿨마다 oldest 교체로 새 마리 표시만 갱신되는 무의미 시전 방지.)
+      const PER_TYPE_CAP = 3;
+      let count = 0;
+      for (const e of s.statusEffects) {
+        if (e.type === 'summon' && e.source === 'player' && e.remainingActions > 0 && e.summonSkillName === sk.name) {
+          count++;
+          if (count >= PER_TYPE_CAP) return false;
+        }
+      }
+      return true;
     }
     case 'summon_storm':
     case 'summon_sacrifice': {
