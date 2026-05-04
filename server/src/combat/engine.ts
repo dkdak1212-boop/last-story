@@ -3294,8 +3294,25 @@ async function autoAction(s: ActiveSession): Promise<void> {
     addSkillTime(s.className, dt, sk.name);
   }
 
+  // 소환수 일괄 소환 — buff 처럼 ready 인 모든 소환 스킬을 한 액션에 동시 시전.
+  // (이전: 1 액션당 1 소환 스킬만 → 4종 소환 시 4 액션 딜로스. 전투 진입 직후 비합리적이었음.)
+  // 이미 활성된 소환은 isSkillContextuallyUsable 에서 스킵되므로 재시전 X.
+  const SUMMON_SPAWN_TYPES = new Set(['summon', 'summon_tank', 'summon_dot', 'summon_heal', 'summon_multi']);
+  for (const sk of sorted) {
+    if (!SUMMON_SPAWN_TYPES.has(sk.effect_type)) continue;
+    if (!isSkillReady(s, sk)) continue;
+    if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
+    const tSk = Date.now();
+    await executeSkill(s, sk);
+    const dt = Date.now() - tSk;
+    perfSeg.pSkillMs += dt;
+    perfSeg.pSkillCalls++;
+    addSkillTime(s.className, dt, sk.name);
+  }
+
   for (const sk of sorted) {
     if (sk.kind === 'buff') continue;
+    if (SUMMON_SPAWN_TYPES.has(sk.effect_type)) continue;     // 위에서 이미 일괄 처리
     if (!isSkillReady(s, sk)) continue;
     if (!isSkillContextuallyUsable(s, sk, hpPct, poisonCount)) continue;
     const tSk = Date.now();
