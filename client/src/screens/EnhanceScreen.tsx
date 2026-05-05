@@ -145,7 +145,7 @@ export function EnhanceScreen() {
     if (!confirm(`${targetLabel} 의 수치를 새로 굴립니다. 진행하시겠습니까?`)) return;
     setRerolling(true);
     try {
-      const r = await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number>; prefixStatsRaw?: Record<string, number> }>(
+      await api<{ success: boolean; prefixIds: number[]; prefixStats: Record<string, number>; prefixStatsRaw?: Record<string, number> }>(
         `/enhance/${active.id}/reroll-prefix`,
         {
           method: 'POST',
@@ -156,17 +156,13 @@ export function EnhanceScreen() {
           }),
         }
       );
-      // 응답으로 선택 아이템 즉시 갱신 (load() 이전 state 클로저 문제 회피)
-      const updated: EnhanceItem = { ...selected, prefixIds: r.prefixIds, prefixStats: r.prefixStats, prefixStatsRaw: r.prefixStatsRaw };
-      setSelected(updated);
-      setItems(prev => prev.map(it => {
-        if (it.kind !== selected.kind) return it;
-        const sameSlot = selected.kind === 'inventory'
-          ? it.slotIndex === selected.slotIndex
-          : it.equipSlot === selected.equipSlot;
-        return sameSlot ? updated : it;
-      }));
-      setRerollCount(c => Math.max(0, c - 1));
+      // 응답에 prefixDetails / prefixTiers 등 부수 필드가 빠져 부분 갱신 시 화면 stale.
+      // /list 재조회 후 매칭 아이템 통째 교체 — useTierTicket 와 동일 패턴 (2026-05-05).
+      await load();
+      const fresh = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] }>(`/enhance/${active.id}/list`);
+      const all = [...fresh.equipped, ...fresh.inventory];
+      const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
+      if (match) setSelected(match);
       await refreshActive();
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
@@ -179,7 +175,7 @@ export function EnhanceScreen() {
     if (!confirm(`현재 품질 ${selected.quality ?? 0}% 를 새로 굴립니다. (0~100 무작위) 진행하시겠습니까?`)) return;
     setQualityRerolling(true);
     try {
-      const r = await api<{ success: boolean; quality: number }>(
+      await api<{ success: boolean; quality: number }>(
         `/enhance/${active.id}/reroll-quality`,
         {
           method: 'POST',
@@ -189,16 +185,12 @@ export function EnhanceScreen() {
           }),
         }
       );
-      const updated: EnhanceItem = { ...selected, quality: r.quality };
-      setSelected(updated);
-      setItems(prev => prev.map(it => {
-        if (it.kind !== selected.kind) return it;
-        const sameSlot = selected.kind === 'inventory'
-          ? it.slotIndex === selected.slotIndex
-          : it.equipSlot === selected.equipSlot;
-        return sameSlot ? updated : it;
-      }));
-      setQualityRerollCount(c => Math.max(0, c - 1));
+      // /list 재조회 후 매칭 아이템 통째 교체 — 응답이 quality 만 반환해 부분 갱신 시 stale (2026-05-05).
+      await load();
+      const fresh = await api<{ inventory: EnhanceItem[]; equipped: EnhanceItem[] }>(`/enhance/${active.id}/list`);
+      const all = [...fresh.equipped, ...fresh.inventory];
+      const match = all.find(it => it.kind === selected.kind && (selected.kind === 'inventory' ? it.slotIndex === selected.slotIndex : it.equipSlot === selected.equipSlot));
+      if (match) setSelected(match);
       await refreshActive();
     } catch (e) {
       alert(e instanceof Error ? e.message : '실패');
