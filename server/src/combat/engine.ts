@@ -2813,11 +2813,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         break;
       }
       // remainingActions <= 1 인 만료 직전 쉴드는 즉시 제거 후 새 쉴드 적용 (오버랩 0턴 → 끊김 없음)
-      const expiringShields = getEffectsOfType(s, 'shield').filter(e => e.source === 'monster');
-      if (expiringShields.length > 0) {
-        s.statusEffects = s.statusEffects.filter(e => !(e.type === 'shield' && e.source === 'monster'));
-        bumpEffectVer(s);
+      // in-place reverse splice — 새 array 할당 회피 (rogue 그림자 은신 4천+회/윈도우 hotpath).
+      let removed = false;
+      for (let i = s.statusEffects.length - 1; i >= 0; i--) {
+        const e = s.statusEffects[i];
+        if (e.type === 'shield' && e.source === 'monster') { s.statusEffects.splice(i, 1); removed = true; }
       }
+      if (removed) bumpEffectVer(s);
       let shieldHp = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const shieldAmp = getPassive(s, 'shield_amp') + (s.equipPrefixes.shield_amp || 0);
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
@@ -4459,19 +4461,27 @@ function spawnMonsterForSession(s: ActiveSession): void {
   perfSeg.spStatsMs += Date.now() - _tStats;
 
   // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지.
-  // in-place reverse splice 로 새 array 할당 회피 (5천회/윈도우 hotpath).
-  // 제거 대상: source === 'player' 인 디버프 (단, summon* 류는 보존).
+  // 1) source 별 분리 캐시(_playerSourcedEffects) 활용해 player effect 가 0 이면 전체 skip.
+  //    8천회/윈도우 hotpath — 대부분 spawn 시점엔 player 디버프 0 ~ 1 개.
+  // 2) 있으면 in-place reverse splice (새 array 할당 회피).
   const _tFilter = Date.now();
-  let mutated = false;
-  for (let i = s.statusEffects.length - 1; i >= 0; i--) {
-    const e = s.statusEffects[i];
-    if (e.source !== 'player') continue;
-    const t = e.type;
-    if (t === 'summon' || t === 'summon_buff_active' || t === 'summon_frenzy_active') continue;
-    s.statusEffects.splice(i, 1);
-    mutated = true;
+  // _playerSourcedEffects 캐시 사용 — 없으면 statusEffects 직접 검사. 둘 다 fast path.
+  const playerSourced = s._playerSourcedEffects;
+  const hasAnyPlayerEffect = playerSourced
+    ? playerSourced.length > 0
+    : s.statusEffects.some(e => e.source === 'player');
+  if (hasAnyPlayerEffect) {
+    let mutated = false;
+    for (let i = s.statusEffects.length - 1; i >= 0; i--) {
+      const e = s.statusEffects[i];
+      if (e.source !== 'player') continue;
+      const t = e.type;
+      if (t === 'summon' || t === 'summon_buff_active' || t === 'summon_frenzy_active') continue;
+      s.statusEffects.splice(i, 1);
+      mutated = true;
+    }
+    if (mutated) bumpEffectVer(s);
   }
-  if (mutated) bumpEffectVer(s);
   perfSeg.spFilterMs += Date.now() - _tFilter;
 
   const _tClass = Date.now();
