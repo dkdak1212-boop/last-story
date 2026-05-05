@@ -4475,16 +4475,31 @@ function spawnMonsterForSession(s: ActiveSession): void {
   perfSeg.spStatsMs += Date.now() - _tStats;
 
   // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지.
-  // 1) source 별 분리 캐시(_playerSourcedEffects) 활용해 player effect 가 0 이면 전체 skip.
-  //    8천회/윈도우 hotpath — 대부분 spawn 시점엔 player 디버프 0 ~ 1 개.
-  // 2) 있으면 in-place reverse splice (새 array 할당 회피).
+  // 1) source 별 분리 캐시 + 소환 계열 제외 후 NON-SUMMON player effect 가 있을 때만 splice 진입.
+  //    소환사는 _playerSourcedEffects.length 가 항상 12+ 라 단순 length > 0 검사로는 fast skip 안 됨.
+  //    13k spawn/윈도우 × O(N) splice 루프 = 1.4초 폭주 회귀 (2026-05-05 측정).
+  // 2) 진입 시엔 in-place reverse splice (새 array 할당 회피).
   const _tFilter = Date.now();
-  // _playerSourcedEffects 캐시 사용 — 없으면 statusEffects 직접 검사. 둘 다 fast path.
+  let hasNonSummonPlayerEffect = false;
   const playerSourced = s._playerSourcedEffects;
-  const hasAnyPlayerEffect = playerSourced
-    ? playerSourced.length > 0
-    : s.statusEffects.some(e => e.source === 'player');
-  if (hasAnyPlayerEffect) {
+  if (playerSourced) {
+    for (let i = 0; i < playerSourced.length; i++) {
+      const t = playerSourced[i].type;
+      if (t !== 'summon' && t !== 'summon_buff_active' && t !== 'summon_frenzy_active') {
+        hasNonSummonPlayerEffect = true; break;
+      }
+    }
+  } else {
+    for (let i = 0; i < s.statusEffects.length; i++) {
+      const e = s.statusEffects[i];
+      if (e.source !== 'player') continue;
+      const t = e.type;
+      if (t !== 'summon' && t !== 'summon_buff_active' && t !== 'summon_frenzy_active') {
+        hasNonSummonPlayerEffect = true; break;
+      }
+    }
+  }
+  if (hasNonSummonPlayerEffect) {
     let mutated = false;
     for (let i = s.statusEffects.length - 1; i >= 0; i--) {
       const e = s.statusEffects[i];
