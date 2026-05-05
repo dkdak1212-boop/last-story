@@ -6242,6 +6242,9 @@ setInterval(() => {
   let sweptSessions = 0;
   let removedTotal = 0;
   let cappedSessions = 0;
+  // leak 출처 추적: cap 적중 세션의 charId·class·field·effect 타입 분포 수집
+  type LeakInfo = { charId: number; className: string; fieldId: number; afk: boolean; rift: boolean; total: number; topTypes: string };
+  const leakers: LeakInfo[] = [];
   for (const s of activeSessions.values()) {
     const arr = s.statusEffects;
     if (arr.length === 0) continue;
@@ -6257,6 +6260,26 @@ setInterval(() => {
     }
     // hard cap — summon/마커는 최후 보존, 나머지 oldest 부터 evict
     if (arr.length > STATUS_EFFECT_HARD_CAP) {
+      // cap 적중 시 진단: 현재 type+source 분포 캡처
+      const typeCount = new Map<string, number>();
+      for (const e of arr) {
+        const k = `${e.type}/${e.source}`;
+        typeCount.set(k, (typeCount.get(k) || 0) + 1);
+      }
+      const top3 = Array.from(typeCount.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ');
+      leakers.push({
+        charId: s.characterId,
+        className: s.className,
+        fieldId: s.fieldId,
+        afk: !!s.afkMode,
+        rift: !!s.guildBossRunId,
+        total: arr.length,
+        topTypes: top3,
+      });
       let removed = 0;
       const target = arr.length - STATUS_EFFECT_HARD_CAP;
       for (let i = 0; i < arr.length && removed < target; ) {
@@ -6279,6 +6302,13 @@ setInterval(() => {
   }
   if (removedTotal > 0) {
     console.log(`[effect-sweep] cleaned ${removedTotal} effects across ${sweptSessions} sessions (capped=${cappedSessions})`);
+  }
+  // top 5 leaker 상세 — leak 출처 추적용
+  if (leakers.length > 0) {
+    const top = leakers.sort((a, b) => b.total - a.total).slice(0, 5);
+    for (const l of top) {
+      console.log(`[effect-leaker] char=${l.charId} class=${l.className} field=${l.fieldId} afk=${l.afk} rift=${l.rift} total=${l.total} top=[${l.topTypes}]`);
+    }
   }
 }, 30_000);
 
