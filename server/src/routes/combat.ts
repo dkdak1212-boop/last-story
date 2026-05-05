@@ -88,6 +88,9 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
       } else {
         await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [pass.id]);
       }
+      // 통행증 차감 후 새 30분 타이머 박제. (이전: resolveRiftEnteredAt 가 자동 reset 했으나
+      // 서버 재시작 시 무료 부여 버그가 있어 2026-05-05 수정 — 명시 진입 시에만 reset.)
+      await query('UPDATE characters SET rift_entered_at = NOW() WHERE id = $1', [id]);
     }
   }
 

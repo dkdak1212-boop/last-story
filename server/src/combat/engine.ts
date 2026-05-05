@@ -5575,7 +5575,10 @@ export async function startCombatSession(
   return p;
 }
 
-// 시공의 균열 입장 시각 — 영속 타이머. 첫 진입/30분 만료 후엔 NOW(), 30분 내 재진입은 기존 값 유지.
+// 시공의 균열 입장 시각 — 영속 타이머.
+// 2026-05-05 버그 수정: 만료된 균열을 자동으로 NOW() 로 리셋하지 않음.
+//   기존: 만료 시 자동 reset → restoreCombatSessions(서버 재시작) 가 통행증 차감 없이 30분 새로 부여.
+//   수정: 만료 시 0 반환 — 호출자가 입장 거부 처리. 입장권 차감 + rift_entered_at 리셋은 /enter-field 라우트가 명시적 수행.
 async function resolveRiftEnteredAt(characterId: number, fieldId: number): Promise<number> {
   const now = Date.now();
   if (fieldId !== RIFT_110_FIELD_ID) return now;
@@ -5583,13 +5586,12 @@ async function resolveRiftEnteredAt(characterId: number, fieldId: number): Promi
     'SELECT rift_entered_at::text AS rea FROM characters WHERE id = $1', [characterId]
   );
   const existingMs = r.rows[0]?.rea ? new Date(r.rows[0].rea).getTime() : 0;
-  // 기존 입장이 30분 안이면 이어서 사용 (사망/탭이동 등 후 재진입)
+  // 30분 안이면 이어서 사용 (사망/탭이동/재접속 후 재진입 무료)
   if (existingMs > 0 && now - existingMs < RIFT_110_TIMEOUT_MS) {
     return existingMs;
   }
-  // 첫 진입 또는 만료 후 신규 진입 → NOW() 박제
-  await query('UPDATE characters SET rift_entered_at = NOW() WHERE id = $1', [characterId]);
-  return now;
+  // 만료/미입장 → 0 반환. 호출자가 입장 거부 또는 마을 귀환 처리.
+  return 0;
 }
 
 async function startCombatSessionInner(
@@ -5636,6 +5638,25 @@ async function startCombatSessionInner(
         }
         return;
       }
+    }
+  }
+
+  // 시공의 균열(23) 만료 가드 — 30분 영속 타이머 만료된 균열 세션은 통행증 검사 우회 차단.
+  // 2026-05-05 버그 수정: 서버 재시작 시 restoreCombatSessions 가 만료된 균열 세션도 그대로
+  //   복원하면서 resolveRiftEnteredAt 자동 reset 으로 무료 30분 부여하던 문제. 명시 진입(/enter-field)
+  //   에서 rift_entered_at = NOW() 갱신 후에만 복원/시작 허용.
+  if (fieldId === RIFT_110_FIELD_ID && !guildBossOpts) {
+    const enteredMs = await resolveRiftEnteredAt(characterId, fieldId);
+    if (enteredMs === 0) {
+      // 만료/미입장 — 마을 귀환 + 세션 row 정리.
+      try {
+        await query('UPDATE characters SET location = $1 WHERE id = $2', ['village', characterId]);
+        await query('DELETE FROM combat_sessions WHERE character_id = $1', [characterId]);
+      } catch (e) {
+        console.error('[rift-110] expired-restore cleanup err', characterId, e);
+      }
+      console.log('[rift-110] startCombatSession blocked — 균열 만료/통행증 미차감 char', characterId);
+      return;
     }
   }
 
