@@ -6234,6 +6234,54 @@ setInterval(() => {
   for (const id of lastMetaRefreshAt.keys()) if (!activeSessions.has(id)) lastMetaRefreshAt.delete(id);
 }, 60_000);
 
+// statusEffects 안전망 sweep — 30초 주기 모든 세션 청소.
+// leak 정확한 출처 미확정 (effects max 1497 측정) → expired/만료된 effect + 200 hard cap 으로 피해 한정.
+// dummy/AFK/장기전 세션 누적도 강제 차단.
+const STATUS_EFFECT_HARD_CAP = 200;
+setInterval(() => {
+  let sweptSessions = 0;
+  let removedTotal = 0;
+  let cappedSessions = 0;
+  for (const s of activeSessions.values()) {
+    const arr = s.statusEffects;
+    if (arr.length === 0) continue;
+    let mutated = false;
+    // expired 청소 (remainingActions<=0 && 비-resurrect-marker)
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const e = arr[i];
+      if (e.remainingActions <= 0 && !(e.type === 'resurrect' && (e.id === 'resurrect_used' || e.id === 'gb_revive_used'))) {
+        arr.splice(i, 1);
+        mutated = true;
+        removedTotal++;
+      }
+    }
+    // hard cap — summon/마커는 최후 보존, 나머지 oldest 부터 evict
+    if (arr.length > STATUS_EFFECT_HARD_CAP) {
+      let removed = 0;
+      const target = arr.length - STATUS_EFFECT_HARD_CAP;
+      for (let i = 0; i < arr.length && removed < target; ) {
+        const e = arr[i];
+        const isProtected =
+          (e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active') ||
+          (e.type === 'resurrect' && (e.id === 'resurrect_used' || e.id === 'gb_revive_used'));
+        if (isProtected) { i++; continue; }
+        arr.splice(i, 1);
+        removed++;
+        mutated = true;
+        removedTotal++;
+      }
+      if (removed > 0) cappedSessions++;
+    }
+    if (mutated) {
+      bumpEffectVer(s);
+      sweptSessions++;
+    }
+  }
+  if (removedTotal > 0) {
+    console.log(`[effect-sweep] cleaned ${removedTotal} effects across ${sweptSessions} sessions (capped=${cappedSessions})`);
+  }
+}, 30_000);
+
 // 종언의 기둥 — paused=true 상태에서 floor_started_at 기준 60초 초과 시 자동 사망 처리.
 // disconnect 후 재진입 안 해서 활성 세션 외에 있는 캐릭의 시간 어뷰즈 차단.
 // interval 5분 — 어뷰즈 정확성 충분 + DB 부담 최소화.
