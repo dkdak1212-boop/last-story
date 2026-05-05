@@ -1892,7 +1892,8 @@ const MATK_CLASSES = new Set(['mage', 'cleric', 'summoner']);
 const MAX_SUMMONS = 3;
 
 // ── 소환수 처리 ──
-function processSummons(s: ActiveSession) {
+// extraDmgMul: 외부에서 임시 배수 부여 (예: 모든 소환수 공격 시전 시 2.0). 1.0 이면 효과 없음.
+function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const _t0 = Date.now();
   const summons = getActiveSummons(s);
   if (summons.length === 0) { perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return; }
@@ -1992,6 +1993,8 @@ function processSummons(s: ActiveSession) {
       }
       // 초월 노드 데미지 배수 — 소환수 공격에도 적용 (혼의강타 ×3 / 파괴자의 의지 방관 등)
       if (paragonMult !== 1.0) dmg = Math.round(dmg * paragonMult);
+      // 외부 임시 배수 — 모든 소환수 공격 시전 시 ×2 등
+      if (extraDmgMul !== 1.0) dmg = Math.round(dmg * extraDmgMul);
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
@@ -3128,11 +3131,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'summon_all': {
       // 모든 소환수 일제 공격. damage_mult > 0 이면 본체도 공격에 동참.
       // effect_value > 0 이면 그 만큼 모든 소환수 지속시간 +N 행동 (지휘 = +1).
+      // 사용자 요청 (2026-05-05): 모든 소환수 데미지 ×2 임시 부여 (이번 시전 1회 한정).
       if (skill.damage_mult > 0) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, true);
         if (!d.miss) { s.monsterHp -= d.damage; addLog(s, `[${skill.name}] 본체 ${d.damage}${d.crit ? '!' : ''}`); }
       }
-      processSummons(s);
+      processSummons(s, 2.0);
       // 소환수 턴 유지 +N 행동 (summon_extend 와 동일한 SUMMON_REMAIN_CAP 적용)
       const ext = skill.effect_value;
       if (ext > 0) {
