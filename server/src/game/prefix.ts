@@ -28,16 +28,47 @@ export function displayPrefixStats(raw: unknown, enhanceLevel = 0): Record<strin
   return stats;
 }
 
-// 캐시 (서버 시작 시 1회 로드)
+// 캐시 (서버 시작 시 1회 로드) + tier 별·id 별 인덱스
+// 핫패스: 드랍 시 매번 prefixes.filter(p => p.tier === t) 가 전체 배열을 훑었음 → tier 인덱스로 즉시 조회
+//         resolve/reroll 핫패스: prefixes.find(x => x.id === pid) 또한 O(n) → id 맵으로 전환
 let prefixCache: PrefixDef[] | null = null;
+let prefixesByTier: Map<number, PrefixDef[]> | null = null;
+let prefixesById: Map<number, PrefixDef> | null = null;
 
-export function clearPrefixCache() { prefixCache = null; }
+export function clearPrefixCache() { prefixCache = null; prefixesByTier = null; prefixesById = null; }
+
+function buildTierIndex(arr: PrefixDef[]): Map<number, PrefixDef[]> {
+  const m = new Map<number, PrefixDef[]>();
+  for (const p of arr) {
+    const arr2 = m.get(p.tier);
+    if (arr2) arr2.push(p); else m.set(p.tier, [p]);
+  }
+  return m;
+}
+
+function buildIdIndex(arr: PrefixDef[]): Map<number, PrefixDef> {
+  const m = new Map<number, PrefixDef>();
+  for (const p of arr) m.set(p.id, p);
+  return m;
+}
 
 async function loadPrefixes(): Promise<PrefixDef[]> {
   if (prefixCache) return prefixCache;
   const r = await query<PrefixDef>('SELECT id, name, tier, stat_key, min_val, max_val FROM item_prefixes ORDER BY id');
   prefixCache = r.rows;
+  prefixesByTier = buildTierIndex(prefixCache);
+  prefixesById = buildIdIndex(prefixCache);
   return prefixCache;
+}
+
+// 티어 그룹을 usedStatKeys 기준으로 필터링한 후보 반환 (allowDuplicate 가 true면 그룹 그대로)
+function tierCandidates(tier: number, usedStatKeys: Set<string> | null): PrefixDef[] {
+  const group = prefixesByTier?.get(tier);
+  if (!group || group.length === 0) return [];
+  if (!usedStatKeys || usedStatKeys.size === 0) return group;
+  const out: PrefixDef[] = [];
+  for (const p of group) if (!usedStatKeys.has(p.stat_key)) out.push(p);
+  return out;
 }
 
 // 등급별 확률: 1단계 90%, 2단계 9%, 3단계 0.9%, 4단계 0.1%
@@ -65,7 +96,7 @@ function rollTierMinT2(): number {
 const DUPLICATE_PREFIX_CHANCE = 15; // %
 
 export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
-  const prefixes = await loadPrefixes();
+  await loadPrefixes(); // tier 인덱스 보장
   // 레벨 스케일 팩터: lv35 = 1.0 기준
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
 
@@ -85,9 +116,7 @@ export async function generatePrefixes(itemLevel: number = 35): Promise<{ prefix
     const tier = rollTier();
     // 첫 번째는 무조건 새 스탯, 이후는 확률적으로 중복 허용
     const allowDuplicate = i > 0 && Math.random() * 100 < DUPLICATE_PREFIX_CHANCE;
-    const candidates = allowDuplicate
-      ? prefixes.filter(p => p.tier === tier)
-      : prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
+    const candidates = tierCandidates(tier, allowDuplicate ? null : usedStatKeys);
     if (candidates.length === 0) continue;
 
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
@@ -116,10 +145,10 @@ export async function generateSinglePrefixOfTier(
   tier: number,
   excludeStatKeys: Set<string> = new Set(),
 ): Promise<{ prefixId: number; statKey: string; value: number } | null> {
-  const prefixes = await loadPrefixes();
+  await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
-  let candidates = prefixes.filter(p => p.tier === tier && !excludeStatKeys.has(p.stat_key));
-  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+  let candidates = tierCandidates(tier, excludeStatKeys);
+  if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
   if (candidates.length === 0) return null;
   const picked = candidates[Math.floor(Math.random() * candidates.length)];
   const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -131,7 +160,7 @@ export async function generateSinglePrefixOfTier(
 export async function generate3PrefixesT1T2(
   itemLevel: number,
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
-  const prefixes = await loadPrefixes();
+  await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
   const prefixIds: number[] = [];
   const bonusStats: Record<string, number> = {};
@@ -139,8 +168,8 @@ export async function generate3PrefixesT1T2(
   let maxTier = 0;
   for (let i = 0; i < 3; i++) {
     const tier = Math.random() < 0.5 ? 1 : 2;
-    let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
-    if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+    let candidates = tierCandidates(tier, usedStatKeys);
+    if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -159,7 +188,7 @@ export async function generateGuaranteed3Prefixes(
   itemLevel: number,
   minTier: 1 | 2 = 1,
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
-  const prefixes = await loadPrefixes();
+  await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
   const prefixIds: number[] = [];
   const bonusStats: Record<string, number> = {};
@@ -168,8 +197,8 @@ export async function generateGuaranteed3Prefixes(
   const tierFn = minTier >= 2 ? rollTierMinT2 : rollTier;
   for (let i = 0; i < 3; i++) {
     const tier = tierFn();
-    let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
-    if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+    let candidates = tierCandidates(tier, usedStatKeys);
+    if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -195,10 +224,10 @@ export async function rerollSinglePrefixForcedTier(
   if (targetIndex < 0 || targetIndex >= currentPrefixIds.length) {
     throw new Error('invalid prefix index');
   }
-  const prefixes = await loadPrefixes();
+  await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
 
-  const oldPrefix = prefixes.find(p => p.id === currentPrefixIds[targetIndex]);
+  const oldPrefix = prefixesById?.get(currentPrefixIds[targetIndex]);
   if (!oldPrefix) throw new Error('old prefix not found in cache');
   const oldKey = oldPrefix.stat_key;
   const uniqueVal = uniqueStats?.[oldKey] || 0;
@@ -208,12 +237,12 @@ export async function rerollSinglePrefixForcedTier(
   const otherKeys = new Set<string>();
   for (let i = 0; i < currentPrefixIds.length; i++) {
     if (i === targetIndex) continue;
-    const p = prefixes.find(x => x.id === currentPrefixIds[i]);
+    const p = prefixesById?.get(currentPrefixIds[i]);
     if (p) otherKeys.add(p.stat_key);
   }
   // 강제 티어 후보 (다른 슬롯 stat 과 안 겹침)
-  let candidates = prefixes.filter(p => p.tier === forceTier && !otherKeys.has(p.stat_key));
-  if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === forceTier);
+  let candidates = tierCandidates(forceTier, otherKeys);
+  if (candidates.length === 0) candidates = prefixesByTier?.get(forceTier) ?? [];
   if (candidates.length === 0) throw new Error(`no T${forceTier} prefix available`);
 
   const picked = candidates[Math.floor(Math.random() * candidates.length)];
@@ -254,7 +283,7 @@ export async function rerollSinglePrefixT3(
 export async function generateT3Guaranteed3Prefixes(
   itemLevel: number,
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number>; maxTier: number }> {
-  const prefixes = await loadPrefixes();
+  await loadPrefixes();
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
   const prefixIds: number[] = [];
   const bonusStats: Record<string, number> = {};
@@ -262,7 +291,7 @@ export async function generateT3Guaranteed3Prefixes(
   let maxTier = 0;
 
   // 슬롯 0: T3 강제
-  const t3Cands = prefixes.filter(p => p.tier === 3);
+  const t3Cands = prefixesByTier?.get(3) ?? [];
   if (t3Cands.length > 0) {
     const picked = t3Cands[Math.floor(Math.random() * t3Cands.length)];
     const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -276,8 +305,8 @@ export async function generateT3Guaranteed3Prefixes(
   // 슬롯 1, 2: 일반 분포 (rollTier — T1 90% / T2 9% / T3 0.9% / T4 0.1%)
   for (let i = 0; i < 2; i++) {
     const tier = rollTier();
-    let candidates = prefixes.filter(p => p.tier === tier && !usedStatKeys.has(p.stat_key));
-    if (candidates.length === 0) candidates = prefixes.filter(p => p.tier === tier);
+    let candidates = tierCandidates(tier, usedStatKeys);
+    if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     const baseValue = picked.min_val + Math.floor(Math.random() * (picked.max_val - picked.min_val + 1));
@@ -298,16 +327,16 @@ export async function rerollPrefixValues(
 ): Promise<{ prefixIds: number[]; bonusStats: Record<string, number> }> {
   // 캐시가 stale 하여 새로 추가된 prefix가 누락된 경우를 대비해
   // prefixIds 중 하나라도 캐시에서 빠져 있으면 캐시 재로딩.
-  let prefixes = await loadPrefixes();
-  if (prefixIds.some(pid => !prefixes.find(x => x.id === pid))) {
+  await loadPrefixes();
+  if (prefixIds.some(pid => !prefixesById?.has(pid))) {
     clearPrefixCache();
-    prefixes = await loadPrefixes();
+    await loadPrefixes();
   }
   const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
   const { targetIndex, prevStats } = options;
 
   const rollOne = (pid: number): { stat: string; value: number } | null => {
-    const p = prefixes.find(x => x.id === pid);
+    const p = prefixesById?.get(pid);
     if (!p) return null;
     const baseValue = p.min_val + Math.floor(Math.random() * (p.max_val - p.min_val + 1));
     const value = Math.max(1, Math.round(baseValue * levelScale));
@@ -317,15 +346,17 @@ export async function rerollPrefixValues(
   // 단일 인덱스 재굴림 — 기존 prevStats는 방어적으로 보존
   if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < prefixIds.length && prevStats) {
     const targetPid = prefixIds[targetIndex];
-    const targetPrefix = prefixes.find(x => x.id === targetPid);
+    const targetPrefix = prefixesById?.get(targetPid);
     if (!targetPrefix) {
       return { prefixIds, bonusStats: { ...prevStats } };
     }
     const targetStat = targetPrefix.stat_key;
     // 동일 stat_key를 공유하는 다른 인덱스도 함께 새로 굴림 (분리 불가)
-    const sharedIndices = prefixIds
-      .map((pid, i) => ({ pid, i }))
-      .filter(({ pid }) => prefixes.find(x => x.id === pid)?.stat_key === targetStat);
+    const sharedIndices: { pid: number; i: number }[] = [];
+    for (let i = 0; i < prefixIds.length; i++) {
+      const pid = prefixIds[i];
+      if (prefixesById?.get(pid)?.stat_key === targetStat) sharedIndices.push({ pid, i });
+    }
 
     const next: Record<string, number> = { ...prevStats };
     let accumulated = 0;
@@ -344,7 +375,7 @@ export async function rerollPrefixValues(
   // 먼저 이번에 굴릴 stat_key 들을 0 으로 초기화 (굴림 성공 시 누적 대체)
   const rolledKeys = new Set<string>();
   for (const pid of prefixIds) {
-    const p = prefixes.find(x => x.id === pid);
+    const p = prefixesById?.get(pid);
     if (p) rolledKeys.add(p.stat_key);
   }
   for (const k of rolledKeys) bonusStats[k] = 0;
@@ -369,24 +400,26 @@ export async function rerollPrefixValues(
 // prefix ID 배열 → 접두사 정보 조회
 export async function resolvePrefixes(prefixIds: number[]): Promise<{ id: number; name: string; statKey: string; value: number }[]> {
   if (!prefixIds || prefixIds.length === 0) return [];
-  const prefixes = await loadPrefixes();
-  return prefixIds.map(pid => {
-    const p = prefixes.find(x => x.id === pid);
-    if (!p) return null;
+  await loadPrefixes();
+  const out: { id: number; name: string; statKey: string; value: number }[] = [];
+  for (const pid of prefixIds) {
+    const p = prefixesById?.get(pid);
+    if (!p) continue;
     // value는 DB에 저장하지 않고 min~max 중간값 사용 (표시용)
     // 실제 값은 bonusStats에 저장됨
-    return { id: p.id, name: p.name, statKey: p.stat_key, value: 0 };
-  }).filter(Boolean) as { id: number; name: string; statKey: string; value: number }[];
+    out.push({ id: p.id, name: p.name, statKey: p.stat_key, value: 0 });
+  }
+  return out;
 }
 
 // 동기 — 메모리 캐시만 사용. 캐시 미준비 시 빈 배열 (드랍 로그용 사소한 경로).
 // addItemToInventory 의 special drop 경로에서 매 호출당 SELECT name FROM item_prefixes 절감.
 export function getPrefixNamesSync(prefixIds: number[]): string[] {
   if (!prefixIds || prefixIds.length === 0) return [];
-  if (!prefixCache) return [];
+  if (!prefixesById) return [];
   const out: string[] = [];
   for (const pid of prefixIds) {
-    const p = prefixCache.find(x => x.id === pid);
+    const p = prefixesById.get(pid);
     if (p) out.push(p.name);
   }
   return out;

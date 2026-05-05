@@ -1754,33 +1754,47 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
 }
 
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
-  for (const eff of s.statusEffects) {
+  // 매 액션 틱 hotpath — in-place 감소 + reverse splice 로 새 array 할당 회피.
+  const arr = s.statusEffects;
+  let removed = false;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const eff = arr[i];
     if (eff.source === actor && eff.remainingActions > 0) {
       // 쉴드는 몬스터 턴에 감소하지 않음 — 플레이어 턴에만 감소 (아래 tickShield에서 처리)
-      if (eff.type === 'shield') continue;
       // 소환수 무한유지 (2026-04-30): summon 본체는 시간 감소 없음 (사망/맵이동 등 외부 사건으로만 해제)
-      if (eff.type === 'summon') continue;
       // 같은 액션 사이클에서 새로 적용된 효과는 즉시 감소시키지 않는다 (1틱 손실 방지)
-      if (preActionIds && !preActionIds.has(eff.id)) continue;
-      eff.remainingActions--;
+      if (eff.type !== 'shield' && eff.type !== 'summon' &&
+          (!preActionIds || preActionIds.has(eff.id))) {
+        eff.remainingActions--;
+      }
+    }
+    if (eff.remainingActions <= 0 && eff.type !== 'resurrect') {
+      arr.splice(i, 1);
+      removed = true;
     }
   }
-  s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
-  bumpEffectVer(s);
+  if (removed) bumpEffectVer(s);
 }
 
 // 쉴드 전용 턴 감소 — 플레이어 행동 시에만 호출
 function tickShield(s: ActiveSession) {
-  for (const eff of s.statusEffects) {
+  // in-place reverse splice — 매 플레이어 턴 hotpath
+  const arr = s.statusEffects;
+  let removed = false;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const eff = arr[i];
     if (eff.type === 'shield' && eff.source === 'monster' && eff.remainingActions > 0) {
       eff.remainingActions--;
       if (eff.remainingActions <= 0) {
         addLog(s, `실드 지속시간 만료`);
       }
     }
+    if (eff.remainingActions <= 0 && eff.type !== 'resurrect') {
+      arr.splice(i, 1);
+      removed = true;
+    }
   }
-  s.statusEffects = s.statusEffects.filter(e => e.remainingActions > 0 || e.type === 'resurrect');
-  bumpEffectVer(s);
+  if (removed) bumpEffectVer(s);
 }
 
 // ── 도트 데미지 처리 ──
@@ -4883,7 +4897,9 @@ async function combatTick(): Promise<void> {
       let pActLeft = perSideCap;
 
       const runMonsterAction = async (): Promise<'continue' | 'break' | 'return'> => {
-        const preMonsterActIds = new Set(s.statusEffects.filter(e => e.source === 'monster').map(e => e.id));
+        // 소스별 캐시 재사용 — filter().map() 두 번의 array 생성 회피
+        const preMonsterActIds = new Set<string>();
+        for (const e of getEffectsBySource(s).fromMonster) preMonsterActIds.add(e.id);
         const hpBeforeMon = s.monsterHp;
         const t0 = Date.now();
         monsterAction(s);
@@ -4926,7 +4942,8 @@ async function combatTick(): Promise<void> {
         }
         s.skillCooldowns = newCd;
         if (s.potionCooldown > 0) s.potionCooldown--;
-        const preAutoIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+        const preAutoIds = new Set<string>();
+        for (const e of getEffectsBySource(s).fromPlayer) preAutoIds.add(e.id);
         const hpBeforePl = s.monsterHp;
         if (crystalActive) addLog(s, '[시간의 결정] 10번째 행동 ×3 + 추가 행동!');
         // crystal flag 임시 토글 (applyDamagePrefixes 가 판독)
@@ -5956,7 +5973,8 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   }
   s.skillCooldowns = newCdMap;
 
-  const preManualIds = new Set(s.statusEffects.filter(e => e.source === 'player').map(e => e.id));
+  const preManualIds = new Set<string>();
+  for (const e of getEffectsBySource(s).fromPlayer) preManualIds.add(e.id);
   const hpBeforeManual = s.monsterHp;
   await executeSkill(s, skill);
   processDots(s, 'monster');
