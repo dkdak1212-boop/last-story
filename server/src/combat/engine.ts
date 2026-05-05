@@ -4123,8 +4123,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   for (const drop of drops) {
     const cachedItem = getCachedItem(drop.itemId);
     if (!cachedItem) continue;
-    const item = await getItemDef(drop.itemId);
-    if (!item) continue;
+    // cachedItem 이 가진 필드만 drop loop 에서 사용 — getItemDef await 호출 제거 (micro-task 부하 X 5천+회).
+    const item = cachedItem;
 
     const isEquipment = !!item.slot;
     const isUnique = item.grade === 'unique';
