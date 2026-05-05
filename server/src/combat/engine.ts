@@ -4475,41 +4475,31 @@ function spawnMonsterForSession(s: ActiveSession): void {
   perfSeg.spStatsMs += Date.now() - _tStats;
 
   // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지.
-  // 1) source 별 분리 캐시 + 소환 계열 제외 후 NON-SUMMON player effect 가 있을 때만 splice 진입.
-  //    소환사는 _playerSourcedEffects.length 가 항상 12+ 라 단순 length > 0 검사로는 fast skip 안 됨.
-  //    13k spawn/윈도우 × O(N) splice 루프 = 1.4초 폭주 회귀 (2026-05-05 측정).
-  // 2) 진입 시엔 in-place reverse splice (새 array 할당 회피).
+  // source 별 분리 캐시 (fromPlayer) 직접 순회로 제거 대상 id 만 모은 뒤,
+  // statusEffects 1-pass rebuild. 이전: K splice × O(N) = 누적 fight 길어질수록 폭주.
+  // 13k spawn/윈도우 × N(statusEffects) 폭증을 K 만 보는 단일 pass 로 환원 (2026-05-05).
   const _tFilter = Date.now();
-  let hasNonSummonPlayerEffect = false;
-  const playerSourced = s._playerSourcedEffects;
-  if (playerSourced) {
-    for (let i = 0; i < playerSourced.length; i++) {
-      const t = playerSourced[i].type;
-      if (t !== 'summon' && t !== 'summon_buff_active' && t !== 'summon_frenzy_active') {
-        hasNonSummonPlayerEffect = true; break;
-      }
-    }
-  } else {
-    for (let i = 0; i < s.statusEffects.length; i++) {
-      const e = s.statusEffects[i];
-      if (e.source !== 'player') continue;
-      const t = e.type;
-      if (t !== 'summon' && t !== 'summon_buff_active' && t !== 'summon_frenzy_active') {
-        hasNonSummonPlayerEffect = true; break;
-      }
-    }
+  const cache = getEffectsBySource(s);
+  let toRemoveIds: Set<string> | null = null;
+  for (let i = 0; i < cache.fromPlayer.length; i++) {
+    const e = cache.fromPlayer[i];
+    const t = e.type;
+    if (t === 'summon' || t === 'summon_buff_active' || t === 'summon_frenzy_active') continue;
+    if (!toRemoveIds) toRemoveIds = new Set<string>();
+    toRemoveIds.add(e.id);
   }
-  if (hasNonSummonPlayerEffect) {
-    let mutated = false;
-    for (let i = s.statusEffects.length - 1; i >= 0; i--) {
-      const e = s.statusEffects[i];
-      if (e.source !== 'player') continue;
-      const t = e.type;
-      if (t === 'summon' || t === 'summon_buff_active' || t === 'summon_frenzy_active') continue;
-      s.statusEffects.splice(i, 1);
-      mutated = true;
+  if (toRemoveIds && toRemoveIds.size > 0) {
+    const src = s.statusEffects;
+    const next: StatusEffect[] = new Array(src.length - toRemoveIds.size);
+    let n = 0;
+    for (let i = 0; i < src.length; i++) {
+      const e = src[i];
+      if (toRemoveIds.has(e.id)) continue;
+      next[n++] = e;
     }
-    if (mutated) bumpEffectVer(s);
+    next.length = n;
+    s.statusEffects = next;
+    bumpEffectVer(s);
   }
   perfSeg.spFilterMs += Date.now() - _tFilter;
 
@@ -6301,7 +6291,16 @@ export const _perfSeg = () => perfSeg;
 setInterval(() => {
   if (tickStats.count === 0 && tickStats.skipped === 0) return;
   const avg = tickStats.count > 0 ? (tickStats.totalMs / tickStats.count).toFixed(1) : '0';
-  console.log(`[combat-perf] ticks=${tickStats.count} avg=${avg}ms max=${tickStats.maxMs}ms over100ms=${tickStats.overLimit} skipped=${tickStats.skipped} sessions=${activeSessions.size}`);
+  // statusEffects 누적 진단 — avg/max 측정 (spawn filter 점진 증가 원인 추적용)
+  let efTotal = 0, efMax = 0, efSessions = 0;
+  for (const sess of activeSessions.values()) {
+    const n = sess.statusEffects.length;
+    efTotal += n;
+    if (n > efMax) efMax = n;
+    efSessions++;
+  }
+  const efAvg = efSessions > 0 ? (efTotal / efSessions).toFixed(1) : '0';
+  console.log(`[combat-perf] ticks=${tickStats.count} avg=${avg}ms max=${tickStats.maxMs}ms over100ms=${tickStats.overLimit} skipped=${tickStats.skipped} sessions=${activeSessions.size} effects(avg/max)=${efAvg}/${efMax}`);
   const seg = perfSeg;
   const segSum = seg.mActionMs + seg.pActionMs + seg.killMs + seg.deathMs + seg.pushMs;
   console.log(`[combat-perf] seg mAct=${seg.mActionMs}ms pAct=${seg.pActionMs}ms kill=${seg.killMs}ms death=${seg.deathMs}ms push=${seg.pushMs}ms summon=${seg.summonMs}ms (calls=${seg.summonCalls}) sum=${segSum}ms / total=${tickStats.totalMs}ms`);
