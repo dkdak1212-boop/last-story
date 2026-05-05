@@ -1302,9 +1302,12 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
       return;
     }
   }
-  // atk_buff / damage_reduce 자가 버프 (source='monster') — 동일 타입 재시전 시 갱신, stack 금지.
+  // atk_buff / damage_reduce / crit_guaranteed 자가 버프 (source='monster') — 동일 타입 재시전 시 갱신, stack 금지.
   // (UI 에 stack 누적되는 시각 버그 + 치게 직자 chain crit 시 미만료 stack 누적 차단.)
-  if ((effect.type === 'atk_buff' || effect.type === 'damage_reduce') && effect.source === 'monster') {
+  // crit_guaranteed: rogue 기습 매 시전 push 였는데 빠른 farming 필드에서 몬스터가 1 action 전에 죽어
+  //   source='monster' tickDown 못 받고, spawn filter 도 source='monster' 는 보존 → 영구 누적 (2026-05-05
+  //   진단: 1세션 350+ stacks). dedup 으로 단일 인스턴스 갱신만 허용.
+  if ((effect.type === 'atk_buff' || effect.type === 'damage_reduce' || effect.type === 'crit_guaranteed') && effect.source === 'monster') {
     const existing = s.statusEffects.find(e =>
       e.type === effect.type && e.source === 'monster' && e.remainingActions > 0
     );
