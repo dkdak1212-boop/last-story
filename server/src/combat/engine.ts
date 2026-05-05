@@ -1336,7 +1336,25 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
     }
   }
 
-  // dot/poison: 중첩 허용 (그대로 push)
+  // dot/poison: 중첩 허용하되 같은 source/type 으로 30 스택 cap (장기전·더미·AFK 무한 누적 차단).
+  // 2026-05-05 측정: dummy/긴 전투 세션 1세션 1497 effects → 메모리·spawn filter 폭증.
+  if ((effect.type === 'poison' || effect.type === 'dot') && effect.source === 'player') {
+    const PER_TYPE_CAP = 30;
+    let count = 0;
+    let oldestIdx = -1;
+    const arr = s.statusEffects;
+    for (let i = 0; i < arr.length; i++) {
+      const e = arr[i];
+      if (e.type === effect.type && e.source === 'player') {
+        count++;
+        if (oldestIdx < 0) oldestIdx = i;
+      }
+    }
+    if (count >= PER_TYPE_CAP && oldestIdx >= 0) {
+      // 가장 오래된 동타입 dot/poison 제거 후 새것 push (FIFO)
+      arr.splice(oldestIdx, 1);
+    }
+  }
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
   bumpEffectVer(s);
   // 도적 독의 공명: 독 스택이 적에게 쌓일 때마다 +1 게이지 (최대 10)
@@ -1753,6 +1771,12 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
   }
 }
 
+// resurrect 마커 (revive 1회 사용 표시) 만 영구 보존, 만료된 일반 resurrect 효과는 청소.
+// 이전: 모든 resurrect 가 영구 잔존해 cleric 스킬 재사용마다 누적 (1세션 1497 effects 회귀 원인 중 하나).
+function isResurrectMarker(eff: StatusEffect): boolean {
+  return eff.type === 'resurrect' && (eff.id === 'resurrect_used' || eff.id === 'gb_revive_used');
+}
+
 function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActionIds?: Set<string>) {
   // 매 액션 틱 hotpath — in-place 감소 + reverse splice 로 새 array 할당 회피.
   const arr = s.statusEffects;
@@ -1768,7 +1792,7 @@ function tickDownEffects(s: ActiveSession, actor: 'player' | 'monster', preActio
         eff.remainingActions--;
       }
     }
-    if (eff.remainingActions <= 0 && eff.type !== 'resurrect') {
+    if (eff.remainingActions <= 0 && !isResurrectMarker(eff)) {
       arr.splice(i, 1);
       removed = true;
     }
@@ -1789,7 +1813,7 @@ function tickShield(s: ActiveSession) {
         addLog(s, `실드 지속시간 만료`);
       }
     }
-    if (eff.remainingActions <= 0 && eff.type !== 'resurrect') {
+    if (eff.remainingActions <= 0 && !isResurrectMarker(eff)) {
       arr.splice(i, 1);
       removed = true;
     }
