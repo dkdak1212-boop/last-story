@@ -44,6 +44,7 @@ interface CombatSkillInfoLocal {
   cooldownMax: number;
   cooldownLeft: number;
   usable: boolean;
+  description?: string;
 }
 
 interface CombatSnapshot {
@@ -247,6 +248,10 @@ interface ActiveSession {
   // pushCombatState 핫패스용 source 별 분리 캐시 (filter() 회피)
   _playerSourcedEffects?: StatusEffect[];
   _monsterSourcedEffects?: StatusEffect[];
+  // pushCombatState 의 skills.map(...) 30+ 객체/push alloc 회피용 in-place 갱신 캐시.
+  // skills 학습/변동 시 _cachedSkillSnapsLen 와 비교해 invalidate (보통 startCombatSession 1회).
+  _cachedSkillSnaps?: CombatSkillInfoLocal[];
+  _cachedSkillSnapsLen?: number;
   actionCount: number;
   log: string[];
   skills: SkillDef[];
@@ -5233,6 +5238,38 @@ export function invalidateSessionMeta(characterId: number): void {
   if (s) s.metaDirty = true;
 }
 
+// snapshot 의 skills 배열을 in-place 갱신해 매 push 시 30+ 객체 alloc 회피.
+// id/name/cooldownMax/description 은 불변 (skill 학습 시에만 변동) → 한 번 채우고 재사용.
+// cooldownLeft / usable 만 매 호출 mutate. 동일 array reference 재사용 — socket.io serialize 는 매번 새로 직렬화하므로 클라 영향 없음.
+function buildSkillsSnapshot(s: ActiveSession): CombatSkillInfoLocal[] {
+  const len = s.skills.length;
+  let cached = s._cachedSkillSnaps;
+  if (!cached || s._cachedSkillSnapsLen !== len) {
+    cached = new Array(len);
+    for (let i = 0; i < len; i++) {
+      const sk = s.skills[i];
+      cached[i] = {
+        id: sk.id,
+        name: sk.name,
+        cooldownMax: sk.cooldown_actions,
+        cooldownLeft: 0,
+        usable: true,
+        description: sk.description,
+      };
+    }
+    s._cachedSkillSnaps = cached;
+    s._cachedSkillSnapsLen = len;
+  }
+  for (let i = 0; i < len; i++) {
+    const sk = s.skills[i];
+    const cd = s.skillCooldowns.get(sk.id) || 0;
+    const slot = cached[i];
+    slot.cooldownLeft = cd;
+    slot.usable = cd <= 0;
+  }
+  return cached;
+}
+
 // ── WebSocket Push ──
 const PUSH_THROTTLE_FULL_MS = 200; // 진입 후 1분간 — 5fps (150→200, 이벤트루프 CPU 절감)
 const PUSH_THROTTLE_LITE_MS = 1500; // 이후 — 0.67fps (1000→1500, egress·CPU 절감)
@@ -5293,14 +5330,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       speed: s.monsterSpeed,
       effects: fromPlayer,
     } : undefined,
-    skills: s.skills.map(sk => ({
-      id: sk.id,
-      name: sk.name,
-      cooldownMax: sk.cooldown_actions,
-      cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
-      usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
-      description: sk.description,
-    })),
+    skills: buildSkillsSnapshot(s),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
     exp: s.cachedExp,
@@ -6048,14 +6078,7 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
       speed: s.monsterSpeed,
       effects: s.statusEffects.filter(e => e.source === 'player'),
     } : undefined,
-    skills: s.skills.map(sk => ({
-      id: sk.id,
-      name: sk.name,
-      cooldownMax: sk.cooldown_actions,
-      cooldownLeft: s.skillCooldowns.get(sk.id) || 0,
-      usable: !s.skillCooldowns.has(sk.id) || (s.skillCooldowns.get(sk.id) || 0) <= 0,
-      description: sk.description,
-    })),
+    skills: buildSkillsSnapshot(s),
     log: s.log,
     autoPotion: { enabled: s.autoPotionEnabled, threshold: s.autoPotionThreshold },
     exp: s.cachedExp,
