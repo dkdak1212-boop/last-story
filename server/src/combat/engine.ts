@@ -4458,15 +4458,20 @@ function spawnMonsterForSession(s: ActiveSession): void {
   s.monsterSpawnAt = Date.now(); // 처치 시간 측정 시작
   perfSeg.spStatsMs += Date.now() - _tStats;
 
-  // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지
+  // 몬스터 관련 디버프 초기화 — 소환수와 소환수 버프는 유지.
+  // in-place reverse splice 로 새 array 할당 회피 (5천회/윈도우 hotpath).
+  // 제거 대상: source === 'player' 인 디버프 (단, summon* 류는 보존).
   const _tFilter = Date.now();
-  s.statusEffects = s.statusEffects.filter(e =>
-    e.source === 'monster' ||
-    e.type === 'summon' ||
-    e.type === 'summon_buff_active' ||
-    e.type === 'summon_frenzy_active'
-  );
-  bumpEffectVer(s);
+  let mutated = false;
+  for (let i = s.statusEffects.length - 1; i >= 0; i--) {
+    const e = s.statusEffects[i];
+    if (e.source !== 'player') continue;
+    const t = e.type;
+    if (t === 'summon' || t === 'summon_buff_active' || t === 'summon_frenzy_active') continue;
+    s.statusEffects.splice(i, 1);
+    mutated = true;
+  }
+  if (mutated) bumpEffectVer(s);
   perfSeg.spFilterMs += Date.now() - _tFilter;
 
   const _tClass = Date.now();
