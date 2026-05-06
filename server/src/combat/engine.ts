@@ -205,8 +205,24 @@ function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
   // 110 몬스터 heal_seal — 회복·흡혈 -70% (8초)
   if (s.healBlockUntilMs > Date.now()) heal = Math.round(heal * 0.3);
   if (heal <= 0) return 0;
+  const before = s.playerHp;
   s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+  trackHealForKeystone(s, s.playerHp - before);
   return heal;
+}
+
+// 회복 환원 키스톤 (paragon_heal_to_damage) — 실제 회복된 양만큼 healStored 누적.
+// 다음 자기 공격 시 consumeHealStoredFlat() 가 소비해 flat 데미지에 추가.
+function trackHealForKeystone(s: ActiveSession, actualHealed: number): void {
+  if (actualHealed <= 0) return;
+  if (getPassive(s, 'paragon_heal_to_damage') <= 0) return;
+  s.healStored = (s.healStored || 0) + actualHealed;
+}
+function consumeHealStoredFlat(s: ActiveSession): number {
+  if (!s.healStored || s.healStored <= 0) return 0;
+  const v = s.healStored;
+  s.healStored = 0;
+  return v;
 }
 
 // ── 활성 세션 관리 (인메모리) ──
@@ -373,6 +389,8 @@ interface ActiveSession {
     freeSlots: number[];         // 정렬된 빈 슬롯 인덱스 (앞에서 pop)
     cachedAt: number;            // ms — 30s 만료
   } | null;
+  // 차원 노드 #928 회복 환원 (paragon_heal_to_damage) — 받은 회복량을 다음 자기 공격 1회에 flat 데미지로 적용 (소모형)
+  healStored?: number;
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -1502,6 +1520,15 @@ function applyDamagePrefixes(
   cache?: DmgPrefixCache,
 ): number {
   const consume = opts.consumeOneShot !== false;
+  // 차원 노드 #928 회복 환원 — healStored 가 양수일 때 첫 hit 에서만 소비 + flat 추가.
+  // (consumeOneShot=false 인 multi_hit 추가 hit / 2회차 등에서는 소비 안 함 — 한 번에 1회)
+  if (consume) {
+    const healFlat = consumeHealStoredFlat(s);
+    if (healFlat > 0) {
+      dmg += healFlat;
+      addLog(s, `[회복 환원] +${healFlat} flat`);
+    }
+  }
   // 디버프: damage_taken_up (적이 받는 데미지 증가 — 방패 강타 등)
   if (cache) {
     if (cache.hasDtUp) dmg = Math.round(dmg * (1 + cache.dtUpVal / 100));
@@ -1797,7 +1824,9 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
     // 110 heal_seal — 흡혈 -70%
     if (s.healBlockUntilMs > Date.now()) critHeal = Math.round(critHeal * 0.3);
     if (critHeal > 0) {
+      const _before = s.playerHp;
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + critHeal);
+      trackHealForKeystone(s, s.playerHp - _before);
       addLog(s, `치명 흡혈 HP +${critHeal}`);
     }
   }
@@ -2026,13 +2055,19 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   }
   // 흡혈 회복 — 110 몬스터는 피흡 면역
   if (totalLifesteal > 0 && !s.monsterLifestealImmune) {
+    const _before = s.playerHp;
     s.playerHp = Math.min(s.playerMaxHp, s.playerHp + totalLifesteal);
+    trackHealForKeystone(s, s.playerHp - _before);
   }
   // 치유 오오라: 소환수 공격 당 플레이어 HP 회복 (% of max)
   const auraHeal = getPassive(s, 'aura_heal') * auraMultiplier + getPassive(s, 'summon_holy_heal');
   if (auraHeal > 0 && summons.length > 0) {
     const heal = Math.round(s.playerMaxHp * auraHeal / 1000); // 20 → 2% of max hp
-    if (heal > 0) s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+    if (heal > 0) {
+      const _before = s.playerHp;
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      trackHealForKeystone(s, s.playerHp - _before);
+    }
   }
   if (totalSummonDmg > 0) {
     addLog(s, `[소환수 x${summons.length}] ${totalSummonDmg.toLocaleString()} 데미지${frenzyEff ? ' (분노)' : ''}`);
@@ -2041,7 +2076,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const healSummon = summons.find(e => e.dotMult === -1); // dotMult=-1 마커로 수호수 식별
   if (healSummon) {
     const heal = Math.round(s.playerMaxHp * 0.05);
+    const _before = s.playerHp;
     s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+    trackHealForKeystone(s, s.playerHp - _before);
     addLog(s, `[수호수] HP +${heal} 회복`);
   }
   perfSeg.summonMs += Date.now() - _t0;
@@ -2348,7 +2385,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           let heal = Math.round(dmg * skill.effect_value / 100);
           const lsAmp = getPassive(s, 'lifesteal_amp');
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
+          const _before = s.playerHp;
           s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+          trackHealForKeystone(s, s.playerHp - _before);
           // 흡혈 참격: 흡수한 데미지만큼 추가 데미지
           s.monsterHp -= heal;
           addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
@@ -2358,7 +2397,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           let heal = Math.round(dmg * 50 / 100);
           const lsAmp = getPassive(s, 'lifesteal_amp');
           if (lsAmp > 0) heal = Math.round(heal * (1 + lsAmp / 100));
+          const _before = s.playerHp;
           s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+          trackHealForKeystone(s, s.playerHp - _before);
           s.monsterHp -= heal;
           addLog(s, `[${skill.name}] HP +${heal} 흡혈, 추가 데미지 +${heal}`);
         }
@@ -2412,7 +2453,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
                 let heal2 = Math.round(dmg2 * 50 / 100);
                 const lsAmp2 = getPassive(s, 'lifesteal_amp');
                 if (lsAmp2 > 0) heal2 = Math.round(heal2 * (1 + lsAmp2 / 100));
+                const _before = s.playerHp;
                 s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal2);
+                trackHealForKeystone(s, s.playerHp - _before);
                 s.monsterHp -= heal2;
                 addLog(s, `[${skill.name}] 2회차 HP +${heal2} 흡혈, 추가 ${heal2}`);
               }
@@ -3017,7 +3060,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 성직자 천상 강림: 즉시 HP 40% 회복
       if (skill.name === '천상 강림') {
         const heal = Math.round(s.playerMaxHp * 0.4);
+        const _before = s.playerHp;
         s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        trackHealForKeystone(s, s.playerHp - _before);
         addLog(s, `[${skill.name}] HP +${heal} 회복`);
       }
       break;
@@ -3027,7 +3072,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       let heal = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const healAmp = getPassive(s, 'heal_amp');
       if (healAmp > 0) heal = Math.round(heal * (1 + healAmp / 100));
+      const _before = s.playerHp;
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      trackHealForKeystone(s, s.playerHp - _before);
       // 치유의 빛: 회복량만큼 적에게 피해 (신성 데미지)
       s.monsterHp -= heal;
       addLog(s, `[${skill.name}] HP +${heal} 회복! 적에게 ${heal} 신성 피해`);
@@ -3354,7 +3401,9 @@ async function autoAction(s: ActiveSession): Promise<void> {
       if (pot) {
         const pct = potionHealPct[pot.item_id] || 20;
         const heal = Math.round(s.playerMaxHp * pct / 100);
+        const _potBefore = s.playerHp;
         s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+        trackHealForKeystone(s, s.playerHp - _potBefore);
         await consumeOneFromSlot(pot.id);
         // 캐시 즉시 동기화 — 다음 액션의 hasAnyPotion 판정 정확도 유지.
         if (cp) {
@@ -3899,6 +3948,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const before = s.playerHp;
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       const actual = s.playerHp - before;
+      trackHealForKeystone(s, actual);
       addLog(s, `[포식] HP +${actual} 회복`);
     }
   }
