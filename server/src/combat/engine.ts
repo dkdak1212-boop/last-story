@@ -2009,7 +2009,14 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const pPainAttune = (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) ? 1.5 : 1.0;
   const pLastStrike = (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && s.monsterHp / s.monsterMaxHp <= 0.30) ? 2.0 : 1.0;
   const pSoulStrike = (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) ? 3.0 : 1.0;
-  const paragonMult = pHeavyBlade * pFateLock * pPainAttune * pLastStrike * pSoulStrike;
+  // #8 암살자의 역설 — 적 HP 100% ×3 / 50% 이하 ×0.3 (종언의 기둥은 면역)
+  let pAssassinParadox = 1.0;
+  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
+    const ratio = s.monsterHp / s.monsterMaxHp;
+    if (ratio >= 1.0) pAssassinParadox = 3.0;
+    else if (ratio <= 0.5) pAssassinParadox = 0.3;
+  }
+  const paragonMult = pHeavyBlade * pFateLock * pPainAttune * pLastStrike * pSoulStrike * pAssassinParadox;
 
   let totalSummonDmg = 0;
   let totalLifesteal = 0;
