@@ -2467,7 +2467,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (skill.name === '신의 타격') {
         divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 20 - s.monsterStats.mdef * 0.5));
       } else if (skill.name === '천상 강림') {
-        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 15 - s.monsterStats.mdef * 0.5));
+        // 종언 고층(2900+)에서 mdef 차감(scaled ~200만)이 maxHp×15 보다 커서 5타 일반 hit 가
+        // floor 1 까지 떨어지는 버그 수정 — 신의 타격과 동일하게 ×20 으로 통일.
+        divineStrikeFlat = Math.max(1, Math.round(s.playerMaxHp * 20 - s.monsterStats.mdef * 0.5));
         ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
         ascensionForceCritOnLast = true;
         addLog(s, `[${skill.name}] 천상의 빛이 강림한다…`);
