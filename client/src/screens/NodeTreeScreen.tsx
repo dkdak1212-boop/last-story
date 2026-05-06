@@ -194,6 +194,8 @@ export function NodeTreeScreen() {
   const [msg, setMsg] = useState('');
   const [selected, setSelected] = useState<NodeDefinition | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  // CORE 마커 클릭 시 직업별 스탯 환산 효율 패널 표시.
+  const [coreInfoOpen, setCoreInfoOpen] = useState(false);
 
   // 뷰포트 (pan + zoom)
   const [viewBox, setViewBox] = useState({ x: -700, y: -700, w: 1400, h: 1400 });
@@ -647,9 +649,14 @@ export function NodeTreeScreen() {
             <circle key={r} cx={0} cy={0} r={r} fill="none" stroke="#222" strokeWidth={1} strokeDasharray="2,4" />
           ))}
 
-          {/* 중앙 마커 */}
-          <circle cx={0} cy={0} r={30} fill="#0a0a14" stroke="#ffaa00" strokeWidth={2} opacity={0.6} />
-          <text x={0} y={5} fill="#ffaa00" fontSize={11} fontWeight={700} textAnchor="middle">CORE</text>
+          {/* 중앙 마커 — 클릭 시 직업별 스탯 환산 효율 패널 토글 */}
+          <g
+            onClick={() => setCoreInfoOpen(v => !v)}
+            style={{ cursor: 'pointer' }}
+          >
+            <circle cx={0} cy={0} r={30} fill="#0a0a14" stroke="#ffaa00" strokeWidth={2} opacity={0.6} />
+            <text x={0} y={5} fill="#ffaa00" fontSize={11} fontWeight={700} textAnchor="middle" style={{ pointerEvents: 'none' }}>CORE</text>
+          </g>
 
           {/* 연결선 */}
           {zoneNodes.map(node => {
@@ -730,6 +737,94 @@ export function NodeTreeScreen() {
             );
           })}
         </svg>
+
+        {/* CORE 직업별 환산 효율 패널 — CORE 마커 클릭 시 토글 */}
+        {coreInfoOpen && (() => {
+          const cls = active?.className || '';
+          // 직업별 환산 효율 — formulas.ts + character.ts 직업 패시브 곱셈 합산.
+          const desc: Record<string, { title: string; lines: string[] }> = {
+            warrior: {
+              title: '전사',
+              lines: [
+                'STR 1 = ATK +0.752%',
+                '(공통 +0.5% × 전사 패시브 +0.25% 누적)',
+                'INT 환산 효율: 거의 없음',
+              ],
+            },
+            rogue: {
+              title: '도적',
+              lines: [
+                'STR 1 = ATK +0.752%',
+                '(공통 +0.5% × 도적 패시브 +0.25% 누적)',
+                'DEX = 회피·명중 (회피 cap 70%)',
+              ],
+            },
+            mage: {
+              title: '마법사',
+              lines: [
+                'INT 1 = MATK +1.0%',
+                '(공통 +0.5% × 마법사 패시브 +0.5% 누적)',
+                'STR 환산 효율: 거의 없음',
+              ],
+            },
+            cleric: {
+              title: '성직자',
+              lines: [
+                'STR 1 = ATK +0.5%',
+                'INT 1 = MATK +0.5% (양면)',
+                '직업 패시브 곱셈 보정 없음',
+              ],
+            },
+            summoner: {
+              title: '소환사',
+              lines: [
+                'INT 1 = MATK +0.5%',
+                '소환수 데미지는 별도 ×1.5 보정',
+                '직업 패시브 곱셈 보정 없음',
+              ],
+            },
+          };
+          const info = desc[cls] || { title: '클래스', lines: ['클래스 정보 없음'] };
+          return (
+            <div style={{
+              position: 'absolute', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(8,8,16,0.95)',
+              border: '2px solid #ffaa00',
+              borderRadius: 8,
+              padding: isMobile ? '12px 16px' : '16px 20px',
+              minWidth: isMobile ? 220 : 280,
+              boxShadow: '0 0 20px rgba(255,170,0,0.4)',
+              zIndex: 10,
+              pointerEvents: 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <div style={{ color: '#ffaa00', fontWeight: 800, fontSize: isMobile ? 14 : 15 }}>
+                  {info.title} — 스탯 환산
+                </div>
+                <button
+                  onClick={() => setCoreInfoOpen(false)}
+                  style={{
+                    background: 'transparent', border: 'none',
+                    color: 'var(--text-dim)', fontSize: 16, cursor: 'pointer',
+                    padding: 0, lineHeight: 1,
+                  }}
+                  aria-label="닫기"
+                >×</button>
+              </div>
+              <div style={{ fontSize: isMobile ? 12 : 13, lineHeight: 1.6, color: '#e6e6f0' }}>
+                {info.lines.map((line, i) => (
+                  <div key={i} style={{ marginBottom: 2 }}>
+                    {i === 0 ? <strong style={{ color: '#ffd76b' }}>{line}</strong> : <span style={{ color: '#c0c0c8' }}>{line}</span>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-dim)', textAlign: 'right' }}>
+                CORE 클릭하여 닫기
+              </div>
+            </div>
+          );
+        })()}
 
         {/* 컨트롤 오버레이 */}
         <div style={{
