@@ -4998,7 +4998,9 @@ async function combatTick(): Promise<void> {
 
       // 접두사: 재생(hp_regen) → 100ms당 1/10 (경과시간 스케일)
       if (s.equipPrefixes.hp_regen && s.playerHp < s.playerMaxHp && s.playerHp > 0) {
+        const _before = s.playerHp;
         s.playerHp = Math.min(s.playerMaxHp, s.playerHp + Math.round((s.equipPrefixes.hp_regen / 10) * tickScale));
+        trackHealForKeystone(s, s.playerHp - _before);
         s.dirty = true;
       }
 
