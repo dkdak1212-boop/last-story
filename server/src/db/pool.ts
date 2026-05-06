@@ -12,11 +12,10 @@ const connStr = process.env.DATABASE_URL || (process.env.RAILWAY_SERVICE_NAME ? 
 console.log('[db] DATABASE_URL', connStr ? 'is SET' : 'using localhost fallback');
 
 const POOL_OPTS = {
-  max: 160,                       // 2026-05-01: PG max_connections=300 인데 deploy 직후 잔존 인스턴스 + 신규 인스턴스
-                                  // 동시 운영으로 53300 재발. 풀 200→160 강하 + idleTimeout 5s 로 burst 후 빠르게 회수.
-                                  // 잔존 풀 ~80 + 신규 160 = 240 마진 60 안전.
-  min: 5,                         // 항상 5개 warm — burst 시 cold-start 지연 제거.
-  idleTimeoutMillis: 5_000,       // idle 5s — 잔존 인스턴스와 충돌 회피하기 위해 빠른 회수.
+  max: 180,                       // 2026-05-07: 세션 ~170 부하에서 idle=0 일시 포화 + over100ms spike 다발.
+                                  // 160→180 보수 증가. 잔존(80) + 신규(180) = 260, PG max_connections=300 마진 40.
+  min: 20,                        // 5→20: burst 시 cold-start 지연 (~50-100ms) 차단. always warm 20.
+  idleTimeoutMillis: 10_000,      // 5s→10s: 지속 부하 중 warm pool 유지. idle 회수는 늦지만 burst 흡수 향상.
   connectionTimeoutMillis: 10_000,
   statement_timeout: 10_000,      // 15s → 10s (느린 쿼리 빠른 취소)
   query_timeout: 10_000,
