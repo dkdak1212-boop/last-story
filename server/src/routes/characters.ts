@@ -4,7 +4,7 @@ import { query } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { getStartingStats } from '../game/classes.js';
 import { getEffectiveStats, loadCharacter } from '../game/character.js';
-import { getCombatHp } from '../combat/engine.js';
+import { getCombatHp, cleanupCharacterFromCombat } from '../combat/engine.js';
 
 const router = Router();
 router.use(authRequired);
@@ -174,6 +174,15 @@ router.delete('/:characterId', async (req: AuthedRequest, res: Response) => {
       const remaining = Math.ceil((10 * 60 * 1000 - elapsed) / 1000);
       return res.status(429).json({ error: `캐릭터 삭제 쿨타임: ${remaining}초 후 다시 시도해주세요.` });
     }
+  }
+
+  // 활성 사냥 세션 + drops 큐 + recentStart 등 모든 in-memory 전투 상태 정리.
+  // (DELETE FROM characters 직후 1초 배치에 잔여 drops 가 들어가 FK violation 발생하면
+  //  같은 배치의 다른 유저 drops 까지 ROLLBACK 되므로 사전 차단 필수.)
+  try {
+    await cleanupCharacterFromCombat(cid);
+  } catch (err) {
+    console.warn(`[char-delete] cleanup err char=${cid}`, err);
   }
 
   // FK 참조 정리

@@ -647,11 +647,35 @@ export async function flushPendingDrops(): Promise<void> {
   pendingDrops.clear();
   if (all.length === 0) return;
 
+  // 삭제된 캐릭의 잔존 drops 사전 차단 — distinct character_ids 중 존재 확인.
+  // FK 위반 단 1건이 발생하면 멀티-row INSERT 전체가 ROLLBACK 되어 다른 유저 drops 까지 유실됨.
+  // (캐릭 삭제 후 session 메모리에 누적된 enqueueDrop 잔여로 23503 반복 — char 2516 이슈 패턴)
+  const distinctIds = Array.from(new Set(all.map(d => d.characterId)));
+  let validIds: Set<number> = new Set(distinctIds);
+  if (distinctIds.length > 0) {
+    try {
+      const rs = await query<{ id: number }>(
+        `SELECT id FROM characters WHERE id = ANY($1::int[])`,
+        [distinctIds]
+      );
+      validIds = new Set(rs.rows.map(r => r.id));
+      const invalid = distinctIds.filter(id => !validIds.has(id));
+      if (invalid.length > 0) {
+        console.warn(`[drops-batch] 삭제된 캐릭 ${invalid.length}개 drops 폐기 (id=${invalid.slice(0, 5).join(',')}${invalid.length > 5 ? ',...' : ''})`);
+      }
+    } catch (err) {
+      console.error('[drops-batch] character validity check err', err);
+      // 검증 실패 시 그대로 진행 (정상 캐릭들이라도 INSERT 시도)
+    }
+  }
+  const valid = all.filter(d => validIds.has(d.characterId));
+  if (valid.length === 0) return;
+
   // character_inventory 멀티-row INSERT
   const valuesParts: string[] = [];
   const params: unknown[] = [];
   let idx = 1;
-  for (const d of all) {
+  for (const d of valid) {
     const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++, p5 = idx++, p6 = idx++, p7 = idx++, p8 = idx++;
     valuesParts.push(`($${p1}, $${p2}, $${p3}, $${p4}, $${p5}, $${p6}::jsonb, $${p7}, $${p8})`);
     params.push(d.characterId, d.itemId, d.slot, d.qty,
@@ -671,8 +695,8 @@ export async function flushPendingDrops(): Promise<void> {
     console.error('[drops-batch] inventory INSERT err', err);
   }
 
-  // item_drop_log 배치 (특별 드랍만)
-  const logs = all.filter(d => d.shouldLog);
+  // item_drop_log 배치 (특별 드랍만) — 유효 캐릭만 (FK 가드 동일)
+  const logs = valid.filter(d => d.shouldLog);
   if (logs.length > 0) {
     const lValues: string[] = [];
     const lParams: unknown[] = [];
@@ -5987,6 +6011,36 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   // keepLocation=false (마을 귀환) 는 자동복구 안 되므로 정리해도 무방.
   if (!opts.keepLocation) {
     recentStartAt.delete(characterId);
+  }
+}
+
+// 캐릭 영구 삭제 시 호출 — 모든 in-memory 전투 상태 정리.
+// stopCombatSession 으로 활성 세션 해제 후 drops/stack drops 큐도 비워서
+// flushPendingDrops 의 FK 위반 (23503, character_inventory_character_id_fkey) 차단.
+// (캐릭 row 가 사라진 다음 1초 배치에서 잔여 drops 가 INSERT 시도하면 동일 배치의
+//  다른 유저 drops 까지 ROLLBACK 되므로 큐를 사전에 비워야 함.)
+export async function cleanupCharacterFromCombat(characterId: number): Promise<void> {
+  // 1. 활성 세션 정상 종료 (combat_sessions row 삭제 + summons 등 정리). 멱등.
+  if (activeSessions.has(characterId)) {
+    try {
+      await stopCombatSession(characterId, { keepLocation: false });
+    } catch (err) {
+      console.warn(`[char-cleanup] stopCombatSession err char=${characterId}`, err);
+    }
+  }
+  // 2. drops 큐 명시적 정리 — stop 후에도 race 로 마지막 enqueue 가 있을 수 있어 시점 보호.
+  const dropCount = pendingDrops.get(characterId)?.length || 0;
+  const stackCount = pendingStackDrops.get(characterId)?.length || 0;
+  pendingDrops.delete(characterId);
+  pendingStackDrops.delete(characterId);
+  // 3. 모든 보조 Map 도 idempotent 정리 (stopCombatSession 가 일부 처리하지만 keepLocation 분기로
+  //    빠지는 entry 가 있을 수 있음).
+  activeSessions.delete(characterId);
+  sessionStartedMap.delete(characterId);
+  sessionLastTickAt.delete(characterId);
+  recentStartAt.delete(characterId);
+  if (dropCount + stackCount > 0) {
+    console.log(`[char-cleanup] char=${characterId} 잔여 drops=${dropCount} stack=${stackCount} 폐기`);
   }
 }
 
