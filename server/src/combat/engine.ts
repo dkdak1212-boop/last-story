@@ -2116,7 +2116,17 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     // #6 paragon_time_master — 모든 쿨다운 -70%
     if (getPassive(s, 'paragon_time_master') > 0) cd = Math.floor(cd * 0.3);
     cd = Math.max(1, cd);
-    s.skillCooldowns.set(skill.id, cd);
+    // #7 paragon_madness_reload — 스킬 시전 시 50% 즉시 쿨다운 0 / 50% 쿨다운 +200% (3배 길어짐)
+    if (getPassive(s, 'paragon_madness_reload') > 0) {
+      if (Math.random() < 0.5) {
+        cd = 0;
+        addLog(s, `[광기의 재충전] 즉시 재충전`);
+      } else {
+        cd = Math.max(1, Math.round(cd * 3));
+        addLog(s, `[광기의 재충전] 쿨다운 ×3 (${cd})`);
+      }
+    }
+    if (cd > 0) s.skillCooldowns.set(skill.id, cd);
   }
   // LRU: 마지막 사용 액션 카운트 기록
   s.skillLastUsed.set(skill.id, s.actionCount);

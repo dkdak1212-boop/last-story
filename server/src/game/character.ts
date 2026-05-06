@@ -253,31 +253,8 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (ppDodge) eff.dodge = Math.min(80, eff.dodge + ppDodge);
   if (ppCri) eff.cri = Math.min(100, eff.cri + ppCri * 0.5);
 
-  // 키스톤 #7 반대의 균형 — STR↔INT, DEX↔VIT 교체 + 교체 후 ×1.5
-  // 현재 ATK = bonusAtk × (1 + str × 0.005), MATK = bonusMatk × (1 + int × 0.005) 공식.
-  // bonusAtk/bonusMatk 역산해 newStr/newInt 기반으로 재계산. DEF/MDEF/dodge/accuracy 는 stat-portion 차이 보정.
-  if (pMap.has('paragon_balance_inversion')) {
-    const oldStr = eff.str, oldInt = eff.int, oldDex = eff.dex, oldVit = eff.vit;
-    const newStr = Math.round(oldInt * 1.5);
-    const newInt = Math.round(oldStr * 1.5);
-    const newDex = Math.round(oldVit * 1.5);
-    const newVit = Math.round(oldDex * 1.5);
-    // ATK/MATK — bonusAtk/bonusMatk 역산 후 새 stat 으로 재계산 (현재 0.5%/스탯 공식)
-    const bonusAtkImplied = eff.atk / Math.max(0.001, 1 + oldStr * 0.005);
-    const bonusMatkImplied = eff.matk / Math.max(0.001, 1 + oldInt * 0.005);
-    eff.atk = Math.max(1, Math.round(bonusAtkImplied * (1 + newStr * 0.005)));
-    eff.matk = Math.max(1, Math.round(bonusMatkImplied * (1 + newInt * 0.005)));
-    // DEF/MDEF — vit×0.8 / int×0.5 stat-portion 차이 보정
-    eff.def = Math.round(eff.def - oldVit * 0.8 + newVit * 0.8);
-    eff.mdef = Math.round(eff.mdef - oldInt * 0.5 + newInt * 0.5);
-    eff.dodge = Math.min(70, Math.round(eff.dodge - oldDex * 0.2 + newDex * 0.2));
-    eff.accuracy = Math.min(100, Math.round(eff.accuracy - oldDex * 0.3 + newDex * 0.3));
-    // 표기 stat 도 swap 적용 — 상태창에 변환된 값 표시
-    eff.str = newStr;
-    eff.int = newInt;
-    eff.dex = newDex;
-    eff.vit = newVit;
-  }
+  // 키스톤 #7 광기의 재충전 — 스탯 영향 없음. 스킬 cd 부여 시점에 50% / 50% 분기 (engine.ts 처리).
+  // (구 '반대의 균형' 의 stat swap 로직 제거 — 키 자체도 paragon_madness_reload 로 변경.)
   // 키스톤 #1 철의 반사 — 회피 0, 회피 1 = 방어 1
   if (pMap.has('paragon_iron_reflexes')) {
     eff.def += eff.dodge;
