@@ -393,6 +393,8 @@ interface ActiveSession {
   } | null;
   // 차원 노드 #928 회복 환원 (paragon_heal_to_damage) — 받은 회복량을 다음 자기 공격 1회에 flat 데미지로 적용 (소모형)
   healStored?: number;
+  // 궁수 archerRange 스택 — 처치마다 +1, 최대 (20 + archer_range_max passive). 데미지 ×(1 + stack × archer_range_amp%)
+  archerRange?: number;
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -1713,6 +1715,19 @@ function applyDamagePrefixes(
         addLog(s, `[그림자 처형] 즉사!`);
       }
     }
+  }
+  // 궁수 archerRange 스택 — 처치 누적 ×(1 + stack × amp%/스택)
+  if (s.className === 'archer' && (s.archerRange || 0) > 0) {
+    const ampPerStack = getPassive(s, 'archer_range_amp') || 1;
+    const ampMul = 1 + (s.archerRange || 0) * ampPerStack / 100;
+    if (ampMul > 1) dmg = Math.round(dmg * ampMul);
+  }
+  // 궁수 — 적이 dodge 보유 중이면 데미지 +25%, accuracy_debuff/CC 적이면 +20% (시그니처)
+  if (s.className === 'archer') {
+    const enemyDodge = s.monsterStats?.dodge || 0;
+    if (enemyDodge > 0) dmg = Math.round(dmg * 1.25);
+    const enemyConfused = hasEffect(s, 'player', 'accuracy_debuff') || hasEffect(s, 'player', 'confuse');
+    if (enemyConfused) dmg = Math.round(dmg * 1.20);
   }
   // 차원 노드 #928 회복 환원 — 모든 multiplier 적용 후 순수 flat 으로 추가 (양성 피드백 차단).
   // (consumeOneShot=false 인 multi_hit 추가 hit / 2회차 등에서는 소비 안 함 — 한 번에 1회)
@@ -3900,6 +3915,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.dirty = true;
     return;
   }
+  // 궁수 archerRange 스택 — 처치마다 +1 (max 20 + archer_range_max 보너스)
+  if (s.className === 'archer') {
+    const baseMax = 20 + getPassive(s, 'archer_range_max');
+    s.archerRange = Math.min(baseMax, (s.archerRange || 0) + 1);
+  }
 
   // 종언의 기둥 — 골드/EXP/드랍/퀘스트/업적 등 일반 사냥 보상 일체 스킵.
   // 층 진행 + 보스층 클리어 시 풀회복 + 다음 층 스폰만 처리.
@@ -4726,6 +4746,8 @@ function spawnMonsterForSession(s: ActiveSession): void {
 
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
+  // 궁수 archerRange 스택 — 사망 시 0 으로 리셋
+  if (s.className === 'archer') s.archerRange = 0;
   // 종언의 기둥 — 부활 시스템 없음 (인터뷰 C3.1). 1층 회귀 + paused=true + 마을 이동.
   if (s.fieldId === ENDLESS_FIELD_ID) {
     const reachedFloor = s.endlessFloor;
