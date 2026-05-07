@@ -463,7 +463,7 @@ export function NodeTreeScreen() {
   }
 
   async function resetAll() {
-    if (!active || loading || !confirm('전체 리셋 (5,000G)')) return;
+    if (!active || loading || !confirm('직업 노드 전체 리셋 (5,000G)\n차원의 정수 노드는 유지됩니다.')) return;
     setLoading(true);
     try {
       const r = await api<{ refundedPoints: number; refundedParagonPoints: number }>(
@@ -967,7 +967,7 @@ export function NodeTreeScreen() {
           flex: isMobile ? '1 1 30%' : '0 0 auto',
           minHeight: isMobile ? 40 : 'auto',
           color: 'var(--danger)', fontWeight: 600,
-        }}>전체 리셋 5,000G</button>
+        }}>직업 노드 리셋 5,000G</button>
       </div>
 
       {/* 노드 프리셋 */}
