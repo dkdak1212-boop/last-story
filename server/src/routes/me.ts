@@ -43,17 +43,38 @@ router.post('/delete', async (req: AuthedRequest, res: Response) => {
         'announcement_reads', 'board_posts', 'board_comments', 'board_reports',
         'pvp_battles', 'pvp_cooldowns', 'guild_boss_runs', 'guild_boss_guild_daily',
         'guild_boss_weekly_settlements', 'guild_boss_shop_purchases',
-        'world_event_participants',
+        'world_event_participants', 'premium_purchases',
       ];
       for (const t of cleanupTables) {
-        try { await query(`DELETE FROM ${t} WHERE character_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+        try { await query(`DELETE FROM ${t} WHERE character_id = ANY($1::int[])`, [charIds]); } catch { /* table or column missing */ }
       }
+      // auctions: 판매중이면 삭제, 입찰자면 NULL 처리 (FK NOT NULL)
+      try { await query(`DELETE FROM auctions WHERE seller_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      try { await query(`UPDATE auctions SET current_bidder_id = NULL WHERE current_bidder_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // party_invites: from/to 양쪽
+      try { await query(`DELETE FROM party_invites WHERE to_id = ANY($1::int[]) OR from_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // pvp_battles.winner_id 는 SET NULL
+      try { await query(`UPDATE pvp_battles SET winner_id = NULL WHERE winner_id = ANY($1::int[])`, [charIds]); } catch { /* ignore */ }
+      // guilds.leader_id — 캐릭터가 길드장이면 해당 길드 자체 삭제 (leader_id 는 NOT NULL)
+      try {
+        const gr = await query<{ id: number }>(`SELECT id FROM guilds WHERE leader_id = ANY($1::int[])`, [charIds]);
+        if (gr.rowCount && gr.rowCount > 0) {
+          const gids = gr.rows.map(r => r.id);
+          await query(`DELETE FROM guild_members WHERE guild_id = ANY($1::int[])`, [gids]);
+          await query(`DELETE FROM guilds WHERE id = ANY($1::int[])`, [gids]);
+        }
+      } catch { /* ignore */ }
     }
     const userCleanup = ['user_login_log', 'premium_purchases'];
     for (const t of userCleanup) {
       try { await query(`DELETE FROM ${t} WHERE user_id = $1`, [userId]); } catch { /* ignore */ }
     }
     await query('DELETE FROM users WHERE id = $1', [userId]);
+    // auth 캐시 정리 — SERIAL 재사용 시 구 created_at 가 남아있으면 오판 가능
+    try {
+      const { invalidateUserCreatedAtCache } = await import('../middleware/auth.js');
+      invalidateUserCreatedAtCache(userId);
+    } catch { /* ignore */ }
     res.json({ ok: true, deletedUser: chk.rows[0].username });
   } catch (e) {
     console.error('[me] self-delete err', e);
