@@ -49,7 +49,7 @@ function StatSummary({ stats, enhanceLevel, quality = 0 }: { stats: Partial<Stat
   if (!stats) return null;
   const mult = getEnhanceMult(enhanceLevel) + quality / 100;
   const parts: string[] = [];
-  const map: Record<string, string> = { atk: '공', matk: '마공', def: '방', hp: 'HP', str: '힘', int: '지', vit: '체', spd: '속', cri: '크리' };
+  const map: Record<string, string> = { atk: '공', matk: '마공', def: '방', hp: 'HP', str: '힘', dex: '민', int: '지', vit: '체', spd: '속', cri: '크리' };
   for (const [k, v] of Object.entries(stats)) {
     if (v && map[k]) parts.push(`${map[k]}${Math.round((v as number) * mult)}`);
   }
