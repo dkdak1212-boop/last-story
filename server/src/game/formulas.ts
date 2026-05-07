@@ -54,24 +54,30 @@ export function sumNodeStats(nodeEffects: { type: string; stat?: string; key?: s
 }
 
 // 기본 스탯 + 장비 스탯 + 노드 스탯 → 유효 스탯
+// className 옵션: archer 전용 보정 (DEX 가 ATK·cri 양쪽 기여)
 export function computeEffective(
   base: Stats,
   baseMaxHp: number,
   equipBonus: Partial<Stats> & { bonusDodge?: number; bonusAccuracy?: number; bonusAtk?: number; bonusMatk?: number; bonusDef?: number; bonusMdef?: number; bonusHp?: number },
-  nodeBonus: Partial<Stats> = {}
+  nodeBonus: Partial<Stats> = {},
+  className?: string
 ): EffectiveStats {
   const str = base.str + (equipBonus.str ?? 0) + (nodeBonus.str ?? 0);
   const dex = base.dex + (equipBonus.dex ?? 0) + (nodeBonus.dex ?? 0);
   const intl = base.int + (equipBonus.int ?? 0) + (nodeBonus.int ?? 0);
   const vit = base.vit + (equipBonus.vit ?? 0) + (nodeBonus.vit ?? 0);
   const spd = base.spd + (equipBonus.spd ?? 0) + (nodeBonus.spd ?? 0);
-  const cri = base.cri + (equipBonus.cri ?? 0) + (nodeBonus.cri ?? 0);
+  // 궁수: cri += DEX × 0.05 (자동 보너스)
+  const archerCriBonus = className === 'archer' ? Math.floor(dex * 0.05) : 0;
+  const cri = base.cri + (equipBonus.cri ?? 0) + (nodeBonus.cri ?? 0) + archerCriBonus;
 
   const equipVit = (equipBonus.vit ?? 0) + (nodeBonus.vit ?? 0);
   const maxHp = baseMaxHp + equipVit * 20 + (equipBonus.bonusHp ?? 0);
 
   // STR: ATK 의 % 증폭 (스탯당 +0.5%) — flat 기여 제거. 무기/장비 ATK 가 핵심 베이스.
-  const atk = Math.max(1, Math.round((equipBonus.bonusAtk ?? 0) * (1 + str * 0.005)));
+  // 궁수: DEX 도 ATK 에 +0.5%/스탯 기여 (DEX 주력 클래스)
+  const atkStrPct = str * 0.005 + (className === 'archer' ? dex * 0.005 : 0);
+  const atk = Math.max(1, Math.round((equipBonus.bonusAtk ?? 0) * (1 + atkStrPct)));
   // INT: MATK 의 % 증폭 (스탯당 +0.5%) — flat 기여 제거. STR 과 동일 정책.
   const matk = Math.max(1, Math.round((equipBonus.bonusMatk ?? 0) * (1 + intl * 0.005)));
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);

@@ -1,6 +1,9 @@
-// 4직업 시작 스탯 — v0.9
+// 4직업 시작 스탯 — v0.9 / archer 1차 어드민 전용 추가 (2026-05-07)
 
-export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer';
+
+// 어드민 전용 직업 — `/characters/create` 에서 별도 검증, 클라에서 hide.
+export const ADMIN_ONLY_CLASSES: Set<ClassName> = new Set(['archer']);
 
 export interface Stats {
   str: number;
@@ -44,6 +47,12 @@ export const CLASS_START: Record<ClassName, ClassStart> = {
     stats: { str: 4,  dex: 6,  int: 18, vit: 14, spd: 200, cri: 5 },
     maxHp: 200,
     description: '소환수가 대신 싸우는 군주, INT 특화',
+  },
+  // 1차 어드민 전용 — DEX 주력, cri 베이스 강화 (25), 가상 사거리 stack 시스템.
+  archer: {
+    stats: { str: 6,  dex: 18, int: 5,  vit: 14, spd: 200, cri: 25 },
+    maxHp: 200,
+    description: '카이팅 저격수 — 처치 누적으로 사거리 강화',
   },
 };
 

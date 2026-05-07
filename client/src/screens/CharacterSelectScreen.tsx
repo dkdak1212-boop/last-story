@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/characterStore';
+import { useMeStore } from '../stores/meStore';
 import { ClassIcon } from '../components/ui/ClassIcon';
 import type { ClassName } from '../types';
 
-const CLASSES: { name: ClassName; label: string; desc: string }[] = [
+interface ClassEntry { name: ClassName; label: string; desc: string; adminOnly?: boolean }
+const ALL_CLASSES: ClassEntry[] = [
   { name: 'warrior', label: '전사', desc: '압도적 물리, 흡혈 지속전투' },
   { name: 'mage', label: '마법사', desc: '원소 파괴 + 게이지 조작 제어' },
   { name: 'cleric', label: '성직자', desc: '보조/공격 양면, 신성 실드와 심판' },
   { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
   { name: 'summoner', label: '소환사', desc: '소환수가 대신 싸우는 군주, INT 특화' },
+  { name: 'archer' as ClassName, label: '궁수', desc: '카이팅 저격수 — 처치 누적으로 사거리 강화 (어드민 전용)', adminOnly: true },
 ];
 
 export function CharacterSelectScreen() {
   const nav = useNavigate();
   const { characters, fetchCharacters, selectCharacter, createCharacter, deleteCharacter } = useCharacterStore();
+  const isAdmin = useMeStore(s => s.me?.isAdmin ?? false);
+  // 어드민 전용 직업은 비-어드민에게 hide
+  const CLASSES = ALL_CLASSES.filter(c => !c.adminOnly || isAdmin);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [pickedClass, setPickedClass] = useState<ClassName>('warrior');

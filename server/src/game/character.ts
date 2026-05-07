@@ -163,7 +163,7 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   const gskills = await getGuildSkillsForCharacter(char.id);
   const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
   const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
-  const eff = computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus);
+  const eff = computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus, char.class_name);
 
   // 노드 패시브 적용 (전투 엔진 startCombatSession과 동일)
   const passiveEffects = nodeEffects.filter(e => e.type === 'passive' && e.key && e.value);

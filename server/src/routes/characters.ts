@@ -13,7 +13,7 @@ router.use(authRequired);
 const NICKNAME_RE = /^[가-힣A-Za-z0-9]{2,12}$/;
 const createSchema = z.object({
   name: z.string().min(2).max(12).regex(NICKNAME_RE, '닉네임은 공백·특수문자 없이 한글/영문/숫자 2~12자만 가능합니다.'),
-  className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner']),
+  className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner', 'archer']),
 });
 
 // 목록
@@ -92,6 +92,12 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
     'SELECT is_admin, max_character_slots, last_char_deleted_at FROM users WHERE id = $1', [req.userId]
   );
   const isAdmin = !!userR.rows[0]?.is_admin;
+
+  // 어드민 전용 직업 가드 — 비-어드민이 archer 등 시도 시 차단
+  const { ADMIN_ONLY_CLASSES } = await import('../game/classes.js');
+  if (ADMIN_ONLY_CLASSES.has(className as any) && !isAdmin) {
+    return res.status(403).json({ error: '해당 직업은 어드민 전용입니다' });
+  }
   const slotCap = userR.rows[0]?.max_character_slots ?? 3;
   if (!isAdmin) {
     // 삭제 후 8시간 생성 제한
