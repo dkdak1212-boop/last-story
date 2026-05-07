@@ -2520,6 +2520,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const chainAmp = getPassive(s, 'chain_action_amp');
       const bladeStormAmp = getPassive(s, 'blade_storm_amp');
       const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
+      // 궁수 화살 관통 — arrow_pierce 활성 시 다타 스킬 한정 적 방어 +20% 추가 무시
+      const arrowPierceActive = s.className === 'archer' && getPassive(s, 'arrow_pierce') > 0;
+      const archerMonsterStats = arrowPierceActive
+        ? { ...s.monsterStats, def: Math.round(s.monsterStats.def * 0.8), mdef: Math.round(s.monsterStats.mdef * 0.8) }
+        : s.monsterStats;
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       // 캐스트당 1회 STABLE 분기 캐시 (천 개의 칼날 7회 / 무쌍난무 3타 ×최대 2회 / 신의 타격 등)
       const _prefixCache = buildDmgPrefixCache(s);
@@ -2557,7 +2562,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const flatThisHit = isAscensionFinal ? multiHitFlat + ascensionFinalFlat : multiHitFlat;
           // 천상 강림 마지막 1타 강제 치명 — criBonus 1000 으로 사실상 100% 발동
           const criBonus = isAscensionFinal ? 1000 : 0;
-          const d = calcDamage(s.playerStats, s.monsterStats, stormMult, useMatk, flatThisHit, criBonus);
+          const d = calcDamage(s.playerStats, archerMonsterStats, stormMult, useMatk, flatThisHit, criBonus);
           const hitLabel = passes === 2 ? `${pass + 1}회차 ${i + 1}타` : (isAscensionFinal ? '폭격' : `${i + 1}타`);
           if (d.miss) {
             addLog(s, `[${skill.name}] ${hitLabel} 빗나감!`);
