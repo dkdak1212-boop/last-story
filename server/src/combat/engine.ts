@@ -395,6 +395,10 @@ interface ActiveSession {
   healStored?: number;
   // 궁수 archerRange 스택 — 처치마다 +1, 최대 (20 + archer_range_max passive). 데미지 ×(1 + stack × archer_range_amp%)
   archerRange?: number;
+  // 궁수 저격수의 호흡 (precise_chain) — 연속 처치 streak (0~5). cap 5, 피격/사망 시 0.
+  // playerStats.cri 에 streak × precise_chain 만큼 누적 적용 (트랜시언트 보너스).
+  archerCritStreak?: number;
+  archerCritStreakBonus?: number; // 현재 cri 에 부가된 누적값 (피격 시 정확히 반환용)
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -3853,6 +3857,14 @@ function monsterAction(s: ActiveSession): void {
       addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? '!' : ''} (방어 ${defUsed})`);
       // 피격 → 각성 카운터 리셋
       s.ticksSinceLastHit = 0;
+      // 궁수 저격수의 호흡 — 피격 시 streak 리셋, cri 보너스 회수
+      if (s.className === 'archer' && (s.archerCritStreak || 0) > 0) {
+        const bonus = s.archerCritStreakBonus || 0;
+        if (bonus > 0) s.playerStats.cri = Math.max(0, (s.playerStats.cri || 0) - bonus);
+        s.archerCritStreak = 0;
+        s.archerCritStreakBonus = 0;
+        addLog(s, `[저격수의 호흡] 피격 — 연속 처치 초기화`);
+      }
 
       // 110 prefix: shield_on_low_hp — HP 30% 이하 시 자동 쉴드 (30초 쿨)
       const slh = s.equipPrefixes.shield_on_low_hp || 0;
@@ -3924,6 +3936,21 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   if (s.className === 'archer') {
     const baseMax = 20 + getPassive(s, 'archer_range_max');
     s.archerRange = Math.min(baseMax, (s.archerRange || 0) + 1);
+    // 저격수의 호흡 — 연속 처치 streak (cap 5), playerStats.cri 누적 적용
+    const preciseChain = getPassive(s, 'precise_chain');
+    if (preciseChain > 0) {
+      const prevStreak = s.archerCritStreak || 0;
+      const newStreak = Math.min(5, prevStreak + 1);
+      const oldBonus = s.archerCritStreakBonus || 0;
+      const newBonus = newStreak * preciseChain;
+      const delta = newBonus - oldBonus;
+      if (delta !== 0) {
+        s.playerStats.cri = Math.min(100, (s.playerStats.cri || 0) + delta);
+        s.archerCritStreakBonus = newBonus;
+      }
+      s.archerCritStreak = newStreak;
+      if (newStreak > prevStreak) addLog(s, `[저격수의 호흡] 연속 처치 ${newStreak}/5 — CRI +${newBonus}`);
+    }
   }
 
   // 종언의 기둥 — 골드/EXP/드랍/퀘스트/업적 등 일반 사냥 보상 일체 스킵.
@@ -4752,7 +4779,14 @@ function spawnMonsterForSession(s: ActiveSession): void {
 // ── 플레이어 사망 ──
 async function handlePlayerDeath(s: ActiveSession): Promise<void> {
   // 궁수 archerRange 스택 — 사망 시 0 으로 리셋
-  if (s.className === 'archer') s.archerRange = 0;
+  if (s.className === 'archer') {
+    s.archerRange = 0;
+    // 저격수의 호흡 — cri 보너스 회수
+    const bonus = s.archerCritStreakBonus || 0;
+    if (bonus > 0) s.playerStats.cri = Math.max(0, (s.playerStats.cri || 0) - bonus);
+    s.archerCritStreak = 0;
+    s.archerCritStreakBonus = 0;
+  }
   // 종언의 기둥 — 부활 시스템 없음 (인터뷰 C3.1). 1층 회귀 + paused=true + 마을 이동.
   if (s.fieldId === ENDLESS_FIELD_ID) {
     const reachedFloor = s.endlessFloor;
