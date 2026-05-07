@@ -1521,15 +1521,6 @@ function applyDamagePrefixes(
   cache?: DmgPrefixCache,
 ): number {
   const consume = opts.consumeOneShot !== false;
-  // 차원 노드 #928 회복 환원 — healStored 가 양수일 때 첫 hit 에서만 소비 + flat 추가.
-  // (consumeOneShot=false 인 multi_hit 추가 hit / 2회차 등에서는 소비 안 함 — 한 번에 1회)
-  if (consume) {
-    const healFlat = consumeHealStoredFlat(s);
-    if (healFlat > 0) {
-      dmg += healFlat;
-      addLog(s, `[회복 환원] +${healFlat} flat`);
-    }
-  }
   // 디버프: damage_taken_up (적이 받는 데미지 증가 — 방패 강타 등)
   if (cache) {
     if (cache.hasDtUp) dmg = Math.round(dmg * (1 + cache.dtUpVal / 100));
@@ -1720,6 +1711,15 @@ function applyDamagePrefixes(
         dmg = s.monsterHp + 1;
         addLog(s, `[그림자 처형] 즉사!`);
       }
+    }
+  }
+  // 차원 노드 #928 회복 환원 — 모든 multiplier 적용 후 순수 flat 으로 추가 (양성 피드백 차단).
+  // (consumeOneShot=false 인 multi_hit 추가 hit / 2회차 등에서는 소비 안 함 — 한 번에 1회)
+  if (consume) {
+    const healFlat = consumeHealStoredFlat(s);
+    if (healFlat > 0) {
+      dmg += healFlat;
+      addLog(s, `[회복 환원] +${healFlat} flat`);
     }
   }
   return dmg;
