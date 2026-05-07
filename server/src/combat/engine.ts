@@ -211,13 +211,14 @@ function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
 }
 
 // 회복 환원 키스톤 (paragon_heal_to_damage) — 의도된 회복량(pre-clamp) 누적.
-// HP 가 가득 차서 손실되는 오버 회복분도 포함. 다음 자기 공격 시 consumeHealStoredFlat() 가 소비해 flat 데미지에 추가.
-// playerMaxHp 캡 — 흡혈 ↔ 회복환원 양성 피드백(rage×3 등 multiplier 환경) 으로 dmg 가
-// 기하급수적으로 발산하던 버그 차단. 이전엔 회복 클램프가 자연 차단막이었음.
+// HP 100% 가 가득 차서 손실되는 오버 회복도 그대로 누적 → 다음 자기 공격에 flat 합산.
+// 발산 방지는 consumeHealStoredFlat 위치(applyDamagePrefixes 끝, multiplier 이후)로 보장됨 — cap 불필요.
+// 안전망: playerMaxHp × 10 한도 (수치 오버플로 방지용 sanity cap, 정상 빌드에선 절대 도달 X).
 function trackHealForKeystone(s: ActiveSession, intendedHeal: number): void {
   if (intendedHeal <= 0) return;
   if (getPassive(s, 'paragon_heal_to_damage') <= 0) return;
-  s.healStored = Math.min(s.playerMaxHp, (s.healStored || 0) + intendedHeal);
+  const sanityCap = s.playerMaxHp * 10;
+  s.healStored = Math.min(sanityCap, (s.healStored || 0) + intendedHeal);
 }
 function consumeHealStoredFlat(s: ActiveSession): number {
   if (!s.healStored || s.healStored <= 0) return 0;
