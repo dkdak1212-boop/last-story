@@ -2875,6 +2875,57 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         addEffect(s, { type: 'crit_guaranteed', value: 0, remainingActions: 2, source: 'monster' });
         addLog(s, `[${skill.name}] 다음 공격 치명타 확정!`);
       }
+      // 궁수 회피 사격 / 그림자 사격: damage_mult > 0 면 추가 데미지도 처리
+      if (skill.damage_mult > 0) {
+        dealBuffSkillDamage(s, skill, useMatk);
+      }
+      break;
+    }
+
+    // 궁수 신규 effect_type
+    case 'def_pierce': {
+      // 단일 공격 — 적 방어 effect_value% 무시하고 데미지
+      const pct = Math.min(95, skill.effect_value);
+      const pierced = { ...s.monsterStats, def: Math.round(s.monsterStats.def * (1 - pct / 100)), mdef: Math.round(s.monsterStats.mdef * (1 - pct / 100)) };
+      const d = calcDamage(s.playerStats, pierced, skill.damage_mult, useMatk, skill.flat_damage);
+      if (d.miss) { addLog(s, `[${skill.name}] 빗나감!`); break; }
+      const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
+      s.monsterHp -= dmg;
+      addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? ' (치명!)' : ''} · 방어 ${pct}% 무시`);
+      applyCritPostEffects(s, dmg, d.crit);
+      const lsR = applyPrefixLifesteal(s, dmg);
+      if (lsR > 0) addLog(s, `[흡혈] HP +${lsR}`);
+      break;
+    }
+
+    case 'cd_increase': {
+      // 침묵 — 데미지 + 적 게이지 일정 % 차감 (스킬 봉인 효과 추상화)
+      dealBuffSkillDamage(s, skill, useMatk);
+      const reducePct = Math.min(80, skill.effect_value * 10); // value=5 → 50% 차감
+      const oldGauge = s.monsterGauge;
+      s.monsterGauge = Math.max(0, Math.floor(s.monsterGauge * (1 - reducePct / 100)));
+      addLog(s, `[${skill.name}] 적 게이지 ${reducePct}% 감소 (${oldGauge} → ${s.monsterGauge})`);
+      break;
+    }
+
+    case 'self_atk_buff': {
+      // 자기 ATK +effect_value% effect_duration 행동
+      addEffect(s, { type: 'atk_buff', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] 자신 ATK +${skill.effect_value}% ${skill.effect_duration}행동`);
+      break;
+    }
+
+    case 'self_cri_buff': {
+      // 자기 cri +effect_value (스택형) effect_duration 행동 — 미사용 effect 보존
+      addEffect(s, { type: 'crit_amp_temp', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+      addLog(s, `[${skill.name}] 자신 치명 +${skill.effect_value}% ${skill.effect_duration}행동`);
+      break;
+    }
+
+    case 'crit_guaranteed': {
+      // 자기 다음 N 공격 치명타 확정 — 절대 정밀 (궁수 L80)
+      addEffect(s, { type: 'crit_guaranteed', value: 0, remainingActions: skill.effect_duration, source: 'monster' });
+      addLog(s, `[${skill.name}] ${skill.effect_duration}행동 동안 치명타 확정!`);
       break;
     }
 
