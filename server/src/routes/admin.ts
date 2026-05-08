@@ -16,7 +16,7 @@ const router = Router();
 router.get('/summoner-v2-public-check', async (_req: AuthedRequest, res: Response) => {
   try {
     const skillsR = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM skills WHERE class_name = 'summoner_v2'`);
-    const nodesR  = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%'`);
+    const nodesR  = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM node_definitions WHERE zone LIKE 'north_summoner_v2%'`);
     const migrR   = await query<{ name: string }>(`SELECT name FROM _migrations WHERE name LIKE 'summoner_v2_%' ORDER BY name`);
     const conR    = await query<{ has: boolean }>(`SELECT (pg_get_constraintdef(c.oid) LIKE '%summoner_v2%') AS has FROM pg_constraint c WHERE c.conname = 'characters_class_name_check'`);
     res.json({
@@ -40,12 +40,12 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
     // 0) FK 정리 — character_skills / character_nodes 의 summoner_v2 참조 먼저 삭제
     const delCs = await query(`DELETE FROM character_skills WHERE skill_id IN (SELECT id FROM skills WHERE class_name = 'summoner_v2')`);
     log.push(`character_skills 정리: ${delCs.rowCount}`);
-    const delCn = await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%')`);
+    const delCn = await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE zone LIKE 'north_summoner_v2%')`);
     log.push(`character_nodes 정리: ${delCn.rowCount}`);
     // 1) 기존 summoner_v2 데이터 삭제
     const delS = await query(`DELETE FROM skills WHERE class_name = 'summoner_v2'`);
     log.push(`기존 스킬 삭제: ${delS.rowCount}`);
-    const delN = await query(`DELETE FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%'`);
+    const delN = await query(`DELETE FROM node_definitions WHERE zone LIKE 'north_summoner_v2%'`);
     log.push(`기존 노드 삭제: ${delN.rowCount}`);
     // 2) _migrations 키 삭제 (재실행 가능하게)
     await query(`DELETE FROM _migrations WHERE name LIKE 'summoner_v2_skills_%' OR name LIKE 'summoner_v2_nodes_%'`);
@@ -104,74 +104,74 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
     }
     // 12시 신수
     await insertNodes('신수 small VIT', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '신수 체력 ' || n, '체력 +5', 'north_summoner_v2_holy', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"vit","value":5}]'::jsonb, n+39, -15 FROM generate_series(1, 5) n`);
+      SELECT '신수 체력 ' || n, '체력 +5', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"vit","value":5}]'::jsonb, n+39, -15 FROM generate_series(1, 5) n`);
     await insertNodes('신수 small HP', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '신수 가호 ' || n, 'HP +50', 'north_summoner_v2_holy', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"hp_flat","value":50}]'::jsonb, n+39, -16 FROM generate_series(1, 5) n`);
+      SELECT '신수 가호 ' || n, 'HP +50', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"hp_flat","value":50}]'::jsonb, n+39, -16 FROM generate_series(1, 5) n`);
     await insertNodes('신수 small 재생', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '신수 재생 ' || n, 'HP 재생 +1%/턴', 'north_summoner_v2_holy', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"hp_regen_pct","value":1}]'::jsonb, n+39, -17 FROM generate_series(1, 3) n`);
+      SELECT '신수 재생 ' || n, 'HP 재생 +1%/턴', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"hp_regen_pct","value":1}]'::jsonb, n+39, -17 FROM generate_series(1, 3) n`);
     await insertNodes('신수 medium', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('신수 VIT 증강 I',   '체력 +12', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"vit","value":12}]'::jsonb, 40, -18),
-      ('신수 VIT 증강 II',  '체력 +12', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"vit","value":12}]'::jsonb, 41, -18),
-      ('신수 HP 증강',      'HP +200', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"hp_flat","value":200}]'::jsonb, 42, -18),
-      ('신수 재생 강화',    'HP 재생 +3%/턴', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"hp_regen_pct","value":3}]'::jsonb, 43, -18),
-      ('신수 실드 강화',    '실드 효과 +30%', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"shield_amp","value":30}]'::jsonb, 44, -18),
-      ('신수 받피감 강화',  '받는 피해 -8%', 'north_summoner_v2_holy', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"damage_reduce_passive","value":8}]'::jsonb, 45, -18)`);
+      ('신수 VIT 증강 I',   '체력 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"vit","value":12}]'::jsonb, 40, -18),
+      ('신수 VIT 증강 II',  '체력 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"vit","value":12}]'::jsonb, 41, -18),
+      ('신수 HP 증강',      'HP +200', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"hp_flat","value":200}]'::jsonb, 42, -18),
+      ('신수 재생 강화',    'HP 재생 +3%/턴', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"hp_regen_pct","value":3}]'::jsonb, 43, -18),
+      ('신수 실드 강화',    '실드 효과 +30%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"shield_amp","value":30}]'::jsonb, 44, -18),
+      ('신수 받피감 강화',  '받는 피해 -8%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"damage_reduce_passive","value":8}]'::jsonb, 45, -18)`);
     await insertNodes('신수 large', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('신수 강림', 'HP +500, 실드 효과 +30%, 받는 피해 -10%, 소환수 = 수호수', 'north_summoner_v2_holy', 'large', 8, 'summoner_v2',
+      ('신수 강림', 'HP +500, 실드 효과 +30%, 받는 피해 -10%, 소환수 = 수호수', 'north_summoner_v2', 'large', 8, 'summoner_v2',
        '[{"type":"passive","key":"summoner_v2_holy","value":1},{"type":"passive","key":"hp_flat","value":500},{"type":"passive","key":"shield_amp","value":30},{"type":"stat","stat":"vit","value":30}]'::jsonb, 42, -20)`);
     // 3시 정령
     await insertNodes('정령 small INT', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '정령 지능 ' || n, '지능 +5', 'north_summoner_v2_spirit', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"int","value":5}]'::jsonb, n+49, -15 FROM generate_series(1, 5) n`);
+      SELECT '정령 지능 ' || n, '지능 +5', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"int","value":5}]'::jsonb, n+49, -15 FROM generate_series(1, 5) n`);
     await insertNodes('정령 small SPD', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '정령 신속 ' || n, '스피드 +15', 'north_summoner_v2_spirit', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"spd","value":15}]'::jsonb, n+49, -16 FROM generate_series(1, 5) n`);
+      SELECT '정령 신속 ' || n, '스피드 +15', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"spd","value":15}]'::jsonb, n+49, -16 FROM generate_series(1, 5) n`);
     await insertNodes('정령 small 진동', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '정령 진동 ' || n, '소환수 데미지 +3%', 'north_summoner_v2_spirit', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+49, -17 FROM generate_series(1, 4) n`);
+      SELECT '정령 진동 ' || n, '소환수 데미지 +3%', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+49, -17 FROM generate_series(1, 4) n`);
     await insertNodes('정령 medium', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('정령 INT 증강 I',   '지능 +12', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 50, -18),
-      ('정령 INT 증강 II',  '지능 +12', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 51, -18),
-      ('정령 SPD 증강 I',   '스피드 +50', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 52, -18),
-      ('정령 SPD 증강 II',  '스피드 +50', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 53, -18),
-      ('정령 진폭 강화',    '소환수 데미지 +12%', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 54, -18),
-      ('정령 결속',         '소환수 데미지 +12%', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 55, -18),
-      ('정령 가속',         '스피드 +60', 'north_summoner_v2_spirit', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":60}]'::jsonb, 56, -18)`);
+      ('정령 INT 증강 I',   '지능 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 50, -18),
+      ('정령 INT 증강 II',  '지능 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 51, -18),
+      ('정령 SPD 증강 I',   '스피드 +50', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 52, -18),
+      ('정령 SPD 증강 II',  '스피드 +50', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 53, -18),
+      ('정령 진폭 강화',    '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 54, -18),
+      ('정령 결속',         '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 55, -18),
+      ('정령 가속',         '스피드 +60', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"spd","value":60}]'::jsonb, 56, -18)`);
     await insertNodes('정령 large', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('정령 동조', '소환수 데미지 +25%, 스피드 +150, INT +30, 소환수 = 뇌신', 'north_summoner_v2_spirit', 'large', 8, 'summoner_v2',
+      ('정령 동조', '소환수 데미지 +25%, 스피드 +150, INT +30, 소환수 = 뇌신', 'north_summoner_v2', 'large', 8, 'summoner_v2',
        '[{"type":"passive","key":"summoner_v2_spirit","value":1},{"type":"passive","key":"summon_amp","value":25},{"type":"stat","stat":"spd","value":150},{"type":"stat","stat":"int","value":30}]'::jsonb, 53, -20)`);
     // 6시 괴수
     await insertNodes('괴수 small CRI', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '괴수 흉포 ' || n, '치명타 확률 +3%', 'north_summoner_v2_beast', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"cri","value":3}]'::jsonb, n+59, -15 FROM generate_series(1, 5) n`);
+      SELECT '괴수 흉포 ' || n, '치명타 확률 +3%', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"cri","value":3}]'::jsonb, n+59, -15 FROM generate_series(1, 5) n`);
     await insertNodes('괴수 small DEX', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '괴수 야성 ' || n, '민첩 +5', 'north_summoner_v2_beast', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"dex","value":5}]'::jsonb, n+59, -16 FROM generate_series(1, 5) n`);
+      SELECT '괴수 야성 ' || n, '민첩 +5', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"dex","value":5}]'::jsonb, n+59, -16 FROM generate_series(1, 5) n`);
     await insertNodes('괴수 small 분노', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '괴수 분노 ' || n, '소환수 데미지 +3%', 'north_summoner_v2_beast', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+59, -17 FROM generate_series(1, 4) n`);
+      SELECT '괴수 분노 ' || n, '소환수 데미지 +3%', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+59, -17 FROM generate_series(1, 4) n`);
     await insertNodes('괴수 medium', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('괴수 치명 증강 I',   '치명타 확률 +8%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"cri","value":8}]'::jsonb, 60, -18),
-      ('괴수 치명 증강 II',  '치명타 확률 +8%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"cri","value":8}]'::jsonb, 61, -18),
-      ('괴수 치명타 강화',   '치명타 데미지 +30%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":30}]'::jsonb, 62, -18),
-      ('괴수 폭증',          '소환수 데미지 +12%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 63, -18),
-      ('괴수 폭격',          '소환수 데미지 +12%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 64, -18),
-      ('괴수 회피 강화',     '민첩 +20', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"dex","value":20}]'::jsonb, 65, -18),
-      ('괴수 분쇄',          '치명타 데미지 +30%', 'north_summoner_v2_beast', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":30}]'::jsonb, 66, -18)`);
+      ('괴수 치명 증강 I',   '치명타 확률 +8%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"cri","value":8}]'::jsonb, 60, -18),
+      ('괴수 치명 증강 II',  '치명타 확률 +8%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"cri","value":8}]'::jsonb, 61, -18),
+      ('괴수 치명타 강화',   '치명타 데미지 +30%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":30}]'::jsonb, 62, -18),
+      ('괴수 폭증',          '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 63, -18),
+      ('괴수 폭격',          '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 64, -18),
+      ('괴수 회피 강화',     '민첩 +20', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"dex","value":20}]'::jsonb, 65, -18),
+      ('괴수 분쇄',          '치명타 데미지 +30%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":30}]'::jsonb, 66, -18)`);
     await insertNodes('괴수 large', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('괴수 폭주', '소환수 데미지 +30%, 치명타 +15, DEX +30, 소환수 = 대악마', 'north_summoner_v2_beast', 'large', 8, 'summoner_v2',
+      ('괴수 폭주', '소환수 데미지 +30%, 치명타 +15, DEX +30, 소환수 = 대악마', 'north_summoner_v2', 'large', 8, 'summoner_v2',
        '[{"type":"passive","key":"summoner_v2_beast","value":1},{"type":"passive","key":"summon_amp","value":30},{"type":"stat","stat":"cri","value":15},{"type":"stat","stat":"dex","value":30}]'::jsonb, 63, -20)`);
     // 9시 마도
     await insertNodes('마도 small INT', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '마도 지능 ' || n, '지능 +5', 'north_summoner_v2_arcane', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"int","value":5}]'::jsonb, n+69, -15 FROM generate_series(1, 6) n`);
+      SELECT '마도 지능 ' || n, '지능 +5', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"int","value":5}]'::jsonb, n+69, -15 FROM generate_series(1, 6) n`);
     await insertNodes('마도 small 회로', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '마도 회로 ' || n, '소환수 데미지 +3%', 'north_summoner_v2_arcane', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+69, -16 FROM generate_series(1, 5) n`);
+      SELECT '마도 회로 ' || n, '소환수 데미지 +3%', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":3}]'::jsonb, n+69, -16 FROM generate_series(1, 5) n`);
     await insertNodes('마도 small VIT', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
-      SELECT '마도 정신 ' || n, '체력 +5', 'north_summoner_v2_arcane', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"vit","value":5}]'::jsonb, n+69, -17 FROM generate_series(1, 5) n`);
+      SELECT '마도 정신 ' || n, '체력 +5', 'north_summoner_v2', 'small', 1, 'summoner_v2', '[{"type":"stat","stat":"vit","value":5}]'::jsonb, n+69, -17 FROM generate_series(1, 5) n`);
     await insertNodes('마도 medium', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('마도 INT 증강 I',   '지능 +12', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 70, -18),
-      ('마도 INT 증강 II',  '지능 +12', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 71, -18),
-      ('마도 INT 증강 III', '지능 +15', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":15}]'::jsonb, 72, -18),
-      ('마도 술식 강화 I',  '소환수 데미지 +12%', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 73, -18),
-      ('마도 술식 강화 II', '소환수 데미지 +12%', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 74, -18),
-      ('마도 술식 지속',    '버프/디버프 지속 +1행동', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"buff_extend","value":1}]'::jsonb, 75, -18),
-      ('마도 시야',         '치명타 데미지 +15%', 'north_summoner_v2_arcane', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":15}]'::jsonb, 76, -18)`);
+      ('마도 INT 증강 I',   '지능 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 70, -18),
+      ('마도 INT 증강 II',  '지능 +12', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":12}]'::jsonb, 71, -18),
+      ('마도 INT 증강 III', '지능 +15', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"stat","stat":"int","value":15}]'::jsonb, 72, -18),
+      ('마도 술식 강화 I',  '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 73, -18),
+      ('마도 술식 강화 II', '소환수 데미지 +12%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"summon_amp","value":12}]'::jsonb, 74, -18),
+      ('마도 술식 지속',    '버프/디버프 지속 +1행동', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"buff_extend","value":1}]'::jsonb, 75, -18),
+      ('마도 시야',         '치명타 데미지 +15%', 'north_summoner_v2', 'medium', 2, 'summoner_v2', '[{"type":"passive","key":"crit_dmg_amp","value":15}]'::jsonb, 76, -18)`);
     await insertNodes('마도 large', `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
-      ('마도 초월', '버프 지속 +1행동, INT +50, 소환수 데미지 +20%, 소환수 = 천상의 수호자', 'north_summoner_v2_arcane', 'large', 8, 'summoner_v2',
+      ('마도 초월', '버프 지속 +1행동, INT +50, 소환수 데미지 +20%, 소환수 = 천상의 수호자', 'north_summoner_v2', 'large', 8, 'summoner_v2',
        '[{"type":"passive","key":"summoner_v2_arcane","value":1},{"type":"passive","key":"buff_extend","value":1},{"type":"passive","key":"summon_amp","value":20},{"type":"stat","stat":"int","value":50}]'::jsonb, 73, -20)`);
 
     // 5) prerequisite 체인
@@ -179,7 +179,7 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
 DECLARE z TEXT; smalls INT[]; mediums INT[]; larges INT[]; i INT;
 BEGIN
   FOR z IN SELECT DISTINCT zone FROM node_definitions
-    WHERE zone IN ('north_summoner_v2_holy','north_summoner_v2_spirit','north_summoner_v2_beast','north_summoner_v2_arcane')
+    WHERE zone = 'north_summoner_v2'
     ORDER BY zone LOOP
     SELECT array_agg(id ORDER BY id) INTO smalls FROM node_definitions WHERE zone = z AND tier = 'small';
     SELECT array_agg(id ORDER BY id) INTO mediums FROM node_definitions WHERE zone = z AND tier = 'medium';
@@ -210,7 +210,7 @@ END $$`);
 
     // 6) 최종 카운트
     const finalSk = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM skills WHERE class_name = 'summoner_v2'`);
-    const finalNd = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%'`);
+    const finalNd = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE zone LIKE 'north_summoner_v2%'`);
     res.json({
       ok: true,
       final_skills: Number(finalSk.rows[0]?.c || 0),
@@ -241,7 +241,7 @@ router.get('/summoner-v2-check', async (_req, res) => {
     );
     const nodesR = await query<{ zone: string; count: string }>(
       `SELECT zone, COUNT(*)::text AS count FROM node_definitions
-       WHERE zone LIKE 'north_summoner_v2_%'
+       WHERE zone LIKE 'north_summoner_v2%'
        GROUP BY zone ORDER BY zone`
     );
     const constraintR = await query<{ src: string }>(
