@@ -488,6 +488,94 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
 router.get('/summoner-v2-fix-skill-types', summonerV2FixSkillTypesHandler);
 router.post('/summoner-v2-fix-skill-types', summonerV2FixSkillTypesHandler);
 
+// 종언의 기둥 1위 소환사 → eqeq 캐릭에 아이템 세팅 복제 (테스트용)
+const copyRank1SummonerHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // 1) eqeq 캐릭 찾기
+    const eqeqR = await query<{ id: number; class_name: string }>(`SELECT id, class_name FROM characters WHERE name = 'eqeq' LIMIT 1`);
+    if (!eqeqR.rowCount) return res.status(404).json({ error: 'eqeq 캐릭 없음' });
+    const eqeqId = eqeqR.rows[0].id;
+    log.push(`eqeq 캐릭 id=${eqeqId} (class=${eqeqR.rows[0].class_name})`);
+
+    // 2) 종언 highest_floor 기준 1위 소환사
+    const r1 = await query<{ id: number; name: string; floor: number }>(
+      `SELECT c.id, c.name, ep.highest_floor AS floor
+         FROM characters c JOIN endless_pillar_progress ep ON ep.character_id = c.id
+        WHERE c.class_name = 'summoner'
+        ORDER BY ep.highest_floor DESC LIMIT 1` as any
+    );
+    if (!r1.rowCount) return res.status(404).json({ error: '소환사 종언 진행 캐릭 없음' });
+    const rank1Id = r1.rows[0].id;
+    log.push(`1위 소환사: ${r1.rows[0].name} (id=${rank1Id}, 최고층 ${r1.rows[0].floor})`);
+
+    // 3) items 동적 컬럼 (id 제외)
+    const colsR = await query<{ cols: string }>(
+      `SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position) AS cols
+         FROM information_schema.columns
+        WHERE table_name = 'items' AND column_name <> 'id'` as any
+    );
+    const itemCols = colsR.rows[0]?.cols;
+    if (!itemCols) throw new Error('items 컬럼 조회 실패');
+
+    // 4) eqeq 기존 장비/인벤 정리
+    const delE = await query(`DELETE FROM character_equipped WHERE character_id = $1`, [eqeqId]);
+    const delI = await query(`DELETE FROM character_inventory WHERE character_id = $1`, [eqeqId]);
+    log.push(`eqeq 정리: 장착 ${delE.rowCount}, 인벤 ${delI.rowCount}`);
+
+    // 5) 1위 캐릭 데이터
+    const equippedR = await query<{ slot: string; item_id: number }>(
+      `SELECT slot, item_id FROM character_equipped WHERE character_id = $1`, [rank1Id]
+    );
+    const invR = await query<{ slot_index: number; item_id: number; quantity: number; enhance_level: number | null }>(
+      `SELECT slot_index, item_id, quantity, COALESCE(enhance_level, 0) AS enhance_level
+         FROM character_inventory WHERE character_id = $1`, [rank1Id]
+    );
+    log.push(`1위 캐릭: 장착 ${equippedR.rowCount}, 인벤 ${invR.rowCount}`);
+
+    // 6) 장착 아이템 복제
+    let eqOk = 0;
+    for (const e of equippedR.rows) {
+      const cR = await query<{ id: number }>(
+        `INSERT INTO items (${itemCols}) SELECT ${itemCols} FROM items WHERE id = $1 RETURNING id` as any,
+        [e.item_id]
+      );
+      const newId = cR.rows[0]?.id;
+      if (!newId) continue;
+      await query(`INSERT INTO character_equipped (character_id, slot, item_id) VALUES ($1, $2, $3)`,
+        [eqeqId, e.slot, newId]);
+      eqOk++;
+    }
+    log.push(`장착 복사: ${eqOk}/${equippedR.rowCount}`);
+
+    // 7) 인벤 아이템 복제
+    let invOk = 0;
+    for (const it of invR.rows) {
+      const cR = await query<{ id: number }>(
+        `INSERT INTO items (${itemCols}) SELECT ${itemCols} FROM items WHERE id = $1 RETURNING id` as any,
+        [it.item_id]
+      );
+      const newId = cR.rows[0]?.id;
+      if (!newId) continue;
+      try {
+        await query(`INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level) VALUES ($1, $2, $3, $4, $5)`,
+          [eqeqId, newId, it.slot_index, it.quantity, it.enhance_level]);
+        invOk++;
+      } catch (e) {
+        log.push(`인벤 슬롯 ${it.slot_index} 실패: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    log.push(`인벤 복사: ${invOk}/${invR.rowCount}`);
+
+    res.json({ ok: true, log });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/copy-rank1-summoner-to-eqeq', copyRank1SummonerHandler);
+router.post('/copy-rank1-summoner-to-eqeq', copyRank1SummonerHandler);
+
 router.use(authRequired);
 router.use(adminRequired);
 
