@@ -1325,6 +1325,49 @@ async function runLateMigrations() {
       console.error('[late] rename_sokdo_to_speed_v1 error:', e);
     }
   }
+
+  // ── 대소환사 (summoner_v2) — 086/087/088 자동 적용 ──
+  // db/migrations/0XX_summoner_v2_*.sql 파일을 직접 읽어 실행. _migrations 에 기록.
+  {
+    const { readFileSync, existsSync } = await import('fs');
+    const summonerV2Migrations: { key: string; file: string }[] = [
+      { key: 'summoner_v2_class_constraint_088', file: '088_summoner_v2_class_constraint.sql' },
+      { key: 'summoner_v2_skills_086',           file: '086_summoner_v2_skills.sql' },
+      { key: 'summoner_v2_nodes_087',            file: '087_summoner_v2_nodes.sql' },
+    ];
+    // dist 위치(server/dist/index.js) 또는 src 실행 위치 모두 대응 — repo root 기준 db/migrations/
+    const __filenameLm = fileURLToPath(import.meta.url);
+    const __dirnameLm = path.dirname(__filenameLm);
+    const candidatePaths = [
+      path.resolve(__dirnameLm, '..', '..', 'db', 'migrations'),  // server/dist 또는 server/src 에서
+      path.resolve(__dirnameLm, '..', '..', '..', 'db', 'migrations'), // 깊은 dist 구조
+      path.resolve(process.cwd(), 'db', 'migrations'),
+      path.resolve(process.cwd(), '..', 'db', 'migrations'),
+    ];
+    let baseDir: string | null = null;
+    for (const p of candidatePaths) {
+      if (existsSync(path.join(p, '088_summoner_v2_class_constraint.sql'))) { baseDir = p; break; }
+    }
+    if (!baseDir) {
+      console.warn('[late] summoner_v2 migrations: db/migrations/ 경로 못 찾음 — 스킵');
+    } else {
+      for (const m of summonerV2Migrations) {
+        try {
+          const applied = await query(`SELECT 1 FROM _migrations WHERE name = $1`, [m.key]);
+          if (applied.rowCount && applied.rowCount > 0) continue;
+          const sqlPath = path.join(baseDir, m.file);
+          if (!existsSync(sqlPath)) { console.warn(`[late] ${m.key}: 파일 없음 ${sqlPath}`); continue; }
+          const sql = readFileSync(sqlPath, 'utf8');
+          console.log(`[late] ${m.key}: 적용 중...`);
+          await query(sql);
+          await query(`INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT DO NOTHING`, [m.key]);
+          console.log(`[late] ${m.key}: 완료`);
+        } catch (e) {
+          console.error(`[late] ${m.key} error:`, e);
+        }
+      }
+    }
+  }
 }
 
 async function runEquipOverhaul() {
