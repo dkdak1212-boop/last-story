@@ -208,6 +208,14 @@ BEGIN
 END $$`);
     log.push(`prerequisite 체인 완료`);
 
+    // 5.5) 인라인 마이그 키 재등록 — 다음 부팅 시 자동 마이그가 4 zone으로 다시 INSERT 하는 것 차단
+    await query(`INSERT INTO _migrations (name) VALUES
+      ('summoner_v2_class_constraint_088_inline'),
+      ('summoner_v2_skills_086_inline'),
+      ('summoner_v2_nodes_087_inline')
+      ON CONFLICT DO NOTHING`);
+    log.push('인라인 마이그 키 등록 — 다음 부팅 시 자동 마이그 skip');
+
     // 6) 최종 카운트
     const finalSk = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM skills WHERE class_name = 'summoner_v2'`);
     const finalNd = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE zone LIKE 'north_summoner_v2%'`);
