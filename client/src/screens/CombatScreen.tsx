@@ -1475,7 +1475,7 @@ const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '술식: 폭주':       '/images/skills/spells/berserk_other.png',
   '술식: 응결':       '/images/skills/spells/okawaru_finesse.png',
   '술식: 시력 강화':  '/images/skills/spells/acute_vision.png',
-  '술식: 가시화':     '/images/skills/spells/mana_shield.png',
+  '명령: 진멸':       '/images/skills/spells/spellclaws.png',
   '자세: 통찰':       '/images/skills/spells/focused-fg.png',
   '자세: 집중':       '/images/skills/spells/combat.png',
   '자세: 방어':       '/images/skills/spells/demonic_guardian_1.png',
