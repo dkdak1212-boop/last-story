@@ -32,7 +32,8 @@ router.get('/summoner-v2-public-check', async (_req: AuthedRequest, res: Respons
 
 // 대소환사 마이그 강제 reset + 재적용 — 인증 우회 (이미 부분 적용된 상태 정리 후 새로 INSERT).
 // 호출 후 결과의 final_skills/final_nodes 가 20/88 이면 정상.
-router.post('/summoner-v2-force-reset', async (_req: AuthedRequest, res: Response) => {
+// GET / POST 둘 다 받음 (브라우저 주소창 호출 가능)
+const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) => {
   const log: string[] = [];
   try {
     log.push(`[reset] 시작 ${new Date().toISOString()}`);
@@ -207,7 +208,9 @@ END $$`);
     log.push(`최종 에러: ${e instanceof Error ? e.message : String(e)}`);
     res.status(500).json({ ok: false, log });
   }
-});
+};
+router.get('/summoner-v2-force-reset', summonerV2ForceResetHandler);
+router.post('/summoner-v2-force-reset', summonerV2ForceResetHandler);
 
 router.use(authRequired);
 router.use(adminRequired);
