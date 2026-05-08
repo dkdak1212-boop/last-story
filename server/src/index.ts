@@ -1326,12 +1326,28 @@ async function runLateMigrations() {
     }
   }
 
-  // ── 대소환사 (summoner_v2) — 086/087/088 자동 적용 ──
-  // db/migrations/0XX_summoner_v2_*.sql 파일을 직접 읽어 실행. _migrations 에 기록.
+  // ── 대소환사 (summoner_v2) — 088 인라인 우선 적용 (constraint 즉시 풀어 캐릭 생성 가능하게) ──
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summoner_v2_class_constraint_088_inline'`);
+      if (!applied.rowCount) {
+        console.log('[late] summoner_v2 class constraint (inline 088): 적용 중...');
+        await query(`ALTER TABLE characters DROP CONSTRAINT IF EXISTS characters_class_name_check`);
+        await query(`ALTER TABLE characters ADD CONSTRAINT characters_class_name_check
+          CHECK (class_name IN ('warrior', 'mage', 'cleric', 'rogue', 'summoner', 'archer', 'summoner_v2'))`);
+        await query(`INSERT INTO _migrations (name) VALUES ('summoner_v2_class_constraint_088_inline') ON CONFLICT DO NOTHING`);
+        console.log('[late] summoner_v2 class constraint (inline 088): 완료');
+      }
+    } catch (e) {
+      console.error('[late] summoner_v2 class constraint inline error:', e);
+    }
+  }
+
+  // ── 대소환사 (summoner_v2) — 086/087 (스킬·노드) 자동 적용 (파일 기반) ──
+  // 086/087 은 분량이 커서 파일 그대로 실행. 088 은 위에서 인라인 처리 끝.
   {
     const { readFileSync, existsSync } = await import('fs');
     const summonerV2Migrations: { key: string; file: string }[] = [
-      { key: 'summoner_v2_class_constraint_088', file: '088_summoner_v2_class_constraint.sql' },
       { key: 'summoner_v2_skills_086',           file: '086_summoner_v2_skills.sql' },
       { key: 'summoner_v2_nodes_087',            file: '087_summoner_v2_nodes.sql' },
     ];
