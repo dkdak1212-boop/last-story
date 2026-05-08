@@ -13,7 +13,7 @@ router.use(authRequired);
 const NICKNAME_RE = /^[가-힣A-Za-z0-9]{2,12}$/;
 const createSchema = z.object({
   name: z.string().min(2).max(12).regex(NICKNAME_RE, '닉네임은 공백·특수문자 없이 한글/영문/숫자 2~12자만 가능합니다.'),
-  className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner', 'archer']),
+  className: z.enum(['warrior', 'mage', 'cleric', 'rogue', 'summoner', 'archer', 'summoner_v2']),
 });
 
 // 목록
