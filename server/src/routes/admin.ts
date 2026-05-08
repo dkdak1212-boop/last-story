@@ -225,6 +225,65 @@ END $$`);
 router.get('/summoner-v2-force-reset', summonerV2ForceResetHandler);
 router.post('/summoner-v2-force-reset', summonerV2ForceResetHandler);
 
+// 노드 좌표 재배치 — 4 그룹 (신수/정령/괴수/마도) 가로 4 column 격자
+// 각 그룹: x = 그룹기준 + (rn % 5), y = tier별 row 시작 - (rn / 5)
+const summonerV2RelayoutHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    const groups = [
+      { prefix: '신수', baseX: 40, label: 'NORTH 위쪽 (HP·재생·받피데감)' },
+      { prefix: '정령', baseX: 46, label: 'EAST  오른쪽 (속도·딜)' },
+      { prefix: '괴수', baseX: 52, label: 'SOUTH 아래쪽 (크리·한방)' },
+      { prefix: '마도', baseX: 58, label: 'WEST  왼쪽 (술식·INT)' },
+    ];
+    for (const g of groups) {
+      // small: 5 col × N row, y=-15 부터 시작
+      await query(`
+        WITH r AS (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn
+          FROM node_definitions
+          WHERE zone='north_summoner_v2' AND name LIKE $1 AND tier='small'
+        )
+        UPDATE node_definitions n SET
+          position_x = $2 + (r.rn % 5),
+          position_y = -15 - (r.rn / 5)
+        FROM r WHERE n.id = r.id
+      `, [`${g.prefix}%`, g.baseX]);
+      // medium: 5 col × N row, y=-19 부터
+      await query(`
+        WITH r AS (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn
+          FROM node_definitions
+          WHERE zone='north_summoner_v2' AND name LIKE $1 AND tier='medium'
+        )
+        UPDATE node_definitions n SET
+          position_x = $2 + (r.rn % 5),
+          position_y = -19 - (r.rn / 5)
+        FROM r WHERE n.id = r.id
+      `, [`${g.prefix}%`, g.baseX]);
+      // large: 그룹 중앙 (baseX+2, -22)
+      await query(`
+        UPDATE node_definitions SET position_x = $1, position_y = -22
+        WHERE zone='north_summoner_v2' AND name LIKE $2 AND tier='large'
+      `, [g.baseX + 2, `${g.prefix}%`]);
+      log.push(`${g.label} (x=${g.baseX}~${g.baseX + 4}) — 좌표 재배치`);
+    }
+    // 검증
+    const r = await query<{ x: number; y: number; cnt: string }>(
+      `SELECT MIN(position_x)::int AS min_x, MAX(position_x)::int AS max_x,
+              MIN(position_y)::int AS min_y, MAX(position_y)::int AS max_y,
+              COUNT(*)::text AS cnt
+         FROM node_definitions WHERE zone='north_summoner_v2'` as any
+    );
+    res.json({ ok: true, log, range: r.rows[0] });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/summoner-v2-relayout', summonerV2RelayoutHandler);
+router.post('/summoner-v2-relayout', summonerV2RelayoutHandler);
+
 router.use(authRequired);
 router.use(adminRequired);
 
