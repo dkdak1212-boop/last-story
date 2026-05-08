@@ -434,6 +434,41 @@ const summonerV2AddCoreHandler = async (_req: AuthedRequest, res: Response) => {
 router.get('/summoner-v2-add-core', summonerV2AddCoreHandler);
 router.post('/summoner-v2-add-core', summonerV2AddCoreHandler);
 
+// 대소환사 캐릭별 학습 스킬 진단 — ?charId=N 또는 ?name=닉네임
+const summonerV2SkillCheckHandler = async (req: AuthedRequest, res: Response) => {
+  try {
+    const charIdQ = (req.query?.charId as string) || '';
+    const nameQ = (req.query?.name as string) || '';
+    let where = '', params: any[] = [];
+    if (charIdQ) { where = 'c.id = $1'; params = [Number(charIdQ)]; }
+    else if (nameQ) { where = 'c.name = $1'; params = [nameQ]; }
+    else { return res.status(400).json({ error: '?charId=N 또는 ?name=닉네임 필요' }); }
+    const charR = await query<{ id: number; name: string; class_name: string; level: number }>(
+      `SELECT id, name, class_name, level FROM characters WHERE ${where}`, params
+    );
+    if (!charR.rowCount) return res.status(404).json({ error: '캐릭 없음' });
+    const ch = charR.rows[0];
+    // 학습 스킬 + class_name 일치 여부
+    const skR = await query<{ id: number; name: string; class_name: string; required_level: number; effect_type: string; auto_use: boolean | null; slot_order: number | null }>(
+      `SELECT s.id, s.name, s.class_name, s.required_level, s.effect_type, cs.auto_use, cs.slot_order
+         FROM character_skills cs JOIN skills s ON s.id = cs.skill_id
+        WHERE cs.character_id = $1
+        ORDER BY cs.slot_order, s.required_level`,
+      [ch.id]
+    );
+    res.json({
+      character: ch,
+      learned_skills: skR.rows,
+      summoner_v2_count: skR.rows.filter(r => r.class_name === 'summoner_v2').length,
+      summoner_count: skR.rows.filter(r => r.class_name === 'summoner').length,
+      other_count: skR.rows.filter(r => r.class_name !== 'summoner' && r.class_name !== 'summoner_v2').length,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e instanceof Error ? e.message : e) });
+  }
+};
+router.get('/summoner-v2-skill-check', summonerV2SkillCheckHandler);
+
 router.use(authRequired);
 router.use(adminRequired);
 
