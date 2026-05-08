@@ -286,6 +286,110 @@ const summonerV2RelayoutHandler = async (_req: AuthedRequest, res: Response) => 
 router.get('/summoner-v2-relayout', summonerV2RelayoutHandler);
 router.post('/summoner-v2-relayout', summonerV2RelayoutHandler);
 
+// 축 직선 chain — CORE 기준 +자 4축, small→medium→large 순차 연결.
+// 각 축 1 col 직선. 첫 small (가장 안쪽) prerequisite=비움, 그 외는 이전 노드.
+// 신수=위(y 음수) / 정령=오른쪽(x 양수) / 괴수=아래(y 양수) / 마도=왼쪽(x 음수). HUB 가상 (50,-10).
+const summonerV2AxisChainHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // PL/pgSQL DO 블록 — 4 축 좌표 + chain 한 번에 처리
+    await query(`DO $$
+DECLARE
+  small_ids INT[]; medium_ids INT[]; large_id INT; i INT;
+  hub_x INT := 50; hub_y INT := -10;
+  prefixes TEXT[] := ARRAY['신수','정령','괴수','마도'];
+  pfx TEXT;
+BEGIN
+  FOREACH pfx IN ARRAY prefixes LOOP
+    SELECT array_agg(id ORDER BY id) INTO small_ids FROM node_definitions
+      WHERE zone='north_summoner_v2' AND name LIKE pfx || '%' AND tier='small';
+    SELECT array_agg(id ORDER BY id) INTO medium_ids FROM node_definitions
+      WHERE zone='north_summoner_v2' AND name LIKE pfx || '%' AND tier='medium';
+    SELECT id INTO large_id FROM node_definitions
+      WHERE zone='north_summoner_v2' AND name LIKE pfx || '%' AND tier='large' LIMIT 1;
+
+    -- 좌표 + prerequisite (small)
+    IF small_ids IS NOT NULL THEN
+      FOR i IN 1..array_length(small_ids,1) LOOP
+        UPDATE node_definitions SET
+          position_x = CASE pfx
+            WHEN '신수' THEN hub_x
+            WHEN '정령' THEN hub_x + 2 + (i - 1)
+            WHEN '괴수' THEN hub_x
+            WHEN '마도' THEN hub_x - 2 - (i - 1)
+          END,
+          position_y = CASE pfx
+            WHEN '신수' THEN hub_y - 2 - (i - 1)
+            WHEN '정령' THEN hub_y
+            WHEN '괴수' THEN hub_y + 2 + (i - 1)
+            WHEN '마도' THEN hub_y
+          END,
+          prerequisites = CASE WHEN i = 1 THEN '{}'::int[] ELSE ARRAY[small_ids[i-1]] END
+        WHERE id = small_ids[i];
+      END LOOP;
+    END IF;
+
+    -- 좌표 + prerequisite (medium) — 첫 medium 의 prerequisite = 마지막 small
+    IF medium_ids IS NOT NULL AND small_ids IS NOT NULL THEN
+      FOR i IN 1..array_length(medium_ids,1) LOOP
+        UPDATE node_definitions SET
+          position_x = CASE pfx
+            WHEN '신수' THEN hub_x
+            WHEN '정령' THEN hub_x + 2 + array_length(small_ids,1) + (i - 1)
+            WHEN '괴수' THEN hub_x
+            WHEN '마도' THEN hub_x - 2 - array_length(small_ids,1) - (i - 1)
+          END,
+          position_y = CASE pfx
+            WHEN '신수' THEN hub_y - 2 - array_length(small_ids,1) - (i - 1)
+            WHEN '정령' THEN hub_y
+            WHEN '괴수' THEN hub_y + 2 + array_length(small_ids,1) + (i - 1)
+            WHEN '마도' THEN hub_y
+          END,
+          prerequisites = CASE
+            WHEN i = 1 THEN ARRAY[small_ids[array_length(small_ids,1)]]
+            ELSE ARRAY[medium_ids[i-1]]
+          END
+        WHERE id = medium_ids[i];
+      END LOOP;
+    END IF;
+
+    -- 좌표 + prerequisite (large) — prerequisite = 마지막 medium
+    IF large_id IS NOT NULL AND medium_ids IS NOT NULL THEN
+      UPDATE node_definitions SET
+        position_x = CASE pfx
+          WHEN '신수' THEN hub_x
+          WHEN '정령' THEN hub_x + 2 + array_length(small_ids,1) + array_length(medium_ids,1) + 1
+          WHEN '괴수' THEN hub_x
+          WHEN '마도' THEN hub_x - 2 - array_length(small_ids,1) - array_length(medium_ids,1) - 1
+        END,
+        position_y = CASE pfx
+          WHEN '신수' THEN hub_y - 2 - array_length(small_ids,1) - array_length(medium_ids,1) - 1
+          WHEN '정령' THEN hub_y
+          WHEN '괴수' THEN hub_y + 2 + array_length(small_ids,1) + array_length(medium_ids,1) + 1
+          WHEN '마도' THEN hub_y
+        END,
+        prerequisites = ARRAY[medium_ids[array_length(medium_ids,1)]]
+      WHERE id = large_id;
+    END IF;
+  END LOOP;
+END $$;`);
+    log.push('4축 직선 chain 좌표 + prerequisite 적용');
+
+    const r = await query<{ min_x: number; max_x: number; min_y: number; max_y: number; cnt: string }>(
+      `SELECT MIN(position_x)::int AS min_x, MAX(position_x)::int AS max_x,
+              MIN(position_y)::int AS min_y, MAX(position_y)::int AS max_y,
+              COUNT(*)::text AS cnt
+         FROM node_definitions WHERE zone='north_summoner_v2'` as any
+    );
+    res.json({ ok: true, log, range: r.rows[0] });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/summoner-v2-axis-chain', summonerV2AxisChainHandler);
+router.post('/summoner-v2-axis-chain', summonerV2AxisChainHandler);
+
 router.use(authRequired);
 router.use(adminRequired);
 
