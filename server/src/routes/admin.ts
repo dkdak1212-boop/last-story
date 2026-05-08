@@ -225,51 +225,45 @@ END $$`);
 router.get('/summoner-v2-force-reset', summonerV2ForceResetHandler);
 router.post('/summoner-v2-force-reset', summonerV2ForceResetHandler);
 
-// 노드 좌표 재배치 — 4 그룹 (신수/정령/괴수/마도) 가로 4 column 격자
-// 각 그룹: x = 그룹기준 + (rn % 5), y = tier별 row 시작 - (rn / 5)
+// 노드 좌표 재배치 — +자 4축 방사형 (시공의 균열 형태)
+// 신수=위쪽 / 정령=오른쪽 / 괴수=아래쪽 / 마도=왼쪽. 각 축에 small grid → medium grid → large 끝.
 const summonerV2RelayoutHandler = async (_req: AuthedRequest, res: Response) => {
   const log: string[] = [];
   try {
-    const groups = [
-      { prefix: '신수', baseX: 40, label: 'NORTH 위쪽 (HP·재생·받피데감)' },
-      { prefix: '정령', baseX: 46, label: 'EAST  오른쪽 (속도·딜)' },
-      { prefix: '괴수', baseX: 52, label: 'SOUTH 아래쪽 (크리·한방)' },
-      { prefix: '마도', baseX: 58, label: 'WEST  왼쪽 (술식·INT)' },
-    ];
-    for (const g of groups) {
-      // small: 5 col × N row, y=-15 부터 시작
-      await query(`
-        WITH r AS (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn
-          FROM node_definitions
-          WHERE zone='north_summoner_v2' AND name LIKE $1 AND tier='small'
-        )
-        UPDATE node_definitions n SET
-          position_x = $2 + (r.rn % 5),
-          position_y = -15 - (r.rn / 5)
-        FROM r WHERE n.id = r.id
-      `, [`${g.prefix}%`, g.baseX]);
-      // medium: 5 col × N row, y=-19 부터
-      await query(`
-        WITH r AS (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn
-          FROM node_definitions
-          WHERE zone='north_summoner_v2' AND name LIKE $1 AND tier='medium'
-        )
-        UPDATE node_definitions n SET
-          position_x = $2 + (r.rn % 5),
-          position_y = -19 - (r.rn / 5)
-        FROM r WHERE n.id = r.id
-      `, [`${g.prefix}%`, g.baseX]);
-      // large: 그룹 중앙 (baseX+2, -22)
-      await query(`
-        UPDATE node_definitions SET position_x = $1, position_y = -22
-        WHERE zone='north_summoner_v2' AND name LIKE $2 AND tier='large'
-      `, [g.baseX + 2, `${g.prefix}%`]);
-      log.push(`${g.label} (x=${g.baseX}~${g.baseX + 4}) — 좌표 재배치`);
-    }
+    // 신수 (위쪽) — small 13 (3col×5row, y=-16~-20) / medium 6 (3col×2row, y=-22~-23) / large (50,-25)
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '신수%' AND tier='small')
+      UPDATE node_definitions n SET position_x = 49 + (r.rn % 3), position_y = -16 - (r.rn / 3) FROM r WHERE n.id = r.id`);
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '신수%' AND tier='medium')
+      UPDATE node_definitions n SET position_x = 49 + (r.rn % 3), position_y = -22 - (r.rn / 3) FROM r WHERE n.id = r.id`);
+    await query(`UPDATE node_definitions SET position_x = 50, position_y = -25 WHERE zone='north_summoner_v2' AND name LIKE '신수%' AND tier='large'`);
+    log.push('신수 (위쪽) 재배치 완료');
+
+    // 정령 (오른쪽) — small 14 (5col×3row, x=53~57, y=-14~-16) / medium 7 (3col×3row, x=58~60, y=-14~-16) / large (62,-15)
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '정령%' AND tier='small')
+      UPDATE node_definitions n SET position_x = 53 + (r.rn / 3), position_y = -14 - (r.rn % 3) FROM r WHERE n.id = r.id`);
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '정령%' AND tier='medium')
+      UPDATE node_definitions n SET position_x = 58 + (r.rn / 3), position_y = -14 - (r.rn % 3) FROM r WHERE n.id = r.id`);
+    await query(`UPDATE node_definitions SET position_x = 62, position_y = -15 WHERE zone='north_summoner_v2' AND name LIKE '정령%' AND tier='large'`);
+    log.push('정령 (오른쪽) 재배치 완료');
+
+    // 괴수 (아래쪽) — small 14 (3col×5row, x=49~51, y=-13~-9) / medium 7 (3col×3row, y=-7~-5) / large (50,-3)
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '괴수%' AND tier='small')
+      UPDATE node_definitions n SET position_x = 49 + (r.rn % 3), position_y = -13 + (r.rn / 3) FROM r WHERE n.id = r.id`);
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '괴수%' AND tier='medium')
+      UPDATE node_definitions n SET position_x = 49 + (r.rn % 3), position_y = -7 + (r.rn / 3) FROM r WHERE n.id = r.id`);
+    await query(`UPDATE node_definitions SET position_x = 50, position_y = -3 WHERE zone='north_summoner_v2' AND name LIKE '괴수%' AND tier='large'`);
+    log.push('괴수 (아래쪽) 재배치 완료');
+
+    // 마도 (왼쪽) — small 16 (5col×4row, x=43~47, y=-13~-17) / medium 7 (3col×3row, x=40~42) / large (38,-15)
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '마도%' AND tier='small')
+      UPDATE node_definitions n SET position_x = 47 - (r.rn / 4), position_y = -13 - (r.rn % 4) FROM r WHERE n.id = r.id`);
+    await query(`WITH r AS (SELECT id, (ROW_NUMBER() OVER (ORDER BY id) - 1)::int AS rn FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE '마도%' AND tier='medium')
+      UPDATE node_definitions n SET position_x = 42 - (r.rn / 3), position_y = -14 - (r.rn % 3) FROM r WHERE n.id = r.id`);
+    await query(`UPDATE node_definitions SET position_x = 38, position_y = -15 WHERE zone='north_summoner_v2' AND name LIKE '마도%' AND tier='large'`);
+    log.push('마도 (왼쪽) 재배치 완료');
+
     // 검증
-    const r = await query<{ x: number; y: number; cnt: string }>(
+    const r = await query<{ min_x: number; max_x: number; min_y: number; max_y: number; cnt: string }>(
       `SELECT MIN(position_x)::int AS min_x, MAX(position_x)::int AS max_x,
               MIN(position_y)::int AS min_y, MAX(position_y)::int AS max_y,
               COUNT(*)::text AS cnt
