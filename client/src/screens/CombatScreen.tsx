@@ -1455,6 +1455,12 @@ const SKILL_CLASS_MAP: Record<string, { cls: string; lv: number }> = {
 const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '정령의 가호': '/images/skills/spells/might.png',
   '정령의 보호': '/images/skills/spells/tso_divine_shield.png',
+  // 대소환사 (summoner_v2) — 변환 소환수 5종 sprite (DCSS rltiles)
+  '늑대':           'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/animals/wolf.png',
+  '수호수':         'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/holy/daeva.png',
+  '뇌신':           'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/dragons/storm_dragon.png',
+  '대악마':         'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/demons/balrug.png',
+  '천상의 수호자':  'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/holy/seraph.png',
 };
 
 export function getSkillIcon(name: string): string {

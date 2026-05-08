@@ -352,6 +352,7 @@ interface ActiveSession {
     personalExpMultMaxLevel: number | null;
   } | null;
   monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
+  v2SpecialCd?: number;          // 대소환사 변환 특수기 쿨다운 (행동 단위)
   autoSellCache: {
     auto_dismantle_tiers: number;
     auto_sell_quality_max: number;
@@ -1011,7 +1012,7 @@ setInterval(async () => {
   } catch (e) { console.error('[combat] last_tick_at save err', e); }
   // 소환사 세션: 소환수/쿨다운 상태 저장 (복원용)
   for (const [charId, s] of activeSessions) {
-    if (s.className !== 'summoner') continue;
+    if (s.className !== 'summoner' && s.className !== 'summoner_v2') continue;
     const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     try {
@@ -1966,10 +1967,95 @@ const MAX_SUMMONS = 3;
 
 // ── 소환수 처리 ──
 // extraDmgMul: 외부에서 임시 배수 부여 (예: 모든 소환수 공격 시전 시 2.0). 1.0 이면 효과 없음.
+// ── summoner_v2 (대소환사) — 노드 임계치 도달 시 변환 form 결정 ──
+// 우선순위: 마도(arcane) > 괴수(beast) > 정령(spirit) > 신수(holy)
+// (사용자 spec: "나중 도달이 덮어쓰기" — DB invest 시점 추적은 추후 개선, 일단 고정 우선순위)
+function getSummonerV2Form(s: ActiveSession): 'holy' | 'spirit' | 'beast' | 'arcane' | null {
+  if (s.className !== 'summoner_v2') return null;
+  if (getPassive(s, 'summoner_v2_arcane') > 0) return 'arcane';
+  if (getPassive(s, 'summoner_v2_beast') > 0)  return 'beast';
+  if (getPassive(s, 'summoner_v2_spirit') > 0) return 'spirit';
+  if (getPassive(s, 'summoner_v2_holy') > 0)   return 'holy';
+  return null;
+}
+
+// 변환별 소환수 정의 — name·value(matk %)·element·flat damage
+const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
+  holy:   { name: '수호수',         value: 50,  element: 'holy',      flat: 200 },
+  spirit: { name: '뇌신',           value: 130, element: 'lightning', flat: 100 },
+  beast:  { name: '대악마',         value: 150, element: 'fire',      flat: 100 },
+  arcane: { name: '천상의 수호자',  value: 110, element: 'arcane',    flat: 100 },
+};
+
+// 매 processSummons 시 호출 — summoner_v2 의 소환수를 현재 form 에 맞춰 in-place 변환.
+function applySummonerV2Transform(s: ActiveSession, summons: StatusEffect[]): void {
+  if (s.className !== 'summoner_v2') return;
+  const form = getSummonerV2Form(s);
+  const t = form
+    ? SUMMONER_V2_TRANSFORMS[form]
+    : { name: '늑대', value: 80, element: undefined, flat: 100 };
+  for (const sm of summons) {
+    sm.value = t.value;
+    (sm as any).element = t.element;
+    (sm as any).summonSkillName = t.name;
+    (sm as any).summonFlatDamage = t.flat;
+  }
+}
+
+// 변환 특수기 — 매 processSummons 끝에 호출. cd 0 도달 시 발동 + 데미지 + 도트 effect 추가.
+// (도트/다단 등 복잡한 효과는 합산 데미지로 단순화 — 1차 MVP)
+function fireSummonerV2Special(s: ActiveSession): void {
+  if (s.className !== 'summoner_v2') return;
+  const form = getSummonerV2Form(s);
+  if (!form) return;
+  if (s.v2SpecialCd === undefined) s.v2SpecialCd = 0;
+  if (s.v2SpecialCd > 0) { s.v2SpecialCd--; return; }
+  const matk = s.playerStats.matk;
+  let dmg = 0;
+  let label = '';
+  let cd = 5;
+  if (form === 'holy') {
+    // 신수의 결박: 단일 ATK*1 + DoT 0.5/3턴 (= 합 ATK*2.5 즉시 단순화)
+    dmg = Math.round(matk * 2.5);
+    label = '🔒 신수의 결박';
+    cd = 5;
+  } else if (form === 'spirit') {
+    // 연쇄 번개: 4회 다단 0.4 (= 합 ATK*1.6)
+    dmg = Math.round(matk * 1.6);
+    label = '⚡ 연쇄 번개 4연타';
+    cd = 4;
+  } else if (form === 'beast') {
+    // 지옥불 일격: 단일 ATK*4, 크리 시 *6
+    const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
+    dmg = Math.round(matk * (crit ? 6 : 4));
+    label = crit ? '💀 지옥불 일격 (치명타!)' : '💀 지옥불 일격';
+    cd = 5;
+  } else if (form === 'arcane') {
+    // 천상의 심판: 즉시 ATK*2 + DoT 0.3/5턴 (= 합 ATK*3.5)
+    dmg = Math.round(matk * 3.5);
+    label = '✨ 천상의 심판';
+    cd = 6;
+  }
+  if (dmg > 0) {
+    // 방어 일부 적용 (소환수 공격 패턴과 동일하게 0.5x mdef)
+    const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
+    const finalDmg = Math.max(1, dmg - defReduce);
+    s.monsterHp -= finalDmg;
+    s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+  }
+  s.v2SpecialCd = cd;
+}
+
 function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const _t0 = Date.now();
   const summons = getActiveSummons(s);
-  if (summons.length === 0) { perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return; }
+  // summoner_v2 — 매 액션 form 재확인 + 소환수 변환 (늑대/수호수/뇌신/대악마/천상의 수호자)
+  applySummonerV2Transform(s, summons);
+  if (summons.length === 0) {
+    // 소환수 0이어도 v2 특수기 cd 는 카운트 (늑대 미소환 케이스 안전망)
+    fireSummonerV2Special(s);
+    perfSeg.summonMs += Date.now() - _t0; perfSeg.summonCalls++; return;
+  }
 
   // 소환수 데미지 베이스: playerStats.matk 그대로 사용 (INT 영향은 formulas.ts 의 0.5% 증폭에 포함됨)
   const matk = s.playerStats.matk;
@@ -2105,6 +2191,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
     trackHealForKeystone(s, heal);
     addLog(s, `[수호수] HP +${heal} 회복`);
   }
+  // 대소환사 변환 특수기 — 매 액션 cd 카운트, 0이면 발동
+  fireSummonerV2Special(s);
   perfSeg.summonMs += Date.now() - _t0;
   perfSeg.summonCalls++;
 }
@@ -3550,7 +3638,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       perfSeg.pSkillCalls++;
       addSkillTime(s.className, dt2, sk.name);
     }
-    if (s.className === 'summoner') processSummons(s);
+    if ((s.className === 'summoner' || s.className === 'summoner_v2')) processSummons(s);
     return;
   }
 
@@ -3569,7 +3657,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
   }
   perfSeg.pBasicMs += Date.now() - tBasic;
   // 소환수는 본체 액션 종류와 무관하게 매 액션 1회 공격 (버프/소환생성/기본공격 턴에도 발동)
-  if (s.className === 'summoner') processSummons(s);
+  if ((s.className === 'summoner' || s.className === 'summoner_v2')) processSummons(s);
 }
 
 // ── 110 몬스터 스킬 처리 ──
@@ -3834,7 +3922,7 @@ function monsterAction(s: ActiveSession): void {
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
     // 소환사 방어 오오라 — 오오라의 왕 시 ×2
-    if (s.className === 'summoner' && dmg > 0) {
+    if ((s.className === 'summoner' || s.className === 'summoner_v2') && dmg > 0) {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraDef = getPassive(s, 'aura_def') * auraMul;
       if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
@@ -3910,7 +3998,7 @@ function monsterAction(s: ActiveSession): void {
     }
 
     // 소환사 반사 오오라 — 받은 데미지의 aura_reflect% 를 몬스터에게 반사 (상시)
-    if (s.className === 'summoner' && d.damage > 0) {
+    if ((s.className === 'summoner' || s.className === 'summoner_v2') && d.damage > 0) {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraReflect = getPassive(s, 'aura_reflect') * auraMul;
       if (auraReflect > 0) {
@@ -4516,7 +4604,7 @@ async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   // damageType — 클래스 기반 분류. 차원의 지배자 ATK/MATK 교대 면역 메커닉.
   //   mage/cleric/summoner = magical, warrior/rogue = physical
   const dmgType: 'physical' | 'magical' =
-    (s.className === 'mage' || s.className === 'cleric' || s.className === 'summoner') ? 'magical' : 'physical';
+    (s.className === 'mage' || s.className === 'cleric' || (s.className === 'summoner' || s.className === 'summoner_v2')) ? 'magical' : 'physical';
 
   try {
     for (const [elKey, buf] of Object.entries(byElement)) {
@@ -4937,7 +5025,7 @@ export async function onSessionGoOffline(
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
 
   // 소환사: 소환수/쿨다운 보존 — startCombatSession 이 다음 진입 시 status_effects 에서 복원함
-  if (s.className === 'summoner') {
+  if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
     try {
       const summons = s.statusEffects.filter(e =>
         e.type === 'summon' && e.source === 'player' && e.remainingActions > 0
@@ -5099,7 +5187,7 @@ async function combatTick(): Promise<void> {
       }
       // 소환사 속도 오오라 — 플레이어 행동 주기 가속 (소환수가 player 액션마다 발동하므로
       // 결과적으로 "소환수 속도 상승" 과 동치). 오오라의 왕 키스톤 시 ×2.
-      if (s.className === 'summoner') {
+      if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
         const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
         const auraSpd = getPassive(s, 'aura_speed') * auraMul;
         if (auraSpd > 0) effectivePlayerSpeed += auraSpd;
@@ -5561,7 +5649,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     snapshot.poisonResonance = s.poisonResonance;
   }
   // 소환사 소환수 목록
-  if (s.className === 'summoner') {
+  if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
     snapshot.summons = getActiveSummons(s).map(e => ({
       skillName: e.summonSkillName || '',
       element: e.element,
@@ -6110,6 +6198,24 @@ async function startCombatSessionInner(
     } catch {}
   }
 
+  // ── summoner_v2 (대소환사) — 자동 늑대 소환 (영구 지속). 변환은 processSummons 가 in-place 적용. ──
+  if (char.class_name === 'summoner_v2') {
+    const hasWolf = session.statusEffects.some(e => e.type === 'summon' && e.source === 'player');
+    if (!hasWolf) {
+      session.statusEffects.push({
+        id: 'v2_wolf',
+        type: 'summon' as any,
+        value: 80,
+        remainingActions: 999999,
+        source: 'player',
+        element: undefined,
+        summonSkillName: '늑대',
+        summonFlatDamage: 100,
+      } as any);
+      bumpEffectVer(session);
+    }
+  }
+
   activeSessions.set(characterId, session);
   // 세션 시작 시각 박제 — combatTick 의 sessionHasSubscriber 검사에 grace 적용.
   // 자동복구(/combat/state) ↔ WS subscribe 사이에 클라가 구독 메시지 보낼 시간 보장.
@@ -6129,7 +6235,7 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   const s = activeSessions.get(characterId);
   if (s) {
     // 소환수 상태 저장 (복원용)
-    if (s.className === 'summoner') {
+    if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
       const summons = getActiveSummons(s);
       const cdObj: Record<string, number> = {};
       for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
@@ -6765,7 +6871,7 @@ export async function flushCharBatchAll(): Promise<void> {
   await flushCharBatch();
   // 소환사 세션 마지막 상태 DB 에 저장 (graceful shutdown 용)
   for (const [charId, s] of activeSessions) {
-    if (s.className !== 'summoner') continue;
+    if (s.className !== 'summoner' && s.className !== 'summoner_v2') continue;
     const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     const cdObj: Record<string, number> = {};

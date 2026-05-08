@@ -13,6 +13,7 @@ const ALL_CLASSES: ClassEntry[] = [
   { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
   { name: 'summoner', label: '소환사', desc: '소환수가 대신 싸우는 군주, INT 특화' },
   { name: 'archer' as ClassName, label: '궁수', desc: '카이팅 저격수 — 처치 누적으로 사거리 강화 (어드민 전용)', adminOnly: true },
+  { name: 'summoner_v2' as ClassName, label: '대소환사', desc: '소환수 1체를 신수·정령·괴수·마도로 변환·강화 (어드민 전용)', adminOnly: true },
 ];
 
 export function CharacterSelectScreen() {
