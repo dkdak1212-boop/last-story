@@ -1461,6 +1461,27 @@ const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '뇌신':           'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/dragons/storm_dragon.png',
   '대악마':         'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/demons/balrug.png',
   '천상의 수호자':  'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/holy/seraph.png',
+  // 대소환사 스킬 20개 (spells/ 픽셀 아트)
+  '명령: 습격':       '/images/skills/spells/hunting_call.png',
+  '명령: 강습':       '/images/skills/spells/momentum_strike.png',
+  '명령: 수호':       '/images/skills/spells/ephemeral_shield.png',
+  '명령: 추격':       '/images/skills/spells/electric_charge.png',
+  '명령: 희생':       '/images/skills/spells/ru_sacrifice_courage.png',
+  '명령: 영역 선포':  '/images/skills/spells/holy_breath.png',
+  '술식: 결속':       '/images/skills/spells/heal_wounds.png',
+  '술식: 인내':       '/images/skills/spells/regeneration.png',
+  '술식: 근력 강화':  '/images/skills/spells/berserker_rage.png',
+  '술식: 각력 강화':  '/images/skills/spells/haste.png',
+  '술식: 폭주':       '/images/skills/spells/berserk_other.png',
+  '술식: 응결':       '/images/skills/spells/okawaru_finesse.png',
+  '술식: 시력 강화':  '/images/skills/spells/acute_vision.png',
+  '술식: 가시화':     '/images/skills/spells/mana_shield.png',
+  '자세: 통찰':       '/images/skills/spells/focused-fg.png',
+  '자세: 집중':       '/images/skills/spells/combat.png',
+  '자세: 방어':       '/images/skills/spells/demonic_guardian_1.png',
+  '자세: 불굴':       '/images/skills/spells/demonic_guardian_2.png',
+  '자세: 휴식':       '/images/skills/spells/regeneration_3.png',
+  '자세: 진언':       '/images/skills/spells/holy_flames.png',
 };
 
 export function getSkillIcon(name: string): string {
