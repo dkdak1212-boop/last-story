@@ -89,6 +89,14 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
     }
     log.push(`스킬 적용: ${skillOk}/20`);
 
+    // 3.5) node_definitions SERIAL 시퀀스 reset — 기존 max(id)+1 로 맞추지 않으면 INSERT 충돌
+    try {
+      const seqR = await query<{ next: string }>(`SELECT setval('node_definitions_id_seq', COALESCE((SELECT MAX(id) FROM node_definitions), 0) + 1, false)::text AS next`);
+      log.push(`node 시퀀스 reset → next=${seqR.rows[0]?.next}`);
+    } catch (e) {
+      log.push(`node 시퀀스 reset 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // 4) 노드 INSERT — zone 별 분리, 실패 추적
     async function insertNodes(label: string, sql: string) {
       try { await query(sql); log.push(`노드 ${label} 적용`); }
