@@ -352,7 +352,8 @@ interface ActiveSession {
     personalExpMultMaxLevel: number | null;
   } | null;
   monsterDef: MonsterDef | null; // 현재 스폰된 몬스터 정의 캐시 (handleMonsterDeath 에서 재사용)
-  v2SpecialCd?: number;          // 대소환사 변환 특수기 쿨다운 (행동 단위)
+  v2SpecialCd?: number;          // 대소환사 (구) — 호환성 보존
+  v2SpecialCds?: { holy: number; spirit: number; beast: number; arcane: number };
   autoSellCache: {
     auto_dismantle_tiers: number;
     auto_sell_quality_max: number;
@@ -1967,16 +1968,21 @@ const MAX_SUMMONS = 3;
 
 // ── 소환수 처리 ──
 // extraDmgMul: 외부에서 임시 배수 부여 (예: 모든 소환수 공격 시전 시 2.0). 1.0 이면 효과 없음.
-// ── summoner_v2 (대소환사) — 노드 임계치 도달 시 변환 form 결정 ──
-// 우선순위: 마도(arcane) > 괴수(beast) > 정령(spirit) > 신수(holy)
-// (사용자 spec: "나중 도달이 덮어쓰기" — DB invest 시점 추적은 추후 개선, 일단 고정 우선순위)
-function getSummonerV2Form(s: ActiveSession): 'holy' | 'spirit' | 'beast' | 'arcane' | null {
-  if (s.className !== 'summoner_v2') return null;
-  if (getPassive(s, 'summoner_v2_arcane') > 0) return 'arcane';
-  if (getPassive(s, 'summoner_v2_beast') > 0)  return 'beast';
-  if (getPassive(s, 'summoner_v2_spirit') > 0) return 'spirit';
-  if (getPassive(s, 'summoner_v2_holy') > 0)   return 'holy';
-  return null;
+// ── summoner_v2 (대소환사) — 활성 변환 form 수만큼 소환수 1마리씩 ──
+type SummonerV2Form = 'holy' | 'spirit' | 'beast' | 'arcane';
+function getActiveSummonerV2Forms(s: ActiveSession): SummonerV2Form[] {
+  if (s.className !== 'summoner_v2') return [];
+  const forms: SummonerV2Form[] = [];
+  if (getPassive(s, 'summoner_v2_holy') > 0)   forms.push('holy');
+  if (getPassive(s, 'summoner_v2_spirit') > 0) forms.push('spirit');
+  if (getPassive(s, 'summoner_v2_beast') > 0)  forms.push('beast');
+  if (getPassive(s, 'summoner_v2_arcane') > 0) forms.push('arcane');
+  return forms;
+}
+// 호환성 — 첫 form 반환 (특수기 single-form 분기에서 사용)
+function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
+  const forms = getActiveSummonerV2Forms(s);
+  return forms.length > 0 ? forms[0] : null;
 }
 
 // 변환별 소환수 정의 — name·value(matk %)·element·flat damage
@@ -1987,63 +1993,103 @@ const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { n
   arcane: { name: '천상의 수호자',  value: 110, element: 'arcane',    flat: 100 },
 };
 
-// 매 processSummons 시 호출 — summoner_v2 의 소환수를 현재 form 에 맞춰 in-place 변환.
-function applySummonerV2Transform(s: ActiveSession, summons: StatusEffect[]): void {
+// 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
+// form 0개: 늑대 1마리 / form N개: 각 form 별 소환수 1마리씩 (총 N마리, 늑대 X)
+function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): void {
   if (s.className !== 'summoner_v2') return;
-  const form = getSummonerV2Form(s);
-  const t = form
-    ? SUMMONER_V2_TRANSFORMS[form]
-    : { name: '늑대', value: 80, element: undefined, flat: 100 };
-  for (const sm of summons) {
-    sm.value = t.value;
-    (sm as any).element = t.element;
-    (sm as any).summonSkillName = t.name;
-    (sm as any).summonFlatDamage = t.flat;
+  const forms = getActiveSummonerV2Forms(s);
+  // 활성 form 명칭 set — 보존할 소환수
+  const validNames = new Set<string>();
+  if (forms.length === 0) {
+    validNames.add('늑대');
+  } else {
+    for (const f of forms) validNames.add(SUMMONER_V2_TRANSFORMS[f].name);
+  }
+  // 1) 잘못된 summon (이전 form 또는 늑대) 제거
+  let removed = 0;
+  for (let i = s.statusEffects.length - 1; i >= 0; i--) {
+    const e = s.statusEffects[i];
+    if (e.type !== 'summon' || e.source !== 'player') continue;
+    const nm = (e as any).summonSkillName as string | undefined;
+    if (!nm || !validNames.has(nm)) {
+      s.statusEffects.splice(i, 1);
+      removed++;
+    }
+  }
+  if (removed > 0) bumpEffectVer(s);
+  // 2) 누락된 form 소환수 보충 — 형태별 1마리씩 보장
+  const existing = new Set<string>();
+  for (const e of s.statusEffects) {
+    if (e.type === 'summon' && e.source === 'player') {
+      const nm = (e as any).summonSkillName as string | undefined;
+      if (nm) existing.add(nm);
+    }
+  }
+  if (forms.length === 0) {
+    if (!existing.has('늑대')) {
+      s.statusEffects.push({
+        id: 'v2_wolf', type: 'summon' as any, value: 80, remainingActions: 999999,
+        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 100,
+      } as any);
+      bumpEffectVer(s);
+    }
+  } else {
+    for (const f of forms) {
+      const t = SUMMONER_V2_TRANSFORMS[f];
+      if (!existing.has(t.name)) {
+        s.statusEffects.push({
+          id: `v2_${f}`, type: 'summon' as any, value: t.value, remainingActions: 999999,
+          source: 'player', element: t.element, summonSkillName: t.name, summonFlatDamage: t.flat,
+        } as any);
+        bumpEffectVer(s);
+      }
+    }
+  }
+  // 3) 기존 매 호출시 stat refresh (value 등 변경 시 가중)
+  for (const e of s.statusEffects) {
+    if (e.type !== 'summon' || e.source !== 'player') continue;
+    const nm = (e as any).summonSkillName as string | undefined;
+    if (nm === '늑대') {
+      e.value = 80; (e as any).summonFlatDamage = 100; (e as any).element = undefined;
+    } else {
+      const f = forms.find(ff => SUMMONER_V2_TRANSFORMS[ff].name === nm);
+      if (f) {
+        const t = SUMMONER_V2_TRANSFORMS[f];
+        e.value = t.value; (e as any).summonFlatDamage = t.flat; (e as any).element = t.element;
+      }
+    }
   }
 }
 
-// 변환 특수기 — 매 processSummons 끝에 호출. cd 0 도달 시 발동 + 데미지 + 도트 effect 추가.
-// (도트/다단 등 복잡한 효과는 합산 데미지로 단순화 — 1차 MVP)
+// 변환 특수기 — form별 cd 트래킹, 활성 form 모두 동시 발동 가능
 function fireSummonerV2Special(s: ActiveSession): void {
   if (s.className !== 'summoner_v2') return;
-  const form = getSummonerV2Form(s);
-  if (!form) return;
-  if (s.v2SpecialCd === undefined) s.v2SpecialCd = 0;
-  if (s.v2SpecialCd > 0) { s.v2SpecialCd--; return; }
+  const forms = getActiveSummonerV2Forms(s);
+  if (forms.length === 0) return;
+  if (!s.v2SpecialCds) s.v2SpecialCds = { holy: 0, spirit: 0, beast: 0, arcane: 0 };
   const matk = s.playerStats.matk;
-  let dmg = 0;
-  let label = '';
-  let cd = 5;
-  if (form === 'holy') {
-    // 신수의 결박: 단일 ATK*1 + DoT 0.5/3턴 (= 합 ATK*2.5 즉시 단순화)
-    dmg = Math.round(matk * 2.5);
-    label = '🔒 신수의 결박';
-    cd = 5;
-  } else if (form === 'spirit') {
-    // 연쇄 번개: 4회 다단 0.4 (= 합 ATK*1.6)
-    dmg = Math.round(matk * 1.6);
-    label = '⚡ 연쇄 번개 4연타';
-    cd = 4;
-  } else if (form === 'beast') {
-    // 지옥불 일격: 단일 ATK*4, 크리 시 *6
-    const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
-    dmg = Math.round(matk * (crit ? 6 : 4));
-    label = crit ? '💀 지옥불 일격 (치명타!)' : '💀 지옥불 일격';
-    cd = 5;
-  } else if (form === 'arcane') {
-    // 천상의 심판: 즉시 ATK*2 + DoT 0.3/5턴 (= 합 ATK*3.5)
-    dmg = Math.round(matk * 3.5);
-    label = '✨ 천상의 심판';
-    cd = 6;
+  const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
+  for (const form of forms) {
+    if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
+    let dmg = 0; let label = ''; let cd = 5;
+    if (form === 'holy') {
+      dmg = Math.round(matk * 2.5); label = '🔒 신수의 결박'; cd = 5;
+    } else if (form === 'spirit') {
+      dmg = Math.round(matk * 1.6); label = '⚡ 연쇄 번개 4연타'; cd = 4;
+    } else if (form === 'beast') {
+      const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
+      dmg = Math.round(matk * (crit ? 6 : 4));
+      label = crit ? '💀 지옥불 일격 (치명타!)' : '💀 지옥불 일격'; cd = 5;
+    } else if (form === 'arcane') {
+      dmg = Math.round(matk * 3.5); label = '✨ 천상의 심판'; cd = 6;
+    }
+    if (dmg > 0) {
+      const finalDmg = Math.max(1, dmg - defReduce);
+      s.monsterHp -= finalDmg;
+      s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+    }
+    s.v2SpecialCds[form] = cd;
   }
-  if (dmg > 0) {
-    // 방어 일부 적용 (소환수 공격 패턴과 동일하게 0.5x mdef)
-    const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
-    const finalDmg = Math.max(1, dmg - defReduce);
-    s.monsterHp -= finalDmg;
-    s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
-  }
-  s.v2SpecialCd = cd;
 }
 
 function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
