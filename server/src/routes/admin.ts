@@ -14,6 +14,36 @@ router.use(authRequired);
 router.use(adminRequired);
 
 // ========== 서버 통계 ==========
+// 대소환사 마이그 적용 여부 진단 — DB 직접 조회
+router.get('/summoner-v2-check', async (_req, res) => {
+  try {
+    const migrations = await query<{ name: string; applied_at: string }>(
+      `SELECT name, applied_at::text FROM _migrations WHERE name LIKE 'summoner_v2_%' ORDER BY applied_at`
+    );
+    const skillsR = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM skills WHERE class_name = 'summoner_v2'`
+    );
+    const nodesR = await query<{ zone: string; count: string }>(
+      `SELECT zone, COUNT(*)::text AS count FROM node_definitions
+       WHERE zone LIKE 'north_summoner_v2_%'
+       GROUP BY zone ORDER BY zone`
+    );
+    const constraintR = await query<{ src: string }>(
+      `SELECT pg_get_constraintdef(c.oid) AS src
+         FROM pg_constraint c
+        WHERE c.conname = 'characters_class_name_check'`
+    );
+    res.json({
+      migrations_applied: migrations.rows,
+      summoner_v2_skills_count: Number(skillsR.rows[0]?.count || 0),
+      summoner_v2_nodes: nodesR.rows.map(r => ({ zone: r.zone, count: Number(r.count) })),
+      class_constraint: constraintR.rows[0]?.src || '(없음)',
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e instanceof Error ? e.message : e) });
+  }
+});
+
 router.get('/stats', async (_req, res) => {
   const users = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM users');
   const chars = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM characters');
