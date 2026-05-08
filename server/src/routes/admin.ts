@@ -62,7 +62,7 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
       ['summoner_v2', '자세: 통찰',     '다음 평타 1회 치명타 확정.',                                              35, 0.00, 'buff',          3, 0, 'crit_guaranteed',1.00, 1,  ''],
       ['summoner_v2', '명령: 희생',     '술자가 체력 50%를 잃는 대신, 5턴간 소환수 데미지 ×3.',                    40, 3.00, 'damage',        6, 0, 'summon_sacrifice',0.50, 5,  ''],
       ['summoner_v2', '술식: 근력 강화','5턴간 소환수 데미지 +50%.',                                               45, 0.00, 'buff',          4, 0, 'summon_buff',    1.50, 5,  ''],
-      ['summoner_v2', '술식: 각력 강화','5턴간 소환수 속도 +30% (행동 가속).',                                     50, 0.00, 'buff',          4, 0, 'summon_buff',    1.30, 5,  ''],
+      ['summoner_v2', '술식: 각력 강화','5턴간 자가 스피드 +30% (소환수도 더 자주 행동).',                          50, 0.00, 'buff',          4, 0, 'self_speed_mod', 30,   5,  ''],
       ['summoner_v2', '술식: 폭주',     '3턴간 소환수 데미지 +100%, 종료 후 1턴 데미지 -50%.',                     55, 0.00, 'buff',          6, 0, 'summon_frenzy',  2.00, 3,  ''],
       ['summoner_v2', '술식: 응결',     '3턴간 소환수 데미지 +75%.',                                               60, 0.00, 'buff',          6, 0, 'summon_buff',    1.75, 3,  ''],
       ['summoner_v2', '자세: 집중',     '5턴간 자가 치명타 확률 +25.',                                              65, 0.00, 'buff',          5, 0, 'self_cri_buff',  25.0, 5,  ''],
@@ -469,16 +469,22 @@ const summonerV2SkillCheckHandler = async (req: AuthedRequest, res: Response) =>
 };
 router.get('/summoner-v2-skill-check', summonerV2SkillCheckHandler);
 
-// 명령: 습격 / 명령: 강습 effect_type 수정 — 새 소환수 만들지 않게
+// 스킬 effect_type / 표현 일괄 수정 — 다중 소환수 차단 + '소환수 속도' → '본인 속도' 등 의미 정정
 const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response) => {
   const log: string[] = [];
   try {
-    // summon_dot → dot (단일 데미지 + 도트, 기존 소환수가 친다)
+    // 명령: 습격: summon_dot → dot
     const r1 = await query(`UPDATE skills SET effect_type = 'dot' WHERE class_name = 'summoner_v2' AND name = '명령: 습격'`);
     log.push(`'명령: 습격' summon_dot → dot (${r1.rowCount}행)`);
-    // summon → damage (단일 ×2.5, 새 소환수 X)
+    // 명령: 강습: summon → damage
     const r2 = await query(`UPDATE skills SET effect_type = 'damage' WHERE class_name = 'summoner_v2' AND name = '명령: 강습'`);
     log.push(`'명령: 강습' summon → damage (${r2.rowCount}행)`);
+    // 술식: 각력 강화: summon_buff(SPD) → self_speed_mod (본인 SPD +30%, 소환수는 자체 속도 없음)
+    const r3 = await query(
+      `UPDATE skills SET effect_type = 'self_speed_mod', effect_value = 30, description = '5턴간 자가 스피드 +30% (소환수도 더 자주 행동).'
+         WHERE class_name = 'summoner_v2' AND name = '술식: 각력 강화'`
+    );
+    log.push(`'술식: 각력 강화' summon_buff → self_speed_mod, 본인 SPD +30% 표현으로 정정 (${r3.rowCount}행)`);
     res.json({ ok: true, log });
   } catch (e) {
     log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
