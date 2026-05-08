@@ -37,6 +37,11 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
   const log: string[] = [];
   try {
     log.push(`[reset] 시작 ${new Date().toISOString()}`);
+    // 0) FK 정리 — character_skills / character_nodes 의 summoner_v2 참조 먼저 삭제
+    const delCs = await query(`DELETE FROM character_skills WHERE skill_id IN (SELECT id FROM skills WHERE class_name = 'summoner_v2')`);
+    log.push(`character_skills 정리: ${delCs.rowCount}`);
+    const delCn = await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%')`);
+    log.push(`character_nodes 정리: ${delCn.rowCount}`);
     // 1) 기존 summoner_v2 데이터 삭제
     const delS = await query(`DELETE FROM skills WHERE class_name = 'summoner_v2'`);
     log.push(`기존 스킬 삭제: ${delS.rowCount}`);
