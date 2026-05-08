@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+
+# 네이버 / 다음 / 구글 — 모든 검색엔진 허용
+User-agent: Yeti
+Allow: /
+
+User-agent: Daum
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+# 비공개 / 게임플레이 동적 경로는 인덱싱 제외
+Disallow: /api/
+Disallow: /admin/
+Disallow: /dungeon/
+Disallow: /pvp/
+
+Sitemap: https://last-story-production.up.railway.app/sitemap.xml
