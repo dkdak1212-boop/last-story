@@ -390,6 +390,50 @@ END $$;`);
 router.get('/summoner-v2-axis-chain', summonerV2AxisChainHandler);
 router.post('/summoner-v2-axis-chain', summonerV2AxisChainHandler);
 
+// CORE 가상 hub 노드 추가 — north_summoner_v2 zone 가운데 (50,-10)
+// 4축 첫 small 의 prerequisite 을 CORE 로 변경 → 시각적 +자 분기 시작점
+const summonerV2AddCoreHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // 기존 CORE FK + 노드 정리 (재실행 idempotent)
+    await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE zone='north_summoner_v2' AND name='소환술 중심')`);
+    await query(`DELETE FROM node_definitions WHERE zone='north_summoner_v2' AND name='소환술 중심'`);
+    log.push('기존 CORE 정리');
+
+    // 시퀀스 reset (충돌 방지)
+    await query(`SELECT setval('node_definitions_id_seq', COALESCE((SELECT MAX(id) FROM node_definitions), 0) + 1, false)`);
+
+    // CORE INSERT — cost=0 (효과 없음, 시각용 hub)
+    const r = await query<{ id: number }>(
+      `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, prerequisites, position_x, position_y)
+       VALUES ('소환술 중심', '4 변환 (신수·정령·괴수·마도) 의 시작점', 'north_summoner_v2', 'small', 0, 'summoner_v2', '[]'::jsonb, '{}'::int[], 50, -10)
+       RETURNING id` as any
+    );
+    const coreId = r.rows[0]?.id;
+    if (!coreId) throw new Error('CORE INSERT 실패');
+    log.push(`CORE 추가 (id=${coreId})`);
+
+    // 4 축 첫 small 의 prerequisite = CORE
+    for (const prefix of ['신수','정령','괴수','마도']) {
+      const ids = await query<{ id: number }>(
+        `SELECT id FROM node_definitions WHERE zone='north_summoner_v2' AND name LIKE $1 AND tier='small' AND name <> '소환술 중심' ORDER BY id LIMIT 1`,
+        [prefix + '%']
+      );
+      if (ids.rows[0]) {
+        await query(`UPDATE node_definitions SET prerequisites = ARRAY[$1::int] WHERE id = $2`, [coreId, ids.rows[0].id]);
+        log.push(`${prefix} 첫 small (id=${ids.rows[0].id}) prerequisite → CORE`);
+      }
+    }
+
+    res.json({ ok: true, log });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/summoner-v2-add-core', summonerV2AddCoreHandler);
+router.post('/summoner-v2-add-core', summonerV2AddCoreHandler);
+
 router.use(authRequired);
 router.use(adminRequired);
 
