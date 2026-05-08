@@ -10,11 +10,32 @@ import { stopCombatSession, getKillStats, invalidateSessionMeta } from '../comba
 import { CLASS_START, type ClassName } from '../game/classes.js';
 
 const router = Router();
+
+// 대소환사 마이그 적용 여부 — public health (인증 우회, 카운트만 노출)
+// router.use 미들웨어 위에 정의해 인증 없이 호출 가능. 운영 진단 후 제거 가능.
+router.get('/summoner-v2-public-check', async (_req: AuthedRequest, res: Response) => {
+  try {
+    const skillsR = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM skills WHERE class_name = 'summoner_v2'`);
+    const nodesR  = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM node_definitions WHERE zone LIKE 'north_summoner_v2_%'`);
+    const migrR   = await query<{ name: string }>(`SELECT name FROM _migrations WHERE name LIKE 'summoner_v2_%' ORDER BY name`);
+    const conR    = await query<{ has: boolean }>(`SELECT (pg_get_constraintdef(c.oid) LIKE '%summoner_v2%') AS has FROM pg_constraint c WHERE c.conname = 'characters_class_name_check'`);
+    res.json({
+      skills_count: Number(skillsR.rows[0]?.count || 0),
+      nodes_count: Number(nodesR.rows[0]?.count || 0),
+      migrations: migrR.rows.map(r => r.name),
+      constraint_has_summoner_v2: !!conR.rows[0]?.has,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e instanceof Error ? e.message : e) });
+  }
+});
+
 router.use(authRequired);
 router.use(adminRequired);
 
 // ========== 서버 통계 ==========
-// 대소환사 마이그 적용 여부 진단 — DB 직접 조회
+
+// 대소환사 마이그 적용 여부 진단 — DB 직접 조회 (어드민 인증)
 router.get('/summoner-v2-check', async (_req, res) => {
   try {
     const migrations = await query<{ name: string; applied_at: string }>(
