@@ -1874,6 +1874,11 @@ function getCritDmgBonus(s: ActiveSession): number {
   if (dotToCrit > 0) {
     bonus += Math.round(getTotalDotAmpRaw(s) * dotToCrit / 100);
   }
+  // 도적 시그니처 패시브 (2026-05-10): 아이템 도트 증폭(접두사 dot_amp_pct) 1% 당 치명타 데미지 +0.5%
+  if (s.className === 'rogue') {
+    const itemDotAmp = s.equipPrefixes.dot_amp_pct || 0;
+    if (itemDotAmp > 0) bonus += itemDotAmp * 0.5;
+  }
   return bonus;
 }
 
