@@ -481,7 +481,8 @@ router.post('/summoner-add-core', summonerAddCoreHandler);
 // 차원(paragon) 노드: ?paragonRefund=N 파라미터로 캐릭별 일괄 보상 (적립 기록 없어 추정 환불)
 const summonerRefundPointsHandler = async (req: AuthedRequest, res: Response) => {
   try {
-    const paragonRefund = Math.max(0, Number((req.query?.paragonRefund as string) || '0'));
+    // 음수 허용 — 보상 회수용
+    const paragonRefund = Number((req.query?.paragonRefund as string) || '0');
     const r = await query<{ id: number; name: string; level: number; node_points: number; pp: number }>(
       `SELECT id, name, level, node_points, COALESCE(paragon_points, 0) AS pp FROM characters WHERE class_name = 'summoner'` as any
     );
@@ -496,8 +497,9 @@ const summonerRefundPointsHandler = async (req: AuthedRequest, res: Response) =>
         await query(`UPDATE characters SET node_points = node_points + $1 WHERE id = $2`, [refund, c.id]);
         normalRefunded += refund;
       }
-      if (paragonRefund > 0) {
-        await query(`UPDATE characters SET paragon_points = COALESCE(paragon_points, 0) + $1 WHERE id = $2`, [paragonRefund, c.id]);
+      if (paragonRefund !== 0) {
+        // 음수 시 0 아래로 안 떨어지게 GREATEST
+        await query(`UPDATE characters SET paragon_points = GREATEST(0, COALESCE(paragon_points, 0) + $1) WHERE id = $2`, [paragonRefund, c.id]);
         paragonGranted += paragonRefund;
       }
       if (refund > 0 || paragonRefund > 0) {
