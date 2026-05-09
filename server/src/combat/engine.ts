@@ -2077,11 +2077,25 @@ function fireSummonerV2Special(s: ActiveSession): void {
   const cri = s.playerStats.cri || 0;
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
+
+    // 정령 (연쇄 번개 4연타) — 각 타 별도 판정·로그 (지옥불 일격과 비슷한 합 계수)
+    if (form === 'spirit') {
+      for (let i = 1; i <= 4; i++) {
+        let hit = Math.round(matk * 54.0);
+        const hitCrit = cri > 0 && Math.random() * 100 < cri;
+        let hitLabel = `[연쇄 번개 ${i}타]`;
+        if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
+        const hitFinal = Math.max(1, hit - defReduce);
+        s.monsterHp -= hitFinal;
+        s.log.push(`${hitLabel} ${hitFinal} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+      }
+      s.v2SpecialCds[form] = SPECIAL_CD;
+      continue;
+    }
+
     let dmg = 0; let label = '';
     if (form === 'holy') {
       dmg = Math.round(matk * 135.0); label = '[신수의 결박]';
-    } else if (form === 'spirit') {
-      dmg = Math.round(matk * 86.4);  label = '[연쇄 번개 4연타]';
     } else if (form === 'beast') {
       dmg = Math.round(matk * 216.0); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
