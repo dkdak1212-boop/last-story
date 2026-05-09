@@ -1987,10 +1987,12 @@ function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
 
 // 변환별 소환수 정의 — name·value(matk %)·element·flat damage
 const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
-  holy:   { name: '수호수',         value: 50,  element: 'holy',      flat: 200 },
-  spirit: { name: '뇌신',           value: 130, element: 'lightning', flat: 100 },
-  beast:  { name: '대악마',         value: 150, element: 'fire',      flat: 100 },
-  arcane: { name: '천상의 수호자',  value: 110, element: 'arcane',    flat: 100 },
+  // value = matk × N% — 본체 마법공격력 비례. 장비 matk_pct + summon_amp 자동 가중.
+  // v1 ×2 상향 (사용자 보고 "약함" — 본체 대비 부족)
+  holy:   { name: '수호수',         value: 100, element: 'holy',      flat: 300 },
+  spirit: { name: '뇌신',           value: 250, element: 'lightning', flat: 150 },
+  beast:  { name: '대악마',         value: 300, element: 'fire',      flat: 150 },
+  arcane: { name: '천상의 수호자',  value: 220, element: 'arcane',    flat: 150 },
 };
 
 // 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
@@ -2028,8 +2030,8 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
   if (forms.length === 0) {
     if (!existing.has('늑대')) {
       s.statusEffects.push({
-        id: 'v2_wolf', type: 'summon' as any, value: 80, remainingActions: 999999,
-        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 100,
+        id: 'v2_wolf', type: 'summon' as any, value: 150, remainingActions: 999999,
+        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 200,
       } as any);
       bumpEffectVer(s);
     }
@@ -2050,7 +2052,7 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
     if (e.type !== 'summon' || e.source !== 'player') continue;
     const nm = (e as any).summonSkillName as string | undefined;
     if (nm === '늑대') {
-      e.value = 80; (e as any).summonFlatDamage = 100; (e as any).element = undefined;
+      e.value = 150; (e as any).summonFlatDamage = 200; (e as any).element = undefined;
     } else {
       const f = forms.find(ff => SUMMONER_V2_TRANSFORMS[ff].name === nm);
       if (f) {
@@ -6255,12 +6257,12 @@ async function startCombatSessionInner(
       session.statusEffects.push({
         id: 'v2_wolf',
         type: 'summon' as any,
-        value: 80,
+        value: 150,
         remainingActions: 999999,
         source: 'player',
         element: undefined,
         summonSkillName: '늑대',
-        summonFlatDamage: 100,
+        summonFlatDamage: 200,
       } as any);
       bumpEffectVer(session);
     }
