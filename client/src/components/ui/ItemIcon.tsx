@@ -69,6 +69,20 @@ const STAFF_TIERS = [
 // 소환사 무기 (구슬) — 모든 티어 흰색(배틀스피어) 단일 아이콘 통일
 const ORB_ICON = '/images/skills/spells/battlesphere.png';
 const ORB_TIERS = Array(11).fill(ORB_ICON);
+// 궁수 무기 (활) — 견습→신화 11티어 (DCSS ranged 타일)
+const BOW_TIERS = [
+  '/images/items/weapon/shortbow1.png',       // 견습
+  '/images/items/weapon/shortbow2.png',       // 훈련용
+  '/images/items/weapon/shortbow3.png',       // 일반
+  '/images/items/weapon/orcbow1.png',         // 정교한
+  '/images/items/weapon/orcbow2.png',         // 정련된
+  '/images/items/weapon/orcbow3.png',         // 단단한
+  '/images/items/weapon/longbow1.png',        // 강철
+  '/images/items/weapon/longbow2.png',        // 정예
+  '/images/items/weapon/longbow3.png',        // 영웅
+  '/images/items/weapon/arbalest3.png',       // 전설
+  '/images/items/weapon/triple_crossbow2.png',// 신화
+];
 const MACE_TIERS = [
   '/images/items/weapon/morningstar1.png',
   '/images/items/weapon/morningstar1.png',
@@ -165,6 +179,9 @@ const NAMED_ICON: Record<string, string> = {
   '신성한 사슬': '/images/items/ring/gold.png',
   '시간의 파편': '/images/items/amulet/diamond.png',
 
+  // 시공 분쇄 무기 — '활' 만 명시 매핑 (이름에 티어 키워드 없어 BOW_TIERS[0] 폴백 방지). 다른 시공 무기는 SUBTYPE 자동 매칭.
+  '시공 분쇄 활': '/images/items/weapon/triple_crossbow2.png',
+
   // 발라카스 세트 (얼음 테마)
   '발라카스의 대검': '/images/items/weapon/greatsword2.png',
   '발라카스의 지팡이': '/images/items/staff/staff03.png',
@@ -233,6 +250,8 @@ function pickWeapon(name: string, tierIdx: number): string {
   if (name.includes('지팡이')) return STAFF_TIERS[ti] || STAFF_TIERS[0];
   if (name.includes('구슬')) return ORB_TIERS[ti] || ORB_TIERS[0];
   if (name.includes('홀')) return MACE_TIERS[ti] || MACE_TIERS[0];
+  // '활' 은 '검' 보다 먼저 검사 (시공 분쇄 활도 매칭). 일반 '검' 키워드보다 우선.
+  if (name.includes('활')) return BOW_TIERS[ti] || BOW_TIERS[0];
   if (name.includes('검')) return SWORD_TIERS[ti] || SWORD_TIERS[0];
   return SWORD_TIERS[ti] || SWORD_TIERS[0];
 }
