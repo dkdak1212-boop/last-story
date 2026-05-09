@@ -958,6 +958,22 @@ export function CombatScreen() {
               </div>
             </div>
           )}
+          {state.archerRange && (() => {
+            const { current, max, ampPerStack } = state.archerRange;
+            const dmgBonusPct = current * ampPerStack;
+            const atCap = current >= max;
+            return (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: atCap ? '#88ff88' : '#5fb950' }}>
+                  <span>🎯 사거리</span>
+                  <span>{current}/{max} (+{dmgBonusPct}% 데미지){atCap ? ' — 만렙!' : ''}</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, (current / max) * 100)}%`, background: atCap ? '#88ff88' : '#5fb950', transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            );
+          })()}
           {state.soulCharge !== undefined && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.soulCharge >= 5 ? '#ffd166' : '#aa88ff' }}>

@@ -75,6 +75,7 @@ interface CombatSnapshot {
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   soulCharge?: number; // 궁수 전용: 혼의 화살 차지 (0~5)
+  archerRange?: { current: number; max: number; ampPerStack: number }; // 궁수 전용: 사거리 스택 (현재/최대) + 스택당 증폭%
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
@@ -5950,9 +5951,14 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'rogue') {
     snapshot.poisonResonance = s.poisonResonance;
   }
-  // 궁수 혼의 화살 차지 (0~5)
+  // 궁수 혼의 화살 차지 (0~5) + 사거리 스택 (현재/최대)
   if (s.className === 'archer') {
     snapshot.soulCharge = s.soulCharge;
+    snapshot.archerRange = {
+      current: s.archerRange || 0,
+      max: 20 + getPassive(s, 'archer_range_max'),
+      ampPerStack: getPassive(s, 'archer_range_amp') || 1,
+    };
   }
   // 소환사 소환수 목록
   if (s.className === 'summoner') {
