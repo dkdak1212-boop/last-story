@@ -1988,11 +1988,11 @@ function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
 // 변환별 소환수 정의 — name·value(matk %)·element·flat damage
 const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
   // value = matk × N% — 본체 마법공격력 비례. 장비 matk_pct + summon_amp 자동 가중.
-  // v1 ×2 상향 (사용자 보고 "약함" — 본체 대비 부족)
-  holy:   { name: '수호수',         value: 100, element: 'holy',      flat: 300 },
-  spirit: { name: '뇌신',           value: 250, element: 'lightning', flat: 150 },
-  beast:  { name: '대악마',         value: 300, element: 'fire',      flat: 150 },
-  arcane: { name: '천상의 수호자',  value: 220, element: 'arcane',    flat: 150 },
+  // 추가 ×2 상향 (소환수 수가 form 별 1마리라 마리당 데미지 폭증)
+  holy:   { name: '수호수',         value: 200, element: 'holy',      flat: 600 },
+  spirit: { name: '뇌신',           value: 500, element: 'lightning', flat: 300 },
+  beast:  { name: '대악마',         value: 600, element: 'fire',      flat: 300 },
+  arcane: { name: '천상의 수호자',  value: 440, element: 'arcane',    flat: 300 },
 };
 
 // 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
@@ -2030,8 +2030,8 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
   if (forms.length === 0) {
     if (!existing.has('늑대')) {
       s.statusEffects.push({
-        id: 'v2_wolf', type: 'summon' as any, value: 150, remainingActions: 999999,
-        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 200,
+        id: 'v2_wolf', type: 'summon' as any, value: 300, remainingActions: 999999,
+        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 400,
       } as any);
       bumpEffectVer(s);
     }
@@ -2052,7 +2052,7 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
     if (e.type !== 'summon' || e.source !== 'player') continue;
     const nm = (e as any).summonSkillName as string | undefined;
     if (nm === '늑대') {
-      e.value = 150; (e as any).summonFlatDamage = 200; (e as any).element = undefined;
+      e.value = 300; (e as any).summonFlatDamage = 400; (e as any).element = undefined;
     } else {
       const f = forms.find(ff => SUMMONER_V2_TRANSFORMS[ff].name === nm);
       if (f) {
@@ -2071,8 +2071,8 @@ function fireSummonerV2Special(s: ActiveSession): void {
   if (!s.v2SpecialCds) s.v2SpecialCds = { holy: 0, spirit: 0, beast: 0, arcane: 0 };
   const matk = s.playerStats.matk;
   const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
-  // 전 form 쿨다운 2행동 통일, 계수 2배 추가 상승
-  const SPECIAL_CD = 2;
+  // 전 form 쿨다운 1행동 통일 (매 액션마다 발동) — 사용자 요청 (B+C 조합)
+  const SPECIAL_CD = 1;
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
     let dmg = 0; let label = '';
