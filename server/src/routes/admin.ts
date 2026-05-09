@@ -72,7 +72,7 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
       ['summoner_v2', '술식: 시력 강화','5턴간 소환수 데미지 +50%.',                                                85, 0.00, 'buff',          5, 0, 'summon_buff',    50,   5,  ''],
       ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×10.0).',                         90, 10.00, 'damage',       3, 0, 'damage',         0,    0,  ''],
       ['summoner_v2', '자세: 진언',     '5턴간 자가 마법공격력 +50%.',                                              95, 0.00, 'buff',          9, 0, 'self_atk_buff',  50,   5,  ''],
-      ['summoner_v2', '명령: 영역 선포','5턴간 술자에게 75% 쉴드. 패시브 대정의의 영역.',                          100, 0.00, 'buff',          8, 0, 'shield',         75,   5,  ''],
+      ['summoner_v2', '명령: 영역 선포','술자에게 5턴간 75% 쉴드 + 적 받는 데미지 +50% (5턴) 부여.',              100, 0.00, 'buff',          8, 0, 'shield',         75,   5,  ''],
     ];
     let skillOk = 0;
     for (const r of skillRows) {
@@ -617,9 +617,12 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
     // 명령: 수호 — shield effect_value 0.25 → 25 (engine 가 % 로 처리)
     const r4 = await query(`UPDATE skills SET effect_value = 25 WHERE class_name = 'summoner_v2' AND name = '명령: 수호'`);
     log.push(`'명령: 수호' shield 0.25 → 25 (% 단위 정정) (${r4.rowCount}행)`);
-    // 명령: 영역 선포 — shield effect_value 0.75 → 75
-    const r5 = await query(`UPDATE skills SET effect_value = 75 WHERE class_name = 'summoner_v2' AND name = '명령: 영역 선포'`);
-    log.push(`'명령: 영역 선포' shield 0.75 → 75 (% 단위 정정) (${r5.rowCount}행)`);
+    // 명령: 영역 선포 — shield 75% + 적 받는 데미지 +50% (5턴) — 100Lv 궁극
+    const r5 = await query(`UPDATE skills SET
+        effect_value = 75,
+        description = '술자에게 5턴간 75% 쉴드 + 적 받는 데미지 +50% (5턴) 부여.'
+      WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 영역 선포'`);
+    log.push(`'명령: 영역 선포' shield 75 + dtup 50 description (${r5.rowCount}행)`);
     // 술식: 인내 — damage_reduce 0.35 → 35
     const r6 = await query(`UPDATE skills SET effect_value = 35 WHERE class_name = 'summoner_v2' AND name = '술식: 인내'`);
     log.push(`'술식: 인내' damage_reduce 0.35 → 35 (${r6.rowCount}행)`);

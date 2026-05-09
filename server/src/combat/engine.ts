@@ -3213,6 +3213,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
       addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
       addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
+      // 명령: 영역 선포 — 적 받는 데미지 +50% (5턴) 추가 (소환사 100Lv 궁극)
+      if (skill.name === '명령: 영역 선포') {
+        pushEffect(s, { id: `v2_dominion_dtup_${s.actionCount}`, type: 'damage_taken_up' as any, value: 50, remainingActions: 5, source: 'player' } as any);
+        addLog(s, `[${skill.name}] 적 받는 데미지 +50% (5턴)`);
+      }
       break;
     }
 
