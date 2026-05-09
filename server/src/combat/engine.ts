@@ -2109,6 +2109,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const matk = s.playerStats.matk;
   const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
+  // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
+  const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
   // summon_buff 효과 (지휘/군주의 위엄)
   const buffEff = findEffectOfType(s, 'summon_buff_active', e => e.remainingActions > 0);
   const buffMult = buffEff ? (1 + buffEff.value / 100) : 1.0;
@@ -2193,9 +2195,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       dmg = Math.max(1, dmg - Math.round(effectiveDef * 0.5));
       // ±10% 랜덤
       dmg = Math.round(dmg * (0.9 + Math.random() * 0.2));
-      // 치명타
+      // 치명타 — element 별 critDmg + 글로벌 summonCritDmgAmp 합산
       if (critChance > 0 && Math.random() * 100 < critChance) {
-        dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
+        dmg = Math.round(dmg * (1.5 + (critDmgBonus + summonCritDmgAmp) / 100));
       }
       // 20% 확률 2회 타격 (만물의 군주)
       if (summonDouble > 0 && Math.random() * 100 < summonDouble) {

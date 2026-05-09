@@ -476,6 +476,49 @@ const summonerAddCoreHandler = async (_req: AuthedRequest, res: Response) => {
 router.get('/summoner-add-core', summonerAddCoreHandler);
 router.post('/summoner-add-core', summonerAddCoreHandler);
 
+// 마이그 시 character_nodes 정리되어 사용한 노드 pt 가 손실. 환불 처리.
+// 일반 노드: level - 1 까지 환불 (사용 안 한 상태로 복원)
+// 차원(paragon) 노드: ?paragonRefund=N 파라미터로 캐릭별 일괄 보상 (적립 기록 없어 추정 환불)
+const summonerRefundPointsHandler = async (req: AuthedRequest, res: Response) => {
+  try {
+    const paragonRefund = Math.max(0, Number((req.query?.paragonRefund as string) || '0'));
+    const r = await query<{ id: number; name: string; level: number; node_points: number; pp: number }>(
+      `SELECT id, name, level, node_points, COALESCE(paragon_points, 0) AS pp FROM characters WHERE class_name = 'summoner'` as any
+    );
+    let normalRefunded = 0;
+    let paragonGranted = 0;
+    const detail: { name: string; level: number; normal_refund: number }[] = [];
+    for (const c of r.rows) {
+      // level 1 → 0 pt, level 2 → 1 pt, ..., level N → N-1 pt
+      const expected = Math.max(0, c.level - 1);
+      const refund = Math.max(0, expected - c.node_points);
+      if (refund > 0) {
+        await query(`UPDATE characters SET node_points = node_points + $1 WHERE id = $2`, [refund, c.id]);
+        normalRefunded += refund;
+      }
+      if (paragonRefund > 0) {
+        await query(`UPDATE characters SET paragon_points = COALESCE(paragon_points, 0) + $1 WHERE id = $2`, [paragonRefund, c.id]);
+        paragonGranted += paragonRefund;
+      }
+      if (refund > 0 || paragonRefund > 0) {
+        detail.push({ name: c.name, level: c.level, normal_refund: refund });
+      }
+    }
+    res.json({
+      ok: true,
+      total_summoner_chars: r.rowCount,
+      normal_pt_refunded_total: normalRefunded,
+      paragon_pt_granted_total: paragonGranted,
+      paragon_per_char: paragonRefund,
+      affected: detail.length,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e instanceof Error ? e.message : e) });
+  }
+};
+router.get('/summoner-refund-points', summonerRefundPointsHandler);
+router.post('/summoner-refund-points', summonerRefundPointsHandler);
+
 // 대소환사 캐릭별 학습 스킬 진단 — ?charId=N 또는 ?name=닉네임
 const summonerV2SkillCheckHandler = async (req: AuthedRequest, res: Response) => {
   try {

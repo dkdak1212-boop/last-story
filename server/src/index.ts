@@ -1340,6 +1340,26 @@ async function runLateMigrations() {
     }
   }
 
+  // 소환수 +1 옵션 (summon_max_extra) → 소환수 치명타 데미지 +50% (summon_crit_dmg_amp)
+  // 소환사 v2 통합 후 소환수는 form 별 1마리 고정 → 추가 소환수 의미 X. 치명타 데미지 가중으로 변경.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summon_max_extra_to_crit_dmg_amp'`);
+      if (!applied.rowCount) {
+        const r = await query(`
+          UPDATE items SET unique_prefix_stats =
+            (unique_prefix_stats - 'summon_max_extra') ||
+            jsonb_build_object('summon_crit_dmg_amp', 50)
+          WHERE unique_prefix_stats ? 'summon_max_extra'
+        `);
+        console.log(`[late] summon_max_extra → summon_crit_dmg_amp (rows=${r.rowCount})`);
+        await query(`INSERT INTO _migrations (name) VALUES ('summon_max_extra_to_crit_dmg_amp') ON CONFLICT DO NOTHING`);
+      }
+    } catch (e) {
+      console.error('[late] summon_max_extra migration error:', e);
+    }
+  }
+
   // ── 대소환사 (summoner_v2) — 088 인라인 우선 적용 (constraint 즉시 풀어 캐릭 생성 가능하게) ──
   {
     try {
@@ -3043,7 +3063,7 @@ async function runEquipOverhaul() {
         await query(`UPDATE items SET unique_prefix_stats='{"matk_pct":18,"max_hp_pct":25,"predator_pct":20,"thorns_pct":30}'::jsonb WHERE id=902`);
         await query(`UPDATE items SET stats='{"hp":850,"atk":1550,"str":40}'::jsonb,
           unique_prefix_stats='{"atk_pct":20,"ambush_pct":40,"evasion_burst_pct":50,"dot_amp_pct":35}'::jsonb WHERE id=903`);
-        await query(`UPDATE items SET unique_prefix_stats='{"matk_pct":18,"summon_amp":30,"summon_max_extra":1,"summon_double_hit":15}'::jsonb WHERE id=904`);
+        await query(`UPDATE items SET unique_prefix_stats='{"matk_pct":18,"summon_amp":30,"summon_crit_dmg_amp":50,"summon_double_hit":15}'::jsonb WHERE id=904`);
         await query(`INSERT INTO _migrations (name) VALUES ('lv110_weapon_rebalance_v2')`);
         console.log('[late] lv110_weapon_rebalance_v2: 완료');
       }
