@@ -1989,7 +1989,7 @@ function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
 const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
   // value = matk × N% — 본체 마법공격력 비례. 장비 matk_pct + summon_amp 자동 가중.
   // ×10 상향 (사용자 요청 — v1 수준 DPS 회복)
-  holy:   { name: '수호수',         value: 2000, element: 'holy',      flat: 6000 },
+  holy:   { name: '수호수',         value: 4000, element: 'holy',      flat: 12000 },
   spirit: { name: '뇌신',           value: 5000, element: 'lightning', flat: 3000 },
   beast:  { name: '대악마',         value: 6000, element: 'fire',      flat: 3000 },
   arcane: { name: '천상의 수호자',  value: 4400, element: 'arcane',    flat: 3000 },
