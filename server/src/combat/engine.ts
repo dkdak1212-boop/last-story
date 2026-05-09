@@ -2094,12 +2094,13 @@ function fireSummonerV2Special(s: ActiveSession): void {
     }
 
     let dmg = 0; let label = '';
+    // 4 특수기 합 ×216 통일 (균형)
     if (form === 'holy') {
-      dmg = Math.round(matk * 135.0); label = '[신수의 결박]';
+      dmg = Math.round(matk * 216.0); label = '[신수의 결박]';
     } else if (form === 'beast') {
       dmg = Math.round(matk * 216.0); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 189.0); label = '[천상의 심판]';
+      dmg = Math.round(matk * 216.0); label = '[천상의 심판]';
     }
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
     const isCrit = cri > 0 && Math.random() * 100 < cri;
