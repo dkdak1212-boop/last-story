@@ -293,6 +293,13 @@ interface ActiveSession {
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
   soulCharge: number; // 궁수 전용: 혼의 화살 차지 (0~5) — 치명타 발동 시 +1
   soulArrowPending: boolean; // 궁수 전용: 이번 스킬 캐스트가 5 차지 소비 중인지 (모든 hit 데미지 ×6)
+  // 절대 정밀 등 'self_dex_buff' — DEX 임시 뻥튀기. 만료 시 자동 회수. 회수 정확성 위해 추가분 박제.
+  dexBuffRemainingActions: number;
+  dexBuffAddedDex: number;
+  dexBuffAddedAtk: number;
+  dexBuffAddedCri: number;
+  dexBuffAddedDodge: number;
+  dexBuffAddedAccuracy: number;
   rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 20)
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
@@ -1821,6 +1828,49 @@ function getPassive(s: ActiveSession, key: string): number {
   return s.passives.get(key) ?? 0;
 }
 
+// 절대 정밀 등 self_dex_buff — DEX 일시 뻥튀기 + 파생 stat (atk/cri/dodge/accuracy) 비례 가산.
+// 회수 정확성 위해 추가분 박제 (revertDexBuff 가 정확히 같은 값을 차감).
+// archer 외 클래스도 cri/dodge/accuracy 는 dex 의존이므로 atk 만 archer 한정 추가.
+function applyDexBuff(s: ActiveSession, dexAddPct: number, duration: number): void {
+  if (s.dexBuffRemainingActions > 0) revertDexBuff(s); // 갱신 시 기존 추가분 먼저 회수
+  const baseDex = s.playerStats.dex || 0;
+  const addedDex = Math.round(baseDex * dexAddPct / 100);
+  if (addedDex <= 0) return;
+  let addedAtk = 0;
+  if (s.className === 'archer') {
+    addedAtk = Math.round((s.playerStats.atk || 1) * (addedDex * 0.005));
+    s.playerStats.atk = (s.playerStats.atk || 0) + addedAtk;
+  }
+  const addedCri = Math.floor(addedDex * 0.05);
+  const addedDodge = addedDex * 0.2;
+  const addedAccuracy = addedDex * 0.3;
+  s.playerStats.dex = baseDex + addedDex;
+  s.playerStats.cri = Math.min(100, (s.playerStats.cri || 0) + addedCri);
+  s.playerStats.dodge = Math.min(70, (s.playerStats.dodge || 0) + addedDodge);
+  s.playerStats.accuracy = Math.min(100, (s.playerStats.accuracy || 0) + addedAccuracy);
+  s.dexBuffAddedDex = addedDex;
+  s.dexBuffAddedAtk = addedAtk;
+  s.dexBuffAddedCri = addedCri;
+  s.dexBuffAddedDodge = addedDodge;
+  s.dexBuffAddedAccuracy = addedAccuracy;
+  s.dexBuffRemainingActions = duration;
+}
+
+function revertDexBuff(s: ActiveSession): void {
+  if (s.dexBuffRemainingActions <= 0 && s.dexBuffAddedDex <= 0) return;
+  s.playerStats.dex = Math.max(0, (s.playerStats.dex || 0) - s.dexBuffAddedDex);
+  s.playerStats.atk = Math.max(1, (s.playerStats.atk || 0) - s.dexBuffAddedAtk);
+  s.playerStats.cri = Math.max(0, (s.playerStats.cri || 0) - s.dexBuffAddedCri);
+  s.playerStats.dodge = Math.max(0, (s.playerStats.dodge || 0) - s.dexBuffAddedDodge);
+  s.playerStats.accuracy = Math.max(0, (s.playerStats.accuracy || 0) - s.dexBuffAddedAccuracy);
+  s.dexBuffRemainingActions = 0;
+  s.dexBuffAddedDex = 0;
+  s.dexBuffAddedAtk = 0;
+  s.dexBuffAddedCri = 0;
+  s.dexBuffAddedDodge = 0;
+  s.dexBuffAddedAccuracy = 0;
+}
+
 // 항상 적용되는 파라곤 데미지 배수 (consume 부수효과 없음).
 // applyDamagePrefixes 를 우회하는 경로(기본 평타·그림자 분신 등)에서 누락 보강용.
 // dormant_burst/failure_glory 는 일회성 consume 가 있어 본체 파이프라인 책임으로 남김.
@@ -3333,6 +3383,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'damage_taken_up', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
       addLog(s, `[${skill.name}] 적 받는 데미지 +${skill.effect_value}% (${skill.effect_duration}행동)`);
+      break;
+    }
+
+    case 'self_dex_buff': {
+      // 절대 정밀 등 — DEX 자체 +N% 일시 뻥튀기. 파생 atk(archer)/cri/dodge/accuracy 도 비례 가산.
+      dealBuffSkillDamage(s, skill, useMatk);
+      applyDexBuff(s, skill.effect_value, skill.effect_duration);
+      addLog(s, `[${skill.name}] 민첩 +${skill.effect_value}% (${skill.effect_duration}행동) — 추가 DEX +${s.dexBuffAddedDex}, ATK +${s.dexBuffAddedAtk}, CRI +${s.dexBuffAddedCri}`);
       break;
     }
 
@@ -5576,6 +5634,14 @@ async function combatTick(): Promise<void> {
         s.playerGauge -= GAUGE_MAX;
         s.actionCount++;
         s.paragonActionCount++;
+        // self_dex_buff (절대 정밀 등) 만료 카운트다운 — 매 액션 -1, 0 도달 시 회수
+        if (s.dexBuffRemainingActions > 0) {
+          s.dexBuffRemainingActions--;
+          if (s.dexBuffRemainingActions === 0) {
+            revertDexBuff(s);
+            addLog(s, '[민첩 강화] 효과 만료');
+          }
+        }
         // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 75% cap 다시 적용)
         s.gaugeOnCritGainedThisAction = 0;
         // 길드보스 element 추적 리셋 — 매 액션 첫 스킬 element 만 사용
@@ -6359,6 +6425,12 @@ async function startCombatSessionInner(
     poisonResonance: 0,
     soulCharge: 0,
     soulArrowPending: false,
+    dexBuffRemainingActions: 0,
+    dexBuffAddedDex: 0,
+    dexBuffAddedAtk: 0,
+    dexBuffAddedCri: 0,
+    dexBuffAddedDodge: 0,
+    dexBuffAddedAccuracy: 0,
     comboKills: 0,
     hasFirstSkill: true,
     paragonFailurePending: false,
