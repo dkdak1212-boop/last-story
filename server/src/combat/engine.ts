@@ -2138,9 +2138,21 @@ function fireSummonerV2Special(s: ActiveSession): void {
 // ── 도적 (rogue) 그림자 분신 — 매 본체 액션 후 자동 평타 ──
 // 시그니처 패시브: 무조건 1마리 (도적 클래스). 노드/장비로 +N 가중.
 // 분신 = 본체 ATK × (60 + clone_dmg_amp)% — atk_buff·cri 가중·치명타 적용
-function processShadowClones(s: ActiveSession): void {
+function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   if (s.className !== 'rogue') return;
   if (s.monsterHp <= 0) return; // 이미 처치
+
+  // 본체 스킬 모방 모드 — damage_mult 만 차용, 부가 효과(독·도트·CC) 는 본체만 부여
+  // 컨트롤(buff/debuff: 백스텝/연막탄/독안개/그림자 은신/기습) 및 무데미지 스킬(맹독 강화/독의 축제) 은 분신 미발동
+  let skillMult = 1.0;        // 평타 기준 1.0
+  let skillName: string | null = null;
+  if (skill) {
+    if (skill.kind !== 'damage') return;
+    if ((skill.damage_mult || 0) <= 0) return;
+    skillMult = skill.damage_mult;
+    skillName = skill.name;
+  }
+
   const baseCount = 1;
   const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
   const cloneCount = Math.min(5, baseCount + extraCount);
@@ -2154,7 +2166,7 @@ function processShadowClones(s: ActiveSession): void {
   const def = s.monsterStats.def || 0;
   for (let i = 1; i <= cloneCount; i++) {
     if (s.monsterHp <= 0) break;
-    let dmg = Math.round(baseAtk * cloneDmgPct / 100 * atkBuffMul);
+    let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
     // 분신 다단 (확률)
     if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
     // 치명타
@@ -2167,7 +2179,8 @@ function processShadowClones(s: ActiveSession): void {
     const finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
     s.monsterHp -= finalDmg;
     const tag = cloneCount > 1 ? ` ${i}` : '';
-    addLog(s, `[그림자 분신${tag}]${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
+    const skillTag = skillName ? ` ${skillName}` : '';
+    addLog(s, `[그림자 분신${tag}]${skillTag}${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
   }
 }
 
@@ -3775,7 +3788,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       addSkillTime(s.className, dt2, sk.name);
     }
     if (s.className === 'summoner') processSummons(s);
-    if (s.className === 'rogue') processShadowClones(s);
+    if (s.className === 'rogue') processShadowClones(s, sk);
     return;
   }
 
@@ -6592,6 +6605,7 @@ export async function manualSkillUse(characterId: number, skillId: number): Prom
   for (const e of getEffectsBySource(s).fromPlayer) preManualIds.add(e.id);
   const hpBeforeManual = s.monsterHp;
   await executeSkill(s, skill);
+  if (s.className === 'rogue') processShadowClones(s, skill);
   processDots(s, 'monster');
   tickDownEffects(s, 'player', preManualIds);
   tickShield(s);
