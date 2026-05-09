@@ -203,7 +203,9 @@ export function SkillsScreen() {
             [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
             reorderSkills(ids);
           };
-          return skills.map((s) => {
+          // 스킬창 표시는 레벨순 — 전투창 슬롯 순서(slot_order)와 별개
+          const sortedSkills = [...skills].sort((a, b) => a.requiredLevel - b.requiredLevel || a.id - b.id);
+          return sortedSkills.map((s) => {
           const isOn = s.learned && s.autoUse;
           const draggable = isOn;
           const onIdx = isOn ? onSkills.findIndex(x => x.id === s.id) : -1;

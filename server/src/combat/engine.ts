@@ -2077,15 +2077,15 @@ function fireSummonerV2Special(s: ActiveSession): void {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
     let dmg = 0; let label = '';
     if (form === 'holy') {
-      dmg = Math.round(matk * 20.0); label = '[신수의 결박]';
+      dmg = Math.round(matk * 30.0); label = '[신수의 결박]';
     } else if (form === 'spirit') {
-      dmg = Math.round(matk * 12.8); label = '[연쇄 번개 4연타]';
+      dmg = Math.round(matk * 19.2); label = '[연쇄 번개 4연타]';
     } else if (form === 'beast') {
       const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
-      dmg = Math.round(matk * (crit ? 48 : 32));
+      dmg = Math.round(matk * (crit ? 72 : 48));
       label = crit ? '[지옥불 일격] (치명타!)' : '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 28.0); label = '[천상의 심판]';
+      dmg = Math.round(matk * 42.0); label = '[천상의 심판]';
     }
     if (dmg > 0) {
       const finalDmg = Math.max(1, dmg - defReduce);

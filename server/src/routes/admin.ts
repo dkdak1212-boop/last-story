@@ -53,9 +53,9 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
 
     // 3) 스킬 20개 INSERT — statement 별로 분리해 어느 행에서 실패하는지 추적
     const skillRows: Array<[string, string, string, number, number, string, number, number, string, number, number, string]> = [
-      ['summoner_v2', '명령: 습격',     '소환수가 적을 강타한다. 강한 일격 + 3턴 도트.',                          5,  3.00, 'damage',        3, 0, 'dot',            0.30, 3,  ''],
+      ['summoner_v2', '명령: 습격',     '소환수가 적을 강타한다. 강한 일격 + 3턴 도트.',                          5,  3.00, 'damage',        2, 0, 'dot',            0.30, 3,  ''],
       ['summoner_v2', '술식: 결속',     '술자가 영혼을 다잡아 체력 50%를 회복한다.',                              10, 0.00, 'heal',          5, 0, 'heal_pct',       50,   0,  ''],
-      ['summoner_v2', '명령: 강습',     '소환수가 적 단일에게 강력한 일격을 내려친다 (×2.5).',                     15, 2.50, 'damage',        3, 0, 'damage',         2.50, 0,  ''],
+      ['summoner_v2', '명령: 강습',     '소환수가 적 단일에게 강력한 일격을 내려친다 (×2.5).',                     15, 2.50, 'damage',        2, 0, 'damage',         2.50, 0,  ''],
       ['summoner_v2', '명령: 수호',     '술자에게 5턴간 25% 쉴드를 부여한다.',                                    20, 0.00, 'buff',          4, 0, 'shield',         25,   5,  ''],
       ['summoner_v2', '술식: 인내',     '4턴간 받는 피해 35% 감소.',                                              25, 0.00, 'damage_reduce', 5, 0, 'damage_reduce',  35,   4,  ''],
       ['summoner_v2', '명령: 추격',     '소환수 전원 지속시간 +60행동 (상한 120).',                                30, 0.00, 'buff',          4, 0, 'summon_extend',  60,   0,  ''],
@@ -602,12 +602,12 @@ router.get('/summoner-v2-skill-check', summonerV2SkillCheckHandler);
 const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response) => {
   const log: string[] = [];
   try {
-    // 명령: 습격: summon_dot → dot
-    const r1 = await query(`UPDATE skills SET effect_type = 'dot' WHERE class_name = 'summoner_v2' AND name = '명령: 습격'`);
-    log.push(`'명령: 습격' summon_dot → dot (${r1.rowCount}행)`);
-    // 명령: 강습: summon → damage
-    const r2 = await query(`UPDATE skills SET effect_type = 'damage' WHERE class_name = 'summoner_v2' AND name = '명령: 강습'`);
-    log.push(`'명령: 강습' summon → damage (${r2.rowCount}행)`);
+    // 명령: 습격: summon_dot → dot + 쿨 2
+    const r1 = await query(`UPDATE skills SET effect_type = 'dot', cooldown_actions = 2 WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 습격'`);
+    log.push(`'명령: 습격' summon_dot → dot, cd=2 (${r1.rowCount}행)`);
+    // 명령: 강습: summon → damage + 쿨 2
+    const r2 = await query(`UPDATE skills SET effect_type = 'damage', cooldown_actions = 2 WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 강습'`);
+    log.push(`'명령: 강습' summon → damage, cd=2 (${r2.rowCount}행)`);
     // 술식: 각력 강화: summon_buff(SPD) → self_speed_mod (본인 SPD +30%, 소환수는 자체 속도 없음)
     const r3 = await query(
       `UPDATE skills SET effect_type = 'self_speed_mod', effect_value = 30, description = '5턴간 자가 스피드 +30% (소환수도 더 자주 행동).'
