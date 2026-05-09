@@ -1013,7 +1013,7 @@ setInterval(async () => {
   } catch (e) { console.error('[combat] last_tick_at save err', e); }
   // 소환사 세션: 소환수/쿨다운 상태 저장 (복원용)
   for (const [charId, s] of activeSessions) {
-    if (s.className !== 'summoner' && s.className !== 'summoner_v2') continue;
+    if (s.className !== 'summoner') continue;
     const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     try {
@@ -1971,7 +1971,7 @@ const MAX_SUMMONS = 3;
 // ── summoner_v2 (대소환사) — 활성 변환 form 수만큼 소환수 1마리씩 ──
 type SummonerV2Form = 'holy' | 'spirit' | 'beast' | 'arcane';
 function getActiveSummonerV2Forms(s: ActiveSession): SummonerV2Form[] {
-  if (s.className !== 'summoner_v2') return [];
+  if (s.className !== 'summoner') return [];
   const forms: SummonerV2Form[] = [];
   if (getPassive(s, 'summoner_v2_holy') > 0)   forms.push('holy');
   if (getPassive(s, 'summoner_v2_spirit') > 0) forms.push('spirit');
@@ -1996,7 +1996,7 @@ const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { n
 // 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
 // form 0개: 늑대 1마리 / form N개: 각 form 별 소환수 1마리씩 (총 N마리, 늑대 X)
 function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): void {
-  if (s.className !== 'summoner_v2') return;
+  if (s.className !== 'summoner') return;
   const forms = getActiveSummonerV2Forms(s);
   // 활성 form 명칭 set — 보존할 소환수
   const validNames = new Set<string>();
@@ -2063,7 +2063,7 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
 
 // 변환 특수기 — form별 cd 트래킹, 활성 form 모두 동시 발동 가능
 function fireSummonerV2Special(s: ActiveSession): void {
-  if (s.className !== 'summoner_v2') return;
+  if (s.className !== 'summoner') return;
   const forms = getActiveSummonerV2Forms(s);
   if (forms.length === 0) return;
   if (!s.v2SpecialCds) s.v2SpecialCds = { holy: 0, spirit: 0, beast: 0, arcane: 0 };
@@ -3684,7 +3684,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       perfSeg.pSkillCalls++;
       addSkillTime(s.className, dt2, sk.name);
     }
-    if ((s.className === 'summoner' || s.className === 'summoner_v2')) processSummons(s);
+    if (s.className === 'summoner') processSummons(s);
     return;
   }
 
@@ -3703,7 +3703,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
   }
   perfSeg.pBasicMs += Date.now() - tBasic;
   // 소환수는 본체 액션 종류와 무관하게 매 액션 1회 공격 (버프/소환생성/기본공격 턴에도 발동)
-  if ((s.className === 'summoner' || s.className === 'summoner_v2')) processSummons(s);
+  if (s.className === 'summoner') processSummons(s);
 }
 
 // ── 110 몬스터 스킬 처리 ──
@@ -3968,7 +3968,7 @@ function monsterAction(s: ActiveSession): void {
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
     // 소환사 방어 오오라 — 오오라의 왕 시 ×2
-    if ((s.className === 'summoner' || s.className === 'summoner_v2') && dmg > 0) {
+    if (s.className === 'summoner' && dmg > 0) {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraDef = getPassive(s, 'aura_def') * auraMul;
       if (auraDef > 0) dmg = Math.round(dmg * (1 - auraDef / 100));
@@ -4044,7 +4044,7 @@ function monsterAction(s: ActiveSession): void {
     }
 
     // 소환사 반사 오오라 — 받은 데미지의 aura_reflect% 를 몬스터에게 반사 (상시)
-    if ((s.className === 'summoner' || s.className === 'summoner_v2') && d.damage > 0) {
+    if (s.className === 'summoner' && d.damage > 0) {
       const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
       const auraReflect = getPassive(s, 'aura_reflect') * auraMul;
       if (auraReflect > 0) {
@@ -4650,7 +4650,7 @@ async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   // damageType — 클래스 기반 분류. 차원의 지배자 ATK/MATK 교대 면역 메커닉.
   //   mage/cleric/summoner = magical, warrior/rogue = physical
   const dmgType: 'physical' | 'magical' =
-    (s.className === 'mage' || s.className === 'cleric' || (s.className === 'summoner' || s.className === 'summoner_v2')) ? 'magical' : 'physical';
+    (s.className === 'mage' || s.className === 'cleric' || s.className === 'summoner') ? 'magical' : 'physical';
 
   try {
     for (const [elKey, buf] of Object.entries(byElement)) {
@@ -5071,7 +5071,7 @@ export async function onSessionGoOffline(
   try { await flushCharBatch(charId); } catch (e) { console.error('[offline-go] flush err', charId, e); }
 
   // 소환사: 소환수/쿨다운 보존 — startCombatSession 이 다음 진입 시 status_effects 에서 복원함
-  if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
+  if (s.className === 'summoner') {
     try {
       const summons = s.statusEffects.filter(e =>
         e.type === 'summon' && e.source === 'player' && e.remainingActions > 0
@@ -5233,7 +5233,7 @@ async function combatTick(): Promise<void> {
       }
       // 소환사 속도 오오라 — 플레이어 행동 주기 가속 (소환수가 player 액션마다 발동하므로
       // 결과적으로 "소환수 속도 상승" 과 동치). 오오라의 왕 키스톤 시 ×2.
-      if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
+      if (s.className === 'summoner') {
         const auraMul = getPassive(s, 'aura_multiplier') > 0 ? 2 : 1;
         const auraSpd = getPassive(s, 'aura_speed') * auraMul;
         if (auraSpd > 0) effectivePlayerSpeed += auraSpd;
@@ -5695,7 +5695,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
     snapshot.poisonResonance = s.poisonResonance;
   }
   // 소환사 소환수 목록
-  if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
+  if (s.className === 'summoner') {
     snapshot.summons = getActiveSummons(s).map(e => ({
       skillName: e.summonSkillName || '',
       element: e.element,
@@ -6244,8 +6244,8 @@ async function startCombatSessionInner(
     } catch {}
   }
 
-  // ── summoner_v2 (대소환사) — 자동 늑대 소환 (영구 지속). 변환은 processSummons 가 in-place 적용. ──
-  if (char.class_name === 'summoner_v2') {
+  // ── summoner (개편 v2) — 자동 늑대 소환 (영구 지속). 변환은 processSummons 가 in-place 적용. ──
+  if (char.class_name === 'summoner') {
     const hasWolf = session.statusEffects.some(e => e.type === 'summon' && e.source === 'player');
     if (!hasWolf) {
       session.statusEffects.push({
@@ -6281,7 +6281,7 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   const s = activeSessions.get(characterId);
   if (s) {
     // 소환수 상태 저장 (복원용)
-    if ((s.className === 'summoner' || s.className === 'summoner_v2')) {
+    if (s.className === 'summoner') {
       const summons = getActiveSummons(s);
       const cdObj: Record<string, number> = {};
       for (const [k, v] of s.skillCooldowns) cdObj[String(k)] = v;
@@ -6917,7 +6917,7 @@ export async function flushCharBatchAll(): Promise<void> {
   await flushCharBatch();
   // 소환사 세션 마지막 상태 DB 에 저장 (graceful shutdown 용)
   for (const [charId, s] of activeSessions) {
-    if (s.className !== 'summoner' && s.className !== 'summoner_v2') continue;
+    if (s.className !== 'summoner') continue;
     const summons = getActiveSummons(s);
     if (summons.length === 0) continue;
     const cdObj: Record<string, number> = {};

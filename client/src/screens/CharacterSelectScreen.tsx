@@ -11,9 +11,8 @@ const ALL_CLASSES: ClassEntry[] = [
   { name: 'mage', label: '마법사', desc: '원소 파괴 + 게이지 조작 제어' },
   { name: 'cleric', label: '성직자', desc: '보조/공격 양면, 신성 실드와 심판' },
   { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
-  { name: 'summoner', label: '소환사', desc: '소환수가 대신 싸우는 군주, INT 특화' },
+  { name: 'summoner', label: '소환사', desc: '소환수 1체를 신수·정령·괴수·마도로 변환·강화' },
   { name: 'archer' as ClassName, label: '궁수', desc: '카이팅 저격수 — 처치 누적으로 사거리 강화 (어드민 전용)', adminOnly: true },
-  { name: 'summoner_v2' as ClassName, label: '대소환사', desc: '소환수 1체를 신수·정령·괴수·마도로 변환·강화 (어드민 전용)', adminOnly: true },
 ];
 
 export function CharacterSelectScreen() {

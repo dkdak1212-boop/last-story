@@ -1,6 +1,6 @@
 // 클라이언트·서버 공유 타입
 
-export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer' | 'summoner_v2';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer';
 
 export type ItemGrade = 'common' | 'rare' | 'epic' | 'legendary' | 'unique';
 

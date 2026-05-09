@@ -58,18 +58,18 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
       ['summoner_v2', '명령: 강습',     '소환수가 적 단일에게 강력한 일격을 내려친다 (×2.5).',                     15, 2.50, 'damage',        3, 0, 'damage',         2.50, 0,  ''],
       ['summoner_v2', '명령: 수호',     '술자에게 5턴간 25% 쉴드를 부여한다.',                                    20, 0.00, 'buff',          4, 0, 'shield',         25,   5,  ''],
       ['summoner_v2', '술식: 인내',     '4턴간 받는 피해 35% 감소.',                                              25, 0.00, 'damage_reduce', 5, 0, 'damage_reduce',  35,   4,  ''],
-      ['summoner_v2', '명령: 추격',     '소환수가 즉시 추가 1회 행동한다.',                                        30, 0.00, 'buff',          4, 0, 'summon_extend',  1.00, 0,  ''],
+      ['summoner_v2', '명령: 추격',     '소환수 전원 지속시간 +60행동 (상한 120).',                                30, 0.00, 'buff',          4, 0, 'summon_extend',  60,   0,  ''],
       ['summoner_v2', '자세: 통찰',     '다음 평타 1회 치명타 확정.',                                              35, 0.00, 'buff',          3, 0, 'crit_guaranteed',1.00, 1,  ''],
-      ['summoner_v2', '명령: 희생',     '술자가 체력 50%를 잃는 대신, 5턴간 소환수 데미지 ×3.',                    40, 3.00, 'damage',        6, 0, 'summon_sacrifice',0.50, 5,  ''],
-      ['summoner_v2', '술식: 근력 강화','5턴간 소환수 데미지 +50%.',                                               45, 0.00, 'buff',          4, 0, 'summon_buff',    1.50, 5,  ''],
+      ['summoner_v2', '명령: 희생',     '소환수 1마리 희생 (가장 강한 소환수 파괴) → 폭발 데미지 ×3.',            40, 3.00, 'damage',        6, 0, 'summon_sacrifice',0,    0,  ''],
+      ['summoner_v2', '술식: 근력 강화','5턴간 소환수 데미지 +50%.',                                               45, 0.00, 'buff',          4, 0, 'summon_buff',    50,   5,  ''],
       ['summoner_v2', '술식: 각력 강화','5턴간 자가 스피드 +30% (소환수도 더 자주 행동).',                          50, 0.00, 'buff',          4, 0, 'self_speed_mod', 30,   5,  ''],
       ['summoner_v2', '술식: 폭주',     '3턴간 소환수 데미지 +100%, 종료 후 1턴 데미지 -50%.',                     55, 0.00, 'buff',          6, 0, 'summon_frenzy',  2.00, 3,  ''],
-      ['summoner_v2', '술식: 응결',     '3턴간 소환수 데미지 +75%.',                                               60, 0.00, 'buff',          6, 0, 'summon_buff',    1.75, 3,  ''],
+      ['summoner_v2', '술식: 응결',     '3턴간 소환수 데미지 +75%.',                                               60, 0.00, 'buff',          6, 0, 'summon_buff',    75,   3,  ''],
       ['summoner_v2', '자세: 집중',     '5턴간 자가 치명타 확률 +25.',                                              65, 0.00, 'buff',          5, 0, 'self_cri_buff',  25.0, 5,  ''],
       ['summoner_v2', '자세: 방어',     '5턴간 받는 피해 30% 감소.',                                                70, 0.00, 'damage_reduce', 5, 0, 'damage_reduce',  30,   5,  ''],
       ['summoner_v2', '자세: 불굴',     '5턴간 받는 피해 50% 감소.',                                                75, 0.00, 'damage_reduce', 6, 0, 'damage_reduce',  50,   5,  ''],
       ['summoner_v2', '자세: 휴식',     '10턴간 매 턴 최대 HP의 10% 회복.',                                         80, 0.00, 'heal',          8, 0, 'heal_pct',       10,   10, ''],
-      ['summoner_v2', '술식: 시력 강화','5턴간 소환수 치명타 데미지 +50%.',                                         85, 0.00, 'buff',          5, 0, 'summon_buff',    1.50, 5,  ''],
+      ['summoner_v2', '술식: 시력 강화','5턴간 소환수 데미지 +50%.',                                                85, 0.00, 'buff',          5, 0, 'summon_buff',    50,   5,  ''],
       ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',                          90, 5.00, 'damage',        4, 0, 'damage',         0,    0,  ''],
       ['summoner_v2', '자세: 진언',     '5턴간 자가 공격력 +50%.',                                                  95, 0.00, 'buff',          9, 0, 'self_atk_buff',  50,   5,  ''],
       ['summoner_v2', '명령: 영역 선포','5턴간 술자에게 75% 쉴드. 패시브 대정의의 영역.',                          100, 0.00, 'buff',          8, 0, 'shield',         75,   5,  ''],
@@ -512,6 +512,26 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
     // 자세: 진언 — self_atk_buff 0.50 → 50
     const r12 = await query(`UPDATE skills SET effect_value = 50 WHERE class_name = 'summoner_v2' AND name = '자세: 진언'`);
     log.push(`'자세: 진언' self_atk_buff 0.50 → 50 (${r12.rowCount}행)`);
+    // ── summon_buff effect_value % 단위 정정 ──
+    const r14 = await query(`UPDATE skills SET effect_value = 50 WHERE class_name = 'summoner_v2' AND name = '술식: 근력 강화'`);
+    log.push(`'술식: 근력 강화' summon_buff 1.50 → 50% (${r14.rowCount}행)`);
+    const r15 = await query(`UPDATE skills SET effect_value = 75 WHERE class_name = 'summoner_v2' AND name = '술식: 응결'`);
+    log.push(`'술식: 응결' summon_buff 1.75 → 75% (${r15.rowCount}행)`);
+    const r16 = await query(`UPDATE skills SET effect_value = 50 WHERE class_name = 'summoner_v2' AND name = '술식: 시력 강화'`);
+    log.push(`'술식: 시력 강화' summon_buff 1.50 → 50% (${r16.rowCount}행)`);
+
+    // ── description 정정 (effect_type 한계 — engine 동작과 일치하도록) ──
+    const r17 = await query(`UPDATE skills SET
+        description = '소환수 1마리 희생 (가장 강한 소환수 파괴) → 폭발 데미지 ×3.',
+        effect_value = 0
+      WHERE class_name = 'summoner_v2' AND name = '명령: 희생'`);
+    log.push(`'명령: 희생' description 정정 (${r17.rowCount}행)`);
+    const r18 = await query(`UPDATE skills SET
+        description = '소환수 전원 지속시간 +60행동 (상한 120).',
+        effect_value = 60
+      WHERE class_name = 'summoner_v2' AND name = '명령: 추격'`);
+    log.push(`'명령: 추격' description 정정 (${r18.rowCount}행)`);
+
     // 술식: 가시화 → '명령: 진멸' 강력 공격 (×5.0, 쿨 4)
     const r13 = await query(`UPDATE skills SET
         name = '명령: 진멸',
@@ -620,6 +640,87 @@ const copyRank1SummonerHandler = async (_req: AuthedRequest, res: Response) => {
 };
 router.get('/copy-rank1-summoner-to-eqeq', copyRank1SummonerHandler);
 router.post('/copy-rank1-summoner-to-eqeq', copyRank1SummonerHandler);
+
+// summoner_v2 → summoner 통합 마이그레이션
+// 1) 기존 summoner 캐릭 character_skills/character_nodes reset
+// 2) 기존 summoner 스킬 21개 (v1) 삭제
+// 3) summoner_v2 스킬 20개 → class_name='summoner'
+// 4) 기존 summoner 노드 삭제 (있으면)
+// 5) summoner_v2 노드 88개 + CORE → class_exclusive='summoner', zone='north_summoner'
+// 6) eqeq class_name 변경
+// 7) characters CHECK constraint 정리 (summoner_v2 제거)
+const migrateSummonerV2Handler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    log.push(`[migrate] 시작 ${new Date().toISOString()}`);
+
+    // 1) 기존 summoner 캐릭들의 character_skills / character_nodes 정리 (FK 안전)
+    const cs1 = await query(`DELETE FROM character_skills WHERE character_id IN (SELECT id FROM characters WHERE class_name IN ('summoner','summoner_v2'))`);
+    log.push(`character_skills 정리 (summoner+v2 캐릭): ${cs1.rowCount}`);
+    const cn1 = await query(`DELETE FROM character_nodes WHERE character_id IN (SELECT id FROM characters WHERE class_name IN ('summoner','summoner_v2'))`);
+    log.push(`character_nodes 정리: ${cn1.rowCount}`);
+
+    // 2) 기존 summoner v1 스킬 모두 삭제 (v2 와 이름 충돌 방지)
+    const ds = await query(`DELETE FROM skills WHERE class_name = 'summoner'`);
+    log.push(`기존 summoner v1 스킬 삭제: ${ds.rowCount}`);
+
+    // 3) summoner_v2 스킬 → summoner 로 class_name 변경
+    const us = await query(`UPDATE skills SET class_name = 'summoner' WHERE class_name = 'summoner_v2'`);
+    log.push(`summoner_v2 → summoner 스킬 마이그: ${us.rowCount}`);
+
+    // 4) 기존 summoner 노드 (class_exclusive='summoner') 정리 — 있으면 삭제
+    //    character_nodes 는 위에서 이미 정리됨
+    const dn = await query(`DELETE FROM node_definitions WHERE class_exclusive = 'summoner' AND class_exclusive IS NOT NULL`);
+    log.push(`기존 summoner 노드 삭제: ${dn.rowCount}`);
+
+    // 5) summoner_v2 노드 → summoner 마이그 (class_exclusive + zone 변경)
+    const un = await query(`UPDATE node_definitions
+       SET class_exclusive = 'summoner', zone = 'north_summoner'
+       WHERE class_exclusive = 'summoner_v2' OR zone LIKE 'north_summoner_v2%'`);
+    log.push(`summoner_v2 → summoner 노드 마이그: ${un.rowCount}`);
+
+    // 6) eqeq 캐릭 class_name 변경 (있으면)
+    const ueq = await query(`UPDATE characters SET class_name = 'summoner' WHERE name = 'eqeq' AND class_name = 'summoner_v2'`);
+    log.push(`eqeq class_name 변경: ${ueq.rowCount}`);
+
+    // 7) 다른 summoner_v2 캐릭들도 모두 summoner 로
+    const uOther = await query(`UPDATE characters SET class_name = 'summoner' WHERE class_name = 'summoner_v2'`);
+    log.push(`기타 summoner_v2 캐릭 → summoner: ${uOther.rowCount}`);
+
+    // 8) characters CHECK constraint — summoner_v2 제거
+    await query(`ALTER TABLE characters DROP CONSTRAINT IF EXISTS characters_class_name_check`);
+    await query(`ALTER TABLE characters ADD CONSTRAINT characters_class_name_check
+      CHECK (class_name IN ('warrior', 'mage', 'cleric', 'rogue', 'summoner', 'archer'))`);
+    log.push('CHECK constraint 정리 (summoner_v2 제거)');
+
+    // 9) _migrations 키 정리 — summoner_v2 관련 키 제거 (다음 부팅 시 인라인 코드 안 돔, 어차피 코드에서도 제거 예정)
+    await query(`DELETE FROM _migrations WHERE name LIKE '%summoner_v2%'`);
+    log.push('_migrations 키 정리');
+
+    // 검증
+    const sk = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM skills WHERE class_name = 'summoner'`);
+    const nd = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE class_exclusive = 'summoner'`);
+    const v2sk = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM skills WHERE class_name = 'summoner_v2'`);
+    const v2nd = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE class_exclusive = 'summoner_v2' OR zone LIKE 'north_summoner_v2%'`);
+    const v2ch = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM characters WHERE class_name = 'summoner_v2'`);
+    res.json({
+      ok: true,
+      log,
+      verify: {
+        summoner_skills: Number(sk.rows[0].c),
+        summoner_nodes: Number(nd.rows[0].c),
+        summoner_v2_skills_residue: Number(v2sk.rows[0].c),
+        summoner_v2_nodes_residue: Number(v2nd.rows[0].c),
+        summoner_v2_characters_residue: Number(v2ch.rows[0].c),
+      }
+    });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/migrate-summoner-v2-to-summoner', migrateSummonerV2Handler);
+router.post('/migrate-summoner-v2-to-summoner', migrateSummonerV2Handler);
 
 router.use(authRequired);
 router.use(adminRequired);

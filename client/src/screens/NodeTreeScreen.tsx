@@ -260,13 +260,13 @@ export function NodeTreeScreen() {
     // 소환사 / 분기형(north_rogue 등): DB position 직접 사용
     const hasExplicitPositions = zoneNodes.length > 0 && zoneNodes.every(n => (n.positionX ?? 0) !== 0 || (n.positionY ?? 0) !== 0 || zoneNodes.length < 50);
     // 명시적 좌표 사용 조건: core zone 은 항상 자동 layout (공용 노드트리 영향 차단)
+    // summoner 는 v2 통합 후 88+ 노드라 scale 30 사용
     const useExplicit = activeZone !== 'core' && (
       active?.className === 'summoner' ||
-      active?.className === 'summoner_v2' ||
       (hasExplicitPositions && zoneNodes.length <= 50)
     );
     if (useExplicit) {
-      const scale = active?.className === 'summoner' ? 65 : active?.className === 'summoner_v2' ? 30 : 38;
+      const scale = active?.className === 'summoner' ? 30 : 38;
       const m = new Map<number, Position>();
       for (const n of zoneNodes) {
         m.set(n.id, { x: (n.positionX ?? 0) * scale, y: (n.positionY ?? 0) * scale });

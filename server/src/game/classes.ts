@@ -1,9 +1,9 @@
-// 4직업 시작 스탯 — v0.9 / archer 1차 어드민 전용 추가 (2026-05-07) / summoner_v2 대소환사 어드민 전용 (2026-05-08)
+// 4직업 시작 스탯 — v0.9 / archer 어드민 전용 / summoner v2 개편 통합 (2026-05-09)
 
-export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer' | 'summoner_v2';
+export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer';
 
 // 어드민 전용 직업 — `/characters/create` 에서 별도 검증, 클라에서 hide.
-export const ADMIN_ONLY_CLASSES: Set<ClassName> = new Set(['archer', 'summoner_v2']);
+export const ADMIN_ONLY_CLASSES: Set<ClassName> = new Set(['archer']);
 
 export interface Stats {
   str: number;
@@ -43,22 +43,17 @@ export const CLASS_START: Record<ClassName, ClassStart> = {
     maxHp: 200,
     description: '스피드와 제어, 독 스택 연속행동',
   },
+  // 소환사 (개편 v2) — 한 마리 소환수를 4방향(신수/정령/괴수/마도) 으로 변환·강화하는 술자
   summoner: {
     stats: { str: 4,  dex: 6,  int: 18, vit: 14, spd: 200, cri: 5 },
     maxHp: 200,
-    description: '소환수가 대신 싸우는 군주, INT 특화',
+    description: '소환수 1체를 신수·정령·괴수·마도로 변환·강화',
   },
   // 1차 어드민 전용 — DEX 주력, cri 베이스 강화 (25), 가상 사거리 stack 시스템.
   archer: {
     stats: { str: 6,  dex: 18, int: 5,  vit: 14, spd: 200, cri: 25 },
     maxHp: 200,
     description: '카이팅 저격수 — 처치 누적으로 사거리 강화',
-  },
-  // 2차 어드민 전용 — 소환사 개편 v2. INT 주력, 한 마리 소환수를 4방향(신수/정령/괴수/마도) 으로 변환 운용.
-  summoner_v2: {
-    stats: { str: 4,  dex: 6,  int: 18, vit: 14, spd: 200, cri: 5 },
-    maxHp: 200,
-    description: '대소환사 — 한 마리 소환수를 변환·강화하는 술자',
   },
 };
 
