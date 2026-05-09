@@ -1228,6 +1228,9 @@ async function consumeOneFromSlot(slotId: number) {
 }
 
 function addLog(s: ActiveSession, msg: string) {
+  // 가독성 — (HP N/M) 패턴 제거 + 4자리 이상 숫자 콤마
+  msg = msg.replace(/\s*\(HP\s+\d+\s*\/\s*\d+\)/g, '');
+  msg = msg.replace(/\d{4,}/g, m => Number(m).toLocaleString('en-US'));
   s.log.push(msg);
   if (s.log.length > MAX_LOG) s.log.shift();
   s.dirty = true;
@@ -2088,7 +2091,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
         const hitFinal = Math.max(1, hit - defReduce);
         s.monsterHp -= hitFinal;
-        s.log.push(`${hitLabel} ${hitFinal} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+        addLog(s, `${hitLabel} ${hitFinal} 피해`);
       }
       s.v2SpecialCds[form] = SPECIAL_CD;
       continue;
@@ -2108,20 +2111,20 @@ function fireSummonerV2Special(s: ActiveSession): void {
     if (dmg > 0) {
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
-      s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+      addLog(s, `${label} ${finalDmg} 피해`);
       // ── form 별 추가 효과 ──
       if (form === 'holy') {
         // 신성한 결박 — 적이 받는 데미지 +25% (5턴, 디버프)
         pushEffect(s, { id: `v2_holy_dtup_${s.actionCount}`, type: 'damage_taken_up' as any, value: 25, remainingActions: 5, source: 'player' } as any);
-        s.log.push(`[신성한 결박] 적이 받는 데미지 +25% (5턴)`);
+        addLog(s, `[신성한 결박] 적이 받는 데미지 +25% (5턴)`);
       } else if (form === 'beast' && s.monsterHp <= 0) {
         // 흑염의 분노 — 처치 시 즉시 추가 1회 액션 (게이지 풀필)
         s.playerGauge = GAUGE_MAX;
-        s.log.push(`[흑염의 분노] 처치! 즉시 추가 액션`);
+        addLog(s, `[흑염의 분노] 처치! 즉시 추가 액션`);
       } else if (form === 'arcane') {
         // 술식 폭발 — 다음 1턴 자가 마법공격력 +100% (다음 술식·평타 강화)
         pushEffect(s, { id: `v2_arcane_amp_${s.actionCount}`, type: 'atk_buff', value: 100, remainingActions: 1, source: 'monster' } as any);
-        s.log.push(`[술식 폭발] 다음 1턴 마공 +100%`);
+        addLog(s, `[술식 폭발] 다음 1턴 마공 +100%`);
       }
     }
     s.v2SpecialCds[form] = SPECIAL_CD;
