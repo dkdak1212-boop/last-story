@@ -58,16 +58,16 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 인벤토리
-  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
-    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, COALESCE(ci.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot, i.stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
+  const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; unique_prefix_stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ci.slot_index, ci.item_id, ci.enhance_level, COALESCE(ci.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot, i.stats, i.unique_prefix_stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
   // 장착
-  const eq = await query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
-    `SELECT ce.slot, ce.item_id, ce.enhance_level, COALESCE(ce.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot AS item_slot, i.stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
+  const eq = await query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; unique_prefix_stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
+    `SELECT ce.slot, ce.item_id, ce.enhance_level, COALESCE(ce.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot AS item_slot, i.stats, i.unique_prefix_stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [cid]
@@ -201,6 +201,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.slot,
       stats: enhancedStats(r.stats, r.enhance_level),
       baseStats: r.stats,
+      uniquePrefixStats: r.unique_prefix_stats || null,
       enhanceLevel: r.enhance_level,
       enhancePity: Number(r.enhance_pity || 0),
       prefixIds: r.prefix_ids || [],
@@ -216,6 +217,7 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
       itemId: r.item_id, name: r.name, grade: r.grade, itemSlot: r.item_slot,
       stats: enhancedStats(r.stats, r.enhance_level),
       baseStats: r.stats,
+      uniquePrefixStats: r.unique_prefix_stats || null,
       enhanceLevel: r.enhance_level,
       enhancePity: Number(r.enhance_pity || 0),
       prefixIds: r.prefix_ids || [],

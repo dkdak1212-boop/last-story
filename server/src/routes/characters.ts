@@ -31,6 +31,56 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
   res.json(r.rows);
 });
 
+// 캐릭 선택창용 일일 진행 요약 — 한 번의 round-trip 으로 N캐릭 일일임무/길드보스/통행증 상태 반환.
+// 사용자 결정(2026-05-10): 캐릭 카드에 dot 3색 표시(빨강/노랑/녹색).
+router.get('/daily-summary', async (req: AuthedRequest, res: Response) => {
+  const r = await query<{
+    character_id: number;
+    quests_completed: number;
+    quests_total: number;
+    quest_reward_claimed: boolean;
+    gb_keys_used: number;
+    pass_today: boolean;
+  }>(
+    `WITH today AS (SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date AS d)
+     SELECT c.id AS character_id,
+            COALESCE((
+              SELECT COUNT(*) FILTER (WHERE cdq.completed)
+                FROM character_daily_quests cdq, today
+               WHERE cdq.character_id = c.id AND cdq.assigned_date = today.d
+            ), 0)::int AS quests_completed,
+            COALESCE((
+              SELECT COUNT(*) FROM character_daily_quests cdq, today
+               WHERE cdq.character_id = c.id AND cdq.assigned_date = today.d
+            ), 0)::int AS quests_total,
+            EXISTS(
+              SELECT 1 FROM daily_quest_rewards dqr, today
+               WHERE dqr.character_id = c.id AND dqr.reward_date = today.d
+            ) AS quest_reward_claimed,
+            COALESCE((
+              SELECT GREATEST(0, 2 - gbd.keys_remaining)
+                FROM guild_boss_daily gbd, today
+               WHERE gbd.character_id = c.id AND gbd.date = today.d
+            ), 0)::int AS gb_keys_used,
+            (
+              c.pass_shop_daily_date = (SELECT d FROM today)
+              AND COALESCE(c.pass_shop_daily_count, 0) > 0
+            ) AS pass_today
+       FROM characters c
+      WHERE c.user_id = $1
+      ORDER BY c.id`,
+    [req.userId]
+  );
+  res.json(r.rows.map(row => ({
+    characterId: row.character_id,
+    questsCompleted: row.quests_completed,
+    questsTotal: row.quests_total,
+    questRewardClaimed: row.quest_reward_claimed,
+    gbKeysUsed: row.gb_keys_used,
+    passShopBought: row.pass_today,
+  })));
+});
+
 // 상세 (effective 스탯 포함)
 router.get('/:id', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);

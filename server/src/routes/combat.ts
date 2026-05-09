@@ -21,7 +21,12 @@ import { settleOfflineRewards } from '../combat/offlineSettle.js';
 const router = Router();
 router.use(authRequired);
 
-const enterSchema = z.object({ fieldId: z.number().int().positive() });
+const enterSchema = z.object({
+  fieldId: z.number().int().positive(),
+  // 시공의 균열(23) 입장 시 사용할 통행증 수 (1~99). 미지정 시 1.
+  // N장 일괄 소모 → N×30분 영속 타이머 (사용자 결정 2026-05-10).
+  riftTickets: z.number().int().min(1).max(99).optional(),
+});
 
 // /combat/state 자동복구 throttle — 같은 캐릭이 5초 안 반복 호출 시 자동복구 스킵
 const autoRestartThrottle = new Map<number, number>();
@@ -36,6 +41,7 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   const parsed = enterSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const { fieldId } = parsed.data;
+  const requestedRiftTickets = parsed.data.riftTickets ?? 1;
 
   // 길드 보스 전용 필드는 /guild-boss/enter 경로로만 진입 가능
   if (fieldId === 999) {
@@ -71,26 +77,40 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
           return res.status(400).json({ error: `시공의 균열 재입장 쿨다운 — ${remainSec}초 남음 (이중 진입 방지)` });
         }
       }
-      // 새 타이머가 필요한 입장 — 차원의 통행증(item 855) 1장 차감.
-      // 같은 타이머 안의 재진입(사망/탭이동 후)은 무료.
-      const passR = await query<{ id: number; quantity: number }>(
+      // 새 타이머가 필요한 입장 — 차원의 통행증(item 855) N장 일괄 차감.
+      // N×30분 효과를 기존 30분 만료 로직과 호환되게 하기 위해 rift_entered_at 을
+      // (실제진입 + (N-1)×30분) 미래 시각으로 shift. (entered + 30) - now == N×30 - elapsed.
+      // 같은 타이머 안의 재진입(사망/탭이동 후)은 무료. 일괄 소모 시 기존 잔여 시간은 갱신/덮어씀.
+      const N = requestedRiftTickets;
+      const stacks = await query<{ id: number; quantity: number }>(
         `SELECT id, quantity FROM character_inventory
           WHERE character_id = $1 AND item_id = 855 AND quantity > 0
-          ORDER BY slot_index LIMIT 1`,
+          ORDER BY slot_index`,
         [id]
       );
-      if (passR.rowCount === 0) {
-        return res.status(400).json({ error: '시공의 균열 — 차원의 통행증이 없습니다. 상점에서 구매 후 입장 가능합니다.' });
+      const owned = stacks.rows.reduce((sum, r) => sum + r.quantity, 0);
+      if (owned < N) {
+        return res.status(400).json({
+          error: `시공의 균열 — 차원의 통행증이 ${N}장 필요한데 ${owned}장만 보유 중입니다.`,
+        });
       }
-      const pass = passR.rows[0];
-      if (pass.quantity <= 1) {
-        await query('DELETE FROM character_inventory WHERE id = $1', [pass.id]);
-      } else {
-        await query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [pass.id]);
+      // N장 차감 (FIFO)
+      let remaining = N;
+      for (const s of stacks.rows) {
+        if (remaining <= 0) break;
+        const take = Math.min(s.quantity, remaining);
+        if (take >= s.quantity) {
+          await query('DELETE FROM character_inventory WHERE id = $1', [s.id]);
+        } else {
+          await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, s.id]);
+        }
+        remaining -= take;
       }
-      // 통행증 차감 후 새 30분 타이머 박제. (이전: resolveRiftEnteredAt 가 자동 reset 했으나
-      // 서버 재시작 시 무료 부여 버그가 있어 2026-05-05 수정 — 명시 진입 시에만 reset.)
-      await query('UPDATE characters SET rift_entered_at = NOW() WHERE id = $1', [id]);
+      // rift_entered_at = NOW() + (N-1)*30 minutes (기존 30분 만료 로직 재사용 위한 shift)
+      await query(
+        `UPDATE characters SET rift_entered_at = NOW() + ($1::int * INTERVAL '30 minutes') WHERE id = $2`,
+        [N - 1, id]
+      );
     }
   }
 

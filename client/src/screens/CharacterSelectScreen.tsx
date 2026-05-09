@@ -1,9 +1,52 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { useMeStore } from '../stores/meStore';
 import { ClassIcon } from '../components/ui/ClassIcon';
 import type { ClassName } from '../types';
+
+interface DailySummary {
+  characterId: number;
+  questsCompleted: number;
+  questsTotal: number;
+  questRewardClaimed: boolean;
+  gbKeysUsed: number;
+  passShopBought: boolean;
+}
+
+type DotColor = 'green' | 'yellow' | 'red';
+const DOT_HEX: Record<DotColor, string> = {
+  green: '#3ddc84',
+  yellow: '#daa520',
+  red: '#ff5050',
+};
+
+function questDotColor(s: DailySummary): DotColor {
+  if (s.questsTotal === 0) return 'red';
+  if (s.questRewardClaimed) return 'green';
+  if (s.questsCompleted >= s.questsTotal) return 'yellow'; // 완료했지만 보상 미수령
+  if (s.questsCompleted > 0) return 'yellow';
+  return 'red';
+}
+function gbDotColor(s: DailySummary): DotColor {
+  if (s.gbKeysUsed >= 2) return 'green';
+  if (s.gbKeysUsed > 0) return 'yellow';
+  return 'red';
+}
+function passDotColor(s: DailySummary): DotColor {
+  return s.passShopBought ? 'green' : 'red';
+}
+
+function Dot({ color, label }: { color: DotColor; label: string }) {
+  return (
+    <span title={label} style={{
+      display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
+      background: DOT_HEX[color],
+      boxShadow: `0 0 4px ${DOT_HEX[color]}`,
+    }} />
+  );
+}
 
 interface ClassEntry { name: ClassName; label: string; desc: string; adminOnly?: boolean }
 const ALL_CLASSES: ClassEntry[] = [
@@ -26,6 +69,7 @@ export function CharacterSelectScreen() {
   const [pickedClass, setPickedClass] = useState<ClassName>('warrior');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [dailyMap, setDailyMap] = useState<Record<number, DailySummary>>({});
 
   async function handleDelete(id: number, charName: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -46,6 +90,17 @@ export function CharacterSelectScreen() {
   useEffect(() => {
     fetchCharacters().catch(() => {});
   }, [fetchCharacters]);
+
+  // 일일 요약 batch 로드 — 캐릭 카드 dot 표시용
+  useEffect(() => {
+    api<DailySummary[]>('/characters/daily-summary')
+      .then(rows => {
+        const m: Record<number, DailySummary> = {};
+        for (const r of rows) m[r.characterId] = r;
+        setDailyMap(m);
+      })
+      .catch(() => {});
+  }, [characters.length]);
 
   async function handleCreate() {
     setError('');
@@ -158,6 +213,28 @@ export function CharacterSelectScreen() {
                     </span>
                   )}
                 </div>
+                {dailyMap[c.id] && (() => {
+                  const s = dailyMap[c.id];
+                  const qc = questDotColor(s);
+                  const gc = gbDotColor(s);
+                  const pc = passDotColor(s);
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4, fontSize: 10, color: 'var(--text-dim)' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Dot color={qc} label={`일일임무 ${s.questsCompleted}/${s.questsTotal}${s.questRewardClaimed ? ' · 보상수령' : ''}`} />
+                        <span>일일임무 {s.questsCompleted}/{s.questsTotal}{s.questRewardClaimed ? '✓' : ''}</span>
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Dot color={gc} label={`길드보스 키 ${s.gbKeysUsed}/2 사용`} />
+                        <span>길보 {s.gbKeysUsed}/2</span>
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Dot color={pc} label={s.passShopBought ? '통행증 구매 완료' : '통행증 미구매'} />
+                        <span>통행증 {s.passShopBought ? '✓' : '×'}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>

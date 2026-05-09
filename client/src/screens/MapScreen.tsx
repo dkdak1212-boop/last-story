@@ -23,6 +23,8 @@ export function MapScreen() {
   const [riftExpiresAt, setRiftExpiresAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(Date.now());
   const active = useCharacterStore((s) => s.activeCharacter);
+  // 시공의 균열 입장권 N장 일괄 소모 모달
+  const [riftModal, setRiftModal] = useState<{ owned: number; tickets: number } | null>(null);
 
   useEffect(() => {
     const url = active ? `/fields?characterId=${active.id}` : '/fields';
@@ -57,23 +59,46 @@ export function MapScreen() {
       }
       return;
     }
-    // 시공의 균열(23) — 활성 타이머가 없으면 새 30분 영속 타이머 시작 + 통행증 1장 차감.
-    // 잘못 들어가면 30분 갇히는 사고 방지로 경고창.
+    // 시공의 균열(23) — 활성 타이머가 없으면 모달로 입장권 수량 결정.
+    // 입장 1회당 N장 일괄 소모 → N×30분 영속 타이머 (사용자 결정 2026-05-10).
     if (fieldId === 23 && riftLiveRemain === 0) {
-      const ok = confirm(
-        '⚠️ 시공의 균열 입장 안내\n\n' +
-        '· 차원의 통행증 1장이 소모됩니다\n' +
-        '· 30분 영속 타이머가 시작됩니다\n' +
-        '  (사망/탭이동/재접속 무관 30분 후 자동 마을 귀환)\n' +
-        '· 30분 안에는 동일 입장 무료 재진입 가능\n\n' +
-        '입장하시겠습니까?'
-      );
-      if (!ok) return;
+      try {
+        const inv = await api<Array<{ item: { id: number }; quantity: number }>>(
+          `/characters/${active.id}/inventory`
+        );
+        const owned = inv
+          .filter(s => s.item.id === 855)
+          .reduce((sum, s) => sum + (s.quantity || 0), 0);
+        if (owned <= 0) {
+          alert('차원의 통행증이 없습니다. 상점에서 구매 후 입장하세요.');
+          return;
+        }
+        setRiftModal({ owned, tickets: 1 });
+      } catch {
+        // inventory 로드 실패 — 1장 기본으로 fallback
+        setRiftModal({ owned: 1, tickets: 1 });
+      }
+      return;
     }
     try {
       await api(`/characters/${active.id}/enter-field`, {
         method: 'POST',
         body: JSON.stringify({ fieldId }),
+      });
+      nav('/combat');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '입장 실패');
+    }
+  }
+
+  async function confirmRiftEnter() {
+    if (!active || !riftModal) return;
+    const N = Math.max(1, Math.min(riftModal.owned, riftModal.tickets));
+    setRiftModal(null);
+    try {
+      await api(`/characters/${active.id}/enter-field`, {
+        method: 'POST',
+        body: JSON.stringify({ fieldId: 23, riftTickets: N }),
       });
       nav('/combat');
     } catch (e) {
@@ -264,6 +289,70 @@ export function MapScreen() {
           );
         })}
       </div>
+
+      {riftModal && (
+        <div onClick={() => setRiftModal(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: 'var(--bg-panel)', border: '2px solid #a24bff',
+            borderRadius: 6, padding: 22, width: 'min(420px, 92vw)',
+            boxShadow: '0 0 30px rgba(162,75,255,0.4)',
+          }}>
+            <h3 style={{ margin: '0 0 12px', color: '#c97bff', fontSize: 16 }}>⌛ 시공의 균열 입장</h3>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 14 }}>
+              사용할 통행증 수만큼 영속 타이머가 한 번에 시작됩니다.<br/>
+              <span style={{ color: '#ff8888', fontWeight: 700 }}>· 환불 불가</span> · 사망/탭이동/재접속 무관 만료까지 동일 입장 무료 재진입 가능
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--text-dim)' }}>사용 통행증</span>
+                <span style={{ color: '#c97bff', fontWeight: 700 }}>
+                  {riftModal.tickets}장 / {riftModal.owned}장 보유
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button onClick={() => setRiftModal(m => m && { ...m, tickets: Math.max(1, m.tickets - 1) })}
+                  style={{ width: 30, padding: '4px 0', fontSize: 14, fontWeight: 700 }}>−</button>
+                <input
+                  type="range" min={1} max={riftModal.owned} value={riftModal.tickets}
+                  onChange={e => {
+                    const v = Math.max(1, Math.min(riftModal.owned, Number(e.target.value) || 1));
+                    setRiftModal(m => m && { ...m, tickets: v });
+                  }}
+                  style={{ flex: 1, accentColor: '#a24bff' }}
+                />
+                <button onClick={() => setRiftModal(m => m && { ...m, tickets: Math.min(m.owned, m.tickets + 1) })}
+                  style={{ width: 30, padding: '4px 0', fontSize: 14, fontWeight: 700 }}>+</button>
+                <button onClick={() => setRiftModal(m => m && { ...m, tickets: m.owned })}
+                  style={{ padding: '4px 8px', fontSize: 11 }}>최대</button>
+              </div>
+            </div>
+
+            <div style={{ padding: '10px 12px', background: 'rgba(162,75,255,0.1)', borderRadius: 4, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>총 영속 시간</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#c97bff', fontFamily: 'monospace' }}>
+                {(() => {
+                  const total = riftModal.tickets * 30;
+                  const h = Math.floor(total / 60);
+                  const m = total % 60;
+                  return h > 0 ? `${h}시간 ${m > 0 ? `${m}분` : ''}` : `${m}분`;
+                })()}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setRiftModal(null)} style={{ padding: '8px 16px', fontSize: 12 }}>취소</button>
+              <button className="primary" onClick={confirmRiftEnter} style={{
+                padding: '8px 18px', fontSize: 12, fontWeight: 700,
+                background: '#a24bff', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer',
+              }}>{riftModal.tickets}장 사용 · 입장</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

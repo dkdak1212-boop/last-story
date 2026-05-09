@@ -12,6 +12,7 @@ interface EnhanceItem {
   itemId: number; name: string; grade: ItemGrade; itemSlot: string | null;
   stats: Partial<Stats> | null; // 강화 적용된 현재 스탯
   baseStats: Partial<Stats> | null; // 원본(강화 전) 스탯
+  uniquePrefixStats?: Record<string, number> | null; // 유니크 고정 옵션 (강화 미반영)
   enhanceLevel: number;
   enhancePity?: number;
   prefixIds?: number[]; prefixStats?: Record<string, number>;
@@ -444,6 +445,60 @@ export function EnhanceScreen() {
                   )}
                 </div>
               )}
+
+              {/* 옵션 출처 분리 (유니크 고정 / 접두사) — 동일 키 중첩 시 합계 + 출처별 row */}
+              {(() => {
+                const uniq = selected.uniquePrefixStats || {};
+                const pref = selected.prefixStats || {};
+                const enhMult = 1 + (selected.enhanceLevel || 0) * 0.025;
+                const allKeys = Array.from(new Set([...Object.keys(uniq), ...Object.keys(pref)]));
+                if (allKeys.length === 0) return null;
+                // 유니크 고정도 강화 스케일 적용 — server stats 와 동일 mult
+                return (
+                  <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>
+                      옵션 출처 분리 (강화 +{selected.enhanceLevel || 0})
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {allKeys.map(key => {
+                        const uRaw = uniq[key] || 0;
+                        const pVal = pref[key] || 0;
+                        const uVal = uRaw > 0 ? Math.round(uRaw * enhMult) : 0;
+                        const total = uVal + pVal;
+                        const label = STAT_KEY_LABEL[key] || key;
+                        return (
+                          <div key={key} style={{ fontSize: 11, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
+                            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
+                              {label} <span style={{ float: 'right', color: '#66ccff' }}>합계 +{total}</span>
+                            </div>
+                            <div style={{ display: 'grid', gap: 2, fontFamily: 'monospace', fontSize: 10, color: 'var(--text-dim)' }}>
+                              {uVal > 0 && (
+                                <div>
+                                  <span style={{ color: '#ff6bd6' }}>┣ 유니크 고정</span>
+                                  <span style={{ float: 'right', color: '#ff6bd6' }}>+{uVal}</span>
+                                </div>
+                              )}
+                              {pVal > 0 && (
+                                <div>
+                                  <span style={{ color: '#66ccff' }}>┣ 접두사</span>
+                                  <span style={{ float: 'right', color: '#66ccff' }}>+{pVal}</span>
+                                </div>
+                              )}
+                              <div>
+                                <span style={{ color: '#888' }}>┗ 노드/패시브</span>
+                                <span style={{ float: 'right', color: '#888' }}>캐릭터 화면 참고</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 6, textAlign: 'right' }}>
+                      ※ 노드/패시브 보너스는 캐릭터 전체 합산이라 이 화면에선 항목별 분리 X — 캐릭터 정보 화면에서 합산값 확인.
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* 현재 접두사 표시 + 수치 재굴림 */}
               {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 && (
