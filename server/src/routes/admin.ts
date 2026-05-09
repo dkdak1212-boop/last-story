@@ -70,7 +70,7 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
       ['summoner_v2', '자세: 불굴',     '5턴간 받는 피해 50% 감소.',                                                75, 0.00, 'damage_reduce', 6, 0, 'damage_reduce',  50,   5,  ''],
       ['summoner_v2', '자세: 휴식',     '10턴간 매 턴 최대 HP의 10% 회복.',                                         80, 0.00, 'heal',          8, 0, 'heal_pct',       10,   10, ''],
       ['summoner_v2', '술식: 시력 강화','5턴간 소환수 데미지 +50%.',                                                85, 0.00, 'buff',          5, 0, 'summon_buff',    50,   5,  ''],
-      ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',                          90, 5.00, 'damage',        4, 0, 'damage',         0,    0,  ''],
+      ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',                          90, 5.00, 'damage',        3, 0, 'damage',         0,    0,  ''],
       ['summoner_v2', '자세: 진언',     '5턴간 자가 공격력 +50%.',                                                  95, 0.00, 'buff',          9, 0, 'self_atk_buff',  50,   5,  ''],
       ['summoner_v2', '명령: 영역 선포','5턴간 술자에게 75% 쉴드. 패시브 대정의의 영역.',                          100, 0.00, 'buff',          8, 0, 'shield',         75,   5,  ''],
     ];
@@ -661,18 +661,18 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
       WHERE class_name = 'summoner_v2' AND name = '명령: 추격'`);
     log.push(`'명령: 추격' description 정정 (${r18.rowCount}행)`);
 
-    // 술식: 가시화 → '명령: 진멸' 강력 공격 (×5.0, 쿨 4)
+    // 술식: 가시화 → '명령: 진멸' 강력 공격 (×5.0, 쿨 3)
     const r13 = await query(`UPDATE skills SET
         name = '명령: 진멸',
         description = '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',
         kind = 'damage',
-        cooldown_actions = 4,
+        cooldown_actions = 3,
         damage_mult = 5.00,
         effect_type = 'damage',
         effect_value = 0,
         effect_duration = 0
-      WHERE class_name = 'summoner_v2' AND name = '술식: 가시화'`);
-    log.push(`'술식: 가시화' → '명령: 진멸' (×5.0 damage, 쿨 4) (${r13.rowCount}행)`);
+      WHERE class_name IN ('summoner','summoner_v2') AND (name = '술식: 가시화' OR name = '명령: 진멸')`);
+    log.push(`'명령: 진멸' (×5.0 damage, 쿨 3) (${r13.rowCount}행)`);
     res.json({ ok: true, log });
   } catch (e) {
     log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
