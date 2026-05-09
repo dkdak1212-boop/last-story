@@ -2981,6 +2981,27 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 차원노드 v2 — 시간의 주인 / 빠른 결단 재조정 (2026-05-09)
+  // 시간의 주인: 모든 쿨다운 -25%, 속도 -25% (게이지 충전 -40% 제거)
+  // 빠른 결단:   현재 속도 +25%, 모든 데미지 -25%
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'paragon_time_quick_rebalance_v2'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE node_definitions
+           SET description = '모든 쿨다운 −25%, 속도 −25%'
+         WHERE name = '시간의 주인'`);
+        await query(`UPDATE node_definitions
+           SET description = '현재 속도 +25%, 모든 데미지 −25%'
+         WHERE name = '빠른 결단'`);
+        await query(`INSERT INTO _migrations (name) VALUES ('paragon_time_quick_rebalance_v2')`);
+        console.log('[late] paragon_time_quick_rebalance_v2: 완료');
+      }
+    } catch (e) {
+      console.error('[late] paragon_time_quick_rebalance_v2 error:', e);
+    }
+  }
+
   // 신의 타격 (136) description 에 천상 강림 쿨 -1 콤보 안내 추가
   {
     try {

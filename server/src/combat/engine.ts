@@ -1650,9 +1650,9 @@ function applyDamagePrefixes(
     const mult = 0.5 + 2.5 * (1 - hpRatio);
     dmg = Math.round(dmg * mult);
   }
-  // #15 빠른 결단 — 데미지 −30%
+  // #15 빠른 결단 — 데미지 −25%
   if (cache ? cache.pQuickDecision : getPassive(s, 'paragon_quick_decision') > 0) {
-    dmg = Math.round(dmg * 0.7);
+    dmg = Math.round(dmg * 0.75);
   }
   // #17 실패의 영광 — 직전 빗맞 펜딩 시 ×3
   if (consume && getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
@@ -2393,8 +2393,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
     if (cdFlat > 0) cd = cd - cdFlat;
     if (summonCdFlat > 0) cd = cd - summonCdFlat;
-    // #6 paragon_time_master — 모든 쿨다운 -70%
-    if (getPassive(s, 'paragon_time_master') > 0) cd = Math.floor(cd * 0.3);
+    // #6 paragon_time_master — 모든 쿨다운 -25%
+    if (getPassive(s, 'paragon_time_master') > 0) cd = Math.floor(cd * 0.75);
     cd = Math.max(1, cd);
     // #7 paragon_madness_reload — 스킬 시전 시 50% 즉시 쿨다운 0 / 50% 쿨다운 +100% (2배 길어짐)
     if (getPassive(s, 'paragon_madness_reload') > 0) {
@@ -2555,7 +2555,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
           dmg = Math.round(dmg * (0.5 + 2.5 * (1 - hpRatio)));
         }
-        if (getPassive(s, 'paragon_quick_decision') > 0) dmg = Math.round(dmg * 0.7);
+        if (getPassive(s, 'paragon_quick_decision') > 0) dmg = Math.round(dmg * 0.75);
         if (getPassive(s, 'paragon_failure_glory') > 0 && s.paragonFailurePending) {
           dmg = Math.round(dmg * 3);
           s.paragonFailurePending = false;
@@ -5388,10 +5388,8 @@ async function combatTick(): Promise<void> {
       }
 
       // 게이지 충전 (GAUGE_FILL_RATE로 스케일링, 경과시간 반영)
-      // #6 paragon_time_master — 게이지 충전 ×0.6 (−40% 페널티)
-      const gaugeFillMul = getPassive(s, 'paragon_time_master') > 0 ? 0.6 : 1.0;
       if (!s.waitingInput) {
-        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE * tickScale * gaugeFillMul;
+        s.playerGauge += effectivePlayerSpeed * GAUGE_FILL_RATE * tickScale;
       }
 
       // 몬스터 게이지 충전 (동결/기절은 monsterAction에서 체크하며 tickDown)
@@ -5436,7 +5434,7 @@ async function combatTick(): Promise<void> {
           }
           return 'break'; // 수동 모드 추가 처리 없음
         }
-        // #15 paragon_quick_decision — 게이지 정상 차감 (이전 50%만 차감 → 현재 속도 +50% 효과로 변경)
+        // #15 paragon_quick_decision — 게이지 정상 차감 (속도 +25% 효과로 변경)
         s.playerGauge -= GAUGE_MAX;
         s.actionCount++;
         s.paragonActionCount++;

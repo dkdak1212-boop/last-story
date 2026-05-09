@@ -271,9 +271,13 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (pMap.has('paragon_heavy_blade')) {
     eff.spd = Math.round(eff.spd * 0.5);
   }
-  // 키스톤 #15 빠른 결단 — 속도 +40% (페널티는 데미지 −50%, engine.ts 에서 처리)
+  // 키스톤 #15 빠른 결단 — 속도 +25% (페널티: 모든 데미지 −25%, engine.ts 에서 처리)
   if (pMap.has('paragon_quick_decision')) {
-    eff.spd = Math.round(eff.spd * 1.4);
+    eff.spd = Math.round(eff.spd * 1.25);
+  }
+  // 키스톤 #6 시간의 주인 — 속도 −25% (페널티: 모든 쿨다운 −25% 효과 대가, engine.ts 에서 cd 처리)
+  if (pMap.has('paragon_time_master')) {
+    eff.spd = Math.round(eff.spd * 0.75);
   }
   // 키스톤 #16 확률의 군주 — 치명·회피 ×2 (cap 100/80)
   if (pMap.has('paragon_chance_lord')) {
