@@ -2078,12 +2078,13 @@ function fireSummonerV2Special(s: ActiveSession): void {
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
-    // 정령 (연쇄 번개 4연타) — 각 타 별도 판정·로그 (지옥불 일격과 비슷한 합 계수)
+    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) ──
     if (form === 'spirit') {
-      for (let i = 1; i <= 4; i++) {
-        let hit = Math.round(matk * 54.0);
+      for (let i = 1; i <= 5; i++) {
+        const baseMul = i === 5 ? 108.0 : 54.0;  // 5타째 ×2
+        let hit = Math.round(matk * baseMul);
         const hitCrit = cri > 0 && Math.random() * 100 < cri;
-        let hitLabel = `[연쇄 번개 ${i}타]`;
+        let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
         const hitFinal = Math.max(1, hit - defReduce);
         s.monsterHp -= hitFinal;
@@ -2094,7 +2095,6 @@ function fireSummonerV2Special(s: ActiveSession): void {
     }
 
     let dmg = 0; let label = '';
-    // 4 특수기 합 ×216 통일 (균형)
     if (form === 'holy') {
       dmg = Math.round(matk * 216.0); label = '[신수의 결박]';
     } else if (form === 'beast') {
@@ -2109,6 +2109,20 @@ function fireSummonerV2Special(s: ActiveSession): void {
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
       s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
+      // ── form 별 추가 효과 ──
+      if (form === 'holy') {
+        // 신성한 결박 — 적이 받는 데미지 +25% (5턴, 디버프)
+        pushEffect(s, { id: `v2_holy_dtup_${s.actionCount}`, type: 'damage_taken_up' as any, value: 25, remainingActions: 5, source: 'player' } as any);
+        s.log.push(`[신성한 결박] 적이 받는 데미지 +25% (5턴)`);
+      } else if (form === 'beast' && s.monsterHp <= 0) {
+        // 흑염의 분노 — 처치 시 즉시 추가 1회 액션 (게이지 풀필)
+        s.playerGauge = GAUGE_MAX;
+        s.log.push(`[흑염의 분노] 처치! 즉시 추가 액션`);
+      } else if (form === 'arcane') {
+        // 술식 폭발 — 다음 1턴 자가 마법공격력 +100% (다음 술식·평타 강화)
+        pushEffect(s, { id: `v2_arcane_amp_${s.actionCount}`, type: 'atk_buff', value: 100, remainingActions: 1, source: 'monster' } as any);
+        s.log.push(`[술식 폭발] 다음 1턴 마공 +100%`);
+      }
     }
     s.v2SpecialCds[form] = SPECIAL_CD;
   }
