@@ -1481,6 +1481,8 @@ const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '연쇄 번개 4연타':  '/images/skills/spells/chain_lightning.png',
   '지옥불 일격':      '/images/skills/spells/fireball.png',
   '천상의 심판':      '/images/skills/spells/beogh_smite.png',
+  // 도적 v2 — 그림자 분신 sprite (DCSS rltiles)
+  '그림자 분신':      'https://cdn.jsdelivr.net/gh/crawl/crawl@master/crawl-ref/source/rltiles/mon/undead/shadow_wraith.png',
   '자세: 통찰':       '/images/skills/spells/focused-fg.png',
   '자세: 집중':       '/images/skills/spells/combat.png',
   '자세: 방어':       '/images/skills/spells/demonic_guardian_1.png',

@@ -3983,6 +3983,29 @@ function monsterAction(s: ActiveSession): void {
   if (d.miss) {
     addLog(s, bossAttackName ? `[${s.monsterName}] ${bossAttackName} 빗나감!` : '몬스터 공격 빗나감!');
     s.dodgeBurstPending = true;
+    // 도적 그림자 도주 — 회피 시 즉시 ×N 본체 반격
+    if (s.className === 'rogue') {
+      const counterPct = getPassive(s, 'dodge_counter_pct') + (s.equipPrefixes.dodge_counter_pct || 0);
+      if (counterPct > 0 && s.monsterHp > 0) {
+        const atk = s.playerStats.atk;
+        const def = s.monsterStats.def || 0;
+        let counterDmg = Math.round(atk * counterPct / 100);
+        // 본체 atk_buff·치명타 가중
+        const atkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+        if (atkBuffEff) counterDmg = Math.round(counterDmg * (1 + atkBuffEff.value / 100));
+        const cri = s.playerStats.cri || 0;
+        const isCrit = cri > 0 && Math.random() * 100 < cri;
+        let counterTag = '';
+        if (isCrit) {
+          const critDmgBonus = getCritDmgBonus(s);
+          counterDmg = Math.round(counterDmg * (1.5 + critDmgBonus / 100));
+          counterTag = ' (치명타!)';
+        }
+        counterDmg = Math.max(1, counterDmg - Math.round(def * 0.5));
+        s.monsterHp -= counterDmg;
+        addLog(s, `[그림자 도주] 반격!${counterTag} ${counterDmg} 피해`);
+      }
+    }
   } else {
     let dmg = d.damage;
     if (bossPattern !== 'normal' && bossAttackName) {
@@ -4157,6 +4180,24 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.monsterHp = s.monsterMaxHp;
     s.dirty = true;
     return;
+  }
+  // 도적 연쇄 처형 — 처치 시 게이지 풀필 + 다음 액션 ×2 buff
+  if (s.className === 'rogue') {
+    if (getPassive(s, 'kill_gauge_fill') > 0) {
+      s.playerGauge = GAUGE_MAX;
+      addLog(s, `[연쇄 처형] 게이지 풀필! 즉시 추가 액션`);
+    }
+    const killAmp = getPassive(s, 'kill_next_amp');
+    if (killAmp > 0) {
+      pushEffect(s, { id: `rogue_kill_amp_${s.actionCount}`, type: 'atk_buff', value: killAmp, remainingActions: 1, source: 'monster' } as any);
+      addLog(s, `[연쇄 처형] 다음 액션 데미지 +${killAmp}%`);
+    }
+    // 그림자 폭주 — 처치 시 본체 SPD +N% 5턴
+    const killSpd = getPassive(s, 'shadow_kill_spd');
+    if (killSpd > 0) {
+      pushEffect(s, { id: `rogue_kill_spd_${s.actionCount}`, type: 'speed_mod', value: killSpd, remainingActions: 5, source: 'monster' } as any);
+      addLog(s, `[그림자 폭주] 본체 스피드 +${killSpd}% (5턴)`);
+    }
   }
   // 궁수 archerRange 스택 — 처치마다 +1 (max 20 + archer_range_max 보너스)
   if (s.className === 'archer') {
@@ -5792,6 +5833,17 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       skillName: e.summonSkillName || '',
       element: e.element,
       remainingActions: e.remainingActions,
+    }));
+  }
+  // 도적 그림자 분신 — UI sprite 표시용 (snapshot.summons 재활용)
+  if (s.className === 'rogue') {
+    const baseCount = 1;
+    const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
+    const cloneCount = Math.min(5, baseCount + extraCount);
+    snapshot.summons = Array.from({ length: cloneCount }, () => ({
+      skillName: '그림자 분신',
+      element: undefined,
+      remainingActions: 999,
     }));
   }
   // 처치 시간 통계 (전 직업 공통, 허수아비 제외)
