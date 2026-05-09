@@ -1401,8 +1401,10 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
 
   // dot/poison: 중첩 허용하되 같은 source/type 으로 30 스택 cap (장기전·더미·AFK 무한 누적 차단).
   // 2026-05-05 측정: dummy/긴 전투 세션 1세션 1497 effects → 메모리·spawn filter 폭증.
+  // 도적 [독의 화신] 키스톤(poison_immune passive=1) 보유 시 cap 999 (사실상 무한, 메모리 안전망만 유지).
   if ((effect.type === 'poison' || effect.type === 'dot') && effect.source === 'player') {
-    const PER_TYPE_CAP = 30;
+    const poisonNoCap = s.className === 'rogue' && getPassive(s, 'poison_immune') > 0;
+    const PER_TYPE_CAP = poisonNoCap ? 999 : 30;
     let count = 0;
     let oldestIdx = -1;
     const arr = s.statusEffects;
@@ -1807,6 +1809,40 @@ function getPassive(s: ActiveSession, key: string): number {
   return s.passives.get(key) ?? 0;
 }
 
+// 항상 적용되는 파라곤 데미지 배수 (consume 부수효과 없음).
+// applyDamagePrefixes 를 우회하는 경로(기본 평타·그림자 분신 등)에서 누락 보강용.
+// dormant_burst/failure_glory 는 일회성 consume 가 있어 본체 파이프라인 책임으로 남김.
+function paragonAlwaysOnMult(s: ActiveSession): number {
+  let mult = 1.0;
+  if (getPassive(s, 'paragon_heavy_blade') > 0) mult *= 2.0;
+  if (getPassive(s, 'paragon_fate_lock') > 0) mult *= 1.75;
+  if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) mult *= 1.5;
+  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
+    const ratio = s.monsterHp / s.monsterMaxHp;
+    if (ratio >= 1.0) mult *= 3;
+    else if (ratio <= 0.5) mult *= 0.3;
+  }
+  if (getPassive(s, 'paragon_madness_slide') > 0) {
+    const hpRatio = Math.max(0, Math.min(1, s.playerHp / s.playerMaxHp));
+    mult *= (0.5 + 2.5 * (1 - hpRatio));
+  }
+  if (getPassive(s, 'paragon_quick_decision') > 0) mult *= 0.75;
+  if (s.paragonCrystalActive) mult *= 3;
+  if (getPassive(s, 'paragon_isolation_instinct') > 0) {
+    const ccApplied = s.statusEffects.some(e =>
+      e.source === 'player' && e.remainingActions > 0 && CC_EFFECT_TYPES.has(e.type)
+    );
+    if (ccApplied) mult *= 1.5;
+  }
+  if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.30) {
+    mult *= 2.0;
+  }
+  if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
+    mult *= 3;
+  }
+  return mult;
+}
+
 export function buildPassiveMap(rows: { key: string; value: number }[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const p of rows) {
@@ -2199,7 +2235,10 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
         dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
       }
       // 방어 일부 차감
-      const finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
+      let finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
+      // 파라곤 데미지 배수 — 본체 applyDamagePrefixes 와 동일 키스톤 분신에도 적용
+      const cloneParaMult = paragonAlwaysOnMult(s);
+      if (cloneParaMult !== 1.0) finalDmg = Math.max(1, Math.round(finalDmg * cloneParaMult));
       s.monsterHp -= finalDmg;
       const cTag = cloneCount > 1 ? ` ${i}` : '';
       const hTag = skillHits > 1 ? ` ${h}타` : '';
@@ -2437,11 +2476,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       getPassive(s, 'summon_dps_cdr') +
       getPassive(s, 'summon_hybrid_cdr')
     ) : 0;
+    // 순서: 모든 % 감소 먼저 적용 → flat 차감 (짧은 cd 스킬도 시간의 주인 효과가 의미 있게 누적)
     if (cdReducePct > 0) cd = Math.floor(cd * (1 - cdReducePct / 100));
-    if (cdFlat > 0) cd = cd - cdFlat;
-    if (summonCdFlat > 0) cd = cd - summonCdFlat;
     // #6 paragon_time_master — 모든 쿨다운 -25%
     if (getPassive(s, 'paragon_time_master') > 0) cd = Math.floor(cd * 0.75);
+    if (cdFlat > 0) cd = cd - cdFlat;
+    if (summonCdFlat > 0) cd = cd - summonCdFlat;
     cd = Math.max(1, cd);
     // #7 paragon_madness_reload — 스킬 시전 시 50% 즉시 쿨다운 0 / 50% 쿨다운 +100% (2배 길어짐)
     if (getPassive(s, 'paragon_madness_reload') > 0) {
@@ -3834,9 +3874,13 @@ async function autoAction(s: ActiveSession): Promise<void> {
     addLog(s, '기본 공격 빗나감!');
     onPlayerMiss(s);
   } else {
-    s.monsterHp -= d.damage;
-    addLog(s, `${d.damage} 데미지${d.crit ? ' (치명타!)' : ''}`);
-    const pLsBasic = applyPrefixLifesteal(s, d.damage);
+    let dmg = d.damage;
+    // 파라곤 데미지 배수 — 단발/멀티히트 스킬과 동일 키스톤 평타에도 적용
+    const basicParaMult = paragonAlwaysOnMult(s);
+    if (basicParaMult !== 1.0) dmg = Math.max(1, Math.round(dmg * basicParaMult));
+    s.monsterHp -= dmg;
+    addLog(s, `${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
+    const pLsBasic = applyPrefixLifesteal(s, dmg);
     if (pLsBasic > 0) addLog(s, `[흡혈] HP +${pLsBasic}`);
   }
   perfSeg.pBasicMs += Date.now() - tBasic;
