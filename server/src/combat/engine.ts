@@ -2074,6 +2074,9 @@ function fireSummonerV2Special(s: ActiveSession): void {
   if (!s.v2SpecialCds) s.v2SpecialCds = { holy: 0, spirit: 0, beast: 0, arcane: 0 };
   const matk = s.playerStats.matk;
   const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
+  // 자세: 진언 등 atk_buff 가중 (자가 +N%) — 본체 데미지 일관 적용
+  const atkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+  const atkBuffMul = atkBuffEff ? (1 + atkBuffEff.value / 100) : 1.0;
   // 전 form 쿨다운 1행동 통일 (매 액션마다 발동) — 사용자 요청 (B+C 조합)
   // 모든 form 본체 cri 확률로 치명타 ×1.5 — 발동 시 로그에 [치명타!] 표기
   const SPECIAL_CD = 1;
@@ -2081,11 +2084,11 @@ function fireSummonerV2Special(s: ActiveSession): void {
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
-    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) — ×5 추가 상향 ──
+    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) — ×5 추가 상향 + 자세진언 atk_buff 가중 ──
     if (form === 'spirit') {
       for (let i = 1; i <= 5; i++) {
         const baseMul = i === 5 ? 540.0 : 270.0;  // 5타째 ×2
-        let hit = Math.round(matk * baseMul);
+        let hit = Math.round(matk * baseMul * atkBuffMul);
         const hitCrit = cri > 0 && Math.random() * 100 < cri;
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
@@ -2098,13 +2101,13 @@ function fireSummonerV2Special(s: ActiveSession): void {
     }
 
     let dmg = 0; let label = '';
-    // 4 특수기 ×5 추가 상향
+    // 4 특수기 ×5 추가 상향 + 자세진언 atk_buff 가중
     if (form === 'holy') {
-      dmg = Math.round(matk * 1080.0); label = '[신수의 결박]';
+      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[신수의 결박]';
     } else if (form === 'beast') {
-      dmg = Math.round(matk * 1080.0); label = '[지옥불 일격]';
+      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 1080.0); label = '[천상의 심판]';
+      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[천상의 심판]';
     }
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
     const isCrit = cri > 0 && Math.random() * 100 < cri;
@@ -2150,6 +2153,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
   const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
   // summon_buff 효과 (지휘/군주의 위엄)
+  // 자세: 진언 (atk_buff source=monster=self) 가중 — 소환수 데미지에도 일관 적용
+  const summonAtkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+  const summonAtkBuffMul = summonAtkBuffEff ? (1 + summonAtkBuffEff.value / 100) : 1.0;
   const buffEff = findEffectOfType(s, 'summon_buff_active', e => e.remainingActions > 0);
   const buffMult = buffEff ? (1 + buffEff.value / 100) : 1.0;
   // summon_frenzy (야수의 분노 — 2회 공격)
@@ -2226,7 +2232,7 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
     const flatBase = sm.summonFlatDamage || 0; // 늑대 등 고정 데미지 (무기 없을 때도 보장)
     for (let h = 0; h < hits; h++) {
       // matk×mult 와 flat 합산 후 버프/증폭. 저레벨 무기 없을 때 flat 이 데미지 바닥 형성.
-      let dmg = Math.round((matk * mult + flatBase) * buffMult * (1 + dmgBonus / 100));
+      let dmg = Math.round((matk * mult + flatBase) * buffMult * summonAtkBuffMul * (1 + dmgBonus / 100));
       // 방어 적용 (관통 % 만큼 방어 무시)
       const defVal = s.monsterStats.mdef;
       const effectiveDef = defVal * (1 - Math.min(100, penetration) / 100);
