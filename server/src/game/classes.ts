@@ -1,9 +1,13 @@
-// 4직업 시작 스탯 — v0.9 / archer 어드민 전용 / summoner v2 개편 통합 (2026-05-09)
+// 4직업 시작 스탯 — v0.9 / archer 공개(2026-05-10 09:00 KST) / summoner v2 개편 통합
 
 export type ClassName = 'warrior' | 'mage' | 'cleric' | 'rogue' | 'summoner' | 'archer';
 
 // 어드민 전용 직업 — `/characters/create` 에서 별도 검증, 클라에서 hide.
-export const ADMIN_ONLY_CLASSES: Set<ClassName> = new Set(['archer']);
+// 2026-05-10: archer 제거 (시간 게이트로 분리, 아래 ARCHER_PUBLIC_RELEASE_MS 사용).
+export const ADMIN_ONLY_CLASSES: Set<ClassName> = new Set();
+
+// 궁수 일반 공개 시각 — KST 2026-05-10 09:00. 이전엔 어드민만 생성 가능.
+export const ARCHER_PUBLIC_RELEASE_MS = new Date('2026-05-10T09:00:00+09:00').getTime();
 
 export interface Stats {
   str: number;

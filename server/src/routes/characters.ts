@@ -143,12 +143,16 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   );
   const isAdmin = !!userR.rows[0]?.is_admin;
 
-  // 어드민 전용 직업 가드 — 비-어드민이 archer 등 시도 시 차단
-  const { ADMIN_ONLY_CLASSES } = await import('../game/classes.js');
+  // 어드민 전용 직업 가드 — 비-어드민이 admin-only class 시도 시 차단
+  const { ADMIN_ONLY_CLASSES, ARCHER_PUBLIC_RELEASE_MS } = await import('../game/classes.js');
   if (ADMIN_ONLY_CLASSES.has(className as any) && !isAdmin) {
     return res.status(403).json({ error: '해당 직업은 어드민 전용입니다' });
   }
-  const slotCap = userR.rows[0]?.max_character_slots ?? 3;
+  // 궁수 — KST 2026-05-10 09:00 이전엔 어드민만 가능 (시간 게이트)
+  if (className === 'archer' && !isAdmin && Date.now() < ARCHER_PUBLIC_RELEASE_MS) {
+    return res.status(403).json({ error: '궁수 직업은 2026-05-10 오전 9시(KST)부터 공개됩니다' });
+  }
+  const slotCap = userR.rows[0]?.max_character_slots ?? 4;
   if (!isAdmin) {
     // 삭제 후 8시간 생성 제한
     const lastDel = userR.rows[0]?.last_char_deleted_at ? new Date(userR.rows[0].last_char_deleted_at).getTime() : 0;

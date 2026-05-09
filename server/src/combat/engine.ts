@@ -6166,9 +6166,9 @@ async function getOfflineCharLimit(userId: number): Promise<number> {
   if (cached && cached.exp > now) return cached.limit;
   try {
     const r = await query<{ offline_char_limit: number }>(
-      `SELECT COALESCE(offline_char_limit, 2) AS offline_char_limit FROM users WHERE id = $1`, [userId]
+      `SELECT COALESCE(offline_char_limit, 3) AS offline_char_limit FROM users WHERE id = $1`, [userId]
     );
-    const limit = Math.max(1, r.rows[0]?.offline_char_limit ?? 2);
+    const limit = Math.max(1, r.rows[0]?.offline_char_limit ?? 3);
     offlineCharLimitCache.set(userId, { limit, exp: now + OFFLINE_CHAR_LIMIT_TTL_MS });
     return limit;
   } catch {

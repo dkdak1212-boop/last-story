@@ -55,15 +55,22 @@ const ALL_CLASSES: ClassEntry[] = [
   { name: 'cleric', label: '성직자', desc: '보조/공격 양면, 신성 실드와 심판' },
   { name: 'rogue', label: '도적', desc: '스피드와 제어, 독 스택 연속행동' },
   { name: 'summoner', label: '소환사', desc: '소환수 1체를 신수·정령·괴수·마도로 변환·강화' },
-  { name: 'archer' as ClassName, label: '궁수', desc: '카이팅 저격수 — 처치 누적으로 사거리 강화 (어드민 전용)', adminOnly: true },
+  { name: 'archer' as ClassName, label: '궁수', desc: '카이팅 저격수 — 처치 누적으로 사거리 강화', adminOnly: true },
 ];
+
+// 궁수 일반 공개 시각 — KST 2026-05-10 09:00. 이전엔 어드민만, 이후 자동 공개.
+const ARCHER_PUBLIC_KST_MS = new Date('2026-05-10T09:00:00+09:00').getTime();
 
 export function CharacterSelectScreen() {
   const nav = useNavigate();
   const { characters, fetchCharacters, selectCharacter, createCharacter, deleteCharacter } = useCharacterStore();
   const isAdmin = useMeStore(s => s.me?.isAdmin ?? false);
-  // 어드민 전용 직업은 비-어드민에게 hide
-  const CLASSES = ALL_CLASSES.filter(c => !c.adminOnly || isAdmin);
+  // 직업 가시성 — 어드민 전용 직업은 비어드민에게 hide. 궁수는 공개 시각 이후 자동 노출.
+  const archerVisible = isAdmin || Date.now() >= ARCHER_PUBLIC_KST_MS;
+  const CLASSES = ALL_CLASSES.filter(c => {
+    if (c.name === 'archer') return archerVisible;
+    return !c.adminOnly || isAdmin;
+  });
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [pickedClass, setPickedClass] = useState<ClassName>('warrior');
