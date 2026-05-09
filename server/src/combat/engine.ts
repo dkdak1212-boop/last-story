@@ -1988,11 +1988,11 @@ function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
 // 변환별 소환수 정의 — name·value(matk %)·element·flat damage
 const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
   // value = matk × N% — 본체 마법공격력 비례. 장비 matk_pct + summon_amp 자동 가중.
-  // 추가 ×2 상향 (소환수 수가 form 별 1마리라 마리당 데미지 폭증)
-  holy:   { name: '수호수',         value: 200, element: 'holy',      flat: 600 },
-  spirit: { name: '뇌신',           value: 500, element: 'lightning', flat: 300 },
-  beast:  { name: '대악마',         value: 600, element: 'fire',      flat: 300 },
-  arcane: { name: '천상의 수호자',  value: 440, element: 'arcane',    flat: 300 },
+  // ×10 상향 (사용자 요청 — v1 수준 DPS 회복)
+  holy:   { name: '수호수',         value: 2000, element: 'holy',      flat: 6000 },
+  spirit: { name: '뇌신',           value: 5000, element: 'lightning', flat: 3000 },
+  beast:  { name: '대악마',         value: 6000, element: 'fire',      flat: 3000 },
+  arcane: { name: '천상의 수호자',  value: 4400, element: 'arcane',    flat: 3000 },
 };
 
 // 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
@@ -2030,8 +2030,8 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
   if (forms.length === 0) {
     if (!existing.has('늑대')) {
       s.statusEffects.push({
-        id: 'v2_wolf', type: 'summon' as any, value: 300, remainingActions: 999999,
-        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 400,
+        id: 'v2_wolf', type: 'summon' as any, value: 3000, remainingActions: 999999,
+        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 4000,
       } as any);
       bumpEffectVer(s);
     }
@@ -2052,7 +2052,7 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
     if (e.type !== 'summon' || e.source !== 'player') continue;
     const nm = (e as any).summonSkillName as string | undefined;
     if (nm === '늑대') {
-      e.value = 300; (e as any).summonFlatDamage = 400; (e as any).element = undefined;
+      e.value = 3000; (e as any).summonFlatDamage = 4000; (e as any).element = undefined;
     } else {
       const f = forms.find(ff => SUMMONER_V2_TRANSFORMS[ff].name === nm);
       if (f) {
