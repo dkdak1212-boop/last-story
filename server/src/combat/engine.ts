@@ -2069,26 +2069,28 @@ function fireSummonerV2Special(s: ActiveSession): void {
   if (!s.v2SpecialCds) s.v2SpecialCds = { holy: 0, spirit: 0, beast: 0, arcane: 0 };
   const matk = s.playerStats.matk;
   const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
+  // 전 form 쿨다운 3행동 통일, 계수 2배 상승
+  const SPECIAL_CD = 3;
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
-    let dmg = 0; let label = ''; let cd = 5;
+    let dmg = 0; let label = '';
     if (form === 'holy') {
-      dmg = Math.round(matk * 2.5); label = '🔒 신수의 결박'; cd = 5;
+      dmg = Math.round(matk * 5.0);  label = '[신수의 결박]';
     } else if (form === 'spirit') {
-      dmg = Math.round(matk * 1.6); label = '⚡ 연쇄 번개 4연타'; cd = 4;
+      dmg = Math.round(matk * 3.2);  label = '[연쇄 번개 4연타]';
     } else if (form === 'beast') {
       const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
-      dmg = Math.round(matk * (crit ? 6 : 4));
-      label = crit ? '💀 지옥불 일격 (치명타!)' : '💀 지옥불 일격'; cd = 5;
+      dmg = Math.round(matk * (crit ? 12 : 8));
+      label = crit ? '[지옥불 일격] (치명타!)' : '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 3.5); label = '✨ 천상의 심판'; cd = 6;
+      dmg = Math.round(matk * 7.0);  label = '[천상의 심판]';
     }
     if (dmg > 0) {
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
       s.log.push(`${label} ${finalDmg} 피해 (HP ${Math.max(0, s.monsterHp)}/${s.monsterMaxHp})`);
     }
-    s.v2SpecialCds[form] = cd;
+    s.v2SpecialCds[form] = SPECIAL_CD;
   }
 }
 

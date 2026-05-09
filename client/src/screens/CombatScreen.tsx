@@ -1476,6 +1476,11 @@ const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '술식: 응결':       '/images/skills/spells/okawaru_finesse.png',
   '술식: 시력 강화':  '/images/skills/spells/acute_vision.png',
   '명령: 진멸':       '/images/skills/spells/spellclaws.png',
+  // 변환 소환수 특수기 (자동 발동, 채팅 로그 sprite)
+  '신수의 결박':      '/images/skills/spells/sigil_of_binding.png',
+  '연쇄 번개 4연타':  '/images/skills/spells/chain_lightning.png',
+  '지옥불 일격':      '/images/skills/spells/fireball.png',
+  '천상의 심판':      '/images/skills/spells/beogh_smite.png',
   '자세: 통찰':       '/images/skills/spells/focused-fg.png',
   '자세: 집중':       '/images/skills/spells/combat.png',
   '자세: 방어':       '/images/skills/spells/demonic_guardian_1.png',
