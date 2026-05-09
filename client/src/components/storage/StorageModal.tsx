@@ -16,7 +16,7 @@ const STAT_LABEL: Record<string, string> = {
   multi_hit_amp_pct: '다단', miss_combo_pct: '빗맞', evasion_burst_pct: '회피폭',
   shield_amp: '실드',
   // 소환사
-  summon_amp: '소환뎀', summon_double_hit: '소환2타', summon_max_extra: '소환+',
+  summon_amp: '소환뎀', summon_double_hit: '소환2타', summon_max_extra: '소환+', summon_crit_dmg_amp: '소환크뎀',
   // 기존 접두사
   lifesteal_pct: '흡혈', dot_amp_pct: '도트', exp_bonus_pct: '경험치',
   gold_bonus_pct: '골드', guardian_pct: '방어', spd_pct: '속도증가', full_hp_amp_pct: '풀피증뎀',

@@ -1199,6 +1199,7 @@ const PREFIX_OPTIONS: { key: string; label: string; color: string; group: string
   { key: 'summon_amp', label: '소환뎀', color: '#44cc88', group: '소환사' },
   { key: 'summon_double_hit', label: '소환2타', color: '#66dd99', group: '소환사' },
   { key: 'summon_max_extra', label: '소환+', color: '#88ee99', group: '소환사' },
+  { key: 'summon_crit_dmg_amp', label: '소환크뎀', color: '#88ee99', group: '소환사' },
   { key: 'execute_pct', label: '처형', color: '#ff4488', group: '특수' },
   { key: 'shield_on_low_hp', label: '저체력실드', color: '#aaddff', group: '유틸' },
   { key: 'reflect_skill', label: '스킬반사', color: '#cc88aa', group: '유틸' },

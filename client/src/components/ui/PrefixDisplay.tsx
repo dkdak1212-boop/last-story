@@ -45,6 +45,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   summon_amp: v => `소환수 데미지 ${v}% 증가`,
   summon_double_hit: v => `소환수 2회 타격 ${v}%`,
   summon_max_extra: v => `최대 소환수 +${v}`,
+  summon_crit_dmg_amp: v => `소환수 치명타 데미지 +${v}%`,
   // 성직자 — 실드 효과 강화 (시공의 차원의 홀 등)
   shield_amp: v => `실드 효과 ${v}% 증가`,
   // 110제 craft 추가 옵션

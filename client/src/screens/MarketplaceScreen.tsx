@@ -413,6 +413,7 @@ const PREFIX_STAT_OPTIONS: { key: string; label: string }[] = [
   // 110제 craft 추가 옵션
   { key: 'shield_amp', label: '실드 효과 %' },
   { key: 'summon_amp', label: '소환수 데미지 %' },
+  { key: 'summon_crit_dmg_amp', label: '소환수 치명타 데미지 %' },
   { key: 'summon_double_hit', label: '소환수 2회 타격 %' },
   { key: 'summon_max_extra', label: '최대 소환수 +' },
   { key: 'execute_pct', label: '처형 %' },

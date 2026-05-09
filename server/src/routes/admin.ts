@@ -521,6 +521,48 @@ const summonerRefundPointsHandler = async (req: AuthedRequest, res: Response) =>
 router.get('/summoner-refund-points', summonerRefundPointsHandler);
 router.post('/summoner-refund-points', summonerRefundPointsHandler);
 
+// 모든 소환사 캐릭 일반 노드 완전 reset + node_points = level - 1 정확 설정
+// paragon 노드 + paragon_points 는 보존 (별도 처리 X)
+const summonerResetNodesHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // 1) 일반 노드 (zone <> 'paragon') 만 character_nodes 정리
+    const delR = await query(`
+      DELETE FROM character_nodes
+       WHERE character_id IN (SELECT id FROM characters WHERE class_name = 'summoner')
+         AND node_id IN (SELECT id FROM node_definitions WHERE zone <> 'paragon')
+    `);
+    log.push(`character_nodes (일반) 정리: ${delR.rowCount}`);
+
+    // 2) node_points = level - 1 (모든 소환사)
+    const updR = await query(`
+      UPDATE characters SET node_points = GREATEST(0, level - 1)
+       WHERE class_name = 'summoner'
+    `);
+    log.push(`node_points = level - 1 적용: ${updR.rowCount}`);
+
+    // 검증
+    const sumR = await query<{ total: string; max_pt: number; min_pt: number }>(
+      `SELECT COUNT(*)::text AS total, MAX(node_points)::int AS max_pt, MIN(node_points)::int AS min_pt
+         FROM characters WHERE class_name = 'summoner'` as any
+    );
+    res.json({
+      ok: true,
+      log,
+      verify: {
+        total_summoners: Number(sumR.rows[0].total),
+        node_points_max: sumR.rows[0].max_pt,
+        node_points_min: sumR.rows[0].min_pt,
+      }
+    });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/summoner-reset-node-points', summonerResetNodesHandler);
+router.post('/summoner-reset-node-points', summonerResetNodesHandler);
+
 // 대소환사 캐릭별 학습 스킬 진단 — ?charId=N 또는 ?name=닉네임
 const summonerV2SkillCheckHandler = async (req: AuthedRequest, res: Response) => {
   try {

@@ -1344,7 +1344,7 @@ async function runLateMigrations() {
   // 소환사 v2 통합 후 소환수는 form 별 1마리 고정 → 추가 소환수 의미 X. 치명타 데미지 가중으로 변경.
   {
     try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summon_max_extra_to_crit_dmg_amp'`);
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'summon_max_extra_to_crit_dmg_amp_v2'`);
       if (!applied.rowCount) {
         const r = await query(`
           UPDATE items SET unique_prefix_stats =
@@ -1352,8 +1352,21 @@ async function runLateMigrations() {
             jsonb_build_object('summon_crit_dmg_amp', 50)
           WHERE unique_prefix_stats ? 'summon_max_extra'
         `);
-        console.log(`[late] summon_max_extra → summon_crit_dmg_amp (rows=${r.rowCount})`);
-        await query(`INSERT INTO _migrations (name) VALUES ('summon_max_extra_to_crit_dmg_amp') ON CONFLICT DO NOTHING`);
+        // 이미 드랍된 인벤/장착 아이템도 함께 변환 (박제된 prefix_stats jsonb)
+        const ri = await query(`
+          UPDATE character_inventory SET prefix_stats =
+            (prefix_stats - 'summon_max_extra') ||
+            jsonb_build_object('summon_crit_dmg_amp', 50)
+          WHERE prefix_stats ? 'summon_max_extra'
+        `);
+        const re = await query(`
+          UPDATE character_equipped SET prefix_stats =
+            (prefix_stats - 'summon_max_extra') ||
+            jsonb_build_object('summon_crit_dmg_amp', 50)
+          WHERE prefix_stats ? 'summon_max_extra'
+        `);
+        console.log(`[late] summon_max_extra → summon_crit_dmg_amp (items=${r.rowCount}, inv=${ri.rowCount}, equip=${re.rowCount})`);
+        await query(`INSERT INTO _migrations (name) VALUES ('summon_max_extra_to_crit_dmg_amp_v2') ON CONFLICT DO NOTHING`);
       }
     } catch (e) {
       console.error('[late] summon_max_extra migration error:', e);
