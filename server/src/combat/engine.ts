@@ -2072,21 +2072,24 @@ function fireSummonerV2Special(s: ActiveSession): void {
   const matk = s.playerStats.matk;
   const defReduce = Math.round((s.monsterStats.mdef || 0) * 0.5);
   // 전 form 쿨다운 1행동 통일 (매 액션마다 발동) — 사용자 요청 (B+C 조합)
+  // 모든 form 본체 cri 확률로 치명타 ×1.5 — 발동 시 로그에 [치명타!] 표기
   const SPECIAL_CD = 1;
+  const cri = s.playerStats.cri || 0;
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
     let dmg = 0; let label = '';
     if (form === 'holy') {
       dmg = Math.round(matk * 135.0); label = '[신수의 결박]';
     } else if (form === 'spirit') {
-      dmg = Math.round(matk * 86.4); label = '[연쇄 번개 4연타]';
+      dmg = Math.round(matk * 86.4);  label = '[연쇄 번개 4연타]';
     } else if (form === 'beast') {
-      const crit = (s.playerStats.cri || 0) > 0 && Math.random() * 100 < (s.playerStats.cri || 0);
-      dmg = Math.round(matk * (crit ? 324 : 216));
-      label = crit ? '[지옥불 일격] (치명타!)' : '[지옥불 일격]';
+      dmg = Math.round(matk * 216.0); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
       dmg = Math.round(matk * 189.0); label = '[천상의 심판]';
     }
+    // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
+    const isCrit = cri > 0 && Math.random() * 100 < cri;
+    if (isCrit) { dmg = Math.round(dmg * 1.5); label += ' (치명타!)'; }
     if (dmg > 0) {
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
