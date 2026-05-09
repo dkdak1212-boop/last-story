@@ -1992,10 +1992,10 @@ function getSummonerV2Form(s: ActiveSession): SummonerV2Form | null {
 const SUMMONER_V2_TRANSFORMS: Record<'holy' | 'spirit' | 'beast' | 'arcane', { name: string; value: number; element?: string; flat: number }> = {
   // value = matk × N% — 본체 마법공격력 비례. 장비 matk_pct + summon_amp 자동 가중.
   // ×10 상향 (사용자 요청 — v1 수준 DPS 회복)
-  holy:   { name: '수호수',         value: 4000, element: 'holy',      flat: 12000 },
-  spirit: { name: '뇌신',           value: 5000, element: 'lightning', flat: 3000 },
-  beast:  { name: '대악마',         value: 6000, element: 'fire',      flat: 3000 },
-  arcane: { name: '천상의 수호자',  value: 4400, element: 'arcane',    flat: 3000 },
+  holy:   { name: '수호수',         value: 6000, element: 'holy',      flat: 18000 },
+  spirit: { name: '뇌신',           value: 7500, element: 'lightning', flat: 4500 },
+  beast:  { name: '대악마',         value: 9000, element: 'fire',      flat: 4500 },
+  arcane: { name: '천상의 수호자',  value: 6600, element: 'arcane',    flat: 4500 },
 };
 
 // 매 processSummons 시 호출 — 활성 form 수만큼 소환수 1마리씩 유지.
@@ -2033,8 +2033,8 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
   if (forms.length === 0) {
     if (!existing.has('늑대')) {
       s.statusEffects.push({
-        id: 'v2_wolf', type: 'summon' as any, value: 3000, remainingActions: 999999,
-        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 4000,
+        id: 'v2_wolf', type: 'summon' as any, value: 4500, remainingActions: 999999,
+        source: 'player', element: undefined, summonSkillName: '늑대', summonFlatDamage: 6000,
       } as any);
       bumpEffectVer(s);
     }
@@ -2055,7 +2055,7 @@ function applySummonerV2Transform(s: ActiveSession, _summons: StatusEffect[]): v
     if (e.type !== 'summon' || e.source !== 'player') continue;
     const nm = (e as any).summonSkillName as string | undefined;
     if (nm === '늑대') {
-      e.value = 3000; (e as any).summonFlatDamage = 4000; (e as any).element = undefined;
+      e.value = 4500; (e as any).summonFlatDamage = 6000; (e as any).element = undefined;
     } else {
       const f = forms.find(ff => SUMMONER_V2_TRANSFORMS[ff].name === nm);
       if (f) {
@@ -2084,10 +2084,10 @@ function fireSummonerV2Special(s: ActiveSession): void {
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
-    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) — ×5 추가 상향 + 자세진언 atk_buff 가중 ──
+    // ── 정령 (번개 연쇄 5타) — ×1.5 추가 상향 ──
     if (form === 'spirit') {
       for (let i = 1; i <= 5; i++) {
-        const baseMul = i === 5 ? 540.0 : 270.0;  // 5타째 ×2
+        const baseMul = i === 5 ? 810.0 : 405.0;  // 5타째 ×2
         let hit = Math.round(matk * baseMul * atkBuffMul);
         const hitCrit = cri > 0 && Math.random() * 100 < cri;
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
@@ -2101,13 +2101,13 @@ function fireSummonerV2Special(s: ActiveSession): void {
     }
 
     let dmg = 0; let label = '';
-    // 4 특수기 ×5 추가 상향 + 자세진언 atk_buff 가중
+    // 4 특수기 ×1.5 추가 상향 (각 ×1620)
     if (form === 'holy') {
-      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[신수의 결박]';
+      dmg = Math.round(matk * 1620.0 * atkBuffMul); label = '[신수의 결박]';
     } else if (form === 'beast') {
-      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[지옥불 일격]';
+      dmg = Math.round(matk * 1620.0 * atkBuffMul); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 1080.0 * atkBuffMul); label = '[천상의 심판]';
+      dmg = Math.round(matk * 1620.0 * atkBuffMul); label = '[천상의 심판]';
     }
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
     const isCrit = cri > 0 && Math.random() * 100 < cri;
