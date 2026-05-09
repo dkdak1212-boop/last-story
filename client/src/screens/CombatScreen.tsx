@@ -958,6 +958,17 @@ export function CombatScreen() {
               </div>
             </div>
           )}
+          {state.soulCharge !== undefined && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.soulCharge >= 5 ? '#ffd166' : '#aa88ff' }}>
+                <span>🏹 혼의 화살</span>
+                <span>{state.soulCharge}/5{state.soulCharge >= 5 ? ' — 다음 스킬 ×6 + 강제 치명타!' : ''}</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(state.soulCharge / 5) * 100}%`, background: state.soulCharge >= 5 ? '#ffd166' : '#aa88ff', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          )}
           {state.manaFlow !== undefined && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.manaFlow.active > 0 ? '#66ddff' : '#6688cc' }}>

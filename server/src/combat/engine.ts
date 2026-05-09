@@ -74,6 +74,7 @@ interface CombatSnapshot {
   rage?: number; // 전사 전용 분노 게이지
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
+  soulCharge?: number; // 궁수 전용: 혼의 화살 차지 (0~5)
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
@@ -289,6 +290,8 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
+  soulCharge: number; // 궁수 전용: 혼의 화살 차지 (0~5) — 치명타 발동 시 +1
+  soulArrowPending: boolean; // 궁수 전용: 이번 스킬 캐스트가 5 차지 소비 중인지 (모든 hit 데미지 ×6)
   rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 20)
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
@@ -1743,6 +1746,9 @@ function applyDamagePrefixes(
     const enemyConfused = hasEffect(s, 'player', 'accuracy_debuff') || hasEffect(s, 'player', 'confuse');
     if (enemyConfused) dmg = Math.round(dmg * 1.20);
   }
+  // 궁수 시그니처 — 혼의 화살 소비 중: 모든 multiplier 위에 ×6 (=+500%) 일괄 적용.
+  // executeSkill 시작에서 soulCharge>=5 + damage_mult>0 일 때 pending=true 박제, 캐스트 종료까지 모든 hit 동일 적용.
+  if (s.soulArrowPending) dmg = Math.round(dmg * 6);
   // 차원 노드 #928 회복 환원 — 모든 multiplier 적용 후 순수 flat 으로 추가 (양성 피드백 차단).
   // (consumeOneShot=false 인 multi_hit 추가 hit / 2회차 등에서는 소비 안 함 — 한 번에 1회)
   if (consume) {
@@ -1802,6 +1808,8 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
     const critDmgBonus = getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
   }
+  // 궁수 혼의 화살 ×6 (캐스트 단위 박제)
+  if (s.soulArrowPending) dmg = Math.round(dmg * 6);
   s.monsterHp -= dmg;
   addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}`);
   return true;
@@ -1887,6 +1895,11 @@ function getCritDmgBonus(s: ActiveSession): number {
 // hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
 function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
   if (!crit) return;
+  // 궁수 시그니처 — 혼의 화살: 치명타 시 soulCharge +1 (cap 5). 트리거는 executeSkill 시작에서.
+  if (s.className === 'archer' && s.soulCharge < 5) {
+    s.soulCharge++;
+    if (s.soulCharge === 5) addLog(s, `[혼의 화살] 5/5 충전 완료 — 다음 스킬 폭발`);
+  }
   // gauge_on_crit_pct 효과는 spd_pct (현재속도 +%) 로 전환됨 — 액션 루프에서 effectivePlayerSpeed 에 적용.
   const critLifesteal = getPassive(s, 'crit_lifesteal');
   if (critLifesteal > 0 && dmg > 0 && !s.monsterLifestealImmune) {
@@ -2466,6 +2479,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
   tryPoisonResonanceBurst(s);
 
+  // 궁수 시그니처 — 혼의 화살: soulCharge 5 도달 + 데미지 스킬 시 자동 소비.
+  // damage_mult > 0 인 스킬에만 트리거 (순수 buff/debuff 는 낭비 방지). 캐스트 종료까지 모든 hit ×6 + 강제 cri.
+  s.soulArrowPending = false;
+  if (s.className === 'archer' && (s.soulCharge || 0) >= 5 && skill.damage_mult > 0) {
+    s.soulCharge = 0;
+    s.soulArrowPending = true;
+    addLog(s, `[혼의 화살] 5 충전 폭발! ${skill.name} 데미지 +500% · 강제 치명타`);
+  }
+
   // 쿨다운 설정
   // cooldown_reduce: 퍼센트 감소 (예: 13 → 13%)
   // mana_flow: 추가 턴 수 감소 (예: 1 → -1턴)
@@ -2669,6 +2691,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0) {
           dmg = Math.round(dmg * 3);
         }
+        // 궁수 혼의 화살 ×6 (캐스트 단위 박제, applyDamagePrefixes 와 동일)
+        if (s.soulArrowPending) dmg = Math.round(dmg * 6);
         // 110 몬스터 dr_pct — 받는 데미지 감쇠
         if (s.monsterDrPct > 0) {
           dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
@@ -3890,6 +3914,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
     addLog(s, `${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
     const pLsBasic = applyPrefixLifesteal(s, dmg);
     if (pLsBasic > 0) addLog(s, `[흡혈] HP +${pLsBasic}`);
+    // 평타 치명타도 후속 효과 트리거 (궁수 혼의 화살 충전 / crit_lifesteal 등)
+    applyCritPostEffects(s, dmg, d.crit);
   }
   perfSeg.pBasicMs += Date.now() - tBasic;
   // 소환수는 본체 액션 종류와 무관하게 매 액션 1회 공격 (버프/소환생성/기본공격 턴에도 발동)
@@ -5924,6 +5950,10 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'rogue') {
     snapshot.poisonResonance = s.poisonResonance;
   }
+  // 궁수 혼의 화살 차지 (0~5)
+  if (s.className === 'archer') {
+    snapshot.soulCharge = s.soulCharge;
+  }
   // 소환사 소환수 목록
   if (s.className === 'summoner') {
     snapshot.summons = getActiveSummons(s).map(e => ({
@@ -6309,6 +6339,8 @@ async function startCombatSessionInner(
     dummyTrackStart: 0,
     mageOverkillCarry: 0,
     poisonResonance: 0,
+    soulCharge: 0,
+    soulArrowPending: false,
     comboKills: 0,
     hasFirstSkill: true,
     paragonFailurePending: false,
