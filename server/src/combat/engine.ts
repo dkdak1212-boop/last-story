@@ -2142,8 +2142,8 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   if (s.className !== 'rogue') return;
   if (s.monsterHp <= 0) return; // 이미 처치
 
-  // 본체 스킬 모방 모드 — damage_mult 만 차용, 부가 효과(독·도트·CC) 는 본체만 부여
-  // 컨트롤(buff/debuff: 백스텝/연막탄/독안개/그림자 은신/기습) 및 무데미지 스킬(맹독 강화/독의 축제) 은 분신 미발동
+  // 본체 스킬 모방 모드 — damage_mult 차용, 컨트롤/CC 효과는 본체 전용
+  // buff/debuff(백스텝/연막탄/독안개/그림자 은신/기습) · damage_mult=0(맹독 강화/독의 축제) → 분신 미발동
   let skillMult = 1.0;        // 평타 기준 1.0
   let skillName: string | null = null;
   if (skill) {
@@ -2164,6 +2164,18 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   const atkBuffMul = atkBuffEff ? (1 + atkBuffEff.value / 100) : 1.0;
   const cri = s.playerStats.cri || 0;
   const def = s.monsterStats.def || 0;
+
+  // 본체 스킬이 독 부여 계열이면 분신도 독 1스택 추가 (분신 비율 60% 가중)
+  // 30 스택 cap 은 addEffect 가 보장. 컨트롤/순수 디버프는 위에서 이미 차단됨.
+  const skillHasPoison = !!skill && (skill.effect_type === 'poison' || skill.effect_type === 'multi_hit_poison' || skill.effect_type === 'dot');
+  const POISON_MULT = 1.8;
+  const cloneDotDmg = skillHasPoison ? Math.max(1, Math.round(baseAtk * POISON_MULT * cloneDmgPct / 100)) : 0;
+  const poisonLordExt = getPassive(s, 'poison_lord') > 0 ? 3 : 0;
+  // multi_hit_poison 은 effect_duration 0 이라 3행동 기본 사용
+  const cloneDotDur = skillHasPoison
+    ? ((skill!.effect_duration && skill!.effect_duration > 0 ? skill!.effect_duration : 3) + poisonLordExt)
+    : 0;
+
   for (let i = 1; i <= cloneCount; i++) {
     if (s.monsterHp <= 0) break;
     let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
@@ -2181,6 +2193,10 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
     const tag = cloneCount > 1 ? ` ${i}` : '';
     const skillTag = skillName ? ` ${skillName}` : '';
     addLog(s, `[그림자 분신${tag}]${skillTag}${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
+    // 독 스택 부여 (스킬 모방 시에만)
+    if (skillHasPoison && s.monsterHp > 0) {
+      addEffect(s, { type: 'poison', value: cloneDotDmg, remainingActions: cloneDotDur, source: 'player', dotMult: POISON_MULT, dotUseMatk: false });
+    }
   }
 }
 
