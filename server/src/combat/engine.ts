@@ -2137,7 +2137,8 @@ function fireSummonerV2Special(s: ActiveSession): void {
 
 // ── 도적 (rogue) 그림자 분신 — 매 본체 액션 후 자동 평타 ──
 // 시그니처 패시브: 무조건 1마리 (도적 클래스). 노드/장비로 +N 가중.
-// 분신 = 본체 ATK × (60 + clone_dmg_amp)% — atk_buff·cri 가중·치명타 적용
+// 분신 = 본체 ATK × (80 + clone_dmg_amp)% — atk_buff·cri 가중·치명타 적용
+// 본체가 multi_hit / multi_hit_poison 스킬을 쓰면 분신도 동일 타수만큼 발동.
 function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   if (s.className !== 'rogue') return;
   if (s.monsterHp <= 0) return; // 이미 처치
@@ -2146,17 +2147,25 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   // buff/debuff(백스텝/연막탄/독안개/그림자 은신/기습) · damage_mult=0(맹독 강화/독의 축제) → 분신 미발동
   let skillMult = 1.0;        // 평타 기준 1.0
   let skillName: string | null = null;
+  let skillHits = 1;          // 본체 스킬의 타수 (multi_hit 계열만 >1)
   if (skill) {
-    if (skill.kind !== 'damage') return;
+    const isMultiHit = skill.kind === 'multi_hit' || skill.kind === 'multi_hit_poison';
+    if (skill.kind !== 'damage' && !isMultiHit) return;
     if ((skill.damage_mult || 0) <= 0) return;
     skillMult = skill.damage_mult;
     skillName = skill.name;
+    if (isMultiHit) {
+      const baseHits = Math.max(1, Math.round(skill.effect_value || 1));
+      // multi_hit 은 extra_hit 패시브 가중. multi_hit_poison 은 가중 없음 (본체 처리 동일).
+      const extra = skill.kind === 'multi_hit' ? getPassive(s, 'extra_hit') : 0;
+      skillHits = baseHits + extra;
+    }
   }
 
   const baseCount = 1;
   const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
   const cloneCount = Math.min(5, baseCount + extraCount);
-  const cloneDmgPct = 60 + getPassive(s, 'clone_dmg_amp') + (s.equipPrefixes.clone_dmg_amp || 0);
+  const cloneDmgPct = 80 + getPassive(s, 'clone_dmg_amp') + (s.equipPrefixes.clone_dmg_amp || 0);
   const cloneDoubleHit = getPassive(s, 'clone_double_hit_pct') + (s.equipPrefixes.clone_double_hit_pct || 0);
   const baseAtk = s.playerStats.atk;
   // 본체 atk_buff·crit·def 모두 가중 (캐릭 스펙 일관 반영)
@@ -2165,7 +2174,7 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   const cri = s.playerStats.cri || 0;
   const def = s.monsterStats.def || 0;
 
-  // 본체 스킬이 독 부여 계열이면 분신도 독 1스택 추가 (분신 비율 60% 가중)
+  // 본체 스킬이 독 부여 계열이면 분신도 독 스택 추가 (분신 비율 80% 가중)
   // 30 스택 cap 은 addEffect 가 보장. 컨트롤/순수 디버프는 위에서 이미 차단됨.
   const skillHasPoison = !!skill && (skill.effect_type === 'poison' || skill.effect_type === 'multi_hit_poison' || skill.effect_type === 'dot');
   const POISON_MULT = 1.8;
@@ -2178,24 +2187,28 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
 
   for (let i = 1; i <= cloneCount; i++) {
     if (s.monsterHp <= 0) break;
-    let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
-    // 분신 다단 (확률)
-    if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
-    // 치명타
-    const isCrit = cri > 0 && Math.random() * 100 < cri;
-    if (isCrit) {
-      const critDmgBonus = getCritDmgBonus(s);
-      dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
-    }
-    // 방어 일부 차감
-    const finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
-    s.monsterHp -= finalDmg;
-    const tag = cloneCount > 1 ? ` ${i}` : '';
-    const skillTag = skillName ? ` ${skillName}` : '';
-    addLog(s, `[그림자 분신${tag}]${skillTag}${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
-    // 독 스택 부여 (스킬 모방 시에만)
-    if (skillHasPoison && s.monsterHp > 0) {
-      addEffect(s, { type: 'poison', value: cloneDotDmg, remainingActions: cloneDotDur, source: 'player', dotMult: POISON_MULT, dotUseMatk: false });
+    for (let h = 1; h <= skillHits; h++) {
+      if (s.monsterHp <= 0) break;
+      let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
+      // 분신 다단 (확률)
+      if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
+      // 치명타
+      const isCrit = cri > 0 && Math.random() * 100 < cri;
+      if (isCrit) {
+        const critDmgBonus = getCritDmgBonus(s);
+        dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
+      }
+      // 방어 일부 차감
+      const finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
+      s.monsterHp -= finalDmg;
+      const cTag = cloneCount > 1 ? ` ${i}` : '';
+      const hTag = skillHits > 1 ? ` ${h}타` : '';
+      const skillTag = skillName ? ` ${skillName}` : '';
+      addLog(s, `[그림자 분신${cTag}]${skillTag}${hTag}${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
+      // 독 스택 부여 (스킬 모방 시에만) — multi_hit_poison 은 hit 마다 stack 부여 (본체 패턴 동일)
+      if (skillHasPoison && s.monsterHp > 0) {
+        addEffect(s, { type: 'poison', value: cloneDotDmg, remainingActions: cloneDotDur, source: 'player', dotMult: POISON_MULT, dotUseMatk: false });
+      }
     }
   }
 }
