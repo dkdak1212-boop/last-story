@@ -936,24 +936,16 @@ export async function flushPendingStackDrops(): Promise<void> {
 // 250ms 주기 — 1s burst 분산 (pool 점유 1/4)
 setInterval(() => { flushPendingStackDrops().catch(err => console.error('[stack-drops-batch] interval err', err)); }, 250);
 
-// 종언 floor_started_at 더티 큐 — 새 층 진입 시점만 기록, 5초 batch flush
-// (이전: 매 spawn 마다 SELECT + 가끔 UPDATE → 종언 캐릭 다수 환경에서 풀 압박 주범)
-const endlessFloorStartedDirty = new Map<number, number>();
-setInterval(() => {
-  if (endlessFloorStartedDirty.size === 0) return;
-  const entries = Array.from(endlessFloorStartedDirty.entries());
-  endlessFloorStartedDirty.clear();
-  (async () => {
-    for (const [cid, ms] of entries) {
-      try {
-        await query(
-          `UPDATE endless_pillar_progress SET floor_started_at = to_timestamp($1::double precision / 1000) WHERE character_id = $2`,
-          [ms, cid]
-        );
-      } catch (e) { console.error('[endless-floor-flush]', cid, e); }
-    }
-  })().catch(e => console.error('[endless-floor-flush] outer', e));
-}, 5000);
+// 종언 floor_started_at 직접 영속 헬퍼 — cold-start(세션 시작 / 첫 spawn) 케이스용 fire-and-forget.
+// 층 클리어 케이스는 recordFloorClear 내부 UPDATE 가 같은 컬럼을 함께 처리하므로 추가 호출 X.
+// 이전 dirty queue + 5초 batch 방식은 in-memory 와 NOW() 사이 race 로 floor_started_at 이 과거값으로
+// 회귀해 클라/서버 timer 가 0 근처에 stuck 되는 버그가 있었음 (특히 고층 빠른 클리어 누적 시).
+function persistEndlessFloorStartedAt(characterId: number, ms: number): void {
+  query(
+    `UPDATE endless_pillar_progress SET floor_started_at = to_timestamp($1::double precision / 1000) WHERE character_id = $2`,
+    [ms, characterId]
+  ).catch(e => console.error('[endless-floor-persist]', characterId, e));
+}
 
 // 길드 보스 데미지 버퍼 일괄 flush + milestone 실시간 판정 — 5초 주기
 // reentry guard: 한 사이클이 5초를 넘기면 다음 tick 스킵(풀 경합 완화)
@@ -4322,15 +4314,15 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     const wasBoss = isBossFloor(clearedFloor);
     s.endlessFloor = newFloor;
     s.endlessFloorStartedAt = Date.now();
-    endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
     if (wasBoss) {
       addLog(s, `[종언의 기둥] ${clearedFloor}층 보스 처치!`);
     } else {
       addLog(s, `[종언의 기둥] ${clearedFloor}층 클리어 (${(clearTimeMs / 1000).toFixed(1)}초)`);
     }
     // DB 영속화는 fire-and-forget — newDailyHighest 결과는 어디서도 읽지 않음.
+    // floor_started_at 도 in-memory ms 그대로 전달 (NOW() 미사용) → dirty queue 와 race 발생 X.
     const _trf = Date.now();
-    recordFloorClear(s.characterId, clearedFloor, clearTimeMs)
+    recordFloorClear(s.characterId, clearedFloor, clearTimeMs, s.endlessFloorStartedAt)
       .catch(e => console.error('[endless] floor clear err', s.characterId, e));
     perfSeg.spRecordFloorMs += Date.now() - _trf;
     perfSeg.spRecordFloorCalls++;
@@ -4968,7 +4960,7 @@ function spawnMonsterForSession(s: ActiveSession): void {
     // 종언 — endlessFloorStartedAt 은 startCombatSession 에서 미리 로드. cold-start 가드.
     if (s.endlessFloorStartedAt === 0) {
       s.endlessFloorStartedAt = Date.now();
-      endlessFloorStartedDirty.set(s.characterId, s.endlessFloorStartedAt);
+      persistEndlessFloorStartedAt(s.characterId, s.endlessFloorStartedAt);
     }
     // 종언 보스(508-517) — dr_pct / cc_immune / lifesteal_immune / matk_based 플래그 적용
     s.monsterDrPct = Number(stats.dr_pct ?? 0);
@@ -6463,7 +6455,7 @@ async function startCombatSessionInner(
       session.endlessFloorStartedAt = persistedMs;
     } else {
       session.endlessFloorStartedAt = Date.now();
-      endlessFloorStartedDirty.set(characterId, session.endlessFloorStartedAt);
+      persistEndlessFloorStartedAt(characterId, session.endlessFloorStartedAt);
     }
   }
 

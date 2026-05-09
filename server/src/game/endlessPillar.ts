@@ -91,10 +91,13 @@ export async function resumeProgress(characterId: number, fallbackMaxHp: number)
 }
 
 // 층 클리어 — 다음 층으로 진행, daily_highest/highest 갱신, floor_log 추가
+// floorStartedAtMs: 신규 층 시작 시각(ms). engine 의 in-memory s.endlessFloorStartedAt 와 동일 값을 전달해
+// dirty queue / NOW() 간 race 로 floor_started_at 이 과거값으로 회귀하던 버그 차단.
 export async function recordFloorClear(
   characterId: number,
   clearedFloor: number,
-  clearTimeMs: number
+  clearTimeMs: number,
+  floorStartedAtMs: number
 ): Promise<{ newFloor: number; isBoss: boolean; newDailyHighest: boolean }> {
   await query(
     `INSERT INTO endless_pillar_floor_log (character_id, floor, clear_time_ms)
@@ -102,7 +105,7 @@ export async function recordFloorClear(
     [characterId, clearedFloor, Math.max(0, Math.floor(clearTimeMs))]
   );
   const newFloor = clearedFloor + 1;
-  // 새 층 시작 시각 갱신 — 60초 타이머 새로 시작
+  // 새 층 시작 시각 갱신 — 60초 타이머 새로 시작 (engine 측 ms 와 1:1 일치)
   const r = await query<{ daily_highest_floor: number }>(
     `UPDATE endless_pillar_progress
        SET current_floor = $2,
@@ -113,11 +116,11 @@ export async function recordFloorClear(
              WHEN $2 > daily_highest_floor THEN NOW()
              ELSE daily_highest_at
            END,
-           floor_started_at = NOW(),
+           floor_started_at = to_timestamp($3::double precision / 1000),
            last_updated = NOW()
      WHERE character_id = $1
      RETURNING daily_highest_floor`,
-    [characterId, newFloor]
+    [characterId, newFloor, floorStartedAtMs]
   );
   return {
     newFloor,
