@@ -2785,8 +2785,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (skill.effect_type === 'double_chance') {
           if (Math.random() * 100 < skill.effect_value) {
             // 2회차 hit 도 1회차와 동일한 base flat (skillFlatWithInt — 창세의 빛 INT×5000 등) 적용
+            // 궁수 일격필살(2× = 50+100=150) / 운명의 화살(4× = 50+200=250) 은 2회차 mult 추가 강화.
+            const burstMult2nd =
+              skill.name === '일격필살' ? 2 :
+              skill.name === '운명의 화살' ? 4 : 1;
             const flatFor2nd = skillFlatWithInt(skill, s.playerStats.int || 0);
-            const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, flatFor2nd);
+            const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult * burstMult2nd, useMatk, flatFor2nd);
             if (!d2.miss) {
               let dmg2 = d2.damage;
               if (spellAmp > 0) dmg2 = Math.round(dmg2 * (1 + spellAmp / 100));
@@ -3321,6 +3325,14 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       dealBuffSkillDamage(s, skill, useMatk);
       addEffect(s, { type: 'damage_reduce', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' }); // protects player
       addLog(s, `[${skill.name}] 받는 데미지 ${skill.effect_value}% 감소!`);
+      break;
+    }
+
+    case 'damage_taken_up': {
+      // 적이 받는 데미지 +N% 디버프. damage_mult>0 인 스킬은 데미지도 같이 처리.
+      dealBuffSkillDamage(s, skill, useMatk);
+      addEffect(s, { type: 'damage_taken_up', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+      addLog(s, `[${skill.name}] 적 받는 데미지 +${skill.effect_value}% (${skill.effect_duration}행동)`);
       break;
     }
 
