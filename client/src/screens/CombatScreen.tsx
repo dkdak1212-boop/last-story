@@ -1489,6 +1489,28 @@ const SKILL_ICON_OVERRIDES: Record<string, string> = {
   '자세: 불굴':       '/images/skills/spells/demonic_guardian_2.png',
   '자세: 휴식':       '/images/skills/spells/regeneration_3.png',
   '자세: 진언':       '/images/skills/spells/holy_flames.png',
+  // 궁수 21 스킬 — 다른 직업 override 와 겹치지 않는 spells/ 픽셀 아트 (DCSS rltiles)
+  '정조준':       '/images/skills/spells/portal_projectile.png',
+  '다중 사격':    '/images/skills/spells/scattershot.png',
+  '백스텝':       '/images/skills/spells/swiftness.png',
+  '약점 표시':    '/images/skills/spells/sentinel_mark.png',
+  '분산 사격':    '/images/skills/spells/harpoon_shot.png',
+  '폭발 화살':    '/images/skills/spells/poison_arrow.png',
+  '회피 사격':    '/images/skills/spells/blink.png',
+  '정밀 저격':    '/images/skills/spells/searing_ray.png',
+  '화살 비':      '/images/skills/spells/crystallising_shot.png',
+  '추적 표식':    '/images/skills/spells/mark_of_annihilation.png',
+  '관통 사격':    '/images/skills/spells/iron_shot.png',
+  '침묵 화살':    '/images/skills/spells/silence.png',
+  '폭격 모드':    '/images/skills/spells/makhleb_mark_of_atrocity.png',
+  '그림자 사격':  '/images/skills/spells/dithmenos_shadowslip.png',
+  '화살 폭풍':    '/images/skills/spells/mark_of_haemoclasm.png',
+  '마비 화살':    '/images/skills/spells/paralyse.png',
+  '절대 정밀':    '/images/skills/spells/mark_of_the_tyrant.png',
+  '사신의 화살':  '/images/skills/spells/mark_of_execution.png',
+  '천공 강타':    '/images/skills/spells/airstrike.png',
+  '일격필살':     '/images/skills/spells/mark_of_atrocity.png',
+  '운명의 화살':  '/images/skills/spells/mark_of_the_hecatomb.png',
 };
 
 export function getSkillIcon(name: string): string {
