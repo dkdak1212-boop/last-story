@@ -2205,6 +2205,11 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
       const hTag = skillHits > 1 ? ` ${h}타` : '';
       const skillTag = skillName ? ` ${skillName}` : '';
       addLog(s, `[그림자 분신${cTag}]${skillTag}${hTag}${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
+      // 접두사 흡혈 — 분신 타격에도 본체와 동일 적용
+      {
+        const heal = applyPrefixLifesteal(s, finalDmg);
+        if (heal > 0) addLog(s, `[흡혈] HP +${heal}`);
+      }
       // 독 스택 부여 (스킬 모방 시에만) — multi_hit_poison 은 hit 마다 stack 부여 (본체 패턴 동일)
       if (skillHasPoison && s.monsterHp > 0) {
         addEffect(s, { type: 'poison', value: cloneDotDmg, remainingActions: cloneDotDur, source: 'player', dotMult: POISON_MULT, dotUseMatk: false });
