@@ -2224,7 +2224,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
     const eb = elementBonuses(sm.element);
     const dmgBonus = globalDmgBonus + eb.dmg;
     const penetration = globalPen + eb.pen;
-    const critChance = globalCrit + eb.crit;
+    // 본체 cri% 도 소환수 치명타에 가중 (캐릭 스펙 반영)
+    const critChance = globalCrit + eb.crit + (s.playerStats.cri || 0);
     const critDmgBonus = eb.critDmg;
     const lifesteal = globalLifesteal + eb.lifesteal;
 
