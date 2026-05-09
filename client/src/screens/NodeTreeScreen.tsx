@@ -176,7 +176,7 @@ const TIER_LABEL: Record<string, string> = { small: '소형', medium: '중형', 
 // 구역 탭 한글 라벨 매핑 (DB zone → 표시명)
 const ZONE_LABEL: Record<string, string> = {
   core: '공용',
-  north_rogue: '북방 도적',
+  north_rogue: '그림자 도적',
   paragon: '차원의 정수',
   '소환사 전용': '소환사 전용',
 };

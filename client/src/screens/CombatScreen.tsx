@@ -1588,6 +1588,22 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
   const canUse = waitingInput && !autoMode;
   const [tooltip, setTooltip] = useState<CombatSkillInfo | null>(null);
   const [dragSkillId, setDragSkillId] = useState<number | null>(null);
+  // 낙관 업데이트: 서버 broadcast 가 새 순서를 보내기 전까지 즉시 반영.
+  // props.skills 의 id 집합이 동일하면 localOrder 우선, id 집합이 바뀌면 (스킬 학습/삭제) 리셋.
+  const [localOrder, setLocalOrder] = useState<number[] | null>(null);
+  const propsIdsKey = skills.map(s => s.id).sort().join(',');
+  useEffect(() => {
+    if (!localOrder) return;
+    const sameSet = localOrder.length === skills.length && localOrder.every(id => skills.some(s => s.id === id));
+    if (!sameSet) setLocalOrder(null);
+  }, [propsIdsKey]);
+  const orderedSkills: CombatSkillInfo[] = localOrder
+    ? localOrder.map(id => skills.find(s => s.id === id)).filter(Boolean) as CombatSkillInfo[]
+    : skills;
+  const applyReorder = (ids: number[]) => {
+    setLocalOrder(ids);
+    onReorder(ids);
+  };
 
   return (
     <div style={{
@@ -1612,17 +1628,17 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
         )}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {skills.map((sk, idx) => {
+        {orderedSkills.map((sk, idx) => {
           const onCooldown = sk.cooldownLeft > 0;
           const usable = canUse && sk.usable && !onCooldown;
           const isBasic = sk.cooldownMax === 0;
           const fx = SKILL_EFFECTS[sk.name] || { icon: '⚔', color: 'var(--accent)', glow: 'var(--accent)' };
           const moveSkill = (delta: number) => {
-            const ids = skills.map(x => x.id);
+            const ids = orderedSkills.map(x => x.id);
             const newIdx = idx + delta;
             if (newIdx < 0 || newIdx >= ids.length) return;
             [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
-            onReorder(ids);
+            applyReorder(ids);
           };
 
           return (
@@ -1633,13 +1649,13 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => {
                 if (dragSkillId === null || dragSkillId === sk.id) { setDragSkillId(null); return; }
-                const ids = skills.map(x => x.id);
+                const ids = orderedSkills.map(x => x.id);
                 const from = ids.indexOf(dragSkillId);
                 const to = ids.indexOf(sk.id);
                 if (from < 0 || to < 0) { setDragSkillId(null); return; }
                 ids.splice(to, 0, ids.splice(from, 1)[0]);
                 setDragSkillId(null);
-                onReorder(ids);
+                applyReorder(ids);
               }}
               onClick={() => {
                 if (usable) {
@@ -1680,13 +1696,13 @@ function SkillBar({ skills, waitingInput, autoMode, onUse, onReorder }: {
               >◀</button>
               <button
                 onClick={(e) => { e.stopPropagation(); moveSkill(1); }}
-                disabled={idx === skills.length - 1}
+                disabled={idx === orderedSkills.length - 1}
                 style={{
                   position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
                   width: 18, height: 22, padding: 0, fontSize: 12, lineHeight: 1,
-                  background: 'rgba(0,0,0,0.5)', color: idx === skills.length - 1 ? '#666' : '#fff',
+                  background: 'rgba(0,0,0,0.5)', color: idx === orderedSkills.length - 1 ? '#666' : '#fff',
                   border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3,
-                  cursor: idx === skills.length - 1 ? 'not-allowed' : 'pointer', zIndex: 5,
+                  cursor: idx === orderedSkills.length - 1 ? 'not-allowed' : 'pointer', zIndex: 5,
                 }}
                 aria-label="오른쪽으로"
               >▶</button>
