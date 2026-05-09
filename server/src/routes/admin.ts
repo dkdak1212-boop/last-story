@@ -434,6 +434,48 @@ const summonerV2AddCoreHandler = async (_req: AuthedRequest, res: Response) => {
 router.get('/summoner-v2-add-core', summonerV2AddCoreHandler);
 router.post('/summoner-v2-add-core', summonerV2AddCoreHandler);
 
+// summoner CORE 추가 (마이그 후 zone='north_summoner' 매칭)
+const summonerAddCoreHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // 기존 CORE 정리 (이전 zone='north_summoner_v2' 인 것 + 새 zone='north_summoner' 인 것 모두)
+    await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE name = '소환술 중심' AND (zone = 'north_summoner' OR zone = 'north_summoner_v2'))`);
+    const delR = await query(`DELETE FROM node_definitions WHERE name = '소환술 중심' AND (zone = 'north_summoner' OR zone = 'north_summoner_v2')`);
+    log.push(`기존 CORE 정리: ${delR.rowCount}`);
+
+    // 시퀀스 reset
+    await query(`SELECT setval('node_definitions_id_seq', COALESCE((SELECT MAX(id) FROM node_definitions), 0) + 1, false)`);
+
+    // CORE INSERT (zone='north_summoner', class_exclusive='summoner')
+    const r = await query<{ id: number }>(
+      `INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, prerequisites, position_x, position_y)
+       VALUES ('소환술 중심', '4 변환 (신수·정령·괴수·마도) 의 시작점', 'north_summoner', 'small', 0, 'summoner', '[]'::jsonb, '{}'::int[], 50, -10)
+       RETURNING id` as any
+    );
+    const coreId = r.rows[0]?.id;
+    if (!coreId) throw new Error('CORE INSERT 실패');
+    log.push(`CORE 추가 (id=${coreId})`);
+
+    // 4 축 첫 small 의 prerequisite = CORE
+    for (const prefix of ['신수','정령','괴수','마도']) {
+      const ids = await query<{ id: number }>(
+        `SELECT id FROM node_definitions WHERE zone='north_summoner' AND name LIKE $1 AND tier='small' AND name <> '소환술 중심' ORDER BY id LIMIT 1`,
+        [prefix + '%']
+      );
+      if (ids.rows[0]) {
+        await query(`UPDATE node_definitions SET prerequisites = ARRAY[$1::int] WHERE id = $2`, [coreId, ids.rows[0].id]);
+        log.push(`${prefix} 첫 small (id=${ids.rows[0].id}) prerequisite → CORE`);
+      }
+    }
+    res.json({ ok: true, log });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/summoner-add-core', summonerAddCoreHandler);
+router.post('/summoner-add-core', summonerAddCoreHandler);
+
 // 대소환사 캐릭별 학습 스킬 진단 — ?charId=N 또는 ?name=닉네임
 const summonerV2SkillCheckHandler = async (req: AuthedRequest, res: Response) => {
   try {
