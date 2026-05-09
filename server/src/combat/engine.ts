@@ -1455,6 +1455,7 @@ type DmgPrefixCache = {
   rageProc: boolean;
   berserkPct: number;       // active 시 % 값, 아니면 0
   fullHpAmpPct: number;
+  spellAmpPct: number;      // 스킬 데미지 증폭 (전 직업 적용, 노드 합산), 0 if none
   judgeAmpPct: number;      // cleric 적용 시 합계, 아니면 0
   pHeavyBlade: boolean;
   pFateLock: boolean;
@@ -1499,6 +1500,7 @@ function buildDmgPrefixCache(s: ActiveSession): DmgPrefixCache {
     rageProc: s.rageProcRemaining > 0,
     berserkPct: berserkActive ? berserkP : 0,
     fullHpAmpPct: fullHpActive ? fullHpAmp : 0,
+    spellAmpPct: getPassive(s, 'spell_amp'),
     judgeAmpPct: judgeRaw,
     pHeavyBlade: getPassive(s, 'paragon_heavy_blade') > 0,
     pFateLock: getPassive(s, 'paragon_fate_lock') > 0,
@@ -1543,6 +1545,15 @@ function applyDamagePrefixes(
   }
   // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (rageProcRemaining 카운터)
   if (cache ? cache.rageProc : s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
+  // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용, 노드 합산)
+  // 2026-05-10 버그 수정: case 'damage' 인라인 파이프라인엔 있었지만 이 공통 파이프라인엔 누락 →
+  //   multi_hit / multi_hit_poison / shield_break(아래) / holy_strike 등 17 스킬에서 +N% 가 무시되던 문제.
+  if (cache) {
+    if (cache.spellAmpPct > 0) dmg = Math.round(dmg * (1 + cache.spellAmpPct / 100));
+  } else {
+    const spellAmp = getPassive(s, 'spell_amp');
+    if (spellAmp > 0) dmg = Math.round(dmg * (1 + spellAmp / 100));
+  }
   // 광전사 (내 HP 35% 이하)
   if (cache) {
     if (cache.berserkPct > 0) dmg = Math.round(dmg * (1 + cache.berserkPct / 100));
