@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
+import { confirmIfInCombat } from '../utils/combatGuard';
 import { getSkillIcon } from './CombatScreen';
 
 interface Skill {
@@ -70,6 +71,7 @@ export function SkillsScreen() {
 
   async function loadPreset(idx: number) {
     if (!active || presetBusy) return;
+    if (!confirmIfInCombat('스킬 프리셋')) return;
     setPresetBusy(true); setMsg('');
     try {
       const r = await api<{ loadedCount: number; name: string }>(
@@ -103,6 +105,7 @@ export function SkillsScreen() {
   const [toggling, setToggling] = useState(false);
   async function toggleAuto(skillId: number, skillName: string, currentState: boolean) {
     if (!active || toggling) return;
+    if (!confirmIfInCombat('스킬 자동 사용')) return;
     setMsg('');
     setToggling(true);
     try {

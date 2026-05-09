@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
+import { confirmIfInCombat } from '../utils/combatGuard';
 
 /* ── 타입 ── */
 interface NodeDefinition {
@@ -234,6 +235,7 @@ export function NodeTreeScreen() {
   }
   async function resetParagon() {
     if (!active) return;
+    if (!confirmIfInCombat('차원의 정수 노드 리셋')) return;
     if (!confirm('차원의 정수 노드를 모두 리셋합니다 (포인트는 보존). 진행?')) return;
     try {
       await api(`/paragon/${active.id}/reset`, { method: 'POST' });
@@ -460,6 +462,7 @@ export function NodeTreeScreen() {
 
   async function invest(nodeId: number) {
     if (!active || loading) return;
+    if (!confirmIfInCombat('노드')) return;
     setLoading(true); setMsg('');
     try {
       const r = await api<{ invested?: number }>(`/characters/${active.id}/nodes/invest`, { method: 'POST', body: JSON.stringify({ nodeId }) });
@@ -470,7 +473,9 @@ export function NodeTreeScreen() {
   }
 
   async function resetAll() {
-    if (!active || loading || !confirm('직업 노드 전체 리셋 (5,000G)\n차원의 정수 노드는 유지됩니다.')) return;
+    if (!active || loading) return;
+    if (!confirmIfInCombat('노드 전체 리셋')) return;
+    if (!confirm('직업 노드 전체 리셋 (5,000G)\n차원의 정수 노드는 유지됩니다.')) return;
     setLoading(true);
     try {
       const r = await api<{ refundedPoints: number; refundedParagonPoints: number }>(
@@ -1072,6 +1077,7 @@ function NodePresetBar({ characterId, onLoad, setMsg }: { characterId?: number; 
 
   async function load(idx: number) {
     if (!characterId || busy) return;
+    if (!confirmIfInCombat('노드 프리셋')) return;
     if (!confirm(`노드 프리셋 ${idx}을 불러오시겠습니까?\n현재 노드가 전체 리셋 후 재투자됩니다.\n(골드 비용 없음)`)) return;
     setBusy(true);
     try {

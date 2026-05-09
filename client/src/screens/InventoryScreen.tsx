@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
+import { confirmIfInCombat } from '../utils/combatGuard';
 import type { InventorySlot, Equipped, Stats } from '../types';
 import { GRADE_COLOR, GRADE_LABEL, ItemStatsBlock, getEnhanceMult } from '../components/ui/ItemStats';
 import { ItemComparison } from '../components/ui/ItemComparison';
@@ -93,6 +94,7 @@ export function InventoryScreen() {
 
   async function equip(slotIndex: number) {
     if (!active) return; setMsg('');
+    if (!confirmIfInCombat('장비 장착')) return;
     // 최초 장착 시 귀속 경고
     const target = inv.find(s => s.slotIndex === slotIndex);
     if (target && !target.soulbound) {
@@ -112,6 +114,7 @@ export function InventoryScreen() {
   }
   async function unequip(slot: string) {
     if (!active) return; setMsg('');
+    if (!confirmIfInCombat('장비 해제')) return;
     try { await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) }); await Promise.all([refresh(), refreshActive()]); }
     catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
@@ -655,10 +658,10 @@ export function InventoryScreen() {
               }}>{label}</button>
             ))}
           </div>
-          {/* 전체 판매 + 필터 설정 */}
+          {/* 전체 판매 + T4 추출 + 필터 설정 */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
             <button onClick={async () => {
-              if (!active || !confirm('잠금되지 않은 모든 장비를 폐기하시겠습니까? (골드 지급 없음)')) return;
+              if (!active || !confirm('잠금되지 않은 모든 장비를 폐기하시겠습니까? (골드 지급 없음)\n\n※ 100레벨 미만 T4 장비는 안전을 위해 자동 제외됩니다.')) return;
               setMsg('');
               try {
                 const res = await api<{ count: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({}) });
@@ -671,6 +674,32 @@ export function InventoryScreen() {
               border: '1px solid var(--accent)', cursor: 'pointer', fontWeight: 700,
               whiteSpace: 'nowrap',
             }}>전체 폐기</button>
+            <button onClick={async () => {
+              if (!active) return;
+              const eligible = inv.filter(s => {
+                const it: any = s.item;
+                if (s.locked || (s as any).unidentified || !it.slot) return false;
+                if (it.requiredLevel !== 100) return false;
+                const tiers = (s as any).prefixTiers as Record<string, number> | undefined;
+                return !!tiers && Object.values(tiers).some(t => t === 4);
+              });
+              if (eligible.length === 0) {
+                setMsg('추출 가능한 100레벨 T4 장비가 없습니다.');
+                return;
+              }
+              if (!confirm(`100레벨 T4 장비 ${eligible.length}개를 모두 신비한 가루로 추출합니다.\n\n이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`)) return;
+              setMsg('');
+              try {
+                const res = await api<{ count: number; message: string }>(`/craft/extract-bulk`, { method: 'POST', body: JSON.stringify({ characterId: active.id }) });
+                setMsg(res.message);
+                await Promise.all([refresh(), refreshActive()]);
+              } catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
+            }} style={{
+              fontSize: 12, padding: '8px 14px', borderRadius: 4,
+              background: 'rgba(163,91,209,0.15)', color: '#c97bff',
+              border: '1px solid #a35bd1', cursor: 'pointer', fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}>✨ T4 전체 추출</button>
             <FilterToggleButton label="드랍필터" active={!!dfTiers} color="#ff6666" onClick={() => setFilterPanel(filterPanel === 'drop' ? null : 'drop')} open={filterPanel === 'drop'} />
           </div>
 
@@ -1326,6 +1355,7 @@ function PresetBar({ characterId, onLoad, setMsg }: { type?: string; characterId
 
   async function load(idx: number) {
     if (!characterId || busy) return;
+    if (!confirmIfInCombat('장비 프리셋')) return;
     if (!confirm(`프리셋 ${idx}을 불러오시겠습니까?\n현재 장비가 인벤토리로 이동됩니다.`)) return;
     setBusy(true);
     try {

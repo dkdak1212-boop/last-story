@@ -393,4 +393,52 @@ router.post('/extract', async (req: AuthedRequest, res: Response) => {
   });
 });
 
+// ── T4 전체 추출 — 100레벨 + T4 접두사 보유 장비를 일괄 가루로 변환 ──
+// 정책 (사용자 결정 2026-05-10):
+//   * required_level === 100 + T4 접두사 보유 장비만 처리
+//   * 잠금/귀속/미확인 제외
+//   * 100 미만 T4 장비는 묶음 처리 절대 금지 (저렙 farming + 실수 보호 둘 다 가드)
+router.post('/extract-bulk', async (req: AuthedRequest, res: Response) => {
+  const parsed = z.object({
+    characterId: z.number().int().positive(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+  const { characterId } = parsed.data;
+  const char = await loadCharacterOwned(characterId, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // T4 접두사 보유 + required_level=100 + 잠금/미확인 아님
+  const targets = await query<{ id: number; item_name: string }>(
+    `SELECT ci.id, i.name AS item_name
+       FROM character_inventory ci
+       JOIN items i ON i.id = ci.item_id
+      WHERE ci.character_id = $1
+        AND COALESCE(ci.locked, FALSE) = FALSE
+        AND COALESCE(ci.unidentified, FALSE) = FALSE
+        AND i.slot IS NOT NULL
+        AND COALESCE(i.required_level, 1) = 100
+        AND EXISTS (
+          SELECT 1 FROM item_prefixes ip
+           WHERE ip.id = ANY(ci.prefix_ids) AND ip.tier = 4
+        )`,
+    [characterId]
+  );
+  if (targets.rowCount === 0) {
+    return res.status(400).json({ error: '추출 가능한 100레벨 T4 장비가 없습니다.' });
+  }
+
+  const ids = targets.rows.map(r => r.id);
+  await query('DELETE FROM character_inventory WHERE id = ANY($1::int[])', [ids]);
+  const { addItemToInventory } = await import('../game/inventory.js');
+  await addItemToInventory(characterId, MYSTIC_POWDER_ID, ids.length);
+
+  res.json({
+    ok: true,
+    count: ids.length,
+    rewardItemId: MYSTIC_POWDER_ID,
+    rewardName: '신비한 가루',
+    message: `${ids.length}개 장비 추출 완료 — 신비한 가루 +${ids.length}`,
+  });
+});
+
 export default router;

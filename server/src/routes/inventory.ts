@@ -719,11 +719,20 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 잠금 안 된 장비 (소모품/재료 제외)
+  // 100레벨 미만 + T4 접두사 보유 장비는 묶음 폐기 차단 (사용자 결정 2026-05-10) —
+  // T4 추출 가루 farming 보호 + 실수 폐기 방지. 100레벨 T4 는 정상 폐기.
   const items = await query<{ id: number; quantity: number; sell_price: number; name: string }>(
     `SELECT ci.id, ci.quantity, i.sell_price, i.name
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.locked = FALSE AND i.sell_price > 0
-       AND i.type IN ('weapon','armor','accessory')`,
+       AND i.type IN ('weapon','armor','accessory')
+       AND NOT (
+         COALESCE(i.required_level, 1) < 100
+         AND EXISTS (
+           SELECT 1 FROM item_prefixes ip
+            WHERE ip.id = ANY(ci.prefix_ids) AND ip.tier = 4
+         )
+       )`,
     [id]
   );
 
