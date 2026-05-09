@@ -1326,6 +1326,32 @@ async function runLateMigrations() {
     }
   }
 
+  // 소환13/소환사/소한사 paragon_points 지급 (1회 인라인)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_paragon_summoner_3char_v1'`);
+      if (!applied.rowCount) {
+        const grants = [
+          { name: '소환13', amount: 15 },
+          { name: '소환사', amount: 30 },
+          { name: '소한사', amount: 30 },
+        ];
+        for (const g of grants) {
+          const r = await query<{ id: number; pp: number }>(
+            `UPDATE characters SET paragon_points = COALESCE(paragon_points, 0) + $1
+              WHERE name = $2 RETURNING id, paragon_points AS pp`,
+            [g.amount, g.name]
+          );
+          if (r.rowCount) console.log(`[late] grant paragon ${g.amount} to ${g.name} (id=${r.rows[0].id}, total pp=${r.rows[0].pp})`);
+          else console.log(`[late] grant paragon — '${g.name}' 캐릭 없음`);
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('grant_paragon_summoner_3char_v1') ON CONFLICT DO NOTHING`);
+      }
+    } catch (e) {
+      console.error('[late] grant_paragon_summoner_3char error:', e);
+    }
+  }
+
   // rmfo5252@gmail.com 어드민 권한 부여 (1회 인라인)
   {
     try {
