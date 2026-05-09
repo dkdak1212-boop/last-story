@@ -1326,6 +1326,20 @@ async function runLateMigrations() {
     }
   }
 
+  // rmfo5252@gmail.com 어드민 권한 부여 (1회 인라인)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'grant_admin_rmfo5252'`);
+      if (!applied.rowCount) {
+        const r = await query(`UPDATE users SET is_admin = TRUE WHERE email = 'rmfo5252@gmail.com'`);
+        console.log(`[late] grant admin rmfo5252@gmail.com (rows=${r.rowCount})`);
+        await query(`INSERT INTO _migrations (name) VALUES ('grant_admin_rmfo5252') ON CONFLICT DO NOTHING`);
+      }
+    } catch (e) {
+      console.error('[late] grant admin rmfo5252 error:', e);
+    }
+  }
+
   // ── 대소환사 (summoner_v2) — 088 인라인 우선 적용 (constraint 즉시 풀어 캐릭 생성 가능하게) ──
   {
     try {

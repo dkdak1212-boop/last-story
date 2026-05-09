@@ -47,7 +47,7 @@ router.get('/:id/skills', async (req: AuthedRequest, res: Response) => {
      FROM skills s
      LEFT JOIN character_skills cs ON cs.skill_id = s.id AND cs.character_id = $1
      WHERE s.class_name = $2
-     ORDER BY COALESCE(cs.slot_order, 999), s.required_level ASC`,
+     ORDER BY s.required_level ASC, s.id ASC`,
     [id, char.class_name]
   );
 
