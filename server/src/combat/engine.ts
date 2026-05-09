@@ -2135,6 +2135,42 @@ function fireSummonerV2Special(s: ActiveSession): void {
   }
 }
 
+// ── 도적 (rogue) 그림자 분신 — 매 본체 액션 후 자동 평타 ──
+// 시그니처 패시브: 무조건 1마리 (도적 클래스). 노드/장비로 +N 가중.
+// 분신 = 본체 ATK × (60 + clone_dmg_amp)% — atk_buff·cri 가중·치명타 적용
+function processShadowClones(s: ActiveSession): void {
+  if (s.className !== 'rogue') return;
+  if (s.monsterHp <= 0) return; // 이미 처치
+  const baseCount = 1;
+  const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
+  const cloneCount = Math.min(5, baseCount + extraCount);
+  const cloneDmgPct = 60 + getPassive(s, 'clone_dmg_amp') + (s.equipPrefixes.clone_dmg_amp || 0);
+  const cloneDoubleHit = getPassive(s, 'clone_double_hit_pct') + (s.equipPrefixes.clone_double_hit_pct || 0);
+  const baseAtk = s.playerStats.atk;
+  // 본체 atk_buff·crit·def 모두 가중 (캐릭 스펙 일관 반영)
+  const atkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
+  const atkBuffMul = atkBuffEff ? (1 + atkBuffEff.value / 100) : 1.0;
+  const cri = s.playerStats.cri || 0;
+  const def = s.monsterStats.def || 0;
+  for (let i = 1; i <= cloneCount; i++) {
+    if (s.monsterHp <= 0) break;
+    let dmg = Math.round(baseAtk * cloneDmgPct / 100 * atkBuffMul);
+    // 분신 다단 (확률)
+    if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
+    // 치명타
+    const isCrit = cri > 0 && Math.random() * 100 < cri;
+    if (isCrit) {
+      const critDmgBonus = getCritDmgBonus(s);
+      dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
+    }
+    // 방어 일부 차감
+    const finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
+    s.monsterHp -= finalDmg;
+    const tag = cloneCount > 1 ? ` ${i}` : '';
+    addLog(s, `[그림자 분신${tag}]${isCrit ? ' (치명타!)' : ''} ${finalDmg} 피해`);
+  }
+}
+
 function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const _t0 = Date.now();
   const summons = getActiveSummons(s);
@@ -2306,7 +2342,7 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
   }
   if (burst > 0) {
     s.monsterHp -= burst;
-    addLog(s, `💀 [독의 공명] 폭발! ${burst} 데미지`);
+    addLog(s, `[독의 공명] 폭발! ${burst} 데미지`);
     s.poisonResonance = 0;
   }
 }
@@ -2641,7 +2677,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               // 전사 분노 폭발 — 2회차 추가타에도 ×3 적용 (이전 누락: 최후의 일격/치명 절격 등)
               if (s.rageProcRemaining > 0) dmg2 = Math.round(dmg2 * 3);
               s.monsterHp -= dmg2;
-              addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}${s.rageProcRemaining > 0 ? ' 🔥분노' : ''}`);
+              addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}${s.rageProcRemaining > 0 ? ' (분노)' : ''}`);
               // 치명타 후속 (재충전·흡혈) — 2회차 타격에도 적용 (이전 누락)
               applyCritPostEffects(s, dmg2, d2.crit, '2회차');
               // 도적 치명 절격: 2회차에도 독 추가 1 stack (총 5~6 stack)
@@ -2808,7 +2844,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           || s.monsterName.startsWith('보스:')
           || s.monsterMaxHp >= 100_000_000;
         if (!isBossLike && s.monsterHp <= s.monsterMaxHp * 0.30) {
-          addLog(s, `💀 [암흑의 심판] 즉사! (HP ${Math.round(s.monsterHp / s.monsterMaxHp * 100)}% 처형)`);
+          addLog(s, `[암흑의 심판] 즉사! (HP ${Math.round(s.monsterHp / s.monsterMaxHp * 100)}% 처형)`);
           s.monsterHp = 0;
         }
       }
@@ -3540,7 +3576,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (s.manaFlowStacks >= 5) {
         s.manaFlowStacks = 0;
         s.manaFlowActive = 5;
-        addLog(s, `✨ [마나의 흐름] 5행동간 스킬 쿨다운 무시!`);
+        addLog(s, `[마나의 흐름] 5행동간 스킬 쿨다운 무시!`);
       }
     }
   }
@@ -3739,6 +3775,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
       addSkillTime(s.className, dt2, sk.name);
     }
     if (s.className === 'summoner') processSummons(s);
+    if (s.className === 'rogue') processShadowClones(s);
     return;
   }
 
@@ -3758,6 +3795,7 @@ async function autoAction(s: ActiveSession): Promise<void> {
   perfSeg.pBasicMs += Date.now() - tBasic;
   // 소환수는 본체 액션 종류와 무관하게 매 액션 1회 공격 (버프/소환생성/기본공격 턴에도 발동)
   if (s.className === 'summoner') processSummons(s);
+  if (s.className === 'rogue') processShadowClones(s);
 }
 
 // ── 110 몬스터 스킬 처리 ──
@@ -4331,7 +4369,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
   }
   if (levelDiffMult < 1.0) {
-    addLog(s, `⚠️ 레벨차 -${charMetaLevel - m.level} → EXP ${Math.round(levelDiffMult * 100)}%`);
+    addLog(s, `(레벨차 -${charMetaLevel - m.level}) EXP ${Math.round(levelDiffMult * 100)}%`);
   }
   // 부스트/접두사 보너스 표시 — 기본값 대비 추가분
   const baseExpRaw = Math.floor(m.exp_reward * ge.exp * levelDiffMult);

@@ -663,7 +663,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     if (self.className === 'warrior' && !rageProc) {
       self.rage = Math.min(100, self.rage + (skill.cooldown_actions === 0 ? 10 : 15));
     }
-    if (rageProc) s.log.push(`🔥 ${self.name} 분노 폭발! ×3`);
+    if (rageProc) s.log.push(`${self.name} 분노 폭발! ×3`);
     // 흡혈 prefix
     const lifesteal = self.equipPrefixes.lifesteal_pct || 0;
     if (lifesteal > 0) self.hp = Math.min(self.maxHp, self.hp + Math.round(amplified * lifesteal / 100));
@@ -706,7 +706,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
         if (!d4.miss) {
           const amp4 = amplifyDamage(self, opp, d4.damage, d4.crit, { consumeFirstStrike: false, consumeFirstSkill: false });
           applyDamage(s, side, amp4, false, d4.crit);
-          s.log.push(`✨ ${skName} 재발동!`);
+          s.log.push(`${skName} 재발동!`);
         }
       }
     }
@@ -1047,13 +1047,13 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
   if (self.className === 'mage' && skill.kind === 'damage') {
     if (self.manaFlowActive > 0) {
       self.manaFlowActive -= 1;
-      if (self.manaFlowActive === 0) s.log.push(`✨ ${self.name} 마나 버스트 종료`);
+      if (self.manaFlowActive === 0) s.log.push(`${self.name} 마나 버스트 종료`);
     } else {
       self.manaFlowStacks = Math.min(5, self.manaFlowStacks + 1);
       if (self.manaFlowStacks >= 5) {
         self.manaFlowStacks = 0;
         self.manaFlowActive = 5;
-        s.log.push(`✨ ${self.name} 마나의 흐름 버스트! 5행동 쿨다운 무시`);
+        s.log.push(`${self.name} 마나의 흐름 버스트! 5행동 쿨다운 무시`);
       }
     }
   }
@@ -1066,7 +1066,7 @@ function executeAction(s: PvPSession, side: 'attacker' | 'defender', skill: Skil
     if (poisonDots > 0) {
       const burstDmg = Math.round(poisonDots * 2);
       applyDamage(s, side, burstDmg, false, false);
-      s.log.push(`💀 ${self.name} 독의 공명 폭발! ${Math.round(burstDmg * PVP_DAMAGE_MULT)} 데미지`);
+      s.log.push(`${self.name} 독의 공명 폭발! ${Math.round(burstDmg * PVP_DAMAGE_MULT)} 데미지`);
     }
     self.poisonResonance = 0;
   }

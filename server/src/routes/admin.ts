@@ -476,6 +476,114 @@ const summonerAddCoreHandler = async (_req: AuthedRequest, res: Response) => {
 router.get('/summoner-add-core', summonerAddCoreHandler);
 router.post('/summoner-add-core', summonerAddCoreHandler);
 
+// 도적 (rogue) v2 — 그림자 분신 리메이크. 기존 north_rogue 노드 정리 + 새 노드 INSERT.
+// 시그니처 패시브: 도적은 무조건 분신 1마리 자동 (engine processShadowClones).
+// 노드/장비로 분신 강화 (clone_count_extra, clone_dmg_amp, clone_double_hit_pct).
+const rogueShadowResetHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    // 1) 기존 도적 캐릭 character_nodes 정리 (FK)
+    const cn = await query(`DELETE FROM character_nodes WHERE node_id IN (SELECT id FROM node_definitions WHERE zone = 'north_rogue')`);
+    log.push(`character_nodes (도적) 정리: ${cn.rowCount}`);
+
+    // 2) 기존 north_rogue 노드 모두 삭제
+    const dn = await query(`DELETE FROM node_definitions WHERE zone = 'north_rogue'`);
+    log.push(`기존 north_rogue 노드 삭제: ${dn.rowCount}`);
+
+    // 3) 시퀀스 reset
+    await query(`SELECT setval('node_definitions_id_seq', COALESCE((SELECT MAX(id) FROM node_definitions), 0) + 1, false)`);
+
+    // 4) 새 도적 노드 INSERT — 30 노드 + 4 키스톤
+    // small 13 (1pt) — 좌표 x=29~37, y=-15~-17
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
+      SELECT '그림자 민첩 ' || n, '민첩 +5', 'north_rogue', 'small', 1, 'rogue',
+             '[{"type":"stat","stat":"dex","value":5}]'::jsonb, n+28, -15 FROM generate_series(1, 3) n`);
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
+      SELECT '그림자 신속 ' || n, '스피드 +15', 'north_rogue', 'small', 1, 'rogue',
+             '[{"type":"stat","stat":"spd","value":15}]'::jsonb, n+28, -16 FROM generate_series(1, 3) n`);
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
+      SELECT '그림자 치명 ' || n, '치명타 확률 +3', 'north_rogue', 'small', 1, 'rogue',
+             '[{"type":"stat","stat":"cri","value":3}]'::jsonb, n+28, -17 FROM generate_series(1, 3) n`);
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y)
+      SELECT '분신 강화 I ' || n, '분신 데미지 +5%', 'north_rogue', 'small', 1, 'rogue',
+             '[{"type":"passive","key":"clone_dmg_amp","value":5}]'::jsonb, n+28, -18 FROM generate_series(1, 4) n`);
+
+    // medium 8 (2pt) — y=-19, -20
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
+      ('분신 강화 II A',  '분신 데미지 +15%',          'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"clone_dmg_amp","value":15}]'::jsonb, 29, -19),
+      ('분신 강화 II B',  '분신 데미지 +15%',          'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"clone_dmg_amp","value":15}]'::jsonb, 30, -19),
+      ('분신 강화 II C',  '분신 데미지 +15%',          'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"clone_dmg_amp","value":15}]'::jsonb, 31, -19),
+      ('그림자 가속',     '스피드 +50',                'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 32, -19),
+      ('독의 군주',       '독 도트 +30%',              'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"poison_amp","value":30}]'::jsonb, 33, -19),
+      ('회피 강화',       '회피 +10',                  'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dodge","value":10}]'::jsonb, 34, -19),
+      ('그림자 흡혈',     '본체+분신 데미지 5% 흡혈',  'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"lifesteal_amp","value":5}]'::jsonb, 35, -19),
+      ('분신 다단',       '분신 25% 확률 2회 공격',    'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"clone_double_hit_pct","value":25}]'::jsonb, 36, -19)`);
+
+    // large 3 (4pt) — y=-21
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
+      ('분신 분리',       '분신 +1 (총 2 분신)',       'north_rogue', 'large', 4, 'rogue',
+       '[{"type":"passive","key":"clone_count_extra","value":1}]'::jsonb, 30, -21),
+      ('그림자 폭주',     '처치 시 본체 SPD +100% (5턴)', 'north_rogue', 'large', 4, 'rogue',
+       '[{"type":"passive","key":"shadow_kill_spd","value":100}]'::jsonb, 33, -21),
+      ('독의 폭발',       '독 처치 시 폭발 (스택 ×100% 데미지)', 'north_rogue', 'large', 4, 'rogue',
+       '[{"type":"passive","key":"poison_burst_amp","value":100}]'::jsonb, 36, -21)`);
+
+    // huge 4 (8pt 키스톤) — y=-23
+    await query(`INSERT INTO node_definitions (name, description, zone, tier, cost, class_exclusive, effects, position_x, position_y) VALUES
+      ('그림자 군주',     '분신 +1, 분신 데미지 +50%',  'north_rogue', 'huge', 8, 'rogue',
+       '[{"type":"passive","key":"clone_count_extra","value":1},{"type":"passive","key":"clone_dmg_amp","value":50}]'::jsonb, 29, -23),
+      ('독의 화신',       '독 무한 스택, 독 폭발 ×3',   'north_rogue', 'huge', 8, 'rogue',
+       '[{"type":"passive","key":"poison_burst_amp","value":300},{"type":"passive","key":"poison_immune","value":1}]'::jsonb, 32, -23),
+      ('그림자 도주',     '회피 +25, 회피 시 본체 ×3 반격', 'north_rogue', 'huge', 8, 'rogue',
+       '[{"type":"stat","stat":"dodge","value":25},{"type":"passive","key":"dodge_counter_pct","value":300}]'::jsonb, 35, -23),
+      ('연쇄 처형',       '처치 시 게이지 풀필 + 다음 액션 ×2', 'north_rogue', 'huge', 8, 'rogue',
+       '[{"type":"passive","key":"kill_gauge_fill","value":1},{"type":"passive","key":"kill_next_amp","value":100}]'::jsonb, 38, -23)`);
+
+    // 5) prerequisite 체인 — small → medium → large → huge
+    await query(`DO $$
+DECLARE smalls INT[]; mediums INT[]; larges INT[]; huges INT[]; i INT;
+BEGIN
+  SELECT array_agg(id ORDER BY id) INTO smalls FROM node_definitions WHERE zone='north_rogue' AND tier='small';
+  SELECT array_agg(id ORDER BY id) INTO mediums FROM node_definitions WHERE zone='north_rogue' AND tier='medium';
+  SELECT array_agg(id ORDER BY id) INTO larges  FROM node_definitions WHERE zone='north_rogue' AND tier='large';
+  SELECT array_agg(id ORDER BY id) INTO huges   FROM node_definitions WHERE zone='north_rogue' AND tier='huge';
+  IF smalls IS NOT NULL THEN
+    FOR i IN 1..array_length(smalls, 1) LOOP
+      IF i > 3 THEN UPDATE node_definitions SET prerequisites = ARRAY[smalls[i - 3]] WHERE id = smalls[i];
+      ELSIF i > 1 AND (i - 1) % 3 = 0 THEN UPDATE node_definitions SET prerequisites = ARRAY[smalls[i - 1]] WHERE id = smalls[i];
+      END IF;
+    END LOOP;
+  END IF;
+  IF mediums IS NOT NULL AND smalls IS NOT NULL AND array_length(smalls, 1) >= 3 THEN
+    FOR i IN 1..array_length(mediums, 1) LOOP
+      UPDATE node_definitions SET prerequisites = ARRAY[smalls[LEAST(i * 2, array_length(smalls, 1))]] WHERE id = mediums[i];
+    END LOOP;
+  END IF;
+  IF larges IS NOT NULL AND mediums IS NOT NULL THEN
+    FOR i IN 1..array_length(larges, 1) LOOP
+      UPDATE node_definitions SET prerequisites = ARRAY[mediums[LEAST(i * 2, array_length(mediums, 1))]] WHERE id = larges[i];
+    END LOOP;
+  END IF;
+  IF huges IS NOT NULL AND larges IS NOT NULL THEN
+    FOR i IN 1..array_length(huges, 1) LOOP
+      UPDATE node_definitions SET prerequisites = ARRAY[larges[LEAST(i, array_length(larges, 1))]] WHERE id = huges[i];
+    END LOOP;
+  END IF;
+END $$`);
+    log.push('prerequisite 체인 적용');
+
+    // 검증
+    const sumR = await query<{ c: string }>(`SELECT COUNT(*)::text AS c FROM node_definitions WHERE zone='north_rogue'`);
+    log.push(`총 노드: ${sumR.rows[0].c}`);
+    res.json({ ok: true, log });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.get('/rogue-shadow-reset', rogueShadowResetHandler);
+router.post('/rogue-shadow-reset', rogueShadowResetHandler);
+
 // 마이그 시 character_nodes 정리되어 사용한 노드 pt 가 손실. 환불 처리.
 // 일반 노드: level - 1 까지 환불 (사용 안 한 상태로 복원)
 // 차원(paragon) 노드: ?paragonRefund=N 파라미터로 캐릭별 일괄 보상 (적립 기록 없어 추정 환불)
