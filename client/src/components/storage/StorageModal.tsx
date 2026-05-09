@@ -77,6 +77,33 @@ function matchesTab(tab: TabKey, slot: string | null | undefined, type: string |
   return slot === tab;
 }
 
+const TIER_COLOR: Record<number, string> = {
+  4: '#ff4444',
+  3: '#ffcc33',
+  2: '#b060cc',
+  1: '#5b8ecc',
+};
+
+function maxPrefixTier(tiers: Record<string, number> | null | undefined): number {
+  if (!tiers) return 0;
+  let max = 0;
+  for (const t of Object.values(tiers)) if (t > max) max = t;
+  return max;
+}
+
+function TierBadge({ tier }: { tier: number }) {
+  if (tier <= 0) return null;
+  const c = TIER_COLOR[tier] || TIER_COLOR[1];
+  return (
+    <span style={{
+      marginLeft: 4, fontSize: 9, fontWeight: 900,
+      padding: '0 4px', borderRadius: 2,
+      border: `1px solid ${c}`, color: c,
+      textShadow: tier === 4 ? `0 0 4px ${c}` : undefined,
+    }}>T{tier}</span>
+  );
+}
+
 export function StorageModal({ inventory, onClose, onChange }: Props) {
   const active = useCharacterStore((s) => s.activeCharacter);
   const [data, setData] = useState<StorageData | null>(null);
@@ -176,6 +203,7 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
                         {s.item.name}
                         {s.enhanceLevel > 0 && <span style={{ marginLeft: 3, fontSize: 9, color: 'var(--accent)' }}>+{s.enhanceLevel}</span>}
                         {s.quantity > 1 && <span style={{ marginLeft: 3, fontSize: 9, color: 'var(--text-dim)' }}>×{s.quantity}</span>}
+                        <TierBadge tier={maxPrefixTier((s as any).prefixTiers)} />
                       </div>
                       {(q > 0 || pName) && (
                         <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>
@@ -231,6 +259,7 @@ export function StorageModal({ inventory, onClose, onChange }: Props) {
                       {s.item.name}
                       {s.enhanceLevel > 0 && <span style={{ marginLeft: 3, fontSize: 9, color: 'var(--accent)' }}>+{s.enhanceLevel}</span>}
                       {s.quantity > 1 && <span style={{ marginLeft: 3, fontSize: 9, color: 'var(--text-dim)' }}>×{s.quantity}</span>}
+                      <TierBadge tier={maxPrefixTier(s.prefixTiers)} />
                     </div>
                     {(s.quality > 0 || s.prefixName) && (
                       <div style={{ fontSize: 9, color: '#888', marginTop: 1 }}>

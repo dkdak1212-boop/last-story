@@ -93,16 +93,21 @@ export function MapScreen() {
       <h2 style={{ marginBottom: 20, color: 'var(--accent)' }}>사냥터</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {[...allFields].sort((a, b) => {
-          const aDummy = a.name.startsWith('허수아비');
-          const bDummy = b.name.startsWith('허수아비');
-          if (aDummy && !bDummy) return -1;
-          if (!aDummy && bDummy) return 1;
-          if (aDummy && bDummy) {
+          // 일반 사냥터(레벨 ASC) → 허수아비(레벨 ASC) → 종언의 기둥
+          const rank = (f: FieldData) => {
+            if (f.id === ENDLESS_FIELD_ID) return 2;
+            if (f.name.startsWith('허수아비')) return 1;
+            return 0;
+          };
+          const ra = rank(a), rb = rank(b);
+          if (ra !== rb) return ra - rb;
+          // 같은 그룹 내: 허수아비는 이름에 박힌 레벨, 그 외는 requiredLevel
+          if (ra === 1) {
             const la = Number(a.name.match(/\d+/)?.[0] ?? 0);
             const lb = Number(b.name.match(/\d+/)?.[0] ?? 0);
             return la - lb;
           }
-          return 0;
+          return a.requiredLevel - b.requiredLevel;
         }).map((f) => {
           const locked = (active?.level ?? 1) < f.requiredLevel;
           const isOpen = expanded === f.id;

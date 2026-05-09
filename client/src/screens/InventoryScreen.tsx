@@ -65,7 +65,7 @@ export function InventoryScreen() {
   const [msg, setMsg] = useState('');
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
   const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; common: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, common: false, protectPrefixes: [], protect3opt: true });
-  const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc'>('recent');
+  const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc' | 'locked'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
@@ -387,6 +387,7 @@ export function InventoryScreen() {
     if (categoryTab === 'amulet') return items.filter(s => s.item.slot === 'amulet').sort(orderBy);
     if (categoryTab === 'consumable') return items.filter(s => (s.item as any).type === 'consumable').sort(orderBy);
     if (categoryTab === 'etc') return items.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').sort(orderBy);
+    if (categoryTab === 'locked') return items.filter(s => s.locked).sort(orderBy);
     return items;
   }
 
@@ -616,6 +617,7 @@ export function InventoryScreen() {
               ['amulet', '목걸이'],
               ['consumable', '소모품'],
               ['etc', '기타'],
+              ['locked', '🔒 잠금'],
             ] as const).map(([key, label]) => {
               const count = (() => {
                 if (key === 'recent') return inv.length;
@@ -627,6 +629,7 @@ export function InventoryScreen() {
                 if (key === 'amulet') return inv.filter(s => s.item.slot === 'amulet').length;
                 if (key === 'consumable') return inv.filter(s => (s.item as any).type === 'consumable').length;
                 if (key === 'etc') return inv.filter(s => !s.item.slot && (s.item as any).type !== 'consumable').length;
+                if (key === 'locked') return inv.filter(s => s.locked).length;
                 return 0;
               })();
               return (
