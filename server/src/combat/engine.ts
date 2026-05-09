@@ -2081,10 +2081,10 @@ function fireSummonerV2Special(s: ActiveSession): void {
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
-    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) ──
+    // ── 정령 (번개 연쇄 5타) — 4타 + 추가 1타 (5타 ×2) — ×5 추가 상향 ──
     if (form === 'spirit') {
       for (let i = 1; i <= 5; i++) {
-        const baseMul = i === 5 ? 108.0 : 54.0;  // 5타째 ×2
+        const baseMul = i === 5 ? 540.0 : 270.0;  // 5타째 ×2
         let hit = Math.round(matk * baseMul);
         const hitCrit = cri > 0 && Math.random() * 100 < cri;
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
@@ -2098,12 +2098,13 @@ function fireSummonerV2Special(s: ActiveSession): void {
     }
 
     let dmg = 0; let label = '';
+    // 4 특수기 ×5 추가 상향
     if (form === 'holy') {
-      dmg = Math.round(matk * 216.0); label = '[신수의 결박]';
+      dmg = Math.round(matk * 1080.0); label = '[신수의 결박]';
     } else if (form === 'beast') {
-      dmg = Math.round(matk * 216.0); label = '[지옥불 일격]';
+      dmg = Math.round(matk * 1080.0); label = '[지옥불 일격]';
     } else if (form === 'arcane') {
-      dmg = Math.round(matk * 216.0); label = '[천상의 심판]';
+      dmg = Math.round(matk * 1080.0); label = '[천상의 심판]';
     }
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
     const isCrit = cri > 0 && Math.random() * 100 < cri;
