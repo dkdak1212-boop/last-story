@@ -53,9 +53,9 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
 
     // 3) 스킬 20개 INSERT — statement 별로 분리해 어느 행에서 실패하는지 추적
     const skillRows: Array<[string, string, string, number, number, string, number, number, string, number, number, string]> = [
-      ['summoner_v2', '명령: 습격',     '소환수가 적을 강타한다. 강한 일격 + 3턴 도트.',                          5,  3.00, 'damage',        2, 0, 'dot',            0.30, 3,  ''],
+      ['summoner_v2', '명령: 습격',     '소환수가 적을 강타한다. 강한 일격 + 8턴 도트.',                          5,  3.00, 'damage',        2, 0, 'dot',            0.30, 8,  ''],
       ['summoner_v2', '술식: 결속',     '술자가 영혼을 다잡아 체력 50%를 회복한다.',                              10, 0.00, 'heal',          5, 0, 'heal_pct',       50,   0,  ''],
-      ['summoner_v2', '명령: 강습',     '소환수가 적 단일에게 강력한 일격을 내려친다 (×2.5).',                     15, 2.50, 'damage',        2, 0, 'damage',         2.50, 0,  ''],
+      ['summoner_v2', '명령: 강습',     '소환수가 적 단일에게 강력한 일격을 내려친다 (×5.0).',                     15, 5.00, 'damage',        2, 0, 'damage',         5.00, 0,  ''],
       ['summoner_v2', '명령: 수호',     '술자에게 5턴간 25% 쉴드를 부여한다.',                                    20, 0.00, 'buff',          4, 0, 'shield',         25,   5,  ''],
       ['summoner_v2', '술식: 인내',     '4턴간 받는 피해 35% 감소.',                                              25, 0.00, 'damage_reduce', 5, 0, 'damage_reduce',  35,   4,  ''],
       ['summoner_v2', '명령: 추격',     '소환수 전원 지속시간 +60행동 (상한 120).',                                30, 0.00, 'buff',          4, 0, 'summon_extend',  60,   0,  ''],
@@ -70,8 +70,8 @@ const summonerV2ForceResetHandler = async (_req: AuthedRequest, res: Response) =
       ['summoner_v2', '자세: 불굴',     '5턴간 받는 피해 50% 감소.',                                                75, 0.00, 'damage_reduce', 6, 0, 'damage_reduce',  50,   5,  ''],
       ['summoner_v2', '자세: 휴식',     '10턴간 매 턴 최대 HP의 10% 회복.',                                         80, 0.00, 'heal',          8, 0, 'heal_pct',       10,   10, ''],
       ['summoner_v2', '술식: 시력 강화','5턴간 소환수 데미지 +50%.',                                                85, 0.00, 'buff',          5, 0, 'summon_buff',    50,   5,  ''],
-      ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',                          90, 5.00, 'damage',        3, 0, 'damage',         0,    0,  ''],
-      ['summoner_v2', '자세: 진언',     '5턴간 자가 공격력 +50%.',                                                  95, 0.00, 'buff',          9, 0, 'self_atk_buff',  50,   5,  ''],
+      ['summoner_v2', '명령: 진멸',     '소환수가 적에게 진멸의 일격을 내려친다 (×10.0).',                         90, 10.00, 'damage',       3, 0, 'damage',         0,    0,  ''],
+      ['summoner_v2', '자세: 진언',     '5턴간 자가 마법공격력 +50%.',                                              95, 0.00, 'buff',          9, 0, 'self_atk_buff',  50,   5,  ''],
       ['summoner_v2', '명령: 영역 선포','5턴간 술자에게 75% 쉴드. 패시브 대정의의 영역.',                          100, 0.00, 'buff',          8, 0, 'shield',         75,   5,  ''],
     ];
     let skillOk = 0;
@@ -602,12 +602,12 @@ router.get('/summoner-v2-skill-check', summonerV2SkillCheckHandler);
 const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response) => {
   const log: string[] = [];
   try {
-    // 명령: 습격: summon_dot → dot + 쿨 2
-    const r1 = await query(`UPDATE skills SET effect_type = 'dot', cooldown_actions = 2 WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 습격'`);
-    log.push(`'명령: 습격' summon_dot → dot, cd=2 (${r1.rowCount}행)`);
-    // 명령: 강습: summon → damage + 쿨 2
-    const r2 = await query(`UPDATE skills SET effect_type = 'damage', cooldown_actions = 2 WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 강습'`);
-    log.push(`'명령: 강습' summon → damage, cd=2 (${r2.rowCount}행)`);
+    // 명령: 습격: dot + 쿨 2 + 8턴 도트
+    const r1 = await query(`UPDATE skills SET effect_type = 'dot', cooldown_actions = 2, effect_duration = 8, description = '소환수가 적을 강타한다. 강한 일격 + 8턴 도트.' WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 습격'`);
+    log.push(`'명령: 습격' dot, cd=2, 도트 8턴 (${r1.rowCount}행)`);
+    // 명령: 강습: damage + 쿨 2 + 계수 ×5.0 (×2 상향)
+    const r2 = await query(`UPDATE skills SET effect_type = 'damage', cooldown_actions = 2, damage_mult = 5.00, effect_value = 5.00, description = '소환수가 적 단일에게 강력한 일격을 내려친다 (×5.0).' WHERE class_name IN ('summoner','summoner_v2') AND name = '명령: 강습'`);
+    log.push(`'명령: 강습' damage ×5.0, cd=2 (${r2.rowCount}행)`);
     // 술식: 각력 강화: summon_buff(SPD) → self_speed_mod (본인 SPD +30%, 소환수는 자체 속도 없음)
     const r3 = await query(
       `UPDATE skills SET effect_type = 'self_speed_mod', effect_value = 30, description = '5턴간 자가 스피드 +30% (소환수도 더 자주 행동).'
@@ -638,9 +638,12 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
     // 술식: 가시화 — damage_reflect 1.00 → 100
     const r11 = await query(`UPDATE skills SET effect_value = 100 WHERE class_name = 'summoner_v2' AND name = '술식: 가시화'`);
     log.push(`'술식: 가시화' damage_reflect 1.00 → 100 (${r11.rowCount}행)`);
-    // 자세: 진언 — self_atk_buff 0.50 → 50
-    const r12 = await query(`UPDATE skills SET effect_value = 50 WHERE class_name = 'summoner_v2' AND name = '자세: 진언'`);
-    log.push(`'자세: 진언' self_atk_buff 0.50 → 50 (${r12.rowCount}행)`);
+    // 자세: 진언 — self_atk_buff 0.50 → 50 + description "공격력" → "마법공격력"
+    const r12 = await query(`UPDATE skills SET
+        effect_value = 50,
+        description = '5턴간 자가 마법공격력 +50%.'
+      WHERE class_name IN ('summoner','summoner_v2') AND name = '자세: 진언'`);
+    log.push(`'자세: 진언' self_atk_buff 50 + 마법공격력 표현 (${r12.rowCount}행)`);
     // ── summon_buff effect_value % 단위 정정 ──
     const r14 = await query(`UPDATE skills SET effect_value = 50 WHERE class_name = 'summoner_v2' AND name = '술식: 근력 강화'`);
     log.push(`'술식: 근력 강화' summon_buff 1.50 → 50% (${r14.rowCount}행)`);
@@ -661,18 +664,18 @@ const summonerV2FixSkillTypesHandler = async (_req: AuthedRequest, res: Response
       WHERE class_name = 'summoner_v2' AND name = '명령: 추격'`);
     log.push(`'명령: 추격' description 정정 (${r18.rowCount}행)`);
 
-    // 술식: 가시화 → '명령: 진멸' 강력 공격 (×5.0, 쿨 3)
+    // 술식: 가시화 → '명령: 진멸' 강력 공격 (×10.0, 쿨 3) — 계수 ×2 상향
     const r13 = await query(`UPDATE skills SET
         name = '명령: 진멸',
-        description = '소환수가 적에게 진멸의 일격을 내려친다 (×5.0).',
+        description = '소환수가 적에게 진멸의 일격을 내려친다 (×10.0).',
         kind = 'damage',
         cooldown_actions = 3,
-        damage_mult = 5.00,
+        damage_mult = 10.00,
         effect_type = 'damage',
         effect_value = 0,
         effect_duration = 0
       WHERE class_name IN ('summoner','summoner_v2') AND (name = '술식: 가시화' OR name = '명령: 진멸')`);
-    log.push(`'명령: 진멸' (×5.0 damage, 쿨 3) (${r13.rowCount}행)`);
+    log.push(`'명령: 진멸' (×10.0 damage, 쿨 3) (${r13.rowCount}행)`);
     res.json({ ok: true, log });
   } catch (e) {
     log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
