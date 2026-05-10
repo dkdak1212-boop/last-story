@@ -88,10 +88,9 @@ export function computeEffective(
   // 명중: 상한 100%
   const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
   const accuracy = Math.min(100, accuracyRaw);
-  // 치명타 확률: 상한 100% (노드/장비로 쌓아올리는 스탯)
-  const criCapped = Math.min(100, cri);
-
-  return { str, dex, int: intl, vit, spd, cri: criCapped, maxHp, atk, matk, def, mdef, dodge, accuracy };
+  // 치명타 확률: 상한 제거. 100 초과분은 getCritDmgBonus 가 1:1 비율로 치명타 데미지로 변환 (오버플로우 보너스).
+  // 100% 시 100% 발동 보장 + 초과분 만큼 데미지 증가 — 누적이 무의미해지지 않도록 변경 (2026-05-10).
+  return { str, dex, int: intl, vit, spd, cri, maxHp, atk, matk, def, mdef, dodge, accuracy };
 }
 
 export interface DamageResult {

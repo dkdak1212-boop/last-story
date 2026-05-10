@@ -1854,9 +1854,9 @@ function applyDexBuff(s: ActiveSession, dexAddPct: number, duration: number): vo
     s.playerStats.atk = oldAtk + rawAddAtk;
     actualAddedAtk = s.playerStats.atk - oldAtk;
   }
-  // cap 적용 후 실제 변동량 계산 (revert 정확성)
+  // 실제 변동량 계산 (revert 정확성). cri 100 cap 제거 — 초과분은 getCritDmgBonus 가 1:1 변환.
   const oldCri = s.playerStats.cri || 0;
-  s.playerStats.cri = Math.min(100, oldCri + Math.floor(addedDex * 0.05));
+  s.playerStats.cri = oldCri + Math.floor(addedDex * 0.05);
   const actualAddedCri = s.playerStats.cri - oldCri;
 
   const oldDodge = s.playerStats.dodge || 0;
@@ -1958,6 +1958,9 @@ function getCritDmgBonus(s: ActiveSession): number {
     const itemDotAmp = s.equipPrefixes.dot_amp_pct || 0;
     if (itemDotAmp > 0) bonus += itemDotAmp * 0.5;
   }
+  // 치명타 100% 초과분 → 1% 당 치명타 데미지 +1% (cri 누적 의미 보존, 2026-05-10)
+  const criOver = Math.max(0, (s.playerStats.cri || 0) - 100);
+  if (criOver > 0) bonus += criOver;
   return bonus;
 }
 
@@ -4433,7 +4436,8 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       const newBonus = newStreak * preciseChain;
       const delta = newBonus - oldBonus;
       if (delta !== 0) {
-        s.playerStats.cri = Math.min(100, (s.playerStats.cri || 0) + delta);
+        // cri 100 cap 제거 — 초과분은 getCritDmgBonus 가 1:1 치명타 데미지로 변환.
+        s.playerStats.cri = (s.playerStats.cri || 0) + delta;
         s.archerCritStreakBonus = newBonus;
       }
       s.archerCritStreak = newStreak;
