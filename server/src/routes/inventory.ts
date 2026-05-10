@@ -163,12 +163,10 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     name: string; type: string; grade: string;
     item_slot: string | null; stats: Record<string, number> | null; description: string;
     class_restriction: string | null; quality: number;
-    unique_prefix_stats: Record<string, number> | null;
   }>(
     `SELECT ce.slot, ce.enhance_level, ce.prefix_ids, ce.prefix_stats, ce.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot AS item_slot, i.stats, i.description, i.class_restriction,
-            COALESCE(ce.quality, 0) AS quality,
-            i.unique_prefix_stats
+            COALESCE(ce.quality, 0) AS quality
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id WHERE ce.character_id = $1`,
     [id]
   );
@@ -191,7 +189,6 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixIds: pIds,
       prefixStats: safePrefixStats(r.prefix_stats, r.enhance_level),
       prefixTiers: pTiers,
-      uniquePrefixStats: r.unique_prefix_stats || null,
       locked: r.locked,
       classRestriction: r.class_restriction,
       quality: r.quality || 0,
