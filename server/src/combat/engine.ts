@@ -1407,8 +1407,7 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
   // 2026-05-05 측정: dummy/긴 전투 세션 1세션 1497 effects → 메모리·spawn filter 폭증.
   // 도적 [독의 화신] 키스톤(poison_immune passive=1) 보유 시 cap 999 (사실상 무한, 메모리 안전망만 유지).
   if ((effect.type === 'poison' || effect.type === 'dot') && effect.source === 'player') {
-    const poisonImmuneVal = getPassive(s, 'poison_immune');
-    const poisonNoCap = s.className === 'rogue' && poisonImmuneVal > 0;
+    const poisonNoCap = s.className === 'rogue' && getPassive(s, 'poison_immune') > 0;
     const PER_TYPE_CAP = poisonNoCap ? 999 : 30;
     let count = 0;
     let oldestIdx = -1;
@@ -1419,16 +1418,6 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
         count++;
         if (oldestIdx < 0) oldestIdx = i;
       }
-    }
-    // [디버그] cap 적중 케이스 로깅 — 사용자 보고 "독 39 cap" 추적용 (임시)
-    if (count >= 28 && (effect.type === 'poison' || effect.type === 'dot')) {
-      const dist = new Map<string, number>();
-      for (const e of arr) {
-        const k = `${e.type}/${e.source}`;
-        dist.set(k, (dist.get(k) || 0) + 1);
-      }
-      const distStr = Array.from(dist.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k}=${v}`).join(' ');
-      console.log(`[독cap디버그] char=${s.characterId} cls=${s.className} type=${effect.type} count=${count} cap=${PER_TYPE_CAP} poison_immune=${poisonImmuneVal} passives_size=${s.passives.size} dist=[${distStr}]`);
     }
     if (count >= PER_TYPE_CAP && oldestIdx >= 0) {
       // 가장 오래된 동타입 dot/poison 제거 후 새것 push (FIFO)
