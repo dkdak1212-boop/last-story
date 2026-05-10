@@ -41,7 +41,9 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   const parsed = enterSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
   const { fieldId } = parsed.data;
-  const requestedRiftTickets = parsed.data.riftTickets ?? 1;
+  // 기본값 0 — 활성 중 + 통행증 0장 일 때 클라가 plain enter (riftTickets 미포함) 보내면
+  // 무료 재입장으로 처리해야 함. 종전 default 1 은 여기서 1장 차감 시도해 0장 에러 발생.
+  const requestedRiftTickets = parsed.data.riftTickets ?? 0;
 
   // 길드 보스 전용 필드는 /guild-boss/enter 경로로만 진입 가능
   if (fieldId === 999) {
@@ -112,7 +114,8 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
       // N×30분 효과를 기존 30분 만료 로직과 호환되게 하기 위해 rift_entered_at 을
       // (실제진입 + (N-1)×30분) 미래 시각으로 shift. (entered + 30) - now == N×30 - elapsed.
       // 같은 타이머 안의 재진입(사망/탭이동 후)은 무료. 일괄 소모 시 기존 잔여 시간은 갱신/덮어씀.
-      const N = requestedRiftTickets;
+      // 비활성 진입 시 N>=1 강제 — N=0 으로 들어오면 음수 shift 발생 방지.
+      const N = Math.max(1, requestedRiftTickets);
       const stacks = await query<{ id: number; quantity: number }>(
         `SELECT id, quantity FROM character_inventory
           WHERE character_id = $1 AND item_id = 855 AND quantity > 0
