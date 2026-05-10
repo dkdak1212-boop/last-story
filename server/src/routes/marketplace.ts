@@ -299,19 +299,24 @@ router.post('/:auctionId/buyout', async (req: AuthedRequest, res: Response) => {
     let pStats = au.prefix_stats ? JSON.stringify(au.prefix_stats) : '{}';
     let qual = au.quality || 0;
 
-    // ── 미확인 아이템: 구매 시 옵션 굴림 (3옵 보장) ──
-    // v3 분리 저장: prefix_stats = random 굴림만, unique 는 effective 시점 합산.
+    // ── 미확인 아이템: 구매 시 옵션 굴림 (3옵 보장 + 시공균열 unique 고정 옵션 병합) ──
     if (au.unidentified) {
       const { generateGuaranteed3Prefixes } = await import('../game/prefix.js');
-      const lvR = await tx.query<{ required_level: number }>(
-        `SELECT COALESCE(required_level, 100) AS required_level FROM items WHERE id = $1`,
+      // 시공균열 세트는 itemLevel ≥ 100 (110 제). required_level 조회.
+      const lvR = await tx.query<{ required_level: number; unique_prefix_stats: Record<string, number> | null }>(
+        `SELECT COALESCE(required_level, 100) AS required_level, unique_prefix_stats FROM items WHERE id = $1`,
         [au.item_id]
       );
       const itemLv = lvR.rows[0]?.required_level ?? 100;
+      const uniqStats = lvR.rows[0]?.unique_prefix_stats || null;
       // 거래소 미확인 구매는 최소 T2 보장 (T1 제외, T2/T3/T4 분포 = 90/9/1)
       const rolled = await generateGuaranteed3Prefixes(itemLv, 2);
       pIds = rolled.prefixIds;
-      pStats = JSON.stringify(rolled.bonusStats);
+      const merged: Record<string, number> = uniqStats ? { ...uniqStats } : {};
+      for (const [k, v] of Object.entries(rolled.bonusStats)) {
+        merged[k] = (merged[k] || 0) + (v as number);
+      }
+      pStats = JSON.stringify(merged);
       qual = Math.floor(Math.random() * 100) + 1;     // 1~100 보장
       enhLv = 0;
     }

@@ -62,9 +62,14 @@ async function grantEquipmentBoundTx(
   const uniqueFixed = itemR.rows[0]?.unique_prefix_stats ?? null;
   const { prefixIds, bonusStats } = await generate3PrefixesT1T2(itemLv);
 
-  // v3 분리 저장: prefix_stats = random 굴림만, unique 는 effective 시점 합산
-  const finalPrefixStats: Record<string, number> = { ...bonusStats };
-  void itemGrade; void uniqueFixed;
+  // 유니크는 고정 옵션 + 랜덤 롤 합산
+  let finalPrefixStats: Record<string, number> = { ...bonusStats };
+  if (itemGrade === 'unique' && uniqueFixed) {
+    finalPrefixStats = { ...uniqueFixed };
+    for (const [k, v] of Object.entries(bonusStats)) {
+      finalPrefixStats[k] = (finalPrefixStats[k] || 0) + v;
+    }
+  }
 
   for (let attempt = 0; attempt < 300; attempt++) {
     let freeSlot = -1;
