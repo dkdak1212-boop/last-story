@@ -458,20 +458,11 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     return res.status(400).json({ error: '접두사가 없는 장비입니다.' });
   }
 
-  // 유니크 고유옵은 prefix_stats에 병합 저장되어 있음 — 재굴림 전에 분리
-  //   pureRandomStats = existingPrefixStats - uniqueFixedStats
-  // 재굴림 후 uniqueFixedStats 를 다시 병합해서 저장
+  // v3 분리 저장: prefix_stats 자체가 random 만. unique 분리/재병합 불필요.
   const pureRandomStats: Record<string, number> = { ...existingPrefixStats };
-  for (const [k, v] of Object.entries(uniqueFixedStats)) {
-    if (pureRandomStats[k] !== undefined) {
-      pureRandomStats[k] = pureRandomStats[k] - v;
-      if (pureRandomStats[k] <= 0) delete pureRandomStats[k];
-    }
-  }
+  void uniqueFixedStats; // 저장값에 unique 안 들어감 (effective 시점에 합산됨)
 
   // 기존 접두사의 tier/stat을 유지하고 값만 min~max 범위에서 재굴림
-  // prefixIndex가 지정되면 그 인덱스 1개만, 없으면 전체 재굴림
-  // 두 경우 모두 pureRandomStats 전달 — rollOne 실패 시 기존 값 유지 (방어적)
   const { prefixIds, bonusStats: rolledRandom } = await rerollPrefixValues(
     existingPrefixIds,
     targetItemLevel,
@@ -480,11 +471,8 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
       : { prevStats: pureRandomStats },
   );
 
-  // 유니크 고유옵 재병합
-  const bonusStats: Record<string, number> = { ...rolledRandom };
-  for (const [k, v] of Object.entries(uniqueFixedStats)) {
-    bonusStats[k] = (bonusStats[k] ?? 0) + v;
-  }
+  // 저장값 = random 굴림만 (unique 합산 X)
+  const bonusStats: Record<string, number> = rolledRandom;
 
   // 대상 장비에 접두사 업데이트
   if (parsed.data.kind === 'inventory') {
@@ -628,22 +616,13 @@ async function handleTierTicketUse(req: AuthedRequest, res: Response, tier: 1 | 
   const newIds = [...prefixIds];
   newIds[parsed.data.prefixIndex] = rolled.prefixId;
 
-  // 유니크 고정 옵션과 일반 접두사 합산이 같은 키일 수 있어, unique 부분 보존 후 재합치기.
-  const uniq = row.unique_prefix_stats || {};
-  // 1) 일반 접두사 portion = prefix_stats - unique_prefix_stats
+  // v3 분리 저장: prefix_stats = random 만. unique 분리/재병합 불필요.
+  void row.unique_prefix_stats;
   const purePrefixStats: Record<string, number> = { ...(row.prefix_stats || {}) };
-  for (const [k, v] of Object.entries(uniq)) {
-    purePrefixStats[k] = (purePrefixStats[k] ?? 0) - (v as number);
-    if (purePrefixStats[k] <= 0) delete purePrefixStats[k];
-  }
-  // 2) 옛 접두사 stat 제거 + 새 접두사 stat 추가
+  // 옛 접두사 stat 제거 + 새 접두사 stat 추가
   delete purePrefixStats[targetStatKey];
   purePrefixStats[rolled.statKey] = (purePrefixStats[rolled.statKey] ?? 0) + rolled.value;
-  // 3) unique 다시 합산 → 최종 prefix_stats
-  const newStats: Record<string, number> = { ...purePrefixStats };
-  for (const [k, v] of Object.entries(uniq)) {
-    newStats[k] = (newStats[k] ?? 0) + (v as number);
-  }
+  const newStats: Record<string, number> = purePrefixStats;
 
   if (ticket.quantity <= 1) {
     await query('DELETE FROM character_inventory WHERE id = $1', [ticket.id]);
@@ -716,12 +695,9 @@ router.post('/:characterId/use-3prefix-ticket', async (req: AuthedRequest, res: 
   const { prefixIds, bonusStats } = await generateGuaranteed3Prefixes(row.required_level);
   if (prefixIds.length < 3) return res.status(500).json({ error: '접두사 3개 생성 실패' });
 
-  const newStats: Record<string, number> = { ...bonusStats };
-  if (row.grade === 'unique' && row.unique_prefix_stats) {
-    for (const [k, v] of Object.entries(row.unique_prefix_stats)) {
-      newStats[k] = (newStats[k] ?? 0) + (v as number);
-    }
-  }
+  // v3 분리 저장: 저장값 = random 굴림만 (unique 합산 X — effective 시점에 합산됨)
+  const newStats: Record<string, number> = bonusStats;
+  void row.unique_prefix_stats;
 
   // 티켓 소모
   if (ticket.quantity <= 1) {
