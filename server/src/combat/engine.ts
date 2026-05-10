@@ -194,12 +194,13 @@ function skillFlatWithInt(skill: { name: string; flat_damage: number }, intStat:
   return skill.flat_damage + (perInt > 0 ? intStat * perInt : 0);
 }
 
-// 접두사 흡혈(lifesteal_pct) — 모든 타격 경로에서 공통 적용. 세션.playerHp 갱신 + 로그.
+// 접두사 + 노드 흡혈(lifesteal_pct) — 모든 타격 경로에서 공통 적용. 세션.playerHp 갱신 + 로그.
 // 반환: 회복량 (0이면 미적용)
 function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
   // 110 몬스터 — 피흡 면역 (대상 몬스터에게서 흡혈 시도 시 0)
   if (s.monsterLifestealImmune) return 0;
-  const pct = s.equipPrefixes.lifesteal_pct || 0;
+  // 접두사 lifesteal_pct + 노드 패시브 lifesteal_pct (예: 궁수 '인내의 화살' +5%) 합산
+  const pct = (s.equipPrefixes.lifesteal_pct || 0) + getPassive(s, 'lifesteal_pct');
   if (pct <= 0 || dmg <= 0) return 0;
   let heal = Math.round(dmg * pct / 100);
   const lsAmp = getPassive(s, 'lifesteal_amp');
