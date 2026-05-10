@@ -1829,30 +1829,41 @@ function getPassive(s: ActiveSession, key: string): number {
 }
 
 // 절대 정밀 등 self_dex_buff — DEX 일시 뻥튀기 + 파생 stat (atk/cri/dodge/accuracy) 비례 가산.
-// 회수 정확성 위해 추가분 박제 (revertDexBuff 가 정확히 같은 값을 차감).
+// 회수 정확성 위해 **실제 변동분** 박제 (cap 적용 후 newValue - oldValue). 종전 raw 가산량을 박제했더니
+// cap 도달 시 (예: accuracy 100 cap) 실제 변동 0 인데 raw 차감해 만료 시 stat 이 음수처럼 떨어지는 버그.
 // archer 외 클래스도 cri/dodge/accuracy 는 dex 의존이므로 atk 만 archer 한정 추가.
 function applyDexBuff(s: ActiveSession, dexAddPct: number, duration: number): void {
   if (s.dexBuffRemainingActions > 0) revertDexBuff(s); // 갱신 시 기존 추가분 먼저 회수
   const baseDex = s.playerStats.dex || 0;
   const addedDex = Math.round(baseDex * dexAddPct / 100);
   if (addedDex <= 0) return;
-  let addedAtk = 0;
+
+  let actualAddedAtk = 0;
   if (s.className === 'archer') {
-    addedAtk = Math.round((s.playerStats.atk || 1) * (addedDex * 0.005));
-    s.playerStats.atk = (s.playerStats.atk || 0) + addedAtk;
+    const oldAtk = s.playerStats.atk || 1;
+    const rawAddAtk = Math.round(oldAtk * (addedDex * 0.005));
+    s.playerStats.atk = oldAtk + rawAddAtk;
+    actualAddedAtk = s.playerStats.atk - oldAtk;
   }
-  const addedCri = Math.floor(addedDex * 0.05);
-  const addedDodge = addedDex * 0.2;
-  const addedAccuracy = addedDex * 0.3;
+  // cap 적용 후 실제 변동량 계산 (revert 정확성)
+  const oldCri = s.playerStats.cri || 0;
+  s.playerStats.cri = Math.min(100, oldCri + Math.floor(addedDex * 0.05));
+  const actualAddedCri = s.playerStats.cri - oldCri;
+
+  const oldDodge = s.playerStats.dodge || 0;
+  s.playerStats.dodge = Math.min(70, oldDodge + addedDex * 0.2);
+  const actualAddedDodge = s.playerStats.dodge - oldDodge;
+
+  const oldAccuracy = s.playerStats.accuracy || 0;
+  s.playerStats.accuracy = Math.min(100, oldAccuracy + addedDex * 0.3);
+  const actualAddedAccuracy = s.playerStats.accuracy - oldAccuracy;
+
   s.playerStats.dex = baseDex + addedDex;
-  s.playerStats.cri = Math.min(100, (s.playerStats.cri || 0) + addedCri);
-  s.playerStats.dodge = Math.min(70, (s.playerStats.dodge || 0) + addedDodge);
-  s.playerStats.accuracy = Math.min(100, (s.playerStats.accuracy || 0) + addedAccuracy);
   s.dexBuffAddedDex = addedDex;
-  s.dexBuffAddedAtk = addedAtk;
-  s.dexBuffAddedCri = addedCri;
-  s.dexBuffAddedDodge = addedDodge;
-  s.dexBuffAddedAccuracy = addedAccuracy;
+  s.dexBuffAddedAtk = actualAddedAtk;
+  s.dexBuffAddedCri = actualAddedCri;
+  s.dexBuffAddedDodge = actualAddedDodge;
+  s.dexBuffAddedAccuracy = actualAddedAccuracy;
   s.dexBuffRemainingActions = duration;
 }
 
