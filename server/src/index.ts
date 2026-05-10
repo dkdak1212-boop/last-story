@@ -2303,61 +2303,8 @@ async function runEquipOverhaul() {
     }
   }
 
-  // 유니크 고정 옵션 통합 v2 — 옛날 굴림 무기 prefix_stats 에 unique 합산 추가
-  // (이전: 옛날 굴림 무기는 prefix_stats 에 random 만 저장되어 unique 효과 미적용)
-  // (이후: 모든 unique 무기 prefix_stats = unique + random 합산 형태로 통일)
-  // 휴리스틱: prefix_stats[k] <= unique[k] 이면 옛날 (합산), 크면 신규 (이미 합산, skip)
-  {
-    try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'unique_prefix_merge_v2'`);
-      if (!applied.rowCount) {
-        console.log('[마이그레이션] 유니크 고정옵션 통합 v2 — 옛날 굴림 prefix_stats 에 unique 추가...');
-
-        const tables = [
-          { name: 'character_inventory', alias: 'ci' },
-          { name: 'character_equipped', alias: 'ce' },
-          { name: 'account_storage_items', alias: 'asi' },
-          { name: 'mailbox', alias: 'mb' },
-          { name: 'auctions', alias: 'au' },
-        ];
-        for (const t of tables) {
-          const sql = `
-            UPDATE ${t.name} ${t.alias}
-               SET prefix_stats = (
-                 SELECT COALESCE(jsonb_object_agg(
-                   k,
-                   CASE
-                     WHEN COALESCE((${t.alias}.prefix_stats->>k)::int, 0)
-                          <= COALESCE((i.unique_prefix_stats->>k)::int, 0)
-                       THEN COALESCE((${t.alias}.prefix_stats->>k)::int, 0)
-                          + COALESCE((i.unique_prefix_stats->>k)::int, 0)
-                     ELSE COALESCE((${t.alias}.prefix_stats->>k)::int, 0)
-                   END
-                 ), '{}'::jsonb)
-                 FROM (
-                   SELECT k FROM jsonb_object_keys(${t.alias}.prefix_stats) AS x(k)
-                   UNION
-                   SELECT k FROM jsonb_object_keys(i.unique_prefix_stats) AS y(k)
-                 ) keys
-               )
-              FROM items i
-             WHERE ${t.alias}.item_id = i.id
-               AND i.grade = 'unique'
-               AND i.unique_prefix_stats IS NOT NULL
-               AND i.unique_prefix_stats <> '{}'::jsonb
-               AND ${t.alias}.prefix_stats IS NOT NULL;
-          `;
-          const r = await query(sql);
-          console.log(`[마이그레이션] ${t.name}: ${r.rowCount}건 업데이트`);
-        }
-
-        await query(`INSERT INTO _migrations (name) VALUES ('unique_prefix_merge_v2')`);
-        console.log('[마이그레이션] 유니크 고정옵션 통합 v2 완료');
-      }
-    } catch (e) {
-      console.error('[마이그레이션] 유니크 고정옵션 통합 v2 오류:', e);
-    }
-  }
+  // 유니크 고정 옵션 통합 v2 — 비활성 (휴리스틱이 신규 굴림 random=0 케이스를 옛날로 잘못 판정해
+  // 이중 합산 발생. 즉시 역연산 + 비활성. 새 방안 검토 후 재시도 예정.)
 
   // 길드 창고 시스템
   {
