@@ -24,7 +24,8 @@ export function MapScreen() {
   const [nowTick, setNowTick] = useState<number>(Date.now());
   const active = useCharacterStore((s) => s.activeCharacter);
   // 시공의 균열 입장권 N장 일괄 소모 모달
-  const [riftModal, setRiftModal] = useState<{ owned: number; tickets: number } | null>(null);
+  // riftModal — 시공균열 입장 모달. activeRemainSec: 활성 잔여(0=비활성), 활성 시 추가 연장 모드로 동작.
+  const [riftModal, setRiftModal] = useState<{ owned: number; tickets: number; activeRemainSec: number } | null>(null);
 
   useEffect(() => {
     const url = active ? `/fields?characterId=${active.id}` : '/fields';
@@ -59,9 +60,10 @@ export function MapScreen() {
       }
       return;
     }
-    // 시공의 균열(23) — 활성 타이머가 없으면 모달로 입장권 수량 결정.
-    // 입장 1회당 N장 일괄 소모 → N×30분 영속 타이머 (사용자 결정 2026-05-10).
-    if (fieldId === 23 && riftLiveRemain === 0) {
+    // 시공의 균열(23) — 항상 모달 띄움 (비활성=새 진입, 활성=시간 연장).
+    // 입장 1회당 N장 일괄 소모 → N×30분 추가 (활성 시엔 잔여시간 + N×30분).
+    if (fieldId === 23) {
+      const activeRemainSec = Math.floor(riftLiveRemain / 1000);
       try {
         const inv = await api<Array<{ item: { id: number }; quantity: number }>>(
           `/characters/${active.id}/inventory`
@@ -69,14 +71,21 @@ export function MapScreen() {
         const owned = inv
           .filter(s => s.item.id === 855)
           .reduce((sum, s) => sum + (s.quantity || 0), 0);
-        if (owned <= 0) {
+        if (owned <= 0 && activeRemainSec === 0) {
           alert('차원의 통행증이 없습니다. 상점에서 구매 후 입장하세요.');
           return;
         }
-        setRiftModal({ owned, tickets: 1 });
+        // 활성 + 통행증 0 = 그냥 무료 재입장 (모달 안 띄우고 plain 진입)
+        if (owned <= 0 && activeRemainSec > 0) {
+          await api(`/characters/${active.id}/enter-field`, {
+            method: 'POST', body: JSON.stringify({ fieldId: 23 }),
+          });
+          nav('/combat');
+          return;
+        }
+        setRiftModal({ owned, tickets: activeRemainSec > 0 ? 0 : 1, activeRemainSec });
       } catch {
-        // inventory 로드 실패 — 1장 기본으로 fallback
-        setRiftModal({ owned: 1, tickets: 1 });
+        setRiftModal({ owned: 1, tickets: 1, activeRemainSec });
       }
       return;
     }
@@ -93,12 +102,13 @@ export function MapScreen() {
 
   async function confirmRiftEnter() {
     if (!active || !riftModal) return;
-    const N = Math.max(1, Math.min(riftModal.owned, riftModal.tickets));
+    const N = Math.max(0, Math.min(riftModal.owned, riftModal.tickets));
     setRiftModal(null);
     try {
       await api(`/characters/${active.id}/enter-field`, {
         method: 'POST',
-        body: JSON.stringify({ fieldId: 23, riftTickets: N }),
+        // N=0 (활성 + 추가 사용 안 함) → riftTickets 생략 → 무료 재입장
+        body: JSON.stringify(N > 0 ? { fieldId: 23, riftTickets: N } : { fieldId: 23 }),
       });
       nav('/combat');
     } catch (e) {
@@ -300,10 +310,19 @@ export function MapScreen() {
             borderRadius: 6, padding: 22, width: 'min(420px, 92vw)',
             boxShadow: '0 0 30px rgba(162,75,255,0.4)',
           }}>
-            <h3 style={{ margin: '0 0 12px', color: '#c97bff', fontSize: 16 }}>⌛ 시공의 균열 입장</h3>
+            <h3 style={{ margin: '0 0 12px', color: '#c97bff', fontSize: 16 }}>⌛ 시공의 균열 {riftModal.activeRemainSec > 0 ? '시간 연장 / 재입장' : '입장'}</h3>
             <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6, marginBottom: 14 }}>
-              사용할 통행증 수만큼 영속 타이머가 한 번에 시작됩니다.<br/>
-              <span style={{ color: '#ff8888', fontWeight: 700 }}>· 환불 불가</span> · 사망/탭이동/재접속 무관 만료까지 동일 입장 무료 재진입 가능
+              {riftModal.activeRemainSec > 0 ? (
+                <>
+                  현재 잔여: <b style={{ color: '#88c8ff' }}>{Math.floor(riftModal.activeRemainSec / 60)}분 {riftModal.activeRemainSec % 60}초</b><br/>
+                  통행증 N장 추가 사용 시 <b style={{ color: '#c97bff' }}>잔여 + N×30분</b> 으로 연장. 0장 = 무료 재입장.
+                </>
+              ) : (
+                <>
+                  사용할 통행증 수만큼 영속 타이머가 한 번에 시작됩니다.<br/>
+                  <span style={{ color: '#ff8888', fontWeight: 700 }}>· 환불 불가</span> · 사망/탭이동/재접속 무관 만료까지 동일 입장 무료 재진입 가능
+                </>
+              )}
             </div>
 
             <div style={{ marginBottom: 12 }}>
@@ -314,12 +333,13 @@ export function MapScreen() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button onClick={() => setRiftModal(m => m && { ...m, tickets: Math.max(1, m.tickets - 1) })}
+                <button onClick={() => setRiftModal(m => m && { ...m, tickets: Math.max(m.activeRemainSec > 0 ? 0 : 1, m.tickets - 1) })}
                   style={{ width: 30, padding: '4px 0', fontSize: 14, fontWeight: 700 }}>−</button>
                 <input
-                  type="range" min={1} max={riftModal.owned} value={riftModal.tickets}
+                  type="range" min={riftModal.activeRemainSec > 0 ? 0 : 1} max={Math.max(1, riftModal.owned)} value={riftModal.tickets}
                   onChange={e => {
-                    const v = Math.max(1, Math.min(riftModal.owned, Number(e.target.value) || 1));
+                    const minV = riftModal.activeRemainSec > 0 ? 0 : 1;
+                    const v = Math.max(minV, Math.min(riftModal.owned, Number(e.target.value) || minV));
                     setRiftModal(m => m && { ...m, tickets: v });
                   }}
                   style={{ flex: 1, accentColor: '#a24bff' }}
@@ -332,12 +352,14 @@ export function MapScreen() {
             </div>
 
             <div style={{ padding: '10px 12px', background: 'rgba(162,75,255,0.1)', borderRadius: 4, marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>총 영속 시간</div>
+              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>
+                {riftModal.activeRemainSec > 0 ? '연장 후 총 잔여' : '총 영속 시간'}
+              </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: '#c97bff', fontFamily: 'monospace' }}>
                 {(() => {
-                  const total = riftModal.tickets * 30;
-                  const h = Math.floor(total / 60);
-                  const m = total % 60;
+                  const totalMin = (riftModal.activeRemainSec > 0 ? Math.floor(riftModal.activeRemainSec / 60) : 0) + riftModal.tickets * 30;
+                  const h = Math.floor(totalMin / 60);
+                  const m = totalMin % 60;
                   return h > 0 ? `${h}시간 ${m > 0 ? `${m}분` : ''}` : `${m}분`;
                 })()}
               </div>
@@ -348,7 +370,9 @@ export function MapScreen() {
               <button className="primary" onClick={confirmRiftEnter} style={{
                 padding: '8px 18px', fontSize: 12, fontWeight: 700,
                 background: '#a24bff', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer',
-              }}>{riftModal.tickets}장 사용 · 입장</button>
+              }}>
+                {riftModal.tickets > 0 ? `${riftModal.tickets}장 사용 · ${riftModal.activeRemainSec > 0 ? '연장' : '입장'}` : '무료 재입장'}
+              </button>
             </div>
           </div>
         </div>

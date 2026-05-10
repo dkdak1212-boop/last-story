@@ -60,13 +60,44 @@ router.post('/:id/enter-field', async (req: AuthedRequest, res: Response) => {
   }
 
   // 시공의 균열 (id=23) — Lv.100 + 30분 영속 타이머. 통행증만 있으면 무제한 입장 (2026-04-30: 일일 2회 제한 폐지).
+  // 2026-05-10: 활성 중에도 riftTickets N>=1 보내면 N장 추가 차감 + entered_at 을 +N×30분 미래로 push (시간 연장).
   if (fieldId === 23) {
     const stat = await query<{ rea: string | null }>(
       `SELECT rift_entered_at::text AS rea FROM characters WHERE id = $1`, [id]
     );
     const enteredMs = stat.rows[0]?.rea ? new Date(stat.rows[0].rea).getTime() : 0;
     const isWithinTimer = enteredMs > 0 && Date.now() - enteredMs < 30 * 60_000;
-    if (!isWithinTimer) {
+    // 활성 중 + N >= 1 → 시간 연장 모드
+    const wantExtend = isWithinTimer && requestedRiftTickets >= 1;
+    if (wantExtend) {
+      const N = requestedRiftTickets;
+      const stacks = await query<{ id: number; quantity: number }>(
+        `SELECT id, quantity FROM character_inventory
+          WHERE character_id = $1 AND item_id = 855 AND quantity > 0
+          ORDER BY slot_index`,
+        [id]
+      );
+      const owned = stacks.rows.reduce((sum, r) => sum + r.quantity, 0);
+      if (owned < N) {
+        return res.status(400).json({ error: `시공의 균열 — 통행증 ${N}장 필요한데 ${owned}장만 보유 중입니다.` });
+      }
+      let remaining = N;
+      for (const s of stacks.rows) {
+        if (remaining <= 0) break;
+        const take = Math.min(s.quantity, remaining);
+        if (take >= s.quantity) {
+          await query('DELETE FROM character_inventory WHERE id = $1', [s.id]);
+        } else {
+          await query('UPDATE character_inventory SET quantity = quantity - $1 WHERE id = $2', [take, s.id]);
+        }
+        remaining -= take;
+      }
+      // 활성 entered_at 을 +N×30분 미래로 push (만료시각 = entered + 30분 이 N×30분 늘어남)
+      await query(
+        `UPDATE characters SET rift_entered_at = rift_entered_at + ($1::int * INTERVAL '30 minutes') WHERE id = $2`,
+        [N, id]
+      );
+    } else if (!isWithinTimer) {
       // 30분 타이머 만료 직후 3분 재입장 쿨다운 — 더블클릭/연타로 통행증 2장 소모 방지.
       // 30분 ≤ 경과 < 33분 → 거절.
       const RIFT_REENTER_COOLDOWN_MS = 3 * 60_000;
