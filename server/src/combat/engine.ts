@@ -6965,6 +6965,16 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   s.passives = buildPassiveMap(await getNodePassives(characterId)); // 노드 패시브 재로드
   // 전투 시작 시와 동일한 2차 버프를 적용하여 인벤 조작 후 데미지 드랍 방지
   applyCombatStatBoost(eff, s.passives, s.equipPrefixes, char.max_hp);
+  // 트랜시언트 stat 보너스 변수 회수 — playerStats 통째 교체로 cri/atk/dodge/accuracy 추가분 사라짐.
+  // 변수만 남기면 다음 피격(저격수 호흡 회수) 또는 dex buff 만료 시 fresh stats 에서 잘못 차감.
+  s.archerCritStreak = 0;
+  s.archerCritStreakBonus = 0;
+  s.dexBuffRemainingActions = 0;
+  s.dexBuffAddedDex = 0;
+  s.dexBuffAddedAtk = 0;
+  s.dexBuffAddedCri = 0;
+  s.dexBuffAddedDodge = 0;
+  s.dexBuffAddedAccuracy = 0;
   s.playerStats = eff;
   s.playerMaxHp = eff.maxHp;
   s.playerSpeed = eff.spd;
