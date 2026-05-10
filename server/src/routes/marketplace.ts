@@ -173,6 +173,10 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
     if (inv.rows[0].quantity < quantity) return { error: 'insufficient quantity', status: 400 };
     if (inv.rows[0].soulbound) return { error: '착용한 적이 있는 장비는 거래소에 등록할 수 없습니다. (계정 귀속)', status: 400 };
     if (!inv.rows[0].item_slot) return { error: '장비만 거래소에 등록할 수 있습니다.', status: 400 };
+    // 정책 (2026-05-10): 미확인 아이템만 거래 가능 — 식별된 장비는 등록 차단
+    if (!inv.rows[0].unidentified) {
+      return { error: '미확인 아이템만 거래소에 등록할 수 있습니다. 식별된 장비는 등록 불가.', status: 400 };
+    }
 
     const invRow = inv.rows[0];
 
