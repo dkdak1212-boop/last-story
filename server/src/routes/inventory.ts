@@ -442,6 +442,76 @@ router.post('/:id/craft-unique-piece', async (req: AuthedRequest, res: Response)
   res.json({ ok: true, uniqueItemId, uniqueItemName: nameR.rows[0]?.name || '알 수 없는 유니크' });
 });
 
+// 무한의 정수 — 영구 주력 스탯 (STR/DEX/INT/VIT) +1
+// 캡: 각 스탯 +200까지. 캡 도달 시 다른 스탯 자동 안내.
+const ETERNAL_ESSENCE_ITEM_ID = 926;
+const ESSENCE_STAT_CAP = 200;
+router.post('/:id/use-eternal-essence', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  const parsed = z.object({ stat: z.enum(['str', 'dex', 'int', 'vit']) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: '스탯 선택이 필요합니다.' });
+  const stat = parsed.data.stat;
+  const colMap = {
+    str: 'permanent_stat_bonus_str',
+    dex: 'permanent_stat_bonus_dex',
+    int: 'permanent_stat_bonus_int',
+    vit: 'permanent_stat_bonus_vit',
+  } as const;
+  const col = colMap[stat];
+
+  const result = await withTransaction(async (tx) => {
+    // 정수 1개 보유 확인
+    const itemR = await tx.query<{ id: number; quantity: number }>(
+      `SELECT id, quantity FROM character_inventory
+        WHERE character_id = $1 AND item_id = $2 AND quantity > 0
+        ORDER BY slot_index LIMIT 1 FOR UPDATE`,
+      [id, ETERNAL_ESSENCE_ITEM_ID]
+    );
+    if (itemR.rowCount === 0) return { error: '무한의 정수가 없습니다.' };
+
+    const curR = await tx.query<{
+      str: number; dex: number; int: number; vit: number;
+    }>(
+      `SELECT COALESCE(permanent_stat_bonus_str, 0) AS str,
+              COALESCE(permanent_stat_bonus_dex, 0) AS dex,
+              COALESCE(permanent_stat_bonus_int, 0) AS int,
+              COALESCE(permanent_stat_bonus_vit, 0) AS vit
+         FROM characters WHERE id = $1 FOR UPDATE`, [id]
+    );
+    const cur = curR.rows[0]!;
+    if (cur[stat] >= ESSENCE_STAT_CAP) {
+      const remaining = (['str','dex','int','vit'] as const).filter(k => cur[k] < ESSENCE_STAT_CAP);
+      return { error: `해당 스탯은 이미 최대치 (+${ESSENCE_STAT_CAP}) 입니다.`, remaining };
+    }
+
+    // +1 적용
+    await tx.query(
+      `UPDATE characters SET ${col} = ${col} + 1 WHERE id = $1`, [id]
+    );
+    // 정수 1개 차감
+    const inv = itemR.rows[0]!;
+    if (inv.quantity <= 1) {
+      await tx.query('DELETE FROM character_inventory WHERE id = $1', [inv.id]);
+    } else {
+      await tx.query('UPDATE character_inventory SET quantity = quantity - 1 WHERE id = $1', [inv.id]);
+    }
+    return {
+      ok: true,
+      stat,
+      newValue: cur[stat] + 1,
+      cap: ESSENCE_STAT_CAP,
+      all: { ...cur, [stat]: cur[stat] + 1 },
+    };
+  });
+
+  if (result.error) return res.status(400).json(result);
+  await refreshCombatSessionStats(id);
+  res.json(result);
+});
+
 // 잠금 토글 (인벤토리)
 router.post('/:id/lock', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
@@ -493,6 +563,8 @@ router.post('/:id/sell', async (req: AuthedRequest, res: Response) => {
   const slot = invR.rows[0];
   if (slot.locked) return res.status(400).json({ error: '잠긴 아이템은 판매할 수 없습니다.' });
 
+  // 무한의 정수 — 회수 불가 보호 (NPC 판매 차단)
+  if (slot.item_id === 926) return res.status(400).json({ error: '무한의 정수는 판매할 수 없습니다.' });
   const itemR = await query<{ sell_price: number; name: string }>('SELECT sell_price, name FROM items WHERE id = $1', [slot.item_id]);
   if (itemR.rowCount === 0) return res.status(404).json({ error: 'item def not found' });
   const { sell_price, name } = itemR.rows[0];

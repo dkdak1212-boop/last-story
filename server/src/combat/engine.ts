@@ -4787,6 +4787,24 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
 
   const prefixDropBonus = s.equipPrefixes.drop_rate_pct || 0;
   let drops = rollDrops(m, !!dropBoostActive, guildDropBonus + territoryBonus.dropPct + prefixDropBonus, ge.drop, eventDropMult * offlineMult);
+
+  // 무한의 정수 — 모든 사냥터 / 1e-7 확률 / 계정 일일 1개 제한 (KST 자정 리셋)
+  if (Math.random() < 1e-7) {
+    try {
+      const claim = await query(
+        `UPDATE users SET eternal_essence_drop_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+          WHERE id = $1
+            AND (eternal_essence_drop_date IS NULL
+                 OR eternal_essence_drop_date < (NOW() AT TIME ZONE 'Asia/Seoul')::date)`,
+        [s.userId]
+      );
+      if (claim.rowCount && claim.rowCount > 0) {
+        drops.push({ itemId: 926, qty: 1 });
+        addLog(s, '⭐ 무한의 정수 획득! (오늘 1개 한정)');
+      }
+    } catch (err) { console.error('[combat] eternal_essence drop err', err); }
+  }
+
   // 오프라인 정산용 EMA 갱신: 드랍 발생 갯수 (qty 무관, 슬롯 단위)
   if (drops.length > 0) batchAdd(s.characterId, { dropDelta: drops.length });
   // 자동판매 + 드랍필터 설정 — 세션 캐시 (설정 변경 시 invalidateAutoSellCache 로 무효화)

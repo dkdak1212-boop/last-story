@@ -342,6 +342,22 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       ? await sampleDropsFromField(c.last_field_id_offline, killsInc, dropMult)
       : [];
 
+    // 무한의 정수 — 오프라인 누적 시도 (killsInc 번 × 1e-7), 계정 일일 1개 제한
+    if (killsInc > 0 && Math.random() < 1e-7 * killsInc) {
+      try {
+        const claim = await client.query(
+          `UPDATE users SET eternal_essence_drop_date = (NOW() AT TIME ZONE 'Asia/Seoul')::date
+            WHERE id = $1
+              AND (eternal_essence_drop_date IS NULL
+                   OR eternal_essence_drop_date < (NOW() AT TIME ZONE 'Asia/Seoul')::date)`,
+          [c.user_id]
+        );
+        if (claim.rowCount && claim.rowCount > 0) {
+          drops.push({ itemId: 926, qty: 1 });
+        }
+      } catch (err) { console.error('[offline] eternal_essence drop err', err); }
+    }
+
     // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용).
     //    이벤트 부스트는 이미 위 expBoostMul/eventExpMul 곱연산에서 max_level 체크로
     //    자연 종료되므로 별도 레벨 cap 불필요. 100레벨 cap 그대로 사용.

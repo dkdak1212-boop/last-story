@@ -134,6 +134,7 @@ export function MarketplaceScreen() {
               ['boots', '신발'],
               ['ring', '반지'],
               ['amulet', '목걸이'],
+              ['etc', '기타'],
             ] as const).map(([key, label]) => (
               <button key={key} onClick={() => { setSlotFilter(key); if (key !== 'weapon') setWeaponClass(''); }} style={{
                 fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',
@@ -248,6 +249,7 @@ export function MarketplaceScreen() {
               ['boots', '신발'],
               ['ring', '반지'],
               ['amulet', '목걸이'],
+              ['etc', '기타'],
             ] as const).map(([key, label]) => (
               <button key={key} onClick={() => { setSlotFilter(key); if (key !== 'weapon') setWeaponClass(''); }} style={{
                 fontSize: 11, padding: '5px 11px', borderRadius: 3, cursor: 'pointer',

@@ -163,7 +163,26 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   const gskills = await getGuildSkillsForCharacter(char.id);
   const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
   const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
-  const eff = computeEffective(char.stats, adjustedMaxHp, bonus, combinedNodeBonus, char.class_name);
+
+  // 무한의 정수 — 영구 주력 스탯 보너스 (STR/DEX/INT/VIT 캡 +200)
+  // base.stats 에 합산해 derived (atk/matk/def/mdef/dodge/accuracy/cri) 가 자동 재계산되도록 한다.
+  const essR = await query<{ str: number; dex: number; int: number; vit: number }>(
+    `SELECT COALESCE(permanent_stat_bonus_str, 0) AS str,
+            COALESCE(permanent_stat_bonus_dex, 0) AS dex,
+            COALESCE(permanent_stat_bonus_int, 0) AS int,
+            COALESCE(permanent_stat_bonus_vit, 0) AS vit
+     FROM characters WHERE id = $1`, [char.id]
+  );
+  const ess = essR.rows[0] ?? { str: 0, dex: 0, int: 0, vit: 0 };
+  const essAdjustedStats: Stats = {
+    ...char.stats,
+    str: char.stats.str + ess.str,
+    dex: char.stats.dex + ess.dex,
+    int: char.stats.int + ess.int,
+    vit: char.stats.vit + ess.vit,
+  };
+  const essAdjustedMaxHp = adjustedMaxHp + ess.vit * 20;
+  const eff = computeEffective(essAdjustedStats, essAdjustedMaxHp, bonus, combinedNodeBonus, char.class_name);
 
   // 노드 패시브 적용 (전투 엔진 startCombatSession과 동일)
   const passiveEffects = nodeEffects.filter(e => e.type === 'passive' && e.key && e.value);

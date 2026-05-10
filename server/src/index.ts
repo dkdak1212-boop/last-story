@@ -2269,6 +2269,40 @@ async function runEquipOverhaul() {
     }
   }
 
+  // 무한의 정수 (Eternal Essence) — 영구 STR/DEX/INT/VIT 보너스 + 모든 사냥터 1e-7 드랍 + 계정 일일 1개 제한
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'eternal_essence_v1'`);
+      if (!applied.rowCount) {
+        console.log('[late] eternal_essence_v1: 컬럼/아이템 추가...');
+
+        // 캐릭 영구 STR/DEX/INT/VIT 보너스 (캡 +200)
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_str INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_dex INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_int INT NOT NULL DEFAULT 0`);
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS permanent_stat_bonus_vit INT NOT NULL DEFAULT 0`);
+
+        // 계정 일일 드랍 카운터 (KST 자정 리셋)
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS eternal_essence_drop_date DATE`);
+
+        // 무한의 정수 아이템 (id 926)
+        await query(
+          `INSERT INTO items (id, name, type, grade, description, stack_size, sell_price, required_level)
+           VALUES (926, '무한의 정수', 'consumable', 'mythic',
+                   '사용 시 영구히 주력 스탯 (힘/덱스/인트/바이탈) 1개를 +1 합니다. 각 스탯 최대 +200까지. 계정당 하루 1개만 드랍됩니다.',
+                   99, 0, 1)
+           ON CONFLICT (id) DO NOTHING`
+        );
+        await query(`SELECT setval('items_id_seq', GREATEST((SELECT MAX(id) FROM items), 926))`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('eternal_essence_v1')`);
+        console.log('[late] eternal_essence_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] eternal_essence_v1 error:', e);
+    }
+  }
+
   // 길드 창고 시스템
   {
     try {

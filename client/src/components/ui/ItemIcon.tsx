@@ -230,6 +230,8 @@ const CONSUMABLE_ICON: Record<string, string> = {
   '길드 보스 황금빛 상자': '/images/items/misc/chest.png',
   '길드 보스 은빛 상자': '/images/items/misc/chest.png',
   '길드 보스 구리 상자': '/images/items/misc/chest.png',
+  // 무한의 정수 — 신화 정수 (magenta 보라색)
+  '무한의 정수': '/images/items/potion/magenta.png',
 };
 
 // 상자 아이템 이름에 따른 색조 필터 (gold/silver/copper)

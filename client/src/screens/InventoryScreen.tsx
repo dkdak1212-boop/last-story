@@ -260,6 +260,32 @@ export function InventoryScreen() {
       setListBusy(false);
     }
   }
+  async function useEternalEssence(stat: 'str' | 'dex' | 'int' | 'vit', e: React.MouseEvent) {
+    e.stopPropagation(); if (!active) return; setMsg('');
+    const label = stat === 'str' ? '힘' : stat === 'dex' ? '덱스' : stat === 'int' ? '인트' : '바이탈';
+    if (!confirm(`무한의 정수를 사용해 ${label} +1 영구 적용. 진행하시겠습니까?\n(회수 불가, 캡 +200/스탯)`)) return;
+    try {
+      const r = await api<{ ok: boolean; stat: string; newValue: number; cap: number; all: Record<string, number>; error?: string; remaining?: string[] }>(
+        `/characters/${active.id}/use-eternal-essence`,
+        { method: 'POST', body: JSON.stringify({ stat }) }
+      );
+      const labels: Record<string, string> = { str: '힘', dex: '덱스', int: '인트', vit: '바이탈' };
+      setMsg(`${labels[r.stat] ?? r.stat} +1 영구 적용 (현재 +${r.newValue}/+${r.cap})`);
+      await Promise.all([refresh(), refreshActive()]);
+    } catch (e: any) {
+      const m = e instanceof Error ? e.message : '사용 실패';
+      // 캡 도달 안내 (서버 응답에 remaining 포함 시)
+      const data = e?.data;
+      if (data?.remaining?.length) {
+        const labels: Record<string, string> = { str: '힘', dex: '덱스', int: '인트', vit: '바이탈' };
+        setMsg(`${m} 가능한 스탯: ${data.remaining.map((k: string) => labels[k] || k).join(', ')}`);
+      } else if (data?.remaining?.length === 0) {
+        setMsg('모든 스탯이 +200 캡에 도달했습니다.');
+      } else {
+        setMsg(m);
+      }
+    }
+  }
   async function useUniqueTicket(e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return; setMsg('');
     if (!confirm('유니크 무작위 추첨권을 사용하시겠습니까?\n캐릭 레벨 ±10 범위의 유니크 1개가 무작위 지급됩니다.')) return;
@@ -1044,6 +1070,30 @@ export function InventoryScreen() {
                             boxShadow: '0 0 8px rgba(162,75,255,0.4)',
                           }}>유니크 합성 (3개 소모)</button>
                         )}
+                        {s.item.id === 926 && (
+                          <>
+                            <button onClick={(e) => useEternalEssence('str', e)} style={{
+                              padding: '8px 14px', fontSize: 13, fontWeight: 700,
+                              background: 'linear-gradient(180deg, #ff8a8a, #d04040)',
+                              color: '#1a0000', border: '1px solid #ff8a8a', cursor: 'pointer', borderRadius: 4,
+                            }}>힘 +1</button>
+                            <button onClick={(e) => useEternalEssence('dex', e)} style={{
+                              padding: '8px 14px', fontSize: 13, fontWeight: 700,
+                              background: 'linear-gradient(180deg, #8aff8a, #40d040)',
+                              color: '#001a00', border: '1px solid #8aff8a', cursor: 'pointer', borderRadius: 4,
+                            }}>덱스 +1</button>
+                            <button onClick={(e) => useEternalEssence('int', e)} style={{
+                              padding: '8px 14px', fontSize: 13, fontWeight: 700,
+                              background: 'linear-gradient(180deg, #8acaff, #4080d0)',
+                              color: '#00081a', border: '1px solid #8acaff', cursor: 'pointer', borderRadius: 4,
+                            }}>인트 +1</button>
+                            <button onClick={(e) => useEternalEssence('vit', e)} style={{
+                              padding: '8px 14px', fontSize: 13, fontWeight: 700,
+                              background: 'linear-gradient(180deg, #ffd66b, #d0a040)',
+                              color: '#1a1000', border: '1px solid #ffd66b', cursor: 'pointer', borderRadius: 4,
+                            }}>바이탈 +1</button>
+                          </>
+                        )}
                         {s.item.sellPrice > 0 && !locked && (
                           <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, s.item.grade, e)}
                             style={actionBtn('#e0a040')}>폐기</button>
@@ -1054,6 +1104,15 @@ export function InventoryScreen() {
                         )}
                         {isEquipment && !locked && !s.soulbound && (
                           <button onClick={(e) => openListModal(s, e)}
+                            style={actionBtn('#ffd66b')}>💰 거래소 등록</button>
+                        )}
+                        {s.item.id === 926 && !locked && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!confirm('⚠️ 무한의 정수는 거래 후 회수 불가합니다.\n거래소에 등록하시겠습니까?')) return;
+                              openListModal(s, e);
+                            }}
                             style={actionBtn('#ffd66b')}>💰 거래소 등록</button>
                         )}
                         {/* T4 접두사 추출 — 장비, 미확인 아님, 추첨권 아님, T4 접두사 보유 시만 노출 */}

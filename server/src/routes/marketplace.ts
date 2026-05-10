@@ -26,7 +26,14 @@ router.get('/', async (req, res) => {
 
   const filters: string[] = ['a.settled = FALSE', 'a.cancelled = FALSE', 'a.ends_at > NOW()', 'a.listed_at <= NOW()'];
   const params: unknown[] = [];
-  if (slot) { params.push(slot); filters.push(`i.slot = $${params.length}`); }
+  if (slot) {
+    if (slot === 'etc') {
+      // 기타 카테고리 — 무한의 정수 등 거래 가능한 비장비 화이트리스트
+      filters.push(`a.item_id = 926`);
+    } else {
+      params.push(slot); filters.push(`i.slot = $${params.length}`);
+    }
+  }
   if (grade) { params.push(grade); filters.push(`i.grade = $${params.length}`); }
   if (qualityMin !== null && Number.isFinite(qualityMin)) {
     params.push(Math.max(0, Math.min(100, qualityMin)));
@@ -172,7 +179,10 @@ router.post('/list', async (req: AuthedRequest, res: Response) => {
     if (inv.rowCount === 0) return { error: 'item not in slot', status: 404 };
     if (inv.rows[0].quantity < quantity) return { error: 'insufficient quantity', status: 400 };
     if (inv.rows[0].soulbound) return { error: '착용한 적이 있는 장비는 거래소에 등록할 수 없습니다. (계정 귀속)', status: 400 };
-    if (!inv.rows[0].item_slot) return { error: '장비만 거래소에 등록할 수 있습니다.', status: 400 };
+    // 무한의 정수 (id 926) 는 비장비지만 거래 허용. 그 외 비장비는 차단.
+    if (!inv.rows[0].item_slot && inv.rows[0].item_id !== 926) {
+      return { error: '장비만 거래소에 등록할 수 있습니다.', status: 400 };
+    }
 
     const invRow = inv.rows[0];
 
