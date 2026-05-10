@@ -567,7 +567,7 @@ export function InventoryScreen() {
                   <div style={{ marginTop: 3 }}>
                     <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} quality={(item as any).quality || 0} />
                   </div>
-                  <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} />
+                  <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} uniquePrefixStats={(item as any).uniquePrefixStats} />
                   <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                     <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>
                     {!locked && (item.enhanceLevel || 0) < 20 && (() => {
@@ -903,7 +903,7 @@ export function InventoryScreen() {
                       )}
                       {!isExpanded && s.prefixStats && Object.keys(s.prefixStats).length > 0 && (
                         <div style={{ marginTop: 2 }}>
-                          <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} />
+                          <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} uniquePrefixStats={(s as any).uniquePrefixStats} />
                         </div>
                       )}
                     </div>
@@ -979,7 +979,7 @@ export function InventoryScreen() {
                           <div style={{ padding: 8, background: 'rgba(76,175,80,0.05)', border: '1px solid rgba(76,175,80,0.2)', borderRadius: 4 }}>
                             <div style={{ fontSize: 10, color: 'var(--success)', fontWeight: 700, marginBottom: 4 }}>이 아이템</div>
                             <ItemStatsBlock stats={(s.item as any).baseStats || s.item.stats} enhanceLevel={s.enhanceLevel || 0} quality={(s as any).quality || 0} />
-                            <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} />
+                            <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} uniquePrefixStats={(s as any).uniquePrefixStats} />
                           </div>
                           {/* 현재 장착 */}
                           <div style={{ padding: 8, background: 'rgba(218,165,32,0.05)', border: '1px solid rgba(218,165,32,0.2)', borderRadius: 4 }}>
@@ -992,7 +992,7 @@ export function InventoryScreen() {
                                   {eqItem.name}{eqItem.enhanceLevel > 0 && <span style={{ color: 'var(--accent)' }}> +{eqItem.enhanceLevel}</span>}
                                 </div>
                                 <ItemStatsBlock stats={(eqItem as any).baseStats || eqItem.stats} enhanceLevel={eqItem.enhanceLevel || 0} quality={(eqItem as any).quality || 0} />
-                                <PrefixDisplay prefixStats={eqItem.prefixStats} prefixTiers={(eqItem as any).prefixTiers} />
+                                <PrefixDisplay prefixStats={eqItem.prefixStats} prefixTiers={(eqItem as any).prefixTiers} uniquePrefixStats={(eqItem as any).uniquePrefixStats} />
                               </>
                             ) : (
                               <div style={{ fontSize: 11, color: 'var(--text-dim)', opacity: 0.4 }}>장착 없음</div>
@@ -1002,7 +1002,7 @@ export function InventoryScreen() {
                       ) : (
                         <>
                           <ItemStatsBlock stats={s.item.stats} enhanceLevel={s.enhanceLevel || 0} />
-                          <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} />
+                          <PrefixDisplay prefixStats={s.prefixStats} prefixTiers={(s as any).prefixTiers} uniquePrefixStats={(s as any).uniquePrefixStats} />
                         </>
                       )}
 

@@ -59,6 +59,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
 interface Props {
   prefixStats: Record<string, number> | undefined | null;
   prefixTiers?: Record<string, number> | null;
+  uniquePrefixStats?: Record<string, number> | null; // 유니크 고정 옵션 — [고정] 라벨 + 핑크 톤
 }
 
 // 티어별 색상/스타일
@@ -71,7 +72,10 @@ function getTierStyle(tier: number): { color: string; glow: boolean; bg: string 
   }
 }
 
-export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
+// 유니크 고정 옵션 스타일 — 핑크 (옵션 출처 분리 화면과 톤 일치)
+const UNIQUE_FIXED_STYLE = { color: '#ff6bd6', glow: false, bg: 'transparent' };
+
+export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats }: Props) {
   if (!prefixStats || Object.keys(prefixStats).length === 0) return null;
 
   return (
@@ -80,8 +84,11 @@ export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
         const fmt = EFFECT_FORMATS[key];
         const text = fmt ? fmt(val) : `${key} +${val}`;
         const tier = prefixTiers?.[key] || 1;
-        const s = getTierStyle(tier);
-        const isT4 = tier === 4;
+        const isUniqueFixed = !!(uniquePrefixStats && uniquePrefixStats[key] !== undefined);
+        // 유니크 고정 우선 표기. 유니크+굴림 합산 케이스도 일단 [고정] 으로 보여 (옵션 출처 분리 화면에서 분리 확인)
+        const s = isUniqueFixed ? UNIQUE_FIXED_STYLE : getTierStyle(tier);
+        const isT4 = !isUniqueFixed && tier === 4;
+        const labelText = isUniqueFixed ? '[고정]' : `T${tier}`;
         return (
           <span key={key} style={{
             color: s.color,
@@ -101,7 +108,7 @@ export function PrefixDisplay({ prefixStats, prefixTiers }: Props) {
               padding: '0 3px',
               border: `1px solid ${s.color}`,
               borderRadius: 2,
-            }}>T{tier}</span>
+            }}>{labelText}</span>
             {text}
           </span>
         );

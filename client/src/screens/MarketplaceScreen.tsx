@@ -654,7 +654,7 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
             {a.prefixStats && Object.keys(a.prefixStats).length > 0 && (
               <div style={{ marginTop: 6 }}>
                 <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3, fontWeight: 700 }}>접두사</div>
-                <PrefixDisplay prefixStats={a.prefixStats} prefixTiers={(a as any).prefixTiers} />
+                <PrefixDisplay prefixStats={a.prefixStats} prefixTiers={(a as any).prefixTiers} uniquePrefixStats={(a as any).uniquePrefixStats} />
               </div>
             )}
             {a.itemSlot && equipped && (equipped as any)[a.itemSlot] && (() => {
@@ -671,7 +671,7 @@ function ListingRow({ a, equipped, onBuy }: { a: Listing; equipped?: Equipped; o
                   {/* 내 장착 접두사 */}
                   {eq.prefixStats && Object.keys(eq.prefixStats).length > 0 && (
                     <div style={{ marginTop: 4 }}>
-                      <PrefixDisplay prefixStats={eq.prefixStats} prefixTiers={eq.prefixTiers} />
+                      <PrefixDisplay prefixStats={eq.prefixStats} prefixTiers={eq.prefixTiers} uniquePrefixStats={(eq as any).uniquePrefixStats} />
                     </div>
                   )}
                   {/* 매물 대비 내 장착 diff — 매물로 바꿨을 때 변화량 (+ 면 매물이 더 좋음) */}
@@ -860,7 +860,7 @@ function ListItemPanel({ active, inv, onDone }: { active: number | undefined; in
             </div>
           )}
           {sel.prefixStats && Object.keys(sel.prefixStats).length > 0 && (
-            <PrefixDisplay prefixStats={sel.prefixStats} prefixTiers={(sel as any).prefixTiers} />
+            <PrefixDisplay prefixStats={sel.prefixStats} prefixTiers={(sel as any).prefixTiers} uniquePrefixStats={(sel as any).uniquePrefixStats} />
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>

@@ -75,14 +75,15 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
     item_id: number; name: string; type: string; grade: string; slot: string | null;
     stats: Record<string, number> | null; description: string; stack_size: number; sell_price: number;
     class_restriction: string | null; quality: number; soulbound: boolean; unidentified: boolean;
-    inv_id: number;
+    inv_id: number; unique_prefix_stats: Record<string, number> | null;
   }>(
     `SELECT ci.id AS inv_id, ci.slot_index, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats, ci.locked,
             i.id AS item_id, i.name, i.type, i.grade, i.slot,
             i.stats, i.description, i.stack_size, i.sell_price, COALESCE(i.required_level, 1) AS required_level,
             i.class_restriction, COALESCE(ci.quality, 0) AS quality,
             COALESCE(ci.soulbound, FALSE) AS soulbound,
-            COALESCE(ci.unidentified, FALSE) AS unidentified
+            COALESCE(ci.unidentified, FALSE) AS unidentified,
+            i.unique_prefix_stats
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 ${orderClause}`,
     [id]
@@ -136,6 +137,7 @@ router.get('/:id/inventory', async (req: AuthedRequest, res: Response) => {
       prefixStats: isUnid ? {} : safePrefixStats(r.prefix_stats, r.enhance_level),
       prefixName: isUnid ? '???' : pName,
       prefixTiers: isUnid ? [] : pTiers,
+      uniquePrefixStats: isUnid ? null : (r.unique_prefix_stats || null),
       locked: r.locked,
       soulbound: r.soulbound === true,
       unidentified: isUnid,

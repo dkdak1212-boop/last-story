@@ -302,7 +302,7 @@ export function EnhanceScreen() {
                   </div>
                   {it.prefixStats && Object.keys(it.prefixStats).length > 0 && (
                     <div style={{ marginTop: 4 }}>
-                      <PrefixDisplay prefixStats={it.prefixStats} prefixTiers={(it as any).prefixTiers} />
+                      <PrefixDisplay prefixStats={it.prefixStats} prefixTiers={(it as any).prefixTiers} uniquePrefixStats={(it as any).uniquePrefixStats} />
                     </div>
                   )}
                 </div>
@@ -504,7 +504,7 @@ export function EnhanceScreen() {
               {selected.prefixStats && Object.keys(selected.prefixStats).length > 0 && (
                 <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사 (강화 +{selected.enhanceLevel || 0})</div>
-                  <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
+                  <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} uniquePrefixStats={selected.uniquePrefixStats} />
 
                   {/* 강화 전/후 수치 병기 — 강화 레벨 있을 때만. 유니크 고정 옵션 합산해서 실제 적용 수치로 표시 */}
                   {(selected.enhanceLevel || 0) > 0 && selected.prefixStatsRaw && (() => {
