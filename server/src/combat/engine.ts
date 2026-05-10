@@ -2763,7 +2763,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (rageProc) {
           addLog(s, `[분노 폭발] 3행동 동안 데미지 ×3 발동! ${dmg} 데미지`);
         } else if (d.crit) {
-          const critDmgPct = 200 + getCritDmgBonus(s);
+          const critDmgPct = Math.round(200 + getCritDmgBonus(s));
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
@@ -2986,7 +2986,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             landedCount++;
             s.monsterHp -= dmg;
             if (d.crit) {
-              const critDmgPct = 200 + getCritDmgBonus(s);
+              const critDmgPct = Math.round(200 + getCritDmgBonus(s));
               addLog(s, `[${skill.name}] ${hitLabel} ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
             } else {
               addLog(s, `[${skill.name}] ${hitLabel} ${dmg}`);
@@ -3229,7 +3229,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
         if (d.crit) {
-          const critDmgPct = 200 + getCritDmgBonus(s);
+          const critDmgPct = Math.round(200 + getCritDmgBonus(s));
           addLog(s, `[${skill.name}] ${dmg} 데미지! (치명타 ${critDmgPct}%)`);
         } else {
           addLog(s, `[${skill.name}] ${dmg} 데미지`);
