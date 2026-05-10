@@ -2613,9 +2613,12 @@ router.post('/grant-item-pro', async (req: AuthedRequest, res: Response) => {
       prefixStats[key] = (prefixStats[key] || 0) + p.value;
     }
   }
-  // v3 분리 저장: unique 합산 X — items.unique_prefix_stats 가 effective 시점에 자동 합산
-  void item.unique_prefix_stats;
-  void isUnique;
+  // 유니크 고정 옵션 합산
+  if (isEquipment && isUnique && item.unique_prefix_stats) {
+    for (const [k, v] of Object.entries(item.unique_prefix_stats)) {
+      prefixStats[k] = (prefixStats[k] || 0) + (v as number);
+    }
+  }
 
   // 빈 슬롯 찾기 (장비/소비 공통: 새 슬롯에 직접 INSERT)
   const baseSlots = 300;
