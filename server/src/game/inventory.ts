@@ -137,16 +137,9 @@ export async function addItemToInventory(
         : await generatePrefixes(itemRequiredLevel);
       const { prefixIds, bonusStats, maxTier } = rolled;
       const quality = usePreroll ? preroll!.quality : Math.floor(Math.random() * 101); // 0~100
-      let finalPrefixStats: Record<string, number> = bonusStats;
-
-      if (isUnique) {
-        // 유니크: 고정 특수옵션 + 랜덤 접두사 스탯 합치기
-        const fixedStats = uniquePrefixStats || {};
-        finalPrefixStats = { ...fixedStats };
-        for (const [k, v] of Object.entries(bonusStats)) {
-          finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
-        }
-      }
+      // 유니크 고정 옵션은 저장 시 합산하지 않고 effective 계산 시점에 합산.
+      // 저장값(prefix_stats)은 항상 random 굴림만. (표시·계산 일관성)
+      const finalPrefixStats: Record<string, number> = bonusStats;
 
       // ON CONFLICT — 동시 인서트(상점 구매·드랍·우편 수령 등) 레이스 방어. 충돌 시 다음 슬롯 재시도.
       // bound_on_pickup=TRUE 아이템(110제 등)은 드롭 시 즉시 soulbound=TRUE 로 귀속
@@ -213,14 +206,8 @@ export async function addItemToInventory(
         : await generatePrefixes(itemRequiredLevel);
       const quality = usePreroll ? preroll!.quality : Math.floor(Math.random() * 101);
       if (usePreroll) prerollUsed = true;
-      let finalPrefixStats: Record<string, number> = bonusStats;
-      if (isUnique) {
-        const fixedStats = uniquePrefixStats || {};
-        finalPrefixStats = { ...fixedStats };
-        for (const [k, v] of Object.entries(bonusStats)) {
-          finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
-        }
-      }
+      // 우편 overflow 도 동일 — 저장값은 random 굴림만, unique 고정은 effective 시점 합산
+      const finalPrefixStats: Record<string, number> = bonusStats;
       await deliverToMailbox(
         characterId,
         mailOnOverflow.subject,
