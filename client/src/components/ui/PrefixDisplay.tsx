@@ -59,7 +59,8 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
 interface Props {
   prefixStats: Record<string, number> | undefined | null;
   prefixTiers?: Record<string, number> | null;
-  uniquePrefixStats?: Record<string, number> | null; // 유니크 고정 옵션 — [고정] 라벨 + 핑크 톤
+  uniquePrefixStats?: Record<string, number> | null; // 유니크 고정 옵션 (raw, 강화 미적용)
+  enhanceLevel?: number; // 강화 +레벨 (유니크 raw → scaled 변환용)
 }
 
 // 티어별 색상/스타일
@@ -76,29 +77,62 @@ function getTierStyle(tier: number): { color: string; glow: boolean; bg: string 
 const UNIQUE_FIXED_STYLE = { color: '#ff9933', glow: false, bg: 'transparent' };
 const UNIQUE_FIXED_TEXT_SHADOW = '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)';
 
-export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats }: Props) {
+type Row = {
+  key: string;
+  value: number;
+  isUniqueFixed: boolean;
+  tier: number;
+};
+
+export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats, enhanceLevel }: Props) {
   if (!prefixStats || Object.keys(prefixStats).length === 0) return null;
+
+  // 같은 키에 유니크 + 굴림 둘 다 있으면 두 줄로 분리:
+  //   prefixStats[key] = (unique_raw + rolled_raw) × enhMult  (서버에서 합산·강화 적용된 값)
+  //   uniquePrefixStats[key] = unique_raw  (강화 미적용)
+  // → 클라에서 unique_scaled = unique_raw × enhMult, rolled_scaled = total - unique_scaled
+  const enhMult = 1 + (enhanceLevel || 0) * 0.025;
+  const allKeys = Array.from(new Set([
+    ...Object.keys(prefixStats),
+    ...Object.keys(uniquePrefixStats || {}),
+  ]));
+  const rows: Row[] = [];
+  for (const key of allKeys) {
+    const totalScaled = prefixStats[key] ?? 0;
+    const uniqRaw = uniquePrefixStats?.[key] ?? 0;
+    const uniqScaled = uniqRaw > 0 ? Math.round(uniqRaw * enhMult) : 0;
+    const rolledScaled = Math.max(0, totalScaled - uniqScaled);
+    const tier = prefixTiers?.[key] || 1;
+
+    if (uniqScaled > 0) {
+      rows.push({ key, value: uniqScaled, isUniqueFixed: true, tier });
+    }
+    if (rolledScaled > 0) {
+      rows.push({ key, value: rolledScaled, isUniqueFixed: false, tier });
+    }
+    // 둘 다 0 (totalScaled<=0 또는 uniq 가 raw>0 인데 합산=0) — 안전 fallback
+    if (uniqScaled === 0 && rolledScaled === 0 && totalScaled > 0) {
+      rows.push({ key, value: totalScaled, isUniqueFixed: false, tier });
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11, marginTop: 4 }}>
-      {Object.entries(prefixStats).map(([key, val]) => {
-        const fmt = EFFECT_FORMATS[key];
-        const text = fmt ? fmt(val) : `${key} +${val}`;
-        const tier = prefixTiers?.[key] || 1;
-        const isUniqueFixed = !!(uniquePrefixStats && uniquePrefixStats[key] !== undefined);
-        // 유니크 고정 우선 표기. 유니크+굴림 합산 케이스도 일단 [고정] 으로 보여 (옵션 출처 분리 화면에서 분리 확인)
-        const s = isUniqueFixed ? UNIQUE_FIXED_STYLE : getTierStyle(tier);
-        const isT4 = !isUniqueFixed && tier === 4;
-        const labelText = isUniqueFixed ? '[고정]' : `T${tier}`;
+      {rows.map((row, idx) => {
+        const fmt = EFFECT_FORMATS[row.key];
+        const text = fmt ? fmt(row.value) : `${row.key} +${row.value}`;
+        const s = row.isUniqueFixed ? UNIQUE_FIXED_STYLE : getTierStyle(row.tier);
+        const isT4 = !row.isUniqueFixed && row.tier === 4;
+        const labelText = row.isUniqueFixed ? '[고정]' : `T${row.tier}`;
         return (
-          <span key={key} style={{
+          <span key={`${row.key}-${row.isUniqueFixed ? 'u' : 'r'}-${idx}`} style={{
             color: s.color,
             fontWeight: isT4 ? 800 : 600,
             background: s.bg,
             padding: isT4 ? '1px 5px' : 0,
             borderRadius: isT4 ? 3 : 0,
             border: isT4 ? `1px solid ${s.color}` : 'none',
-            textShadow: isUniqueFixed
+            textShadow: row.isUniqueFixed
               ? UNIQUE_FIXED_TEXT_SHADOW
               : (s.glow ? `0 0 6px ${s.color}, 0 0 2px ${s.color}` : undefined),
             display: 'inline-block',
