@@ -462,10 +462,10 @@ export function EnhanceScreen() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       {allKeys.map(key => {
                         const uRaw = uniq[key] || 0;
-                        const pVal = pref[key] || 0;  // v3 분리 저장: 굴림 random 만 (강화 적용 후)
+                        const pVal = pref[key] || 0;  // 서버 prefix_stats: unique + 굴림 합산값 (강화 적용 후)
                         const uVal = uRaw > 0 ? Math.round(uRaw * enhMult) : 0;
-                        const rolledVal = pVal;  // 굴림 부분 = pVal 그대로
-                        const total = uVal + pVal;  // 합계 = 유니크 + 굴림
+                        const rolledVal = Math.max(0, pVal - uVal);  // 굴림 부분 = 합산값 - 유니크
+                        const total = pVal;  // 합산값 그대로
                         const label = STAT_KEY_LABEL[key] || key;
                         return (
                           <div key={key} style={{ fontSize: 11, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
@@ -508,7 +508,7 @@ export function EnhanceScreen() {
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} uniquePrefixStats={selected.uniquePrefixStats} enhanceLevel={selected.enhanceLevel} />
 
                   {/* 강화 전/후 수치 병기 — 강화 레벨 있을 때만.
-                      v3 분리 저장: prefix_stats = 굴림 random 만, 합계 = 유니크 + 굴림. */}
+                      서버 prefix_stats 는 unique + 굴림 합산값. 강화 후 raw → scaled. */}
                   {(selected.enhanceLevel || 0) > 0 && selected.prefixStatsRaw && (() => {
                     const enhMult = 1 + (selected.enhanceLevel || 0) * 0.025;
                     const uniq = selected.uniquePrefixStats || {};
@@ -518,14 +518,14 @@ export function EnhanceScreen() {
                     ]));
                     return (
                       <div style={{ marginTop: 8, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
-                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>강화 전 → 강화 후 <span style={{ opacity: 0.7 }}>(유니크 + 접두사 합산 = 실제 적용)</span></div>
+                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>강화 전 → 강화 후 <span style={{ opacity: 0.7 }}>(유니크 + 접두사 합산값 = 실제 적용 수치)</span></div>
                         {allKeys.map(key => {
-                          const rolledScaled = selected.prefixStats?.[key] ?? 0;
-                          const rolledRaw = selected.prefixStatsRaw?.[key] ?? 0;
+                          const totalScaled = selected.prefixStats?.[key] ?? 0; // 합산값 (강화 적용)
+                          const totalRaw = selected.prefixStatsRaw?.[key] ?? 0; // 합산값 (강화 미적용)
                           const uniqRaw = uniq[key] ?? 0;
                           const uniqScaled = uniqRaw > 0 ? Math.round(uniqRaw * enhMult) : 0;
-                          const totalScaled = rolledScaled + uniqScaled;
-                          const totalRaw = rolledRaw + uniqRaw;
+                          const rolledScaled = Math.max(0, totalScaled - uniqScaled);
+                          const rolledRaw = Math.max(0, totalRaw - uniqRaw);
                           const delta = totalScaled - totalRaw;
                           const label = STAT_KEY_LABEL[key] || key;
                           const showBreakdown = uniqRaw > 0 && rolledRaw > 0;

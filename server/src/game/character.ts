@@ -57,9 +57,8 @@ export async function loadCharacterOwned(id: number, userId: number): Promise<Ch
 }
 
 export async function getEquippedItems(characterId: number) {
-  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number; prefix_stats: Record<string, number> | null; quality: number; unique_prefix_stats: Record<string, number> | null; grade: string }>(
-    `SELECT ce.slot, i.stats, ce.enhance_level, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality,
-            i.unique_prefix_stats, i.grade
+  const r = await query<{ slot: string; stats: Partial<Stats> | null; enhance_level: number; prefix_stats: Record<string, number> | null; quality: number }>(
+    `SELECT ce.slot, i.stats, ce.enhance_level, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
      WHERE ce.character_id = $1`,
     [characterId]
@@ -80,27 +79,15 @@ export async function getEquippedItems(characterId: number) {
       }
     }
     // 프리픽스 스탯 — 강화 배율 적용.
-    // ce.prefix_stats = 굴림 random 만 (분리 저장). 유니크 고정은 effective 시점 합산.
+    // result(직접 Stats): str/dex/int/vit/spd/cri/hp/atk/matk/def/mdef
+    // scaledPrefixStats(간접 보너스): dodge/accuracy 등 — sumEquipmentStats 가 읽어감.
+    // 두 경로 모두에 강화 배율을 일관되게 반영.
     let scaledPrefixStats: Record<string, number> | null = null;
-    const el = row.enhance_level || 0;
-    const prefixMult = 1 + el * 0.025;
-
-    // 유니크 + 굴림 합산
-    const merged: Record<string, number> = {};
-    if (row.grade === 'unique' && row.unique_prefix_stats) {
-      for (const [k, v] of Object.entries(row.unique_prefix_stats)) {
-        merged[k] = (merged[k] || 0) + (v as number);
-      }
-    }
     if (row.prefix_stats) {
-      for (const [k, v] of Object.entries(row.prefix_stats)) {
-        merged[k] = (merged[k] || 0) + (v as number);
-      }
-    }
-
-    if (Object.keys(merged).length > 0) {
+      const el = row.enhance_level || 0;
+      const prefixMult = 1 + el * 0.025;
       scaledPrefixStats = {};
-      for (const [k, v] of Object.entries(merged)) {
+      for (const [k, v] of Object.entries(row.prefix_stats)) {
         const scaled = Math.round((v as number) * prefixMult);
         scaledPrefixStats[k] = scaled;
         if (['str', 'dex', 'int', 'vit', 'spd', 'cri', 'hp', 'atk', 'matk', 'def', 'mdef'].includes(k)) {
