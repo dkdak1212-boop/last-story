@@ -85,34 +85,29 @@ type Row = {
 };
 
 export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats, enhanceLevel }: Props) {
-  if (!prefixStats || Object.keys(prefixStats).length === 0) return null;
+  // 분리 저장 정책 (v3): prefix_stats = 굴림 random 만, uniquePrefixStats = 유니크 고정 옵션 (raw)
+  // 같은 키 충돌 케이스도 각자 별도 row 로 표시 (값 손실 없음)
+  const hasPrefix = !!prefixStats && Object.keys(prefixStats).length > 0;
+  const hasUnique = !!uniquePrefixStats && Object.keys(uniquePrefixStats).length > 0;
+  if (!hasPrefix && !hasUnique) return null;
 
-  // 같은 키에 유니크 + 굴림 둘 다 있으면 두 줄로 분리:
-  //   prefixStats[key] = (unique_raw + rolled_raw) × enhMult  (서버에서 합산·강화 적용된 값)
-  //   uniquePrefixStats[key] = unique_raw  (강화 미적용)
-  // → 클라에서 unique_scaled = unique_raw × enhMult, rolled_scaled = total - unique_scaled
   const enhMult = 1 + (enhanceLevel || 0) * 0.025;
-  const allKeys = Array.from(new Set([
-    ...Object.keys(prefixStats),
-    ...Object.keys(uniquePrefixStats || {}),
-  ]));
   const rows: Row[] = [];
-  for (const key of allKeys) {
-    const totalScaled = prefixStats[key] ?? 0;
-    const uniqRaw = uniquePrefixStats?.[key] ?? 0;
-    const uniqScaled = uniqRaw > 0 ? Math.round(uniqRaw * enhMult) : 0;
-    const rolledScaled = Math.max(0, totalScaled - uniqScaled);
-    const tier = prefixTiers?.[key] || 1;
 
-    if (uniqScaled > 0) {
-      rows.push({ key, value: uniqScaled, isUniqueFixed: true, tier });
+  // 유니크 고정 옵션 (raw → scaled)
+  if (uniquePrefixStats) {
+    for (const [k, v] of Object.entries(uniquePrefixStats)) {
+      const scaled = Math.round((v as number) * enhMult);
+      if (scaled > 0) rows.push({ key: k, value: scaled, isUniqueFixed: true, tier: 1 });
     }
-    if (rolledScaled > 0) {
-      rows.push({ key, value: rolledScaled, isUniqueFixed: false, tier });
-    }
-    // 둘 다 0 (totalScaled<=0 또는 uniq 가 raw>0 인데 합산=0) — 안전 fallback
-    if (uniqScaled === 0 && rolledScaled === 0 && totalScaled > 0) {
-      rows.push({ key, value: totalScaled, isUniqueFixed: false, tier });
+  }
+  // 굴림 접두사 (서버에서 강화 적용된 scaled 값)
+  if (prefixStats) {
+    for (const [k, v] of Object.entries(prefixStats)) {
+      if ((v as number) > 0) {
+        const tier = prefixTiers?.[k] || 1;
+        rows.push({ key: k, value: v as number, isUniqueFixed: false, tier });
+      }
     }
   }
 

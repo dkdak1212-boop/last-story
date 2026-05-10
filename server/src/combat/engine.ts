@@ -4941,13 +4941,9 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     }
     const slot = freeSlots.shift()!;
 
-    let finalPrefixStats = bonusStats;
-    if (isUnique && cachedItem.unique_prefix_stats) {
-      finalPrefixStats = { ...cachedItem.unique_prefix_stats };
-      for (const [k, v] of Object.entries(bonusStats)) {
-        finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
-      }
-    }
+    // 유니크 고정 옵션은 저장 시 합산 X — items.unique_prefix_stats 가 effective 계산 시 합산됨.
+    // prefix_stats = random 굴림만 저장.
+    const finalPrefixStats = bonusStats;
 
     const isQualityMax = quality >= 100;
     const is3Opt = prefixIds.length >= 3;
