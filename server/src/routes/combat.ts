@@ -458,15 +458,20 @@ router.post('/:id/combat/go-offline', async (req: AuthedRequest, res: Response) 
     return res.status(400).json({ error: '허수아비 존에서는 오프라인 전환이 불가능합니다.' });
   }
 
-  // 계정당 오프라인 모드 캐릭 갯수 체크 (자기 자신 제외, max 2)
+  // 계정당 오프라인 모드 캐릭 갯수 체크 (자기 자신 제외)
+  // users.offline_char_limit 동적 조회 — 종전 하드코딩 2 가 default 3 변경 후에도 새 전환을 막던 버그.
+  const limR = await query<{ lim: number }>(
+    `SELECT COALESCE(offline_char_limit, 3) AS lim FROM users WHERE id = $1`, [req.userId]
+  );
+  const offlineLimit = Math.max(1, limR.rows[0]?.lim ?? 3);
   const cntR = await query<{ n: number }>(
     `SELECT COUNT(*)::int AS n
        FROM characters
       WHERE user_id = $1 AND last_offline_at IS NOT NULL AND id <> $2`,
     [req.userId, id]
   );
-  if ((cntR.rows[0]?.n ?? 0) >= 2) {
-    return res.status(400).json({ error: '오프라인 보상은 계정당 최대 2캐릭까지만 가능합니다.' });
+  if ((cntR.rows[0]?.n ?? 0) >= offlineLimit) {
+    return res.status(400).json({ error: `오프라인 보상은 계정당 최대 ${offlineLimit}캐릭까지만 가능합니다.` });
   }
 
   await onSessionGoOffline(sess, { recordOfflineRewards: true });
