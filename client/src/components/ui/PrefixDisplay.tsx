@@ -72,8 +72,8 @@ function getTierStyle(tier: number): { color: string; glow: boolean; bg: string 
   }
 }
 
-// 유니크 고정 옵션 스타일 — 흰색 + 검은 음영 (가독성 + 다른 티어와 명확한 구분)
-const UNIQUE_FIXED_STYLE = { color: '#ffffff', glow: false, bg: 'transparent' };
+// 유니크 고정 옵션 스타일 — 주황색 + 검은 음영 (다른 티어와 명확한 구분)
+const UNIQUE_FIXED_STYLE = { color: '#ff9933', glow: false, bg: 'transparent' };
 const UNIQUE_FIXED_TEXT_SHADOW = '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)';
 
 export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats }: Props) {
