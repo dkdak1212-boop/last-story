@@ -72,8 +72,9 @@ function getTierStyle(tier: number): { color: string; glow: boolean; bg: string 
   }
 }
 
-// 유니크 고정 옵션 스타일 — 핑크 (옵션 출처 분리 화면과 톤 일치)
-const UNIQUE_FIXED_STYLE = { color: '#ff6bd6', glow: false, bg: 'transparent' };
+// 유니크 고정 옵션 스타일 — 흰색 + 검은 음영 (가독성 + 다른 티어와 명확한 구분)
+const UNIQUE_FIXED_STYLE = { color: '#ffffff', glow: false, bg: 'transparent' };
+const UNIQUE_FIXED_TEXT_SHADOW = '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)';
 
 export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats }: Props) {
   if (!prefixStats || Object.keys(prefixStats).length === 0) return null;
@@ -97,7 +98,9 @@ export function PrefixDisplay({ prefixStats, prefixTiers, uniquePrefixStats }: P
             padding: isT4 ? '1px 5px' : 0,
             borderRadius: isT4 ? 3 : 0,
             border: isT4 ? `1px solid ${s.color}` : 'none',
-            textShadow: s.glow ? `0 0 6px ${s.color}, 0 0 2px ${s.color}` : undefined,
+            textShadow: isUniqueFixed
+              ? UNIQUE_FIXED_TEXT_SHADOW
+              : (s.glow ? `0 0 6px ${s.color}, 0 0 2px ${s.color}` : undefined),
             display: 'inline-block',
             width: 'fit-content',
           }}>

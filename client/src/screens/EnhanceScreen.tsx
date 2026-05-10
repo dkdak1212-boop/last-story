@@ -474,8 +474,8 @@ export function EnhanceScreen() {
                             <div style={{ display: 'grid', gap: 2, fontFamily: 'monospace', fontSize: 10, color: 'var(--text-dim)' }}>
                               {uVal > 0 && (
                                 <div>
-                                  <span style={{ color: '#ff6bd6' }}>┣ 유니크 고정</span>
-                                  <span style={{ float: 'right', color: '#ff6bd6' }}>+{uVal}</span>
+                                  <span style={{ color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)' }}>┣ 유니크 고정</span>
+                                  <span style={{ float: 'right', color: '#ffffff', textShadow: '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6)' }}>+{uVal}</span>
                                 </div>
                               )}
                               {pVal > 0 && (
