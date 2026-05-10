@@ -2269,53 +2269,6 @@ async function runEquipOverhaul() {
     }
   }
 
-  // 유니크 고정 옵션 분리 마이그레이션 — prefix_stats 에서 unique_prefix_stats 빼기
-  // (이전: 드랍/거래 시 prefix_stats 에 unique 합산 저장 → 표시·계산 불일치)
-  // (이후: 저장은 random 만, effective 계산 시점에 unique 합산)
-  {
-    try {
-      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'unique_prefix_split_v1'`);
-      if (!applied.rowCount) {
-        console.log('[마이그레이션] 유니크 고정옵션 분리 — prefix_stats 에서 unique_prefix_stats 빼기...');
-
-        // 5개 테이블 모두 동일 패턴: 유니크 무기 + unique_prefix_stats 정의된 케이스만
-        const tables = [
-          { name: 'character_inventory', alias: 'ci' },
-          { name: 'character_equipped', alias: 'ce' },
-          { name: 'account_storage_items', alias: 'asi' },
-          { name: 'mailbox', alias: 'mb' },
-          { name: 'auctions', alias: 'au' },
-        ];
-        for (const t of tables) {
-          const sql = `
-            UPDATE ${t.name} ${t.alias}
-               SET prefix_stats = (
-                 SELECT COALESCE(jsonb_object_agg(
-                   key,
-                   GREATEST(0, (${t.alias}.prefix_stats->>key)::int - COALESCE((i.unique_prefix_stats->>key)::int, 0))
-                 ), '{}'::jsonb)
-                 FROM jsonb_object_keys(${t.alias}.prefix_stats) AS key
-               )
-              FROM items i
-             WHERE ${t.alias}.item_id = i.id
-               AND i.grade = 'unique'
-               AND i.unique_prefix_stats IS NOT NULL
-               AND i.unique_prefix_stats <> '{}'::jsonb
-               AND ${t.alias}.prefix_stats IS NOT NULL
-               AND ${t.alias}.prefix_stats <> '{}'::jsonb;
-          `;
-          const r = await query(sql);
-          console.log(`[마이그레이션] ${t.name}: ${r.rowCount}건 업데이트`);
-        }
-
-        await query(`INSERT INTO _migrations (name) VALUES ('unique_prefix_split_v1')`);
-        console.log('[마이그레이션] 유니크 고정옵션 분리 완료');
-      }
-    } catch (e) {
-      console.error('[마이그레이션] 유니크 고정옵션 분리 오류:', e);
-    }
-  }
-
   // 무한의 정수 — 영구 힘/덱스/인트/바이탈 보너스 + 모든 사냥터 1e-7 드랍 + 계정 일일 1개 제한
   {
     try {
