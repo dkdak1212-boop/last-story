@@ -506,26 +506,46 @@ export function EnhanceScreen() {
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, fontWeight: 700 }}>접두사 (강화 +{selected.enhanceLevel || 0})</div>
                   <PrefixDisplay prefixStats={selected.prefixStats} prefixTiers={(selected as any).prefixTiers} />
 
-                  {/* 강화 전/후 수치 병기 — 강화 레벨 있을 때만 */}
-                  {(selected.enhanceLevel || 0) > 0 && selected.prefixStatsRaw && (
-                    <div style={{ marginTop: 8, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>강화 전 → 강화 후</div>
-                      {Object.keys(selected.prefixStats).map(key => {
-                        const raw = selected.prefixStatsRaw?.[key] ?? 0;
-                        const scaled = selected.prefixStats?.[key] ?? 0;
-                        const label = STAT_KEY_LABEL[key] || key;
-                        const delta = scaled - raw;
-                        return (
-                          <div key={key} style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'monospace' }}>
-                            {label}: <span style={{ color: 'var(--text-dim)' }}>{raw}</span>
-                            <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>→</span>
-                            <span style={{ color: '#66ccff', fontWeight: 700 }}>{scaled}</span>
-                            {delta !== 0 && <span style={{ color: '#4caf50', marginLeft: 4, fontSize: 10 }}>(+{delta})</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/* 강화 전/후 수치 병기 — 강화 레벨 있을 때만. 유니크 고정 옵션 합산해서 실제 적용 수치로 표시 */}
+                  {(selected.enhanceLevel || 0) > 0 && selected.prefixStatsRaw && (() => {
+                    const enhMult = 1 + (selected.enhanceLevel || 0) * 0.025;
+                    const uniq = selected.uniquePrefixStats || {};
+                    const allKeys = Array.from(new Set([
+                      ...Object.keys(selected.prefixStats),
+                      ...Object.keys(uniq),
+                    ]));
+                    return (
+                      <div style={{ marginTop: 8, padding: 6, background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--border)', borderRadius: 3 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>강화 전 → 강화 후 <span style={{ opacity: 0.7 }}>(유니크 + 접두사 합계 = 실제 적용 수치)</span></div>
+                        {allKeys.map(key => {
+                          const prefRaw = selected.prefixStatsRaw?.[key] ?? 0;
+                          const prefScaled = selected.prefixStats?.[key] ?? 0;
+                          const uniqRaw = uniq[key] ?? 0;
+                          const uniqScaled = uniqRaw > 0 ? Math.round(uniqRaw * enhMult) : 0;
+                          const totalRaw = prefRaw + uniqRaw;
+                          const totalScaled = prefScaled + uniqScaled;
+                          const delta = totalScaled - totalRaw;
+                          const label = STAT_KEY_LABEL[key] || key;
+                          const showBreakdown = uniqRaw > 0 && prefRaw > 0;
+                          return (
+                            <div key={key} style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'monospace', marginBottom: showBreakdown ? 4 : 0 }}>
+                              <div>
+                                {label}: <span style={{ color: 'var(--text-dim)' }}>{totalRaw}</span>
+                                <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>→</span>
+                                <span style={{ color: '#66ccff', fontWeight: 700 }}>{totalScaled}</span>
+                                {delta !== 0 && <span style={{ color: '#4caf50', marginLeft: 4, fontSize: 10 }}>(+{delta})</span>}
+                              </div>
+                              {showBreakdown && (
+                                <div style={{ fontSize: 9, color: 'var(--text-dim)', marginLeft: 12, opacity: 0.85 }}>
+                                  └ 유니크 {uniqRaw} → {uniqScaled} · 접두사 {prefRaw} → {prefScaled}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
 
                   {/* 재굴림 범위 표시: 접두사가 있으면 항상 노출 — 강화 후 스케일 (PrefixDisplay 값과 동일 기준) */}
                   {(selected.prefixDetails?.length || 0) > 0 && (
