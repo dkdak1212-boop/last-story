@@ -183,7 +183,7 @@ export async function sendWeeklyRewardMails(): Promise<{ mainSent: number; rando
   let mainSent = 0;
   let randomSent = 0;
 
-  const CLASSES = ['warrior', 'mage', 'rogue', 'cleric', 'summoner'] as const;
+  const CLASSES = ['warrior', 'mage', 'rogue', 'cleric', 'summoner', 'archer'] as const;
   const RANDOM_BONUS_ITEM_ID = 841;
   const RANDOM_BONUS_QTY = 1;
   const RANDOM_PICK_N = 10;

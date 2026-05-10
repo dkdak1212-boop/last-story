@@ -227,7 +227,7 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
     if (!slot) return { ok: false, status: 400, error: 'not equippable' };
     if (char.level < required_level) return { ok: false, status: 400, error: `Lv.${required_level} 이상만 장착 가능` };
     if (class_restriction && class_restriction !== char.class_name) {
-      const classKr: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사' };
+      const classKr: Record<string, string> = { warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사', archer: '궁수' };
       return { ok: false, status: 400, error: `${classKr[class_restriction] || class_restriction} 전용 무기입니다.` };
     }
 

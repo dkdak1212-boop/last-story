@@ -39,10 +39,10 @@ interface TerritoryInfo {
 }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사',
+  warrior: '전사', mage: '마법사', cleric: '성직자', rogue: '도적', summoner: '소환사', archer: '궁수',
 };
 const CLASS_COLOR: Record<string, string> = {
-  warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0',
+  warrior: '#e04040', mage: '#4080e0', cleric: '#daa520', rogue: '#a060c0', summoner: '#44cc88', archer: '#3ddc84',
 };
 
 const SKILL_ICON: Record<string, string> = {

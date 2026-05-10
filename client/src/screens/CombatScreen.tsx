@@ -1552,6 +1552,7 @@ const SKILL_COLORS: Record<string, { color: string; glow: string }> = {
   cleric: { color: '#ffcc44', glow: '#ffee66' },
   rogue: { color: '#aa66cc', glow: '#cc88ee' },
   summoner: { color: '#44cc88', glow: '#66eebb' },
+  archer: { color: '#3ddc84', glow: '#5fff9a' },
 };
 
 const SKILL_EFFECTS: Record<string, { icon: string; color: string; glow: string }> = {};

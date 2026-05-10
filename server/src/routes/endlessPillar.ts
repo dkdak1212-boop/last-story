@@ -99,7 +99,7 @@ router.post('/:characterId/give-up', endlessAccessRequired, async (req: AuthedRe
 
 // 일일 랭킹 — 200위까지 표기 (당일 도달 최고층 기준, 동점 시 daily_highest_at 빠른 순)
 // ?class=warrior|mage|rogue|cleric|summoner 옵션으로 클래스별 랭킹 (없으면 전체)
-const CLASS_FILTER = new Set(['warrior','mage','rogue','cleric','summoner']);
+const CLASS_FILTER = new Set(['warrior','mage','rogue','cleric','summoner','archer']);
 router.get('/ranking/daily', endlessAccessRequired, async (req: AuthedRequest, res: Response) => {
   const cls = typeof req.query.class === 'string' && CLASS_FILTER.has(req.query.class) ? req.query.class : null;
   const r = await query<{
