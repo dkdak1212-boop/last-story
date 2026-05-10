@@ -22,10 +22,10 @@ interface MyRank {
 }
 
 const CLASS_LABEL: Record<string, string> = {
-  warrior: '전사', mage: '마법사', rogue: '도적', cleric: '성직자', summoner: '소환사',
+  warrior: '전사', mage: '마법사', rogue: '도적', cleric: '성직자', summoner: '소환사', archer: '궁수',
 };
 
-type ClassTab = 'all' | 'warrior' | 'mage' | 'rogue' | 'cleric' | 'summoner';
+type ClassTab = 'all' | 'warrior' | 'mage' | 'rogue' | 'cleric' | 'summoner' | 'archer';
 
 export function EndlessRankingScreen() {
   const nav = useNavigate();
@@ -98,6 +98,7 @@ export function EndlessRankingScreen() {
           { key: 'rogue', label: '도적' },
           { key: 'cleric', label: '성직자' },
           { key: 'summoner', label: '소환사' },
+          { key: 'archer', label: '궁수' },
         ] as const).map(t => (
           <button key={t.key} onClick={() => setClassTab(t.key)} style={{
             padding: '6px 12px', fontSize: 11, fontWeight: 700,
