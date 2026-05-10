@@ -355,7 +355,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
         if (claim.rowCount && claim.rowCount > 0) {
           drops.push({ itemId: 926, qty: 1 });
         }
-      } catch (err) { console.error('[offline] eternal_essence drop err', err); }
+      } catch (err) { console.error('[오프라인] 무한의 정수 드랍 오류', err); }
     }
 
     // 5) 레벨업 처리 (exp 산정 시 분리 — characters 업데이트 전에 적용).

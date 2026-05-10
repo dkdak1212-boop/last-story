@@ -4802,7 +4802,7 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
         drops.push({ itemId: 926, qty: 1 });
         addLog(s, '⭐ 무한의 정수 획득! (오늘 1개 한정)');
       }
-    } catch (err) { console.error('[combat] eternal_essence drop err', err); }
+    } catch (err) { console.error('[전투] 무한의 정수 드랍 오류', err); }
   }
 
   // 오프라인 정산용 EMA 갱신: 드랍 발생 갯수 (qty 무관, 슬롯 단위)
