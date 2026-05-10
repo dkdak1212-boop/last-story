@@ -65,10 +65,10 @@ export function MapScreen() {
     if (fieldId === 23) {
       const activeRemainSec = Math.floor(riftLiveRemain / 1000);
       try {
-        const inv = await api<Array<{ item: { id: number }; quantity: number }>>(
+        const inv = await api<{ inventory: Array<{ item: { id: number }; quantity: number }> }>(
           `/characters/${active.id}/inventory`
         );
-        const owned = inv
+        const owned = (inv.inventory || [])
           .filter(s => s.item.id === 855)
           .reduce((sum, s) => sum + (s.quantity || 0), 0);
         if (owned <= 0 && activeRemainSec === 0) {
