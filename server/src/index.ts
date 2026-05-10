@@ -2306,6 +2306,50 @@ async function runEquipOverhaul() {
   // 유니크 고정 옵션 통합 v2 — 비활성 (휴리스틱이 신규 굴림 random=0 케이스를 옛날로 잘못 판정해
   // 이중 합산 발생. 즉시 역연산 + 비활성. 새 방안 검토 후 재시도 예정.)
 
+  // 유니크 고정 옵션 분리 v3.1 — v3 이후 미확인 장착/제작/sproutBox/거래소 미확인 buyout 경로에서
+  // unique 합산이 잔여 코드로 남아 prefix_stats 에 다시 합산된 무기들 정리.
+  // 모든 unique 무기 prefix_stats 에서 unique 키 값을 빼기 (max 0). 이미 v3 적용된 행은 0 또는 작은 값이라 변화 없음.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'unique_prefix_split_v3_1'`);
+      if (!applied.rowCount) {
+        console.log('[마이그레이션] 유니크 고정옵션 분리 v3.1 — 잔여 합산 정리...');
+        const tables = [
+          { name: 'character_inventory', alias: 'ci' },
+          { name: 'character_equipped', alias: 'ce' },
+          { name: 'account_storage_items', alias: 'asi' },
+          { name: 'mailbox', alias: 'mb' },
+          { name: 'auctions', alias: 'au' },
+        ];
+        for (const t of tables) {
+          const sql = `
+            UPDATE ${t.name} ${t.alias}
+               SET prefix_stats = (
+                 SELECT COALESCE(jsonb_object_agg(
+                   k,
+                   GREATEST(0, COALESCE((${t.alias}.prefix_stats->>k)::int, 0) - COALESCE((i.unique_prefix_stats->>k)::int, 0))
+                 ), '{}'::jsonb)
+                 FROM jsonb_object_keys(${t.alias}.prefix_stats) AS k
+               )
+              FROM items i
+             WHERE ${t.alias}.item_id = i.id
+               AND i.grade = 'unique'
+               AND i.unique_prefix_stats IS NOT NULL
+               AND i.unique_prefix_stats <> '{}'::jsonb
+               AND ${t.alias}.prefix_stats IS NOT NULL
+               AND ${t.alias}.prefix_stats <> '{}'::jsonb;
+          `;
+          const r = await query(sql);
+          console.log(`[마이그레이션] ${t.name}: ${r.rowCount}건 업데이트`);
+        }
+        await query(`INSERT INTO _migrations (name) VALUES ('unique_prefix_split_v3_1')`);
+        console.log('[마이그레이션] 유니크 고정옵션 분리 v3.1 완료');
+      }
+    } catch (e) {
+      console.error('[마이그레이션] 유니크 고정옵션 분리 v3.1 오류:', e);
+    }
+  }
+
   // 유니크 고정 옵션 분리 v3 — prefix_stats = random 만, effective 시점에 unique 합산
   // (5 테이블 prefix_stats[k] -= unique[k], max 0. 신규 굴림은 정확히 random 만 남고,
   //  옛날 굴림 random < unique 케이스만 일부 손실 가능 — 단 unique 효과는 코드에서 새로 적용되어

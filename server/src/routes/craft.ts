@@ -178,14 +178,9 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     // 장비: 3옵 접두사 강제 부여
     const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
 
-    // 유니크면 고정 특수옵션(unique_prefix_stats) 을 prefix_stats 에 병합 — 드랍 경로와 동일.
-    let finalPrefixStats: Record<string, number> = bonusStats;
-    if (isUnique && itemInfo.unique_prefix_stats) {
-      finalPrefixStats = { ...itemInfo.unique_prefix_stats };
-      for (const [k, v] of Object.entries(bonusStats)) {
-        finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
-      }
-    }
+    // v3 분리 저장: prefix_stats = random 굴림만, unique 는 effective 시점 합산
+    const finalPrefixStats: Record<string, number> = bonusStats;
+    void isUnique; void itemInfo.unique_prefix_stats;
 
     // 품질 1~100 랜덤 (드랍과 달리 0% 제외 — 제작 보상 가치 보장)
     const quality = Math.floor(Math.random() * 100) + 1;

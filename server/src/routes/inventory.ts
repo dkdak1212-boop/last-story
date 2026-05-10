@@ -236,17 +236,15 @@ router.post('/:id/equip', async (req: AuthedRequest, res: Response) => {
       return { ok: false, status: 400, error: `${classKr[class_restriction] || class_restriction} 전용 무기입니다.` };
     }
 
-    // 미확인 장비 장착 — 옵션 굴림 (3옵 보장 + 유니크 고정 옵션 병합 + 품질 1~100)
+    // 미확인 장비 장착 — 옵션 굴림 (3옵 보장 + 품질 1~100)
+    // v3 분리 저장: prefix_stats = random 굴림만 (unique 는 effective 시점 합산).
     // character_equipped 는 자동으로 soulbound=TRUE → 장착 후 거래 불가.
     if (isUnid) {
       const { generateGuaranteed3Prefixes } = await import('../game/prefix.js');
       const rolled = await generateGuaranteed3Prefixes(required_level);
-      const merged: Record<string, number> = uniquePrefixStats ? { ...uniquePrefixStats } : {};
-      for (const [k, v] of Object.entries(rolled.bonusStats)) {
-        merged[k] = (merged[k] || 0) + (v as number);
-      }
+      void uniquePrefixStats; // unique 합산 X
       prefix_ids = rolled.prefixIds;
-      prefix_stats = merged;
+      prefix_stats = rolled.bonusStats;
       quality = Math.floor(Math.random() * 100) + 1;
       enhance_level = 0;
       // 미확인 플래그도 인벤토리 행에서 제거 (해제 시 식별된 상태로 복귀)
