@@ -1698,6 +1698,15 @@ function applyDamagePrefixes(
   if (cache ? cache.pSoulStrike : (getPassive(s, 'paragon_soul_strike') > 0 && s.actionCount > 0 && s.actionCount % 5 === 0)) {
     dmg = Math.round(dmg * 3);
   }
+  // 궁수 표적(mark) 시스템 — marked_damage_amp: damage_taken_up 디버프(=표적) 보유 적에 데미지 +N%
+  // 표적은 약점 표시/추적 표식 등 damage_taken_up 부여 스킬로 부착. archer 노드만 보유 가능 (class_exclusive).
+  const markedAmp = getPassive(s, 'marked_damage_amp');
+  if (markedAmp > 0) {
+    const hasMark = s.statusEffects.some(e =>
+      e.type === 'damage_taken_up' && e.source === 'player' && e.remainingActions > 0
+    );
+    if (hasMark) dmg = Math.round(dmg * (1 + markedAmp / 100));
+  }
   // 110제 신규 옵션: execute_pct — 적 HP 20% 이하 시 데미지 +N% (종언의 기둥 면역, 자정 이후 발동)
   const executePct = s.equipPrefixes.execute_pct || 0;
   if (executePct > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.20) {
@@ -2927,7 +2936,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const hits = Math.round(skill.effect_value) + getPassive(s, 'extra_hit');
       const chainAmp = getPassive(s, 'chain_action_amp');
       const bladeStormAmp = getPassive(s, 'blade_storm_amp');
-      const multiAmp = s.equipPrefixes.multi_hit_amp_pct || 0;
+      // 노드(multi_hit_amp_pct) + 장비 접두사 합산. 종전엔 접두사만 읽어 노드 효과 0 이던 dead key 활성.
+      const multiAmp = (s.equipPrefixes.multi_hit_amp_pct || 0) + getPassive(s, 'multi_hit_amp_pct');
       // 궁수 화살 관통 — arrow_pierce 활성 시 다타 스킬 한정 적 방어 +20% 추가 무시
       const arrowPierceActive = s.className === 'archer' && getPassive(s, 'arrow_pierce') > 0;
       const archerMonsterStats = arrowPierceActive
@@ -3060,7 +3070,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 암살자의 진수 키스톤 (chain_action_amp) — 연계 행동 증폭 +%
       // multi_hit 케이스와 동일 패턴, 도적 multi_hit_poison 스킬에도 적용되도록
       const chainAmp = getPassive(s, 'chain_action_amp');
-      const multiAmpPoison = s.equipPrefixes.multi_hit_amp_pct || 0;
+      // 노드(multi_hit_amp_pct) + 장비 접두사 합산 (multi_hit case 와 동일)
+      const multiAmpPoison = (s.equipPrefixes.multi_hit_amp_pct || 0) + getPassive(s, 'multi_hit_amp_pct');
       const baseChain = chainAmp > 0 ? skill.damage_mult * (1 + chainAmp / 100) : skill.damage_mult;
       const poisonHitMult = multiAmpPoison > 0 ? baseChain * (1 + multiAmpPoison / 100) : baseChain;
       // 캐스트당 1회 STABLE 분기 캐시
@@ -3391,9 +3402,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'damage_taken_up': {
       // 적이 받는 데미지 +N% 디버프. damage_mult>0 인 스킬은 데미지도 같이 처리.
+      // 궁수 mark_extend 노드: 표적 지속 +N행동 (약점 표시/추적 표식 등에 합산).
       dealBuffSkillDamage(s, skill, useMatk);
-      addEffect(s, { type: 'damage_taken_up', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
-      addLog(s, `[${skill.name}] 적 받는 데미지 +${skill.effect_value}% (${skill.effect_duration}행동)`);
+      const markExt = getPassive(s, 'mark_extend');
+      const dur = skill.effect_duration + markExt;
+      addEffect(s, { type: 'damage_taken_up', value: skill.effect_value, remainingActions: dur, source: 'player' });
+      addLog(s, `[${skill.name}] 적 받는 데미지 +${skill.effect_value}% (${dur}행동)`);
       break;
     }
 
