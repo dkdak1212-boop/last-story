@@ -1325,7 +1325,7 @@ export function Bar({ cur, max, color, label, shield = 0 }: { cur: number; max: 
             </span>
           )}
         </span>
-        <span>{cur} / {max}</span>
+        <span>{cur.toLocaleString()} / {max.toLocaleString()}</span>
       </div>
       <div style={{ position: 'relative', height: 10, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
         <motion.div animate={{ width: `${pct}%` }} transition={{ duration: 0.3 }}

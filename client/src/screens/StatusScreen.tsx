@@ -315,14 +315,14 @@ export function StatusScreen() {
         {/* 전투 능력치 (클릭 시 설명) */}
         <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>전투 능력치 <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 400 }}>클릭 시 설명</span></h3>
-          <CombatRow label="HP" value={`${status.hp} / ${status.effective.maxHp}`} onClick={() => setTooltip(tooltip === 'HP' ? null : 'HP')} active={tooltip === 'HP'} />
+          <CombatRow label="HP" value={`${status.hp.toLocaleString()} / ${status.effective.maxHp.toLocaleString()}`} onClick={() => setTooltip(tooltip === 'HP' ? null : 'HP')} active={tooltip === 'HP'} />
           {tooltip === 'HP' && <Desc text={COMBAT_STAT_DESC['HP']} />}
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 0' }} />
           {[
-            { label: '물리 공격', value: status.effective.atk },
-            { label: '마법 공격', value: status.effective.matk },
-            { label: '방어력', value: status.effective.def },
-            { label: '마법 방어', value: status.effective.mdef },
+            { label: '물리 공격', value: status.effective.atk.toLocaleString() },
+            { label: '마법 공격', value: status.effective.matk.toLocaleString() },
+            { label: '방어력', value: status.effective.def.toLocaleString() },
+            { label: '마법 방어', value: status.effective.mdef.toLocaleString() },
             { label: '회피율', value: `${status.effective.dodge}%` },
             { label: '명중률', value: `${status.effective.accuracy}%` },
             { label: '스피드', value: status.effective.spd },

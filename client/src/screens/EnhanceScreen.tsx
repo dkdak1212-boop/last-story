@@ -49,6 +49,8 @@ export function EnhanceScreen() {
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [items, setItems] = useState<EnhanceItem[]>([]);
   const [selected, setSelected] = useState<EnhanceItem | null>(null);
+  // 부위별 필터 — 인벤토리 카테고리 탭과 동일 패턴.
+  const [slotFilter, setSlotFilter] = useState<'all' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet'>('all');
   const [result, setResult] = useState<{ success: boolean; newLevel: number; cost: number; destroyed?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [scrollCount, setScrollCount] = useState(0);
@@ -267,9 +269,34 @@ export function EnhanceScreen() {
       <div className="enhance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 16 }}>
         {/* 좌: 아이템 목록 */}
         <div>
+          {/* 부위별 필터 탭 */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+            {([
+              ['all', '전체'],
+              ['weapon', '무기'],
+              ['helm', '투구'],
+              ['chest', '갑옷'],
+              ['boots', '장화'],
+              ['ring', '반지'],
+              ['amulet', '목걸이'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSlotFilter(key)}
+                style={{
+                  padding: '4px 10px', fontSize: 12,
+                  background: slotFilter === key ? 'var(--accent)' : 'var(--bg-panel)',
+                  color: slotFilter === key ? '#000' : 'var(--text)',
+                  border: `1px solid ${slotFilter === key ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 3, cursor: 'pointer', fontWeight: slotFilter === key ? 700 : 400,
+                }}
+              >{label}</button>
+            ))}
+          </div>
           {(() => {
-            const equipped = items.filter(it => it.kind === 'equipped');
-            const inventory = items.filter(it => it.kind !== 'equipped');
+            const filtered = slotFilter === 'all' ? items : items.filter(it => it.itemSlot === slotFilter);
+            const equipped = filtered.filter(it => it.kind === 'equipped');
+            const inventory = filtered.filter(it => it.kind !== 'equipped');
             const renderItem = (it: EnhanceItem, idx: number) => {
               const q = it.quality || 0;
               const qColor = q >= 90 ? '#ff8800' : q >= 70 ? '#daa520' : q >= 40 ? '#66ccff' : q >= 20 ? '#8dc38d' : '#888';
