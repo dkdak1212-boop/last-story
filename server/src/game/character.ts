@@ -242,7 +242,7 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     }
     eff.def = Math.round(eff.def + (newVit - oldVit) * 0.8);
     eff.mdef = Math.round(eff.mdef + (newInt - oldInt) * 0.5);
-    eff.dodge = Math.min(70, Math.round(eff.dodge + (newDex - oldDex) * 0.2));
+    eff.dodge = Math.min((char.class_name === 'rogue' || char.class_name === 'archer') ? 80 : 70, Math.round(eff.dodge + (newDex - oldDex) * 0.2));
     eff.accuracy = Math.min(100, Math.round(eff.accuracy + (newDex - oldDex) * 0.3));
     eff.str = newStr; eff.dex = newDex; eff.int = newInt; eff.vit = newVit;
   }
@@ -269,7 +269,7 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (ppMatk) eff.matk = Math.round(eff.matk * (1 + ppMatk / 100));
   if (ppSpd) eff.spd = Math.round(eff.spd * (1 + ppSpd / 100));
   if (ppAcc) eff.accuracy = Math.min(200, eff.accuracy + ppAcc);
-  if (ppDodge) eff.dodge = Math.min(80, eff.dodge + ppDodge);
+  if (ppDodge) eff.dodge = Math.min((char.class_name === 'rogue' || char.class_name === 'archer') ? 80 : 70, eff.dodge + ppDodge);
   if (ppCri) eff.cri = Math.min(100, eff.cri + ppCri * 0.5);
 
   // 키스톤 #7 광기의 재충전 — 스탯 영향 없음. 스킬 cd 부여 시점에 50% / 50% 분기 (engine.ts 처리).
@@ -300,11 +300,10 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   }
   // 키스톤 #16 확률의 군주 — 치명·회피·명중 ×2
   // 2026-05-11 픽스: cri cap 100 제거. 100 초과분은 getCritDmgBonus 가 1:1 치피로 자동 전환.
-  // 2026-05-11 추가: dodge cap 80 → 95 로 상향. 키스톤 명색에 맞게 ×2 효과 가시화.
-  //   raw dodge 40 → ×2 = 80 (이전엔 80 cap), 50 → 100 → 95 cap.
+  // dodge cap 은 클래스 기반 유지 (도적/궁수 80, 기타 70) — ×2 후에도 동일 cap 적용.
   if (pMap.has('paragon_chance_lord')) {
     eff.cri = eff.cri * 2;
-    eff.dodge = Math.min(95, eff.dodge * 2);
+    eff.dodge = Math.min((char.class_name === 'rogue' || char.class_name === 'archer') ? 80 : 70, eff.dodge * 2);
     eff.accuracy = Math.min(200, eff.accuracy * 2);
   }
   // 키스톤 #2 운명의 결박 — 회피·치명 0

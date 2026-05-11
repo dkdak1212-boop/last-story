@@ -82,9 +82,10 @@ export function computeEffective(
   const matk = Math.max(1, Math.round((equipBonus.bonusMatk ?? 0) * (1 + intl * 0.005)));
   const def = vit * 0.8 + (equipBonus.bonusDef ?? 0);
   const mdef = intl * 0.5 + (equipBonus.bonusMdef ?? 0);
-  // 회피: DEX 계수 하향 + 상한 70%
+  // 회피: DEX 계수 하향 + 상한. 클래스 기반: 도적/궁수 80%, 기타 70%.
   const dodgeRaw = dex * 0.2 + (equipBonus.bonusDodge ?? 0);
-  const dodge = Math.min(70, dodgeRaw);
+  const dodgeCap = (className === 'rogue' || className === 'archer') ? 80 : 70;
+  const dodge = Math.min(dodgeCap, dodgeRaw);
   // 명중: 상한 100%
   const accuracyRaw = 80 + dex * 0.3 + (equipBonus.bonusAccuracy ?? 0);
   const accuracy = Math.min(100, accuracyRaw);
