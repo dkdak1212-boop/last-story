@@ -298,9 +298,13 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (pMap.has('paragon_time_master')) {
     eff.spd = Math.round(eff.spd * 0.75);
   }
-  // 키스톤 #16 확률의 군주 — 치명·회피 ×2 (cap 100/80)
+  // 키스톤 #16 확률의 군주 — 치명·회피·명중 ×2
+  // 2026-05-11 픽스: cri cap 100 제거. 100 초과분은 getCritDmgBonus 가 1:1 치피로 자동 전환.
+  //   예) 치확 120 + 확률군주 → cri 240 → 적중률 100% (calcDamage 자동) + 치피 +140%.
+  //   기존엔 Math.min(100, 120×2) 로 100 cap 되어 치확/치피 둘 다 손해였음.
+  // dodge cap 80 유지 (회피 80% 상한은 게임 룰).
   if (pMap.has('paragon_chance_lord')) {
-    eff.cri = Math.min(100, eff.cri * 2);
+    eff.cri = eff.cri * 2;
     eff.dodge = Math.min(80, eff.dodge * 2);
     eff.accuracy = Math.min(200, eff.accuracy * 2);
   }

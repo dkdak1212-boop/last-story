@@ -298,6 +298,45 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
       dodge: Math.round(effective.dodge * 10) / 10,
       accuracy: Math.round(effective.accuracy * 10) / 10,
     },
+    // 치명타 데미지 분해 — engine.ts getCritDmgBonus 와 동일 수식.
+    // 베이스 ×2.0 (200%) 위에 critDmgBonus 가 (1 + bonus/100) 곱연산 → 표기는 200 + bonus 합산.
+    crit: (() => {
+      const critDmgFromPassive = (passiveTotals['crit_damage'] || 0);
+      const critDmgFromPrefix = (prefixTotals['crit_dmg_pct'] || 0);
+      const critDmgFromParagon = (passiveTotals['paragon_crit_dmg_pct'] || 0);
+      const critDmgFromDex = effective.dex * 0.35;
+      const dotToCrit = (passiveTotals['dot_to_crit'] || 0);
+      const totalDotAmpRaw = (passiveTotals['dot_amp'] || 0)
+        + (passiveTotals['poison_amp'] || 0)
+        + (passiveTotals['bleed_amp'] || 0)
+        + (passiveTotals['burn_amp'] || 0)
+        + (passiveTotals['holy_dot_amp'] || 0)
+        + (passiveTotals['elemental_storm'] || 0)
+        + (passiveTotals['poison_lord'] || 0)
+        + (prefixTotals['dot_amp_pct'] || 0);
+      const critDmgFromDotConversion = dotToCrit > 0 ? Math.round(totalDotAmpRaw * dotToCrit / 100) : 0;
+      const rogueDotToCrit = char.class_name === 'rogue' ? (prefixTotals['dot_amp_pct'] || 0) * 0.5 : 0;
+      const criOver = Math.max(0, effective.cri - 100);
+      const bonus = critDmgFromPassive + critDmgFromPrefix + critDmgFromParagon
+        + critDmgFromDex + critDmgFromDotConversion + rogueDotToCrit + criOver;
+      const round1 = (n: number) => Math.round(n * 10) / 10;
+      return {
+        chance: effective.cri,                  // 적중 확률 (overflow 포함 raw 값)
+        chanceEffective: Math.min(100, effective.cri),  // 실제 발동률 (100% cap)
+        chanceOverflow: criOver,                // 100 초과분 (치피로 전환됨)
+        damageBonusPct: round1(bonus),          // 치피 추가 % (베이스 200 위에 +%)
+        damageTotalPct: round1(200 + bonus),    // 총 치명타 데미지 표기 %
+        breakdown: {
+          dex: round1(critDmgFromDex),
+          passive: critDmgFromPassive,
+          prefix: critDmgFromPrefix,
+          paragon: critDmgFromParagon,
+          dotConversion: critDmgFromDotConversion,
+          rogueDotBonus: round1(rogueDotToCrit),
+          criOverflow: criOver,
+        },
+      };
+    })(),
     guildBuff: guildBuff ? { name: guildBuff.name, pct: guildBuff.stat_buff_pct } : null,
     prefixBonuses: prefixTotals,
     passiveBonuses: passiveTotals,

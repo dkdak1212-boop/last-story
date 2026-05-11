@@ -25,6 +25,22 @@ interface CharStatus {
   passiveBonuses: Record<string, number>;
   setBonuses?: Record<string, number>;
   gainBonuses?: { gold: GainBreakdown; exp: GainBreakdown; drop: GainBreakdown };
+  crit?: {
+    chance: number;
+    chanceEffective: number;
+    chanceOverflow: number;
+    damageBonusPct: number;
+    damageTotalPct: number;
+    breakdown: {
+      dex: number;
+      passive: number;
+      prefix: number;
+      paragon: number;
+      dotConversion: number;
+      rogueDotBonus: number;
+      criOverflow: number;
+    };
+  };
 }
 
 const CLASS_LABEL: Record<string, string> = {
@@ -226,8 +242,11 @@ const COMBAT_STAT_DESC: Record<string, string> = {
   '회피율': '공격을 회피할 확률. 민첩(DEX) × 0.2 + 장비. 상한 70%.',
   '명중률': '공격이 적중할 확률. 기본 80% + 민첩(DEX) × 0.3 + 장비. 상한 100%.',
   '스피드': '게이지 충전 스피드. 높을수록 빠르게 행동. 게이지 MAX=1000, 매 틱 SPD × 0.2 충전.',
-  '치명타 확률': '크리티컬 발동 확률. 발동 시 데미지 2배. 상한 100%. 노드/장비로 상승.',
+  '치명타 확률': '크리티컬 발동 확률. 발동 시 데미지 2배. 적중률은 100% cap, 100% 초과분은 1:1 비율로 치명타 데미지(치피)로 자동 전환. 노드/장비로 상승.',
+  '치명타 데미지': '치명타 시 적용되는 총 데미지 배율 표기. 베이스 200% (×2.0) + 추가 보너스 합산. 보너스 출처: DEX(스탯당 +0.35%), 노드 패시브(crit_damage), 장비 접두사(crit_dmg_pct), paragon 잔혹, 도트 → 치피 변환, 치확 100% 초과분(1:1).',
 };
+
+const CRIT_DMG_DESC = COMBAT_STAT_DESC['치명타 데미지'];
 
 export function StatusScreen() {
   const active = useCharacterStore((s) => s.activeCharacter);
@@ -307,11 +326,24 @@ export function StatusScreen() {
             { label: '회피율', value: `${status.effective.dodge}%` },
             { label: '명중률', value: `${status.effective.accuracy}%` },
             { label: '스피드', value: status.effective.spd },
-            { label: '치명타 확률', value: `${status.effective.cri}%` },
+            {
+              label: '치명타 확률',
+              value: status.crit
+                ? (status.crit.chanceOverflow > 0
+                    ? `${status.crit.chanceEffective}% (+${status.crit.chanceOverflow}% → 치피 전환)`
+                    : `${status.crit.chanceEffective}%`)
+                : `${status.effective.cri}%`,
+            },
+            {
+              label: '치명타 데미지',
+              value: status.crit
+                ? `${status.crit.damageTotalPct}% (베이스 200 + ${status.crit.damageBonusPct})`
+                : '200%',
+            },
           ].map(s => (
             <div key={s.label}>
               <CombatRow label={s.label} value={s.value} onClick={() => setTooltip(tooltip === s.label ? null : s.label)} active={tooltip === s.label} />
-              {tooltip === s.label && <Desc text={COMBAT_STAT_DESC[s.label]} />}
+              {tooltip === s.label && <Desc text={COMBAT_STAT_DESC[s.label] ?? CRIT_DMG_DESC} />}
             </div>
           ))}
         </div>
