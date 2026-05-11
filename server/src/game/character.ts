@@ -191,7 +191,8 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (pMap.has('war_god')) eff.atk = Math.round(eff.atk * (1 + pMap.get('war_god')! / 100));
   if (pMap.has('mana_overload')) eff.matk = Math.round(eff.matk * (1 + pMap.get('mana_overload')! / 100));
   if (pMap.has('iron_will')) eff.def = Math.round(eff.def * (1 + pMap.get('iron_will')! / 100));
-  if (pMap.has('trickster')) eff.cri = Math.min(100, eff.cri + pMap.get('trickster')!);
+  // 트릭스터 — 치확 가산. 2026-05-11 cri cap 제거 (초과분은 getCritDmgBonus 가 1:1 치피 전환).
+  if (pMap.has('trickster')) eff.cri = eff.cri + pMap.get('trickster')!;
   if (pMap.has('shadow_dance')) eff.dodge = Math.min(80, eff.dodge + pMap.get('shadow_dance')!);
   if (pMap.has('focus_mastery')) eff.accuracy = Math.min(200, eff.accuracy + pMap.get('focus_mastery')!);
   if (pMap.has('berserker_heart')) {
@@ -270,7 +271,8 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (ppSpd) eff.spd = Math.round(eff.spd * (1 + ppSpd / 100));
   if (ppAcc) eff.accuracy = Math.min(200, eff.accuracy + ppAcc);
   if (ppDodge) eff.dodge = Math.min((char.class_name === 'rogue' || char.class_name === 'archer') ? 80 : 70, eff.dodge + ppDodge);
-  if (ppCri) eff.cri = Math.min(100, eff.cri + ppCri * 0.5);
+  // paragon_cri_pct — 작은 노드 치확 가산. 2026-05-11 cri cap 100 제거 (초과분 치피 전환).
+  if (ppCri) eff.cri = eff.cri + ppCri * 0.5;
 
   // 키스톤 #7 광기의 재충전 — 스탯 영향 없음. 스킬 cd 부여 시점에 50% / 50% 분기 (engine.ts 처리).
   // (구 '반대의 균형' 의 stat swap 로직 제거 — 키 자체도 paragon_madness_reload 로 변경.)
