@@ -769,6 +769,7 @@ interface PendingStackDrop {
   qty: number;
   stackSize: number;
   boundOnPickup: boolean;
+  retryCount?: number;  // deadlock/timeout 재시도 카운터 (max 3)
 }
 const pendingStackDrops = new Map<number, PendingStackDrop[]>();
 
@@ -776,12 +777,41 @@ const pendingStackDrops = new Map<number, PendingStackDrop[]>();
 const RIFT_MAT_IDS: ReadonlySet<number> = new Set([852, 853, 854]);
 const isRiftMat = (id: number): boolean => RIFT_MAT_IDS.has(id);
 
+// PG 트랜잭션 충돌 — 재시도 가능 에러 분류
+const STACK_DROP_MAX_RETRY = 3;
+function isRetryableStackDropError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string };
+  // 40P01 = deadlock_detected, 55P03 = lock_not_available, 57014 = query_canceled (timeout 포함)
+  if (e.code === '40P01' || e.code === '55P03' || e.code === '57014') return true;
+  const msg = String(e.message ?? '');
+  return msg.includes('timeout') || msg.includes('Query read timeout');
+}
+
 function enqueueStackDrop(d: PendingStackDrop): void {
   let arr = pendingStackDrops.get(d.characterId);
   if (!arr) { arr = []; pendingStackDrops.set(d.characterId, arr); }
   arr.push(d);
-  if (isRiftMat(d.itemId)) {
+  if (isRiftMat(d.itemId) && (d.retryCount ?? 0) === 0) {
     console.log(`[rift-drop-trace] enqueue char=${d.characterId} item=${d.itemId} qty=${d.qty} stackSize=${d.stackSize} bound=${d.boundOnPickup} queueLen=${arr.length}`);
+  }
+}
+
+// flush 실패 (deadlock/timeout) 시 원본 drops 를 큐로 재적재.
+// retryCount 가 max 도달하면 폐기 + 에러 로그.
+function reEnqueueStackDrops(drops: readonly PendingStackDrop[], reason: string): void {
+  for (const d of drops) {
+    const nextRetry = (d.retryCount ?? 0) + 1;
+    if (nextRetry > STACK_DROP_MAX_RETRY) {
+      if (isRiftMat(d.itemId)) {
+        console.error(`[rift-drop-trace] GIVE UP char=${d.characterId} item=${d.itemId} qty=${d.qty} retry=${d.retryCount}/${STACK_DROP_MAX_RETRY} reason=${reason}`);
+      }
+      continue;
+    }
+    enqueueStackDrop({ ...d, retryCount: nextRetry });
+    if (isRiftMat(d.itemId)) {
+      console.log(`[rift-drop-trace] RETRY enqueue char=${d.characterId} item=${d.itemId} qty=${d.qty} retry=${nextRetry}/${STACK_DROP_MAX_RETRY} reason=${reason}`);
+    }
   }
 }
 
@@ -888,7 +918,6 @@ export async function flushPendingStackDrops(): Promise<void> {
     // ── 계획: 캐릭별 merge(UPDATE) + 신규 슬롯(INSERT) 결정 ──
     const allUpdates: Array<{ id: number; addQty: number }> = [];
     const allInserts: Array<{ characterId: number; itemId: number; slot: number; qty: number; bound: boolean }> = [];
-    const insertsByChar = new Map<number, number[]>(); // 캐시 갱신용 — slot 인덱스만 모음
 
     for (const characterId of allCharIds) {
       const bucket = byChar.get(characterId);
@@ -935,9 +964,6 @@ export async function flushPendingStackDrops(): Promise<void> {
           }
           const qty = Math.min(remaining, dInfo.stackSize);
           allInserts.push({ characterId, itemId, slot, qty, bound: dInfo.bound });
-          let arr = insertsByChar.get(characterId);
-          if (!arr) { arr = []; insertsByChar.set(characterId, arr); }
-          arr.push(slot);
           remaining -= qty;
           newSlotsClaimed++;
         }
@@ -949,85 +975,136 @@ export async function flushPendingStackDrops(): Promise<void> {
 
     await Promise.resolve(); // event loop yield
 
-    // [rift-drop-trace] Q3/Q4 에 포함될 시공 재료 sub-set 카운트
-    const riftUpdateIds = new Set<number>();
-    const riftInsertExpected = new Map<string, number>(); // char:item → count
+    // ── Q3/Q4: 캐릭별 분할 트랜잭션 (deadlock 회피) ──
+    //
+    // 이전: 모든 캐릭 UPDATE/INSERT 를 단일 multi-row query 로 묶음 → 193 동시 세션 환경에서
+    //       서로 다른 transaction 들이 같은 character_inventory tuple 을 다른 순서로 락 → 40P01 deadlock 폭주.
+    //       deadlock 시 batch 전체 rollback → 8~15건 시공 재료 통째로 폐기.
+    // 현재: 캐릭별 짧은 query 로 분할 + (UPDATE 는 id ASC, INSERT 는 slot ASC) 락 순서 고정 +
+    //       40P01/55P03/57014/timeout 발생 시 원본 drops 를 retry counter 와 함께 재적재 (max 3).
+    const snapByChar = new Map<number, PendingStackDrop[]>();
+    for (const [cid, drops] of snap) snapByChar.set(cid, drops);
+
+    // allUpdates 는 stack row id 만 가짐 — characterId 역추적 위해 stacksByCharItem 인덱스 사용.
+    const idToChar = new Map<number, number>();
+    for (const [key, arr] of stacksByCharItem) {
+      const cid = Number(key.split(':')[0]);
+      for (const e of arr) idToChar.set(e.id, cid);
+    }
+    const updatesByCharSorted = new Map<number, Array<{ id: number; addQty: number }>>();
+    const insertsByCharSorted = new Map<number, Array<{ itemId: number; slot: number; qty: number; bound: boolean }>>();
+    for (const u of allUpdates) {
+      const cid = idToChar.get(u.id);
+      if (cid === undefined) continue;
+      let arr = updatesByCharSorted.get(cid);
+      if (!arr) { arr = []; updatesByCharSorted.set(cid, arr); }
+      arr.push(u);
+    }
+    for (const ins of allInserts) {
+      let arr = insertsByCharSorted.get(ins.characterId);
+      if (!arr) { arr = []; insertsByCharSorted.set(ins.characterId, arr); }
+      arr.push({ itemId: ins.itemId, slot: ins.slot, qty: ins.qty, bound: ins.bound });
+    }
+    // 락 순서 고정 — 같은 transaction sequence 가 모든 worker 에서 동일하도록.
+    for (const arr of updatesByCharSorted.values()) arr.sort((a, b) => a.id - b.id);
+    for (const arr of insertsByCharSorted.values()) arr.sort((a, b) => a.slot - b.slot);
+
+    // 시공 재료 INSERT 검증용 카운트
+    const riftInsertExpectedByChar = new Map<number, number>();
     for (const ins of allInserts) {
       if (!isRiftMat(ins.itemId)) continue;
-      const k = `${ins.characterId}:${ins.itemId}`;
-      riftInsertExpected.set(k, (riftInsertExpected.get(k) ?? 0) + 1);
-    }
-    // riftUpdateIds 는 Q3 후 별도 SELECT 로 결과 검증
-
-    // ── Q3: UPDATE 모든 merge 일괄 ──
-    let updateRowCount = 0;
-    if (allUpdates.length > 0) {
-      const idsArr = allUpdates.map(u => u.id);
-      const qtyArr = allUpdates.map(u => u.addQty);
-      const r = await query(
-        `UPDATE character_inventory ci
-            SET quantity = ci.quantity + v.add_qty
-           FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS add_qty) v
-          WHERE ci.id = v.id`,
-        [idsArr, qtyArr]
-      );
-      updateRowCount = r.rowCount ?? 0;
-      if (updateRowCount !== allUpdates.length) {
-        console.warn(`[rift-drop-trace] Q3 UPDATE rowCount mismatch — expected=${allUpdates.length} actual=${updateRowCount} (일부 stack row 사라짐?)`);
-      }
+      riftInsertExpectedByChar.set(ins.characterId, (riftInsertExpectedByChar.get(ins.characterId) ?? 0) + 1);
     }
 
-    await Promise.resolve(); // event loop yield
+    // 캐릭별 순회 — characterId ASC 로 글로벌 락 순서 고정.
+    const allCharsToProcess = new Set<number>([
+      ...updatesByCharSorted.keys(),
+      ...insertsByCharSorted.keys(),
+    ]);
+    const charIdsSorted = [...allCharsToProcess].sort((a, b) => a - b);
 
-    // ── Q4: INSERT 모든 신규 슬롯 일괄 ──
-    let insertRowCount = 0;
-    if (allInserts.length > 0) {
-      const valuesParts: string[] = [];
-      const params: unknown[] = [];
-      let idx = 1;
-      for (const ins of allInserts) {
-        const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++, p5 = idx++;
-        valuesParts.push(`($${p1}, $${p2}, $${p3}, $${p4}, $${p5})`);
-        params.push(ins.characterId, ins.itemId, ins.slot, ins.qty, ins.bound);
-      }
-      const r = await query(
-        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
-         VALUES ${valuesParts.join(', ')}
-         ON CONFLICT (character_id, slot_index) DO NOTHING`,
-        params
-      );
-      insertRowCount = r.rowCount ?? 0;
-      // 시공 재료 INSERT 차분 확인 — ON CONFLICT 로 silently 사라진 row 가 있으면 경고
-      if (riftInsertExpected.size > 0 && insertRowCount !== allInserts.length) {
-        console.warn(`[rift-drop-trace] Q4 INSERT rowCount mismatch — expected=${allInserts.length} actual=${insertRowCount} (ON CONFLICT DO NOTHING 으로 silent drop)`);
-        // 실제 어떤 row 가 들어갔는지 확인 — slot 별 SELECT
-        try {
-          const riftSlots = allInserts.filter(i => isRiftMat(i.itemId));
-          for (const ins of riftSlots) {
-            const chk = await query<{ slot_index: number; item_id: number; quantity: number }>(
-              'SELECT slot_index, item_id, quantity FROM character_inventory WHERE character_id = $1 AND slot_index = $2',
-              [ins.characterId, ins.slot]
-            );
-            const row = chk.rows[0];
-            const ok = row && row.item_id === ins.itemId;
-            console.log(`[rift-drop-trace] Q4 verify char=${ins.characterId} item=${ins.itemId} slot=${ins.slot} → ${ok ? `OK qty=${row.quantity}` : `MISS actual=${row ? `item${row.item_id}/qty${row.quantity}` : 'empty'}`}`);
+    for (const characterId of charIdsSorted) {
+      const charUpdates = updatesByCharSorted.get(characterId) ?? [];
+      const charInserts = insertsByCharSorted.get(characterId) ?? [];
+      if (charUpdates.length === 0 && charInserts.length === 0) continue;
+
+      const hasRiftDrops = (snapByChar.get(characterId) ?? []).some(d => isRiftMat(d.itemId));
+
+      try {
+        // Q3 per-char UPDATE — id ASC 정렬된 배열로 람다 매개변수 → PG planner 가 같은 순서로 락 잡음
+        if (charUpdates.length > 0) {
+          const idsArr = charUpdates.map(u => u.id);
+          const qtyArr = charUpdates.map(u => u.addQty);
+          const r = await query(
+            `UPDATE character_inventory ci
+                SET quantity = ci.quantity + v.add_qty
+               FROM (SELECT UNNEST($1::int[]) AS id, UNNEST($2::int[]) AS add_qty) v
+              WHERE ci.id = v.id`,
+            [idsArr, qtyArr]
+          );
+          if (hasRiftDrops && (r.rowCount ?? 0) !== charUpdates.length) {
+            console.warn(`[rift-drop-trace] Q3 char=${characterId} UPDATE rowCount mismatch expected=${charUpdates.length} actual=${r.rowCount ?? 0}`);
           }
-        } catch (e) {
-          console.error('[rift-drop-trace] Q4 verify err', e);
         }
-      } else if (riftInsertExpected.size > 0) {
-        const summary = [...riftInsertExpected.entries()].map(([k, v]) => `${k}=${v}`).join(' ');
-        console.log(`[rift-drop-trace] Q4 INSERT ok — total=${insertRowCount} riftMat: ${summary}`);
-      }
-    }
 
-    // ── 슬롯 캐시 in-place 갱신 (DB SELECT 없이) ──
-    for (const [characterId, slots] of insertsByChar) {
-      const sess = activeSessions.get(characterId);
-      if (sess && sess.inventorySlotCache) {
-        const usedNew = new Set(slots);
-        sess.inventorySlotCache.freeSlots = sess.inventorySlotCache.freeSlots.filter(s => !usedNew.has(s));
+        // Q4 per-char INSERT — slot ASC 정렬
+        if (charInserts.length > 0) {
+          const valuesParts: string[] = [];
+          const params: unknown[] = [];
+          let idx = 1;
+          for (const ins of charInserts) {
+            const p1 = idx++, p2 = idx++, p3 = idx++, p4 = idx++, p5 = idx++;
+            valuesParts.push(`($${p1}, $${p2}, $${p3}, $${p4}, $${p5})`);
+            params.push(characterId, ins.itemId, ins.slot, ins.qty, ins.bound);
+          }
+          const r = await query(
+            `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, soulbound)
+             VALUES ${valuesParts.join(', ')}
+             ON CONFLICT (character_id, slot_index) DO NOTHING`,
+            params
+          );
+          const insertRowCount = r.rowCount ?? 0;
+          const riftExpected = riftInsertExpectedByChar.get(characterId) ?? 0;
+          if (riftExpected > 0 && insertRowCount !== charInserts.length) {
+            console.warn(`[rift-drop-trace] Q4 char=${characterId} INSERT rowCount mismatch expected=${charInserts.length} actual=${insertRowCount} (ON CONFLICT silent drop 가능)`);
+          } else if (riftExpected > 0) {
+            console.log(`[rift-drop-trace] Q4 char=${characterId} INSERT ok rift=${riftExpected}/${charInserts.length}`);
+          }
+        }
+
+        // 슬롯 캐시 in-place 갱신 (this char)
+        const slots = charInserts.map(i => i.slot);
+        if (slots.length > 0) {
+          const sess = activeSessions.get(characterId);
+          if (sess && sess.inventorySlotCache) {
+            const usedNew = new Set(slots);
+            sess.inventorySlotCache.freeSlots = sess.inventorySlotCache.freeSlots.filter(s => !usedNew.has(s));
+          }
+        }
+      } catch (err) {
+        if (isRetryableStackDropError(err)) {
+          // deadlock/timeout — 이 캐릭의 원본 drops 를 큐로 재적재
+          const original = snapByChar.get(characterId) ?? [];
+          const code = (err as { code?: string }).code ?? '?';
+          if (hasRiftDrops) {
+            const riftQty = original.filter(d => isRiftMat(d.itemId)).reduce((s, d) => s + d.qty, 0);
+            console.warn(`[rift-drop-trace] DEADLOCK char=${characterId} code=${code} riftQty=${riftQty} → 재적재 시도`);
+          }
+          reEnqueueStackDrops(original, code);
+        } else {
+          // non-retryable — 폐기 + 로그
+          const original = snapByChar.get(characterId) ?? [];
+          const riftDrops = original.filter(d => isRiftMat(d.itemId));
+          if (riftDrops.length > 0) {
+            console.error(`[rift-drop-trace] FATAL char=${characterId} drops=${riftDrops.length} (non-retryable)`, err);
+          } else {
+            console.error(`[stack-drops-batch] char=${characterId} non-retryable err`, err);
+          }
+        }
       }
+
+      // 캐릭 간 yield — pool burst 분산
+      await Promise.resolve();
     }
   } catch (err) {
     // [rift-drop-trace] 시공 재료가 큐에 있었으면 ALL drops 폐기됨 (snap.clear 이후 throw)
