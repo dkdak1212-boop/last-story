@@ -5,8 +5,8 @@ import { query } from '../db/pool.js';
 
 export const ENDLESS_FIELD_ID = 1000;
 export const ENDLESS_TIME_LIMIT_MS = 60_000;            // 1분 / 층
-export const ENDLESS_SCALE_PER_FLOOR = 0.03;            // 자정 이전: +3% / 층
-export const ENDLESS_SCALE_PER_FLOOR_V2 = 0.05;         // 2026-05-11 00:00 KST 이후: +5% / 층
+export const ENDLESS_SCALE_PER_FLOOR = 0.03;            // 2026-05-11 00:00 KST 이전: +3% / 층
+export const ENDLESS_SCALE_PER_FLOOR_V2 = 0.10;         // 2026-05-11 00:00 KST 이후: +10% / 층 (5% → 10% 상향, 2026-05-11)
 export const ENDLESS_SCALE_V2_CUTOFF_MS = Date.parse('2026-05-11T00:00:00+09:00');
 
 const NORMAL_MONSTER_IDS = [503, 504, 505, 506, 507];
@@ -44,7 +44,7 @@ export function getMonsterIdForFloor(floor: number): number {
 }
 
 export function getScaleMultiplier(floor: number): number {
-  // 2026-05-11 00:00 KST 부터 +5%/층, 그 전엔 +3%/층 (서버 시각 기준)
+  // 2026-05-11 00:00 KST 부터 +10%/층 (이전 5% 에서 상향), 그 전엔 +3%/층
   const perFloor = Date.now() >= ENDLESS_SCALE_V2_CUTOFF_MS
     ? ENDLESS_SCALE_PER_FLOOR_V2
     : ENDLESS_SCALE_PER_FLOOR;
