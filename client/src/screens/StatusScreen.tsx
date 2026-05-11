@@ -25,6 +25,7 @@ interface CharStatus {
   passiveBonuses: Record<string, number>;
   setBonuses?: Record<string, number>;
   gainBonuses?: { gold: GainBreakdown; exp: GainBreakdown; drop: GainBreakdown };
+  essence?: { str: number; dex: number; int: number; vit: number; hp: number; atk: number; matk: number };
   crit?: {
     chance: number;
     chanceEffective: number;
@@ -422,6 +423,25 @@ export function StatusScreen() {
           <span style={{ color: 'var(--accent)', fontWeight: 700 }}>길드 버프</span>{' '}
           <span style={{ color: 'var(--text-dim)' }}>({status.guildBuff.name})</span>{' '}
           모든 전투 능력치 +{status.guildBuff.pct}%
+        </div>
+      )}
+
+      {/* 무한의 정수 — 영구 스탯 보너스 별도 표기 */}
+      {status.essence && (status.essence.str + status.essence.dex + status.essence.int + status.essence.vit + status.essence.hp + status.essence.atk + status.essence.matk) > 0 && (
+        <div style={{ marginTop: 14, padding: 12, background: 'var(--bg-panel)', border: '1px solid #daa520', fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ color: '#daa520', fontWeight: 700, fontSize: 14 }}>⭐ 무한의 정수</span>
+            <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>영구 누적 보너스</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '4px 12px', fontSize: 12 }}>
+            {status.essence.str > 0 && <div><span style={{ color: 'var(--text-dim)' }}>힘</span> <b style={{ color: '#daa520' }}>+{status.essence.str.toLocaleString()}</b></div>}
+            {status.essence.dex > 0 && <div><span style={{ color: 'var(--text-dim)' }}>민첩</span> <b style={{ color: '#daa520' }}>+{status.essence.dex.toLocaleString()}</b></div>}
+            {status.essence.int > 0 && <div><span style={{ color: 'var(--text-dim)' }}>지능</span> <b style={{ color: '#daa520' }}>+{status.essence.int.toLocaleString()}</b></div>}
+            {status.essence.vit > 0 && <div><span style={{ color: 'var(--text-dim)' }}>체력</span> <b style={{ color: '#daa520' }}>+{status.essence.vit.toLocaleString()}</b></div>}
+            {status.essence.hp > 0 && <div><span style={{ color: 'var(--text-dim)' }}>HP</span> <b style={{ color: '#daa520' }}>+{status.essence.hp.toLocaleString()}</b></div>}
+            {status.essence.atk > 0 && <div><span style={{ color: 'var(--text-dim)' }}>물리 공격</span> <b style={{ color: '#daa520' }}>+{status.essence.atk.toLocaleString()}</b></div>}
+            {status.essence.matk > 0 && <div><span style={{ color: 'var(--text-dim)' }}>마법 공격</span> <b style={{ color: '#daa520' }}>+{status.essence.matk.toLocaleString()}</b></div>}
+          </div>
         </div>
       )}
 

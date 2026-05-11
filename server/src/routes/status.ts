@@ -197,6 +197,19 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
   );
   const guildBuff = gr.rows[0] ?? null;
 
+  // 무한의 정수 — 영구 주력 스탯 보너스 (STR/DEX/INT/VIT). 상태창에 별도 표기.
+  const essR = await query<{ str: number; dex: number; int: number; vit: number; hp: number; atk: number; matk: number }>(
+    `SELECT COALESCE(permanent_stat_bonus_str, 0) AS str,
+            COALESCE(permanent_stat_bonus_dex, 0) AS dex,
+            COALESCE(permanent_stat_bonus_int, 0) AS int,
+            COALESCE(permanent_stat_bonus_vit, 0) AS vit,
+            COALESCE(permanent_stat_bonus_hp, 0) AS hp,
+            COALESCE(permanent_stat_bonus_atk, 0) AS atk,
+            COALESCE(permanent_stat_bonus_matk, 0) AS matk
+     FROM characters WHERE id = $1`, [cid]
+  );
+  const essence = essR.rows[0] ?? { str: 0, dex: 0, int: 0, vit: 0, hp: 0, atk: 0, matk: 0 };
+
   // ── 획득 보너스 요약 (gold/exp/drop) ──
   // 소스: 접두사 + 길드 스킬(+ 길드 이벤트 부스트) + 영토 + 개인 부스트 + 글로벌 이벤트
   const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('../game/guild.js');
@@ -342,6 +355,8 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
     passiveBonuses: passiveTotals,
     setBonuses: setBonusTotals,
     gainBonuses,
+    // 무한의 정수 — 영구 주력 스탯 보너스 (별도 표기용)
+    essence,
   });
 });
 
