@@ -2039,7 +2039,12 @@ function applyDexBuff(s: ActiveSession, dexAddPct: number, duration: number): vo
   const actualAddedCri = s.playerStats.cri - oldCri;
 
   const oldDodge = s.playerStats.dodge || 0;
-  s.playerStats.dodge = Math.min(70, oldDodge + addedDex * 0.2);
+  // dodge cap — 확률의 군주 활성 시 95, paragon_dodge_pct 활성 시 80, 평소 70.
+  // 2026-05-11 픽스: 종래 70 하드 cap 으로 paragon 효과 (80/95) 가 DEX 버프 발동 시 깎이는 버그 차단.
+  const dodgeCap = s.passives.get('paragon_chance_lord') ? 95
+                 : s.passives.get('paragon_dodge_pct') ? 80
+                 : 70;
+  s.playerStats.dodge = Math.min(dodgeCap, oldDodge + addedDex * 0.2);
   const actualAddedDodge = s.playerStats.dodge - oldDodge;
 
   const oldAccuracy = s.playerStats.accuracy || 0;

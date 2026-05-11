@@ -300,12 +300,11 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   }
   // 키스톤 #16 확률의 군주 — 치명·회피·명중 ×2
   // 2026-05-11 픽스: cri cap 100 제거. 100 초과분은 getCritDmgBonus 가 1:1 치피로 자동 전환.
-  //   예) 치확 120 + 확률군주 → cri 240 → 적중률 100% (calcDamage 자동) + 치피 +140%.
-  //   기존엔 Math.min(100, 120×2) 로 100 cap 되어 치확/치피 둘 다 손해였음.
-  // dodge cap 80 유지 (회피 80% 상한은 게임 룰).
+  // 2026-05-11 추가: dodge cap 80 → 95 로 상향. 키스톤 명색에 맞게 ×2 효과 가시화.
+  //   raw dodge 40 → ×2 = 80 (이전엔 80 cap), 50 → 100 → 95 cap.
   if (pMap.has('paragon_chance_lord')) {
     eff.cri = eff.cri * 2;
-    eff.dodge = Math.min(80, eff.dodge * 2);
+    eff.dodge = Math.min(95, eff.dodge * 2);
     eff.accuracy = Math.min(200, eff.accuracy * 2);
   }
   // 키스톤 #2 운명의 결박 — 회피·치명 0
