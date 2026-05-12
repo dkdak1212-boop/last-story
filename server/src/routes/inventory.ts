@@ -626,8 +626,9 @@ router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const r = await query<{ auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[]; auto_sell_protect_3opt: boolean }>(
+  const r = await query<{ auto_dismantle_tiers: number; auto_dismantle_unique: boolean; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[]; auto_sell_protect_3opt: boolean }>(
     `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique,
             COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
             COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
             COALESCE(auto_sell_protect_3opt, TRUE) AS auto_sell_protect_3opt
@@ -637,6 +638,7 @@ router.get('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => {
   res.json({
     tiers,
     t1: !!(tiers & 1), t2: !!(tiers & 2), t3: !!(tiers & 4), t4: !!(tiers & 8),
+    unique: !!r.rows[0]?.auto_dismantle_unique,
     qualityMax: r.rows[0]?.auto_sell_quality_max ?? 0,
     protectPrefixes: r.rows[0]?.auto_sell_protect_prefixes ?? [],
     protect3opt: r.rows[0]?.auto_sell_protect_3opt ?? true,
@@ -655,6 +657,7 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
     t3: z.boolean().optional(),
     t4: z.boolean().optional(),
     tiers: z.number().int().min(0).max(15).optional(),
+    unique: z.boolean().optional(),
     qualityMax: z.number().int().min(0).max(100).optional(),
     protectPrefixes: z.array(z.string()).optional(),
     protect3opt: z.boolean().optional(),
@@ -681,6 +684,10 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
 
   const updates: string[] = ['auto_dismantle_tiers = $1', 'auto_dismantle_common = $2'];
   const params: unknown[] = [newTiers, newTiers > 0];
+  if (parsed.data.unique !== undefined) {
+    updates.push(`auto_dismantle_unique = $${params.length + 1}`);
+    params.push(parsed.data.unique);
+  }
   if (parsed.data.qualityMax !== undefined) {
     updates.push(`auto_sell_quality_max = $${params.length + 1}`);
     params.push(parsed.data.qualityMax);
@@ -697,8 +704,9 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
   invalidateAutoSellCache(id); // 전투 세션이 있으면 다음 킬에 재로드
 
-  const fresh = await query<{ auto_sell_quality_max: number; auto_sell_protect_prefixes: string[] }>(
-    `SELECT COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
+  const fresh = await query<{ auto_dismantle_unique: boolean; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[] }>(
+    `SELECT COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique,
+            COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
             COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes
      FROM characters WHERE id = $1`, [id]
   );
@@ -706,6 +714,7 @@ router.post('/:id/auto-dismantle', async (req: AuthedRequest, res: Response) => 
   res.json({
     tiers: newTiers,
     t1: !!(newTiers & 1), t2: !!(newTiers & 2), t3: !!(newTiers & 4), t4: !!(newTiers & 8),
+    unique: !!fresh.rows[0]?.auto_dismantle_unique,
     qualityMax: fresh.rows[0]?.auto_sell_quality_max ?? 0,
     protectPrefixes: fresh.rows[0]?.auto_sell_protect_prefixes ?? [],
   });
@@ -716,17 +725,19 @@ router.get('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
-  const r = await query<{ drop_filter_tiers: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean }>(
+  const r = await query<{ drop_filter_tiers: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean; auto_dismantle_unique: boolean }>(
     `SELECT COALESCE(drop_filter_tiers, 0) AS drop_filter_tiers,
             COALESCE(drop_filter_common, FALSE) AS drop_filter_common,
             COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
-            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt
+            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt,
+            COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique
      FROM characters WHERE id = $1`, [id]
   );
   const t = r.rows[0]?.drop_filter_tiers ?? 0;
   res.json({
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
     common: r.rows[0]?.drop_filter_common ?? false,
+    unique: !!r.rows[0]?.auto_dismantle_unique,
     protectPrefixes: r.rows[0]?.drop_filter_protect_prefixes ?? [],
     protect3opt: r.rows[0]?.drop_filter_protect_3opt ?? true,
   });
@@ -743,6 +754,7 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
     t3: z.boolean().optional(),
     t4: z.boolean().optional(),
     common: z.boolean().optional(),
+    unique: z.boolean().optional(),
     protectPrefixes: z.array(z.string()).optional(),
     protect3opt: z.boolean().optional(),
   }).safeParse(req.body);
@@ -761,6 +773,10 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   const cm = parsed.data.common ?? cur.rows[0]?.drop_filter_common ?? false;
   const updates = ['drop_filter_tiers = $1', 'drop_filter_common = $2'];
   const params: unknown[] = [t, cm];
+  if (parsed.data.unique !== undefined) {
+    updates.push(`auto_dismantle_unique = $${params.length + 1}`);
+    params.push(parsed.data.unique);
+  }
   if (parsed.data.protectPrefixes !== undefined) {
     updates.push(`drop_filter_protect_prefixes = $${params.length + 1}`);
     params.push(parsed.data.protectPrefixes);
@@ -772,14 +788,16 @@ router.post('/:id/drop-filter', async (req: AuthedRequest, res: Response) => {
   params.push(id);
   await query(`UPDATE characters SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
   invalidateAutoSellCache(id);
-  const fresh = await query<{ drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean }>(
+  const fresh = await query<{ drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean; auto_dismantle_unique: boolean }>(
     `SELECT COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
-            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt
+            COALESCE(drop_filter_protect_3opt, TRUE) AS drop_filter_protect_3opt,
+            COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique
      FROM characters WHERE id = $1`, [id]
   );
   res.json({
     t1: !!(t & 1), t2: !!(t & 2), t3: !!(t & 4), t4: !!(t & 8),
     common: cm,
+    unique: !!fresh.rows[0]?.auto_dismantle_unique,
     protectPrefixes: fresh.rows[0]?.drop_filter_protect_prefixes ?? [],
     protect3opt: fresh.rows[0]?.drop_filter_protect_3opt ?? true,
   });

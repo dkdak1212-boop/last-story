@@ -368,6 +368,7 @@ interface ActiveSession {
   v2SpecialCds?: { holy: number; spirit: number; beast: number; arcane: number };
   autoSellCache: {
     auto_dismantle_tiers: number;
+    auto_dismantle_unique: boolean;  // 2026-05-12 유니크 자동분해 (줍자마자 폐기, 보상 없음)
     auto_sell_quality_max: number;
     auto_sell_protect_prefixes: string[];
     auto_sell_protect_3opt: boolean;
@@ -2154,6 +2155,11 @@ function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitL
   if (s.className === 'archer' && s.soulCharge < 5) {
     s.soulCharge++;
     if (s.soulCharge === 5) addLog(s, `[혼의 화살] 5/5 충전 완료 — 다음 스킬 폭발`);
+  }
+  // 궁수 archerRange — 치명타 발동 시 +1 (max 20 + archer_range_max passive). 2026-05-12 처치 → 치명타로 변경.
+  if (s.className === 'archer') {
+    const baseMax = 20 + getPassive(s, 'archer_range_max');
+    s.archerRange = Math.min(baseMax, (s.archerRange || 0) + 1);
   }
   // gauge_on_crit_pct 효과는 spd_pct (현재속도 +%) 로 전환됨 — 액션 루프에서 effectivePlayerSpeed 에 적용.
   const critLifesteal = getPassive(s, 'crit_lifesteal');
@@ -4604,10 +4610,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       addLog(s, `[그림자 폭주] 본체 스피드 +${killSpd}% (5턴)`);
     }
   }
-  // 궁수 archerRange 스택 — 처치마다 +1 (max 20 + archer_range_max 보너스)
+  // 궁수 archerRange 스택 — 처치 시 증가 제거 (2026-05-12). 치명타 발동 시 누적으로 변경됨 (applyCritPostEffects).
   if (s.className === 'archer') {
+    // 저격수의 호흡 — 연속 처치 streak (cap 5, 치명타 streak 와 별개로 유지)
     const baseMax = 20 + getPassive(s, 'archer_range_max');
-    s.archerRange = Math.min(baseMax, (s.archerRange || 0) + 1);
+    void baseMax;  // baseMax 는 cap 계산용으로 applyCritPostEffects 에서 사용
     // 저격수의 호흡 — 연속 처치 streak (cap 5), playerStats.cri 누적 적용
     const preciseChain = getPassive(s, 'precise_chain');
     if (preciseChain > 0) {
@@ -5116,6 +5123,12 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
             const protected3opt = is3Options && dfProtect3opt;
             if (!protected3opt && !dfHasProtected && dfTierMatch) continue;
           }
+        }
+      } else {
+        // 유니크 자동분해 — 2026-05-12. 줍지 않고 폐기 (보상 없음).
+        if (ac.auto_dismantle_unique) {
+          addLog(s, `[유니크 자동분해] ${item.name} 폐기`);
+          continue;
         }
       }
     }
@@ -6100,10 +6113,11 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
 // invalidateAutoSellCache(characterId) 호출 → null 로 리셋 → 다음 킬에 재로드.
 async function loadAutoSellCache(s: ActiveSession): Promise<void> {
   const r = await query<{
-    auto_dismantle_tiers: number; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[]; auto_sell_protect_3opt: boolean;
+    auto_dismantle_tiers: number; auto_dismantle_unique: boolean; auto_sell_quality_max: number; auto_sell_protect_prefixes: string[]; auto_sell_protect_3opt: boolean;
     drop_filter_tiers: number; drop_filter_quality_max: number; drop_filter_common: boolean; drop_filter_protect_prefixes: string[]; drop_filter_protect_3opt: boolean;
   }>(
     `SELECT COALESCE(auto_dismantle_tiers, 0) AS auto_dismantle_tiers,
+            COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique,
             COALESCE(auto_sell_quality_max, 0) AS auto_sell_quality_max,
             COALESCE(auto_sell_protect_prefixes, '{}') AS auto_sell_protect_prefixes,
             COALESCE(auto_sell_protect_3opt, TRUE) AS auto_sell_protect_3opt,
@@ -6118,6 +6132,7 @@ async function loadAutoSellCache(s: ActiveSession): Promise<void> {
   const row = r.rows[0];
   s.autoSellCache = {
     auto_dismantle_tiers: row?.auto_dismantle_tiers ?? 0,
+    auto_dismantle_unique: !!row?.auto_dismantle_unique,
     auto_sell_quality_max: row?.auto_sell_quality_max ?? 0,
     auto_sell_protect_prefixes: row?.auto_sell_protect_prefixes ?? [],
     auto_sell_protect_3opt: row?.auto_sell_protect_3opt ?? true,

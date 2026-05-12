@@ -65,7 +65,7 @@ export function InventoryScreen() {
   const [equipped, setEquipped] = useState<Equipped>({});
   const [msg, setMsg] = useState('');
   const [_legacyFlag] = useState(false); // 레거시 호환 유지
-  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; common: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, common: false, protectPrefixes: [], protect3opt: true });
+  const [dropFilter, setDropFilter] = useState<{ t1: boolean; t2: boolean; t3: boolean; t4: boolean; common: boolean; unique: boolean; protectPrefixes: string[]; protect3opt: boolean }>({ t1: false, t2: false, t3: false, t4: false, common: false, unique: false, protectPrefixes: [], protect3opt: true });
   const [categoryTab, setCategoryTab] = useState<'recent' | 'weapon' | 'helm' | 'chest' | 'boots' | 'ring' | 'amulet' | 'consumable' | 'etc' | 'locked'>('recent');
   const [enhanceBusy, setEnhanceBusy] = useState(false);
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
@@ -738,6 +738,7 @@ export function InventoryScreen() {
                   <TierChip label="T2" active={dropFilter.t2} color="#b060cc" onClick={() => toggleDropFilter('t2')} />
                   <TierChip label="T3" active={dropFilter.t3} color="#daa520" onClick={() => toggleDropFilter('t3')} />
                   <TierChip label="T4" active={dropFilter.t4} color="#ff4444" onClick={() => toggleDropFilter('t4')} />
+                  <TierChip label="유니크" active={dropFilter.unique} color="#e8b938" onClick={() => toggleDropFilter('unique')} />
                 </div>
               </FilterSection>
               {(dropFilter.t1 || dropFilter.t2 || dropFilter.t3 || dropFilter.t4) && (
