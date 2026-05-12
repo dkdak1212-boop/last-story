@@ -298,37 +298,63 @@ export function SkillsScreen() {
   );
 }
 
-// 클래스별 시그니처 패시브 — 한글, 이모지 제외 (2026-05-13).
-const SIGNATURE_BY_CLASS: Record<string, { title: string; desc: string }> = {
-  warrior: {
-    title: '분노 폭발',
-    desc: '전투 중 분노 게이지가 100에 도달하면 자동 발동. 3 플레이어 행동 동안 모든 공격 데미지 3배.',
-  },
-  mage: {
-    title: '원소 연계',
-    desc: '직전 스킬과 같은 속성 공격 시 데미지 누적 보너스. 최대 3 중첩, 다른 속성 사용 시 초기화.',
-  },
-  rogue: {
-    title: '독의 공명',
-    desc: '독·출혈 스택 누적 시 데미지 증폭. 연속 공격으로 스택 유지, 처치 시 인접 적에게 전파.',
-  },
-  cleric: {
-    title: '광휘의 인장',
-    desc: '공격 적중 시 광휘 스택 누적 (최대 3). 3 스택 도달 시 2턴 동안 속도 +100% (중첩 불가, 효과 종료 후 스택 리셋).',
-  },
-  summoner: {
-    title: '소환 폭주',
-    desc: '60초마다 자동 발동. 30초 동안 본체 스킬 쿨다운 -25%, 마공 +25%, 받는 피해 +25%.',
-  },
-  archer: {
-    title: '저격수의 호흡',
-    desc: '치명타 발동 시 사거리 스택 누적 (최대 20). 스택당 데미지 보너스. 피격·사망 시 초기화.',
-  },
+// 클래스별 시그니처 게이지/패시브 — 한글, 이모지 제외 (2026-05-13).
+// 한 클래스가 여러 게이지 메커니즘을 가질 수 있어 entries[] 로 구성.
+interface SignatureEntry { name: string; desc: string }
+const SIGNATURE_BY_CLASS: Record<string, SignatureEntry[]> = {
+  warrior: [
+    {
+      name: '분노 폭발',
+      desc: '평타·스킬로 분노 누적. 게이지 100 도달 시 자동 발동 — 다음 3 행동 동안 모든 공격 데미지 3배. 폭발 후 분노 0으로 초기화.',
+    },
+  ],
+  mage: [
+    {
+      name: '마나의 흐름',
+      desc: '스킬 사용 시 마나 스택 +1 (최대 5). 5 스택 도달 시 5 행동 동안 모든 스킬 쿨다운 무시 (버스트 모드). 버스트 중 스킬 사용은 스택 누적 안 함.',
+    },
+    {
+      name: '원소 연계',
+      desc: '직전 스킬과 같은 속성 공격 시 데미지 누적 보너스 (최대 3 중첩, 다른 속성 사용 시 초기화).',
+    },
+  ],
+  rogue: [
+    {
+      name: '독의 공명',
+      desc: '독·출혈 도트 부여 시 공명 게이지 +1 (최대 10). 10 도달 시 다음 공격에 인접 적 공명 폭발 (광역 도트 폭딜). 폭발 후 게이지 0 리셋.',
+    },
+  ],
+  cleric: [
+    {
+      name: '광휘의 인장',
+      desc: '공격 적중 시 광휘 스택 +1 (최대 3). 3 스택 도달 시 2 행동 동안 속도 +100%. 중첩 불가 — 효과 활성 중엔 스택 누적 X. 효과 종료 후 스택 0 리셋.',
+    },
+  ],
+  summoner: [
+    {
+      name: '소환 폭주',
+      desc: '60초마다 자동 발동. 발동 시 30초 동안 본체 스킬 쿨다운 −25%, 마공 +25%, 받는 피해 +25%. 활성 종료 후 30초 대기 → 재발동.',
+    },
+  ],
+  archer: [
+    {
+      name: '혼의 화살',
+      desc: '치명타 발동 시 차지 +1 (최대 5). 5 차지 도달 후 다음 데미지 스킬 사용 시 강제 치명타 + 데미지 ×6 폭발. 사용 후 차지 0 리셋.',
+    },
+    {
+      name: '사거리 스택',
+      desc: '치명타 발동 시 사거리 스택 +1 (최대 20). 스택당 데미지 보너스 (stack × 노드 archer_range_amp%). 피격·사망 시 0 초기화.',
+    },
+    {
+      name: '저격수의 호흡',
+      desc: '연속 처치 시 치명타 확률 누적 (cap 5 streak, streak × 노드 precise_chain%). 피격·사망 시 누적치 회수.',
+    },
+  ],
 };
 
 function SignaturePassiveBox({ className }: { className: string }) {
-  const sig = SIGNATURE_BY_CLASS[className];
-  if (!sig) return null;
+  const entries = SIGNATURE_BY_CLASS[className];
+  if (!entries || entries.length === 0) return null;
   return (
     <div style={{
       marginBottom: 16,
@@ -338,11 +364,13 @@ function SignaturePassiveBox({ className }: { className: string }) {
       borderLeft: '4px solid #e8b938',
       borderRadius: 4,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: '#c9a24d', fontWeight: 700, letterSpacing: 1 }}>고유 패시브</span>
-        <span style={{ fontSize: 14, color: '#e8b938', fontWeight: 800 }}>{sig.title}</span>
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>{sig.desc}</div>
+      <div style={{ fontSize: 11, color: '#c9a24d', fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>고유 패시브 / 게이지</div>
+      {entries.map((e, i) => (
+        <div key={i} style={{ marginBottom: i < entries.length - 1 ? 10 : 0 }}>
+          <div style={{ fontSize: 13, color: '#e8b938', fontWeight: 800, marginBottom: 3 }}>{e.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.55 }}>{e.desc}</div>
+        </div>
+      ))}
     </div>
   );
 }
