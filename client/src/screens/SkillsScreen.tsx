@@ -148,16 +148,12 @@ export function SkillsScreen() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2 style={{ color: 'var(--accent)' }}>스킬</h2>
         <div style={{ fontSize: 13, color: autoCount >= 7 ? 'var(--danger)' : 'var(--text-dim)' }}>
           전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 7 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/7
         </div>
       </div>
-
-      {/* 클래스 고유 시그니처 패시브 — 2026-05-12 추가 */}
-      <SignaturePassiveBox className={className} />
-
       {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') || msg.includes('저장') || msg.includes('적용') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}
 
       {/* 프리셋 슬롯 */}
@@ -298,52 +294,3 @@ export function SkillsScreen() {
   );
 }
 
-// 클래스별 시그니처 패시브 설명 — 한글, 이모지 제외 (2026-05-12).
-// 서버 engine.ts 에서 각 클래스가 가진 고유 effect 를 한 줄 요약으로 정리.
-const SIGNATURE_BY_CLASS: Record<string, { title: string; desc: string }> = {
-  warrior: {
-    title: '분노 폭발',
-    desc: '전투 중 분노 게이지가 100에 도달하면 자동 발동. 3 플레이어 행동 동안 모든 공격 데미지 3배.',
-  },
-  mage: {
-    title: '원소 연계',
-    desc: '직전 스킬과 같은 속성 공격 시 데미지 누적 보너스. 최대 3 중첩, 다른 속성 사용 시 초기화.',
-  },
-  rogue: {
-    title: '연속 공격',
-    desc: '같은 적을 연속으로 공격할 때 streak 누적. 누적당 데미지 보너스 적용.',
-  },
-  cleric: {
-    title: '신앙',
-    desc: '회복 스킬 사용 시 다음 공격 데미지 증폭. 회복량 비례로 누적되며 공격 시 소모.',
-  },
-  summoner: {
-    title: '정령 인도',
-    desc: '소환수 보유 시 본체 마법 공격력 강화. 정령의 가호/보호 스킬로 일시 마공 50% 및 받는 피해 50% 감소.',
-  },
-  archer: {
-    title: '저격수의 호흡',
-    desc: '치명타 발동 시 사거리 스택 누적 (최대 20). 스택당 데미지 보너스. 연속 처치 시 치명타 확률 추가 누적. 피격/사망 시 초기화.',
-  },
-};
-
-function SignaturePassiveBox({ className }: { className: string }) {
-  const sig = SIGNATURE_BY_CLASS[className];
-  if (!sig) return null;
-  return (
-    <div style={{
-      marginBottom: 16,
-      padding: '12px 14px',
-      background: 'linear-gradient(90deg, rgba(232,185,56,0.10), rgba(232,185,56,0.04))',
-      border: '1px solid #c9a24d',
-      borderLeft: '4px solid #e8b938',
-      borderRadius: 4,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: '#c9a24d', fontWeight: 700, letterSpacing: 1 }}>고유 패시브</span>
-        <span style={{ fontSize: 14, color: '#e8b938', fontWeight: 800 }}>{sig.title}</span>
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>{sig.desc}</div>
-    </div>
-  );
-}
