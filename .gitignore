@@ -7,3 +7,12 @@ build/
 .DS_Store
 .vscode/
 .idea/
+
+# 임시 admin 스크립트 (_ 접두사 일회용)
+server/scripts/_*.cjs
+server/scripts/_*.sql
+
+# 외부 프로젝트 sqlite (last-story 에 들어오면 안 되는 것)
+server/doljuk.db
+*.sqlite
+*.sqlite3

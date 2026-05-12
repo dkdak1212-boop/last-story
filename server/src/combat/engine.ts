@@ -4578,10 +4578,7 @@ function monsterAction(s: ActiveSession): void {
       if (dmg < minDmg) dmg = minDmg;
     }
 
-    // 소환사 소환 폭주 — 활성 중 받는 피해 +25%
-    if (s.className === 'summoner' && (s.summonerFrenzyUntil || 0) > Date.now()) {
-      dmg = Math.round(dmg * 1.25);
-    }
+    // 소환사 소환 폭주 — 받는 피해 디버프는 2026-05-13 제거 (Phase I 감사 DPS 최하위 직업에 페널티 부적절)
 
     if (dmg > 0) {
       s.playerHp -= dmg;
@@ -5952,7 +5949,7 @@ async function combatTick(): Promise<void> {
         s.playerGauge -= GAUGE_MAX;
         s.actionCount++;
         s.paragonActionCount++;
-        // 소환사 소환 폭주 — 60초마다 자동 발동, 30초 동안 matk +25% (atk_buff effect), 쿨다운 -25% (사용 시점 처리), 받는 피해 +25%
+        // 소환사 소환 폭주 — 60초마다 자동 발동, 30초 동안 matk +25% (atk_buff effect), 쿨다운 -25% (사용 시점 처리)
         if (s.className === 'summoner') {
           const now = Date.now();
           const nextAt = s.summonerFrenzyNextAt || 0;
@@ -5963,7 +5960,7 @@ async function combatTick(): Promise<void> {
             addEffect(s, {
               type: 'atk_buff', value: 25, remainingActions: 30, source: 'monster',
             });
-            addLog(s, `[소환 폭주] 30초간 쿨다운 -25% / 마공 +25% / 받는 피해 +25%`);
+            addLog(s, `[소환 폭주] 30초간 쿨다운 -25% / 마공 +25%`);
           }
         }
         // self_dex_buff (절대 정밀 등) 만료 카운트다운 — 매 액션 -1, 0 도달 시 회수
