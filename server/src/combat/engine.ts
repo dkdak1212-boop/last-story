@@ -2742,6 +2742,18 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
   if (burst > 0) {
     s.monsterHp -= burst;
     addLog(s, `[독의 공명] 폭발! ${burst} 데미지`);
+    // 2026-05-13: 그림자 분신도 함께 발동 — 분신 1마리당 본체 burst 의 50% 추가 데미지.
+    const cloneBase = 1;
+    const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
+    const cloneCount = Math.min(5, cloneBase + extraCount);
+    const cloneBurst = Math.round(burst * 0.5);
+    for (let i = 1; i <= cloneCount; i++) {
+      if (s.monsterHp <= 0) break;
+      if (cloneBurst <= 0) break;
+      s.monsterHp -= cloneBurst;
+      const cTag = cloneCount > 1 ? ` ${i}` : '';
+      addLog(s, `[그림자 분신${cTag}] 독의 공명 폭발! ${cloneBurst} 데미지`);
+    }
     s.poisonResonance = 0;
   }
 }
