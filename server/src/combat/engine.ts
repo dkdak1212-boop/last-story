@@ -414,6 +414,12 @@ interface ActiveSession {
   // playerStats.cri 에 streak × precise_chain 만큼 누적 적용 (트랜시언트 보너스).
   archerCritStreak?: number;
   archerCritStreakBonus?: number; // 현재 cri 에 부가된 누적값 (피격 시 정확히 반환용)
+  // 성직자 광휘의 인장 (2026-05-13) — 공격 적중 시 스택 +1 (cap 3). 3 도달 시 spd +100% / 2턴 + 스택 리셋.
+  clericLightsealStacks?: number;
+  clericLightsealUntilAction?: number;  // 효과 종료 시점 actionCount. 그 이전은 스택 누적 X (중첩 방지).
+  // 소환사 소환 폭주 (2026-05-13) — 60초마다 자동 발동. 30초 동안 쿨다운 -25% / matk +25% / 받는피해 +25%.
+  summonerFrenzyNextAt?: number;   // 다음 발동 시각 (ms epoch). 0 또는 미설정 = 즉시 가능.
+  summonerFrenzyUntil?: number;     // 활성 종료 시각 (ms epoch). 0 또는 미설정 = 비활성.
 }
 
 export const activeSessions = new Map<number, ActiveSession>();
@@ -2150,6 +2156,25 @@ function getCritDmgBonus(s: ActiveSession): number {
 // 게이지 재충전(접두사) + 치명 흡혈(패시브) 를 일관되게 적용.
 // hitLabel 은 다타 스킬에서 "1타", "2타" 같은 식별 (빈 문자열이면 생략).
 function applyCritPostEffects(s: ActiveSession, dmg: number, crit: boolean, hitLabel: string = ''): void {
+  void hitLabel;
+  void dmg;
+  // 성직자 광휘의 인장 — 공격 적중 시 광휘 스택 +1 (cap 3), 3 스택 도달 시 spd +100% / 2턴.
+  // 효과 활성 중에는 스택 누적 X (중첩 불가). 효과 종료 후 자연 스택 0 리셋.
+  if (s.className === 'cleric') {
+    // 활성 여부 — clericLightsealUntilAction 으로 추적 (효과 종료 시점 = actionCount + 2).
+    const lightsealActive = (s.clericLightsealUntilAction || 0) > s.actionCount;
+    if (!lightsealActive) {
+      s.clericLightsealStacks = Math.min(3, (s.clericLightsealStacks || 0) + 1);
+      if (s.clericLightsealStacks >= 3) {
+        addEffect(s, {
+          type: 'speed_mod', value: 100, remainingActions: 2, source: 'monster',
+        });
+        addLog(s, `[광휘의 인장] 3 스택 — 속도 +100% (2턴)`);
+        s.clericLightsealStacks = 0;
+        s.clericLightsealUntilAction = s.actionCount + 2;
+      }
+    }
+  }
   if (!crit) return;
   // 궁수 시그니처 — 혼의 화살: 치명타 시 soulCharge +1 (cap 5). 트리거는 executeSkill 시작에서.
   if (s.className === 'archer' && s.soulCharge < 5) {
@@ -2783,6 +2808,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         cd = Math.max(1, Math.round(cd * 2));
         addLog(s, `[광기의 재충전] 쿨다운 ×2 (${cd})`);
       }
+    }
+    // 소환사 소환 폭주 활성 — 쿨다운 -25%
+    if (s.className === 'summoner' && (s.summonerFrenzyUntil || 0) > Date.now() && cd > 0) {
+      cd = Math.max(1, Math.round(cd * 0.75));
     }
     if (cd > 0) s.skillCooldowns.set(skill.id, cd);
   }
@@ -4511,6 +4540,11 @@ function monsterAction(s: ActiveSession): void {
       if (dmg < minDmg) dmg = minDmg;
     }
 
+    // 소환사 소환 폭주 — 활성 중 받는 피해 +25%
+    if (s.className === 'summoner' && (s.summonerFrenzyUntil || 0) > Date.now()) {
+      dmg = Math.round(dmg * 1.25);
+    }
+
     if (dmg > 0) {
       s.playerHp -= dmg;
       const defUsed = Math.round(playerDefStats.def);
@@ -5880,6 +5914,20 @@ async function combatTick(): Promise<void> {
         s.playerGauge -= GAUGE_MAX;
         s.actionCount++;
         s.paragonActionCount++;
+        // 소환사 소환 폭주 — 60초마다 자동 발동, 30초 동안 matk +25% (atk_buff effect), 쿨다운 -25% (사용 시점 처리), 받는 피해 +25%
+        if (s.className === 'summoner') {
+          const now = Date.now();
+          const nextAt = s.summonerFrenzyNextAt || 0;
+          if (now >= nextAt) {
+            s.summonerFrenzyUntil = now + 30_000;
+            s.summonerFrenzyNextAt = now + 60_000;
+            // matk +25% — atk_buff effect (source='monster' = self-buff), 30초 = 약 30 행동
+            addEffect(s, {
+              type: 'atk_buff', value: 25, remainingActions: 30, source: 'monster',
+            });
+            addLog(s, `[소환 폭주] 30초간 쿨다운 -25% / 마공 +25% / 받는 피해 +25%`);
+          }
+        }
         // self_dex_buff (절대 정밀 등) 만료 카운트다운 — 매 액션 -1, 0 도달 시 회수
         if (s.dexBuffRemainingActions > 0) {
           s.dexBuffRemainingActions--;

@@ -148,12 +148,16 @@ export function SkillsScreen() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ color: 'var(--accent)' }}>스킬</h2>
         <div style={{ fontSize: 13, color: autoCount >= 7 ? 'var(--danger)' : 'var(--text-dim)' }}>
           전투 슬롯 <span style={{ fontWeight: 700, color: autoCount >= 7 ? 'var(--danger)' : 'var(--accent)' }}>{autoCount}</span>/7
         </div>
       </div>
+
+      {/* 클래스 고유 시그니처 패시브 — 2026-05-13 재부착 (성직자·소환사 추가) */}
+      <SignaturePassiveBox className={className} />
+
       {msg && <div style={{ color: msg.includes('OFF') ? 'var(--danger)' : msg.includes('ON') || msg.includes('저장') || msg.includes('적용') ? 'var(--success)' : 'var(--danger)', fontSize: 13, marginBottom: 10, fontWeight: 700 }}>{msg}</div>}
 
       {/* 프리셋 슬롯 */}
@@ -290,6 +294,55 @@ export function SkillsScreen() {
         })()}
         {skills.length === 0 && <div style={{ color: 'var(--text-dim)' }}>스킬이 없다.</div>}
       </div>
+    </div>
+  );
+}
+
+// 클래스별 시그니처 패시브 — 한글, 이모지 제외 (2026-05-13).
+const SIGNATURE_BY_CLASS: Record<string, { title: string; desc: string }> = {
+  warrior: {
+    title: '분노 폭발',
+    desc: '전투 중 분노 게이지가 100에 도달하면 자동 발동. 3 플레이어 행동 동안 모든 공격 데미지 3배.',
+  },
+  mage: {
+    title: '원소 연계',
+    desc: '직전 스킬과 같은 속성 공격 시 데미지 누적 보너스. 최대 3 중첩, 다른 속성 사용 시 초기화.',
+  },
+  rogue: {
+    title: '독의 공명',
+    desc: '독·출혈 스택 누적 시 데미지 증폭. 연속 공격으로 스택 유지, 처치 시 인접 적에게 전파.',
+  },
+  cleric: {
+    title: '광휘의 인장',
+    desc: '공격 적중 시 광휘 스택 누적 (최대 3). 3 스택 도달 시 2턴 동안 속도 +100% (중첩 불가, 효과 종료 후 스택 리셋).',
+  },
+  summoner: {
+    title: '소환 폭주',
+    desc: '60초마다 자동 발동. 30초 동안 본체 스킬 쿨다운 -25%, 마공 +25%, 받는 피해 +25%.',
+  },
+  archer: {
+    title: '저격수의 호흡',
+    desc: '치명타 발동 시 사거리 스택 누적 (최대 20). 스택당 데미지 보너스. 피격·사망 시 초기화.',
+  },
+};
+
+function SignaturePassiveBox({ className }: { className: string }) {
+  const sig = SIGNATURE_BY_CLASS[className];
+  if (!sig) return null;
+  return (
+    <div style={{
+      marginBottom: 16,
+      padding: '12px 14px',
+      background: 'linear-gradient(90deg, rgba(232,185,56,0.10), rgba(232,185,56,0.04))',
+      border: '1px solid #c9a24d',
+      borderLeft: '4px solid #e8b938',
+      borderRadius: 4,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: '#c9a24d', fontWeight: 700, letterSpacing: 1 }}>고유 패시브</span>
+        <span style={{ fontSize: 14, color: '#e8b938', fontWeight: 800 }}>{sig.title}</span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.6 }}>{sig.desc}</div>
     </div>
   );
 }
