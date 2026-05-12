@@ -1744,6 +1744,10 @@ function applyDamagePrefixes(
   }
   // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (rageProcRemaining 카운터)
   if (cache ? cache.rageProc : s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
+  // 마법사 마나의 흐름 — 활성 중 데미지 +50% (2026-05-13)
+  if (s.className === 'mage' && s.manaFlowActive > 0) {
+    dmg = Math.round(dmg * 1.5);
+  }
   // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용, 노드 합산)
   // 2026-05-10 버그 수정: case 'damage' 인라인 파이프라인엔 있었지만 이 공통 파이프라인엔 누락 →
   //   multi_hit / multi_hit_poison / shield_break(아래) / holy_strike 등 17 스킬에서 +N% 가 무시되던 문제.
@@ -4012,7 +4016,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (s.manaFlowStacks >= 5) {
         s.manaFlowStacks = 0;
         s.manaFlowActive = 5;
-        addLog(s, `[마나의 흐름] 5행동간 스킬 쿨다운 무시!`);
+        // 2026-05-13 추가: 발동 시 속도 +100% (5턴) + 데미지 +50% 효과.
+        // speed_mod 는 중첩 방지 (sameSign 정책으로 자동 갱신).
+        addEffect(s, {
+          type: 'speed_mod', value: 100, remainingActions: 5, source: 'monster',
+        });
+        addLog(s, `[마나의 흐름] 5행동간 쿨다운 무시 + 속도 +100% + 데미지 +50%!`);
       }
     }
   }
