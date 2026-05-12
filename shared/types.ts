@@ -203,7 +203,9 @@ export interface CombatSnapshot {
   manaFlow?: { stacks: number; active: number }; // 마법사 전용: 마나의 흐름 (5스택 → 5행동 버스트)
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10, 10 도달 시 다음 공격에 독 폭발)
   soulCharge?: number; // 궁수 전용: 혼의 화살 차지 (0~5, 5 도달 시 다음 데미지 스킬 ×6 + 강제 cri)
-  archerRange?: { current: number; max: number; ampPerStack: number }; // 궁수 전용: 사거리 스택 (처치 누적, 사망 시 0)
+  archerRange?: { current: number; max: number; ampPerStack: number }; // 궁수 전용: 사거리 스택 (치명타 누적, 사망 시 0)
+  clericLightseal?: { stacks: number; activeActionsLeft: number }; // 성직자 광휘의 인장 (스택 0~3, 효과 활성 잔여 행동)
+  summonerFrenzy?: { activeMsLeft: number; cooldownMsLeft: number }; // 소환사 소환 폭주 — 활성 잔여 ms / 다음 발동까지 ms
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간(초): 마지막/평균/킬수/현재경과

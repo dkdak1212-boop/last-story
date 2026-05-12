@@ -985,6 +985,43 @@ export function CombatScreen() {
               </div>
             </div>
           )}
+          {state.clericLightseal !== undefined && (() => {
+            const { stacks, activeActionsLeft } = state.clericLightseal;
+            const active = activeActionsLeft > 0;
+            return (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: active ? '#ffe680' : '#e8b938' }}>
+                  <span>✨ 광휘의 인장</span>
+                  <span>{active ? `발동 중 — 속도 +100% (${activeActionsLeft}턴 남음)` : `${stacks}/3${stacks >= 2 ? ' — 곧 발동' : ''}`}</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: active ? '100%' : `${(stacks / 3) * 100}%`, background: active ? '#ffe680' : '#e8b938', transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            );
+          })()}
+          {state.summonerFrenzy !== undefined && (() => {
+            const { activeMsLeft, cooldownMsLeft } = state.summonerFrenzy;
+            const active = activeMsLeft > 0;
+            const totalMs = active ? 30_000 : 60_000;
+            const currentMs = active ? activeMsLeft : cooldownMsLeft;
+            const widthPct = Math.max(0, Math.min(100, (currentMs / totalMs) * 100));
+            return (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: active ? '#ff8855' : '#cc6644' }}>
+                  <span>👹 소환 폭주</span>
+                  <span>{active
+                    ? `발동 중 — 쿨 -25% / 마공 +25% / 피해 +25% (${Math.ceil(activeMsLeft / 1000)}s)`
+                    : cooldownMsLeft > 0
+                      ? `대기 ${Math.ceil(cooldownMsLeft / 1000)}s`
+                      : '다음 행동에 발동'}</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${widthPct}%`, background: active ? '#ff8855' : '#cc6644', transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            );
+          })()}
           {state.manaFlow !== undefined && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: state.manaFlow.active > 0 ? '#66ddff' : '#6688cc' }}>

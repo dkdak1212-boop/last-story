@@ -76,6 +76,8 @@ interface CombatSnapshot {
   poisonResonance?: number; // 도적 전용: 독의 공명 (0~10)
   soulCharge?: number; // 궁수 전용: 혼의 화살 차지 (0~5)
   archerRange?: { current: number; max: number; ampPerStack: number }; // 궁수 전용: 사거리 스택 (현재/최대) + 스택당 증폭%
+  clericLightseal?: { stacks: number; activeActionsLeft: number }; // 성직자 광휘의 인장
+  summonerFrenzy?: { activeMsLeft: number; cooldownMsLeft: number }; // 소환사 소환 폭주
   dummy?: { totalDamage: number; elapsedMs: number }; // 허수아비 존: 누적 데미지 + 경과 시간
   sessionDamage?: number; // 세션 시작 후 누적 플레이어 데미지 (사망 모달 표시용)
   killStats?: { last: number; avg: number; count: number; current: number }; // 처치 시간 통계
@@ -6325,6 +6327,14 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
   if (s.className === 'rogue') {
     snapshot.poisonResonance = s.poisonResonance;
   }
+  // 성직자 광휘의 인장 — 스택 (0~3) + 효과 활성 잔여 행동
+  if (s.className === 'cleric') {
+    const activeLeft = Math.max(0, (s.clericLightsealUntilAction || 0) - s.actionCount);
+    snapshot.clericLightseal = {
+      stacks: s.clericLightsealStacks || 0,
+      activeActionsLeft: activeLeft,
+    };
+  }
   // 궁수 혼의 화살 차지 (0~5) + 사거리 스택 (현재/최대)
   if (s.className === 'archer') {
     snapshot.soulCharge = s.soulCharge;
@@ -6334,13 +6344,20 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       ampPerStack: getPassive(s, 'archer_range_amp') || 1,
     };
   }
-  // 소환사 소환수 목록
+  // 소환사 소환수 목록 + 소환 폭주 활성/쿨다운 잔여 시간 (ms)
   if (s.className === 'summoner') {
     snapshot.summons = getActiveSummons(s).map(e => ({
       skillName: e.summonSkillName || '',
       element: e.element,
       remainingActions: e.remainingActions,
     }));
+    const now = Date.now();
+    const activeLeftMs = Math.max(0, (s.summonerFrenzyUntil || 0) - now);
+    const cooldownLeftMs = Math.max(0, (s.summonerFrenzyNextAt || 0) - now);
+    snapshot.summonerFrenzy = {
+      activeMsLeft: activeLeftMs,
+      cooldownMsLeft: activeLeftMs > 0 ? 0 : cooldownLeftMs,  // 활성 중엔 cooldown 표시 X
+    };
   }
   // 도적 그림자 분신 — UI sprite 표시용 (snapshot.summons 재활용)
   if (s.className === 'rogue') {
