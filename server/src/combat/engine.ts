@@ -1933,6 +1933,7 @@ function applyDamagePrefixes(
   if (isCrit) {
     const critDmgBonus = cache ? cache.critDmgBonusPct : getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+    dmg = applyRogueCritBonus(s, dmg, true);
     // assassin_execute: 치명타 시 적 HP 15% 이하면 즉사 확률 (종언의 기둥 면역, 자정 이후 발동)
     const execute = cache ? cache.assassinExecutePct : getPassive(s, 'assassin_execute');
     if (execute > 0 && s.monsterHp > 0 && !endlessHpPctImmune(s) && s.monsterHp <= s.monsterMaxHp * 0.15) {
@@ -2016,6 +2017,7 @@ function dealBuffSkillDamage(s: ActiveSession, skill: SkillDef, useMatk: boolean
   if (d.crit) {
     const critDmgBonus = getCritDmgBonus(s);
     if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+    dmg = applyRogueCritBonus(s, dmg, true);
   }
   // 궁수 혼의 화살 ×6 (캐스트 단위 박제)
   if (s.soulArrowPending) dmg = Math.round(dmg * 6);
@@ -2156,6 +2158,14 @@ function getCritDmgBonus(s: ActiveSession): number {
   const criOver = Math.max(0, (s.playerStats.cri || 0) - 100);
   if (criOver > 0) bonus += criOver;
   return bonus;
+}
+
+// 도적 치명의 일격 (2026-05-13) — 치명타 발동 시 적에게 입히는 피해 +20%.
+// crit 판정 직후 dmg 에 ×1.2 적용. 본체·분신·다타·2회차 모든 경로 일관 호출.
+function applyRogueCritBonus(s: ActiveSession, dmg: number, crit: boolean): number {
+  if (!crit) return dmg;
+  if (s.className !== 'rogue') return dmg;
+  return Math.round(dmg * 1.2);
 }
 
 // 치명타 후속 효과 — 모든 공격 타입(damage/multi_hit/dot/poison/stun 등)에서 공통 호출.
@@ -2546,6 +2556,7 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
       if (isCrit) {
         const critDmgBonus = getCritDmgBonus(s);
         dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
+        dmg = applyRogueCritBonus(s, dmg, true);
       }
       // 방어 일부 차감
       let finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
@@ -2947,6 +2958,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (d.crit) {
           const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+          dmg = applyRogueCritBonus(s, dmg, true);
         }
         // 전사 분노 폭발 — 3 플레이어 액션 동안 ×3 (전용 카운터 rageProcRemaining 사용)
         // 이전 atk_buff(source='monster') 방식은 monster 액션에서만 ticking 되어
@@ -3104,6 +3116,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               if (d2.crit) {
                 const critDmgBonus = getCritDmgBonus(s);
                 if (critDmgBonus > 0) dmg2 = Math.round(dmg2 * (1 + critDmgBonus / 100));
+                dmg2 = applyRogueCritBonus(s, dmg2, true);
               }
               // 전사 분노 폭발 — 2회차 추가타에도 ×3 적용 (이전 누락: 최후의 일격/치명 절격 등)
               if (s.rageProcRemaining > 0) dmg2 = Math.round(dmg2 * 3);
@@ -3771,6 +3784,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (d.crit) {
           const critDmgBonus = getCritDmgBonus(s);
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
+          dmg = applyRogueCritBonus(s, dmg, true);
         }
         s.monsterHp -= dmg;
         const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
@@ -4462,6 +4476,7 @@ function monsterAction(s: ActiveSession): void {
         if (isCrit) {
           const critDmgBonus = getCritDmgBonus(s);
           counterDmg = Math.round(counterDmg * (1.5 + critDmgBonus / 100));
+          counterDmg = applyRogueCritBonus(s, counterDmg, true);
           counterTag = ' (치명타!)';
         }
         counterDmg = Math.max(1, counterDmg - Math.round(def * 0.5));
