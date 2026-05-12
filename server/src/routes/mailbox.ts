@@ -193,4 +193,24 @@ router.post('/:id/mailbox/:mailId/delete', async (req: AuthedRequest, res: Respo
   res.json({ ok: true });
 });
 
+// 우편 전체 삭제 — 미수령 보상(아이템/골드) 있는 우편은 자동 제외 (2026-05-12).
+router.post('/:id/mailbox/delete-all', async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const char = await loadCharacterOwned(id, req.userId!);
+  if (!char) return res.status(404).json({ error: 'not found' });
+
+  // 삭제 대상: 이미 수령(read_at IS NOT NULL) 또는 보상이 없는 우편 (item_id IS NULL AND gold = 0)
+  const r = await query(
+    `DELETE FROM mailbox
+       WHERE character_id = $1
+         AND (read_at IS NOT NULL OR (item_id IS NULL AND COALESCE(gold, '0')::bigint = 0))`,
+    [id]
+  );
+  // 잔여 (미수령 보상 우편) 카운트
+  const left = await query<{ n: number }>(
+    'SELECT COUNT(*)::int AS n FROM mailbox WHERE character_id = $1', [id]
+  );
+  res.json({ ok: true, deleted: r.rowCount ?? 0, remaining: left.rows[0]?.n ?? 0 });
+});
+
 export default router;

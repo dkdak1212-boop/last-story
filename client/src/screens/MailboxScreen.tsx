@@ -53,6 +53,18 @@ export function MailboxScreen() {
     }
   }
 
+  async function deleteAll() {
+    if (!active) return;
+    if (!confirm('미수령 보상이 없는 우편을 모두 삭제하시겠습니까? (보상 있는 우편은 보존됩니다)')) return;
+    try {
+      const r = await api<{ deleted: number; remaining: number }>(`/characters/${active.id}/mailbox/delete-all`, { method: 'POST' });
+      setMsg(`${r.deleted}개 삭제 완료${r.remaining > 0 ? ` · 보상 있는 우편 ${r.remaining}개 보존` : ''}`);
+      refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '삭제 실패');
+    }
+  }
+
   const unclaimedCount = mails.filter(m => !m.claimed).length;
 
   const [tab, setTab] = useState<'inbox' | 'send'>('inbox');
@@ -91,9 +103,18 @@ export function MailboxScreen() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ color: 'var(--accent)' }}>우편함</h2>
-        {unclaimedCount > 0 && tab === 'inbox' && (
-          <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700 }}>미수령 {unclaimedCount}건</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {unclaimedCount > 0 && tab === 'inbox' && (
+            <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700 }}>미수령 {unclaimedCount}건</span>
+          )}
+          {tab === 'inbox' && mails.length > 0 && (
+            <button
+              onClick={deleteAll}
+              style={{ fontSize: 11, padding: '4px 10px', border: '1px solid var(--danger)', color: 'var(--danger)', background: 'transparent', borderRadius: 3, cursor: 'pointer' }}
+              title="미수령 보상이 없는 우편을 일괄 삭제 (보상 있는 우편은 보존)"
+            >전체 삭제</button>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         <button className={tab === 'inbox' ? 'primary' : ''} onClick={() => setTab('inbox')}>받은 우편</button>

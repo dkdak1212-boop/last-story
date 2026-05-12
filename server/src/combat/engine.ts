@@ -4908,6 +4908,11 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
       // 2차 버프 적용 (접두사·노드 패시브) — 누락 시 소환사·마법사 데미지 20~40% 감소 버그
       applyCombatStatBoost(newEff, s.passives, s.equipPrefixes, updatedChar?.max_hp ?? (char.max_hp + result.hpGained));
       s.playerStats = newEff;
+      // 2026-05-12 픽스: 레벨업 시 fresh stat 재계산으로 archerCritStreakBonus 누적치가 사라지는 버그.
+      // 저격수의 호흡 누적 cri 보너스를 다시 부착해 streak 유지 (피격 시점에만 0 되도록).
+      if (s.className === 'archer' && (s.archerCritStreakBonus || 0) > 0) {
+        s.playerStats.cri = (s.playerStats.cri || 0) + (s.archerCritStreakBonus || 0);
+      }
       s.playerMaxHp = newEff.maxHp;
       s.playerHp = s.playerMaxHp; // 레벨업 시 풀회복
       s.playerSpeed = newEff.spd;
