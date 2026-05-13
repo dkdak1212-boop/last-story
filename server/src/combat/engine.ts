@@ -2440,6 +2440,9 @@ function fireSummonerV2Special(s: ActiveSession): void {
   // 모든 form 본체 cri 확률로 치명타 ×1.5 — 발동 시 로그에 [치명타!] 표기
   const SPECIAL_CD = 1;
   const cri = s.playerStats.cri || 0;
+  // 2026-05-13: 파라곤 키스톤 데미지 보정 (무거운 검 ×2, 운명의 결박 ×1.75, 고통의 조율 ×1.5,
+  // 암살자의 역설 ×3/×0.3, 광기의 미끄럼틀) 누락 픽스. 본체 파이프라인과 동일 위치(crit 직전)에서 곱.
+  const paragonMult = paragonAlwaysOnMult(s);
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
@@ -2448,6 +2451,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
       for (let i = 1; i <= 5; i++) {
         const baseMul = i === 5 ? 810.0 : 405.0;  // 5타째 ×2
         let hit = Math.round(matk * baseMul * atkBuffMul);
+        if (paragonMult !== 1.0) hit = Math.max(1, Math.round(hit * paragonMult));
         const hitCrit = cri > 0 && Math.random() * 100 < cri;
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
@@ -2468,6 +2472,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
     } else if (form === 'arcane') {
       dmg = Math.round(matk * 1620.0 * atkBuffMul); label = '[천상의 심판]';
     }
+    if (paragonMult !== 1.0 && dmg > 0) dmg = Math.max(1, Math.round(dmg * paragonMult));
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
     const isCrit = cri > 0 && Math.random() * 100 < cri;
     if (isCrit) { dmg = Math.round(dmg * 1.5); label += ' (치명타!)'; }
