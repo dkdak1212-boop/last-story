@@ -13,6 +13,13 @@ interface DailySummary {
   questRewardClaimed: boolean;
   gbKeysUsed: number;
   passShopBought: boolean;
+  unreadMail: number;
+  riftActive: boolean;
+}
+interface DailySummaryResponse {
+  eventActive: boolean;
+  eventName: string | null;
+  characters: DailySummary[];
 }
 
 type DotColor = 'green' | 'yellow' | 'red';
@@ -36,6 +43,13 @@ function gbDotColor(s: DailySummary): DotColor {
 }
 function passDotColor(s: DailySummary): DotColor {
   return s.passShopBought ? 'green' : 'red';
+}
+function mailDotColor(s: DailySummary): DotColor {
+  if (s.unreadMail > 0) return 'yellow';
+  return 'green';
+}
+function riftDotColor(s: DailySummary): DotColor {
+  return s.riftActive ? 'green' : 'red';
 }
 
 function Dot({ color, label }: { color: DotColor; label: string }) {
@@ -77,6 +91,8 @@ export function CharacterSelectScreen() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dailyMap, setDailyMap] = useState<Record<number, DailySummary>>({});
+  const [eventActive, setEventActive] = useState(false);
+  const [eventName, setEventName] = useState<string | null>(null);
 
   async function handleDelete(id: number, charName: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -100,11 +116,13 @@ export function CharacterSelectScreen() {
 
   // 일일 요약 batch 로드 — 캐릭 카드 dot 표시용
   useEffect(() => {
-    api<DailySummary[]>('/characters/daily-summary')
-      .then(rows => {
+    api<DailySummaryResponse>('/characters/daily-summary')
+      .then(resp => {
         const m: Record<number, DailySummary> = {};
-        for (const r of rows) m[r.characterId] = r;
+        for (const r of resp.characters) m[r.characterId] = r;
         setDailyMap(m);
+        setEventActive(resp.eventActive);
+        setEventName(resp.eventName);
       })
       .catch(() => {});
   }, [characters.length]);
@@ -225,8 +243,10 @@ export function CharacterSelectScreen() {
                   const qc = questDotColor(s);
                   const gc = gbDotColor(s);
                   const pc = passDotColor(s);
+                  const mc = mailDotColor(s);
+                  const rc = riftDotColor(s);
                   return (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4, fontSize: 10, color: 'var(--text-dim)' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4, fontSize: 10, color: 'var(--text-dim)', flexWrap: 'wrap' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Dot color={qc} label={`일일임무 ${s.questsCompleted}/${s.questsTotal}${s.questRewardClaimed ? ' · 보상수령' : ''}`} />
                         <span>일일임무 {s.questsCompleted}/{s.questsTotal}{s.questRewardClaimed ? '✓' : ''}</span>
@@ -239,6 +259,20 @@ export function CharacterSelectScreen() {
                         <Dot color={pc} label={s.passShopBought ? '통행증 구매 완료' : '통행증 미구매'} />
                         <span>통행증 {s.passShopBought ? '✓' : '×'}</span>
                       </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Dot color={mc} label={s.unreadMail > 0 ? `미수령 우편 ${s.unreadMail}개` : '우편 없음'} />
+                        <span>우편 {s.unreadMail > 0 ? s.unreadMail : '0'}</span>
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Dot color={rc} label={s.riftActive ? '시공 균열 타이머 활성' : '시공 균열 미입장'} />
+                        <span>시공 {s.riftActive ? '○' : '×'}</span>
+                      </span>
+                      {eventActive && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <Dot color="green" label={eventName ?? '이벤트 진행 중'} />
+                          <span style={{ color: '#daa520' }}>이벤트</span>
+                        </span>
+                      )}
                     </div>
                   );
                 })()}

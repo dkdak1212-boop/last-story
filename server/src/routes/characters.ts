@@ -41,6 +41,8 @@ router.get('/daily-summary', async (req: AuthedRequest, res: Response) => {
     quest_reward_claimed: boolean;
     gb_keys_used: number;
     pass_today: boolean;
+    unread_mail: number;
+    rift_active: boolean;
   }>(
     `WITH today AS (SELECT (NOW() AT TIME ZONE 'Asia/Seoul')::date AS d)
      SELECT c.id AS character_id,
@@ -65,20 +67,35 @@ router.get('/daily-summary', async (req: AuthedRequest, res: Response) => {
             (
               c.pass_shop_daily_date = (SELECT d FROM today)
               AND COALESCE(c.pass_shop_daily_count, 0) > 0
-            ) AS pass_today
+            ) AS pass_today,
+            COALESCE((
+              SELECT COUNT(*) FROM mailbox m
+               WHERE m.character_id = c.id AND m.read_at IS NULL
+            ), 0)::int AS unread_mail,
+            (c.rift_entered_at IS NOT NULL
+              AND c.rift_entered_at + INTERVAL '30 minutes' > NOW()) AS rift_active
        FROM characters c
       WHERE c.user_id = $1
       ORDER BY c.id`,
     [req.userId]
   );
-  res.json(r.rows.map(row => ({
-    characterId: row.character_id,
-    questsCompleted: row.quests_completed,
-    questsTotal: row.quests_total,
-    questRewardClaimed: row.quest_reward_claimed,
-    gbKeysUsed: row.gb_keys_used,
-    passShopBought: row.pass_today,
-  })));
+  // 글로벌 이벤트 — 계정 단위 동일, 한 번만 조회
+  const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
+  const ge = await getActiveGlobalEvent();
+  res.json({
+    eventActive: ge.active,
+    eventName: ge.name,
+    characters: r.rows.map(row => ({
+      characterId: row.character_id,
+      questsCompleted: row.quests_completed,
+      questsTotal: row.quests_total,
+      questRewardClaimed: row.quest_reward_claimed,
+      gbKeysUsed: row.gb_keys_used,
+      passShopBought: row.pass_today,
+      unreadMail: row.unread_mail,
+      riftActive: row.rift_active,
+    })),
+  });
 });
 
 // 상세 (effective 스탯 포함)

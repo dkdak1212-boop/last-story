@@ -421,11 +421,13 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       drop_filter_common: boolean;
       drop_filter_protect_prefixes: string[];
       drop_filter_protect_3opt: boolean;
+      auto_dismantle_unique: boolean;
     }>(
       `SELECT COALESCE(drop_filter_tiers, 0)              AS drop_filter_tiers,
               COALESCE(drop_filter_common, FALSE)         AS drop_filter_common,
               COALESCE(drop_filter_protect_prefixes, '{}') AS drop_filter_protect_prefixes,
-              COALESCE(drop_filter_protect_3opt, TRUE)    AS drop_filter_protect_3opt
+              COALESCE(drop_filter_protect_3opt, TRUE)    AS drop_filter_protect_3opt,
+              COALESCE(auto_dismantle_unique, FALSE)      AS auto_dismantle_unique
          FROM characters WHERE id = $1`,
       [charId]
     );
@@ -434,6 +436,7 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const dfCommon  = !!f?.drop_filter_common;
     const dfProtect = new Set(f?.drop_filter_protect_prefixes ?? []);
     const dfProtect3opt = f?.drop_filter_protect_3opt ?? true;
+    const dfUnique  = !!f?.auto_dismantle_unique;
     const hasDropFilter = dfTiers > 0 || dfCommon;
 
     // drops 처리 순서를 random shuffle — Map.entries() 순서대로 처리하면
@@ -483,11 +486,31 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
       try {
         const item = await getItemDef(d.itemId);
 
-        // 비장비 / 유니크 / item def 없음 → stack 단위로 add (필터 미적용)
-        if (!item || !item.slot || item.grade === 'unique') {
+        // 비장비 / item def 없음 → stack 단위로 add (필터 미적용)
+        if (!item || !item.slot) {
           const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined);
           if (overflow < d.qty) {
             appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item?.name });
+          }
+          continue;
+        }
+        // 유니크 자동분해 — auto_dismantle_unique 켜져있으면 폐기 (보상 없음, 온라인 엔진과 동일).
+        // 2026-05-14: 사용자 보고 — chip ON 상태로도 오프라인에서 유니크 드랍됨.
+        // 방어책: 캐릭별 fresh 재조회 (settle 진입 시점과 unique 처리 시점 사이 setting 변경 가능성).
+        if (item.grade === 'unique') {
+          const freshR = await query<{ auto_dismantle_unique: boolean }>(
+            `SELECT COALESCE(auto_dismantle_unique, FALSE) AS auto_dismantle_unique FROM characters WHERE id = $1`,
+            [charId]
+          );
+          const dfUniqueFresh = !!freshR.rows[0]?.auto_dismantle_unique;
+          if (dfUniqueFresh) {
+            console.log(`[offline-settle] char=${charId} 유니크 자동분해(${item.name}) — 폐기 (dfUnique fresh=${dfUniqueFresh}, cached=${dfUnique})`);
+            filteredCount += d.qty;
+            continue;
+          }
+          const { overflow } = await addItemToInventory(charId, d.itemId, d.qty, undefined);
+          if (overflow < d.qty) {
+            appliedDrops.push({ itemId: d.itemId, qty: d.qty - overflow, itemName: item.name });
           }
           continue;
         }

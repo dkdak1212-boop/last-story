@@ -1669,6 +1669,8 @@ type DmgPrefixCache = {
   speedToDmgFlat: number;    // SPD bonus to add (아니면 0)
   critDmgBonusPct: number;   // crit hit 시 추가 mult (사전 계산), -1 if none
   assassinExecutePct: number; // crit + monsterHp ≤ 15% 분기에 사용
+  pAssassinParadoxMult: number; // 캐스트 시작 시점의 적 HP 비율 기준 paradox 배수 (1.0 = no-op, 3.0 = full, 0.3 = low)
+  pLastStrikeActive: boolean;   // 캐스트 시작 시점의 적 HP ≤ 30% 여부 (×2 적용)
 };
 function buildDmgPrefixCache(s: ActiveSession): DmgPrefixCache {
   const dtUp = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
@@ -1693,6 +1695,17 @@ function buildDmgPrefixCache(s: ActiveSession): DmgPrefixCache {
   const comboTotal = (comboBonus > 0 && s.comboKills > 0) ? comboBonus * Math.min(5, s.comboKills) : 0;
   const speedToDmg = getPassive(s, 'speed_to_dmg');
   const speedFlat = speedToDmg > 0 ? Math.round(s.playerStats.spd * speedToDmg / 100) : 0;
+  // 암살자의 역설 — 캐스트 시작 시점의 monsterHp 비율로 스냅샷.
+  // 멀티히트 도중 monsterHp 감소로 인해 첫 풀피 진입했어도 후속 타격이 ×0.3 으로 떨어지던 버그
+  // (또는 사용자 보고: "풀피 시작 첫타가 0.3 곱셈") 방어. 동일 캐스트 내 모든 타격 동일 배수 적용.
+  let paradoxMult = 1.0;
+  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
+    const ratio = s.monsterHp / s.monsterMaxHp;
+    if (ratio >= 1.0) paradoxMult = 3.0;
+    else if (ratio <= 0.5) paradoxMult = 0.3;
+  }
+  const lastStrikeActive = getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0
+    && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.30;
   return {
     hasDtUp: !!dtUp, dtUpVal: dtUp ? dtUp.value : 0,
     hasAtkBuff: !!atkBuff, atkBuffVal: atkBuff ? atkBuff.value : 0,
@@ -1714,6 +1727,8 @@ function buildDmgPrefixCache(s: ActiveSession): DmgPrefixCache {
     speedToDmgFlat: speedFlat,
     critDmgBonusPct: getCritDmgBonus(s),
     assassinExecutePct: getPassive(s, 'assassin_execute'),
+    pAssassinParadoxMult: paradoxMult,
+    pLastStrikeActive: lastStrikeActive,
   };
 }
 
@@ -1837,8 +1852,11 @@ function applyDamagePrefixes(
   if (cache ? cache.pPainAttunement : (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35)) {
     dmg = Math.round(dmg * 1.5);
   }
-  // #8 암살자의 역설 — 적 HP 100% ×3, 50% 이하 ×0.3 (종언의 기둥 면역, 자정 이후 발동)
-  if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
+  // #8 암살자의 역설 — 캐스트 시작 시점 스냅샷(cache) 우선, 미캐시 시 실시간 계산.
+  // 동일 멀티히트 캐스트 안에선 첫 타 진입 HP 비율을 일관 적용 → "풀피 진입 7타 모두 ×3" 보장.
+  if (cache) {
+    if (cache.pAssassinParadoxMult !== 1.0) dmg = Math.round(dmg * cache.pAssassinParadoxMult);
+  } else if (getPassive(s, 'paragon_assassin_paradox') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s)) {
     const ratio = s.monsterHp / s.monsterMaxHp;
     if (ratio >= 1.0) dmg = Math.round(dmg * 3);
     else if (ratio <= 0.5) dmg = Math.round(dmg * 0.3);
@@ -1882,8 +1900,10 @@ function applyDamagePrefixes(
     );
     if (ccApplied) dmg = Math.round(dmg * 1.5);
   }
-  // 마지막 일격 — 적 HP 30% 이하 시 ×2.0 (종언의 기둥 면역, 자정 이후 발동)
-  if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.30) {
+  // 마지막 일격 — 적 HP 30% 이하 시 ×2.0 (종언의 기둥 면역). 캐스트 시작 시점 스냅샷 우선.
+  if (cache) {
+    if (cache.pLastStrikeActive) dmg = Math.round(dmg * 2.0);
+  } else if (getPassive(s, 'paragon_last_strike') > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.30) {
     dmg = Math.round(dmg * 2.0);
   }
   // 혼의 강타 — 매 5번째 액션 ×3
@@ -2603,6 +2623,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
   const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
+  // 본체 치명타 데미지 보너스 (crit_dmg_pct/paragon_crit_dmg_pct/DEX×0.35/cri-overflow 등) 도 소환수에 합산.
+  // 상태창에 표기되는 치피가 실제 데미지에 반영 안 되던 혼란 픽스 (2026-05-13).
+  const playerCritDmgBonus = getCritDmgBonus(s);
   // summon_buff 효과 (지휘/군주의 위엄)
   // 자세: 진언 (atk_buff source=monster=self) 가중 — 소환수 데미지에도 일관 적용
   const summonAtkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
@@ -2691,9 +2714,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       dmg = Math.max(1, dmg - Math.round(effectiveDef * 0.5));
       // ±10% 랜덤
       dmg = Math.round(dmg * (0.9 + Math.random() * 0.2));
-      // 치명타 — element 별 critDmg + 글로벌 summonCritDmgAmp 합산
+      // 치명타 — element 별 critDmg + 글로벌 summonCritDmgAmp + 본체 치피 (crit_dmg_pct 등) 합산
       if (critChance > 0 && Math.random() * 100 < critChance) {
-        dmg = Math.round(dmg * (1.5 + (critDmgBonus + summonCritDmgAmp) / 100));
+        dmg = Math.round(dmg * (1.5 + (critDmgBonus + summonCritDmgAmp + playerCritDmgBonus) / 100));
       }
       // 20% 확률 2회 타격 (만물의 군주)
       if (summonDouble > 0 && Math.random() * 100 < summonDouble) {
