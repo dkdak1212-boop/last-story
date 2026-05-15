@@ -7419,14 +7419,19 @@ setInterval(() => {
   for (const id of lastMetaRefreshAt.keys()) if (!activeSessions.has(id)) lastMetaRefreshAt.delete(id);
 }, 60_000);
 
-// statusEffects 안전망 sweep — 30초 주기 모든 세션 청소.
+// statusEffects 안전망 sweep — 10초 주기 모든 세션 청소.
 // leak 정확한 출처 미확정 (effects max 1497 측정) → expired/만료된 effect + 200 hard cap 으로 피해 한정.
 // dummy/AFK/장기전 세션 누적도 강제 차단.
+// 2026-05-15: sweep 30→10s, type-source dedup 추가 (addEffect 규칙 mirror)
 const STATUS_EFFECT_HARD_CAP = 200;
+// addEffect 가 이미 dedup 하는 (type, source='monster') 조합 — pushEffect 직호출이나
+// addEffect 우회 코드 누적 차단용 sweep 강제 적용.
+const DEDUP_MONSTER_TYPES = new Set(['atk_buff', 'damage_reduce', 'crit_guaranteed', 'speed_mod']);
 setInterval(() => {
   let sweptSessions = 0;
   let removedTotal = 0;
   let cappedSessions = 0;
+  let dedupRemoved = 0;
   // leak 출처 추적: cap 적중 세션의 charId·class·field·effect 타입 분포 수집
   type LeakInfo = { charId: number; className: string; fieldId: number; afk: boolean; rift: boolean; total: number; topTypes: string };
   const leakers: LeakInfo[] = [];
@@ -7441,6 +7446,32 @@ setInterval(() => {
         arr.splice(i, 1);
         mutated = true;
         removedTotal++;
+      }
+    }
+    // dedup — addEffect 가 보장하는 (type, source='monster') 1개만 유지를 sweep 에서도 강제.
+    // 가장 강한 것(value 절댓값 큼) 또는 남은 turn 긴 것 우선. pushEffect 직호출 누적 차단.
+    {
+      const winners = new Map<string, number>(); // key → index of winning effect
+      const losers: number[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const e = arr[i];
+        if (!DEDUP_MONSTER_TYPES.has(e.type) || e.source !== 'monster') continue;
+        const key = e.type;
+        const curIdx = winners.get(key);
+        if (curIdx === undefined) { winners.set(key, i); continue; }
+        const cur = arr[curIdx];
+        const score = (x: StatusEffect) => Math.abs(x.value) * 1000 + x.remainingActions;
+        if (score(e) > score(cur)) { losers.push(curIdx); winners.set(key, i); }
+        else losers.push(i);
+      }
+      if (losers.length > 0) {
+        losers.sort((a, b) => b - a);
+        for (const i of losers) {
+          arr.splice(i, 1);
+          mutated = true;
+          removedTotal++;
+          dedupRemoved++;
+        }
       }
     }
     // hard cap — summon/마커는 최후 보존, 나머지 oldest 부터 evict
@@ -7486,7 +7517,7 @@ setInterval(() => {
     }
   }
   if (removedTotal > 0) {
-    console.log(`[effect-sweep] cleaned ${removedTotal} effects across ${sweptSessions} sessions (capped=${cappedSessions})`);
+    console.log(`[effect-sweep] cleaned ${removedTotal} effects across ${sweptSessions} sessions (capped=${cappedSessions}, dedup=${dedupRemoved})`);
   }
   // top 5 leaker 상세 — leak 출처 추적용
   if (leakers.length > 0) {
@@ -7495,7 +7526,7 @@ setInterval(() => {
       console.log(`[effect-leaker] char=${l.charId} class=${l.className} field=${l.fieldId} afk=${l.afk} rift=${l.rift} total=${l.total} top=[${l.topTypes}]`);
     }
   }
-}, 30_000);
+}, 10_000);
 
 // 종언의 기둥 — paused=true 상태에서 floor_started_at 기준 60초 초과 시 자동 사망 처리.
 // disconnect 후 재진입 안 해서 활성 세션 외에 있는 캐릭의 시간 어뷰즈 차단.

@@ -225,7 +225,8 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
   if (equipPrefixes.max_hp_pct) eff.maxHp = Math.round(eff.maxHp * (1 + equipPrefixes.max_hp_pct / 100));
-  if (equipPrefixes.spd_pct) eff.spd = Math.round(eff.spd * (1 + equipPrefixes.spd_pct / 100));
+  // spd_pct — UI 표기와 동일하게 합산 100% cap (PrefixDisplay '속도증가 +N% (합산 100% 제한)').
+  if (equipPrefixes.spd_pct) eff.spd = Math.round(eff.spd * (1 + Math.min(100, equipPrefixes.spd_pct) / 100));
   // 시공 6세트: all_stats_pct — 힘/민/지/체 모두 +N% (derived 스탯도 동시 재계산)
   if (equipPrefixes.all_stats_pct) {
     const pct = equipPrefixes.all_stats_pct / 100;

@@ -1390,9 +1390,12 @@ router.post('/stat-node-fix', async (req: AuthedRequest, res: Response) => {
     `SELECT id, class_name, level, stats,
             COALESCE(stat_points, 0) AS stat_points, node_points FROM characters`
   );
+  // paragon zone 노드는 별도 paragon_points 풀 — 일반 node_points 기댓값에 포함 X.
+  // (zone 필터 없이 합산하면 paragon 노드 cost 만큼 node_points 가 과다 차감되는 버그)
   const spent = await query<{ character_id: number; total: string }>(
     `SELECT cn.character_id, COALESCE(SUM(nd.cost), 0)::text AS total
        FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+      WHERE nd.zone <> 'paragon'
       GROUP BY cn.character_id`
   );
   const spentMap = new Map(spent.rows.map(r => [r.character_id, Number(r.total)]));
