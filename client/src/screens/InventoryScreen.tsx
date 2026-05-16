@@ -140,8 +140,10 @@ export function InventoryScreen() {
       setMsg(`${res.sold} x${res.quantity} 폐기 완료`); await Promise.all([refresh(), refreshActive()]);
     } catch (e) { setMsg(e instanceof Error ? e.message : '폐기 실패'); }
   }
-  async function toggleLock(slotIndex: number, e: React.MouseEvent) {
+  async function toggleLock(slotIndex: number, e: React.MouseEvent, currentLocked: boolean) {
     e.stopPropagation(); if (!active) return;
+    // 잠금 해제는 확인창 — 스크롤 중 실수 클릭으로 풀려서 폐기되는 사고 방지.
+    if (currentLocked && !confirm('잠금을 해제하시겠습니까?\n\n해제 후 분해/판매/폐기 가능합니다.')) return;
     await api(`/characters/${active.id}/lock`, { method: 'POST', body: JSON.stringify({ slotIndex }) }); refresh();
   }
 
@@ -350,8 +352,10 @@ export function InventoryScreen() {
       setMsg(e instanceof Error ? e.message : '합성 실패');
     }
   }
-  async function toggleLockEquipped(slot: string, e: React.MouseEvent) {
+  async function toggleLockEquipped(slot: string, e: React.MouseEvent, currentLocked: boolean) {
     e.stopPropagation(); if (!active) return;
+    // 잠금 해제는 확인창 — 실수 풀림 방지.
+    if (currentLocked && !confirm('장착 장비 잠금을 해제하시겠습니까?')) return;
     await api(`/characters/${active.id}/lock-equipped`, { method: 'POST', body: JSON.stringify({ slot }) }); refresh();
   }
   async function enhanceItem(_si: number, kind: 'inventory' | 'equipped', slotKey: number | string, e: React.MouseEvent, currentEnhLevel: number = 0) {
@@ -535,7 +539,7 @@ export function InventoryScreen() {
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)' }}>{label}</span>
                 {item && (
                   <span
-                    onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e); }}
+                    onClick={(e) => { e.stopPropagation(); toggleLockEquipped(slot, e, locked); }}
                     title={locked ? '잠금 해제' : '잠금'}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -807,7 +811,7 @@ export function InventoryScreen() {
                     }}>
                       <span
                         className="inv-item-lock"
-                        onClick={(e) => toggleLock(s.slotIndex, e)}
+                        onClick={(e) => toggleLock(s.slotIndex, e, !!s.locked)}
                         title={locked ? '잠금 해제' : '잠금'}
                         style={{
                           display: 'inline-flex', alignItems: 'center',
