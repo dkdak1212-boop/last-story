@@ -3922,7 +3922,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       addLog(s, `[${skill.name}] 방어력 +${buffPct}% ${buffDur}턴!`);
       // 성직자 천상 강림: 즉시 HP 40% 회복
       if (skill.name === '천상 강림') {
-        const heal = Math.round(s.playerMaxHp * 0.4);
+        let heal = Math.round(s.playerMaxHp * 0.4);
+        // 부서지지 않는 신앙 활성 중 회복 효과 +100%
+        if ((s.paragonUnbreakableActiveUntil ?? 0) > s.actionCount) {
+          heal = Math.round(heal * 2);
+        }
         s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
         trackHealForKeystone(s, heal);
         addLog(s, `[${skill.name}] HP +${heal} 회복`);
@@ -3934,6 +3938,10 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       let heal = Math.round(s.playerMaxHp * skill.effect_value / 100);
       const healAmp = getPassive(s, 'heal_amp');
       if (healAmp > 0) heal = Math.round(heal * (1 + healAmp / 100));
+      // 성직자 수호 키스톤 — 부서지지 않는 신앙 (활성 중 회복 효과 +100%)
+      if ((s.paragonUnbreakableActiveUntil ?? 0) > s.actionCount) {
+        heal = Math.round(heal * 2);
+      }
       s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
       trackHealForKeystone(s, heal);
       // 치유의 빛: 회복량만큼 적에게 피해 (신성 데미지)
@@ -4667,19 +4675,15 @@ function monsterAction(s: ActiveSession): void {
     if (getPassive(s, 'paragon_iron_resolve') > 0 && s.playerHp / s.playerMaxHp <= 0.30 && dmg > 0) {
       dmg = Math.round(dmg * 0.5);
     }
-    // 성직자 수호 키스톤 — 부서지지 않는 신앙 (체력 50% 이하 트리거 시 5행동간 -60%, 5행동 재발동 대기)
-    if (getPassive(s, 'paragon_unbreakable_faith') > 0 && dmg > 0) {
-      // 활성 여부 — actionCount 비교 (5행동 활성 + 5행동 쿨)
-      const activeUntil = s.paragonUnbreakableActiveUntil ?? 0;
+    // 성직자 수호 키스톤 — 부서지지 않는 신앙 (체력 50% 이하 트리거 시 5행동간 회복 효과 +100%)
+    // 피격 시점에 활성 여부만 체크/세팅. 회복 효과 보너스는 회복 처리 hook (self_heal 등) 에서 적용.
+    if (getPassive(s, 'paragon_unbreakable_faith') > 0) {
       const cooldownUntil = s.paragonUnbreakableCooldownUntil ?? 0;
-      if (activeUntil > s.actionCount) {
-        dmg = Math.round(dmg * 0.4);
-      } else if (s.playerHp / s.playerMaxHp <= 0.50 && cooldownUntil <= s.actionCount) {
-        // 트리거 — 5행동 활성 + 5행동 쿨
+      const activeUntil = s.paragonUnbreakableActiveUntil ?? 0;
+      if (activeUntil <= s.actionCount && s.playerHp / s.playerMaxHp <= 0.50 && cooldownUntil <= s.actionCount) {
         s.paragonUnbreakableActiveUntil = s.actionCount + 5;
         s.paragonUnbreakableCooldownUntil = s.actionCount + 10;
-        dmg = Math.round(dmg * 0.4);
-        addLog(s, `[부서지지 않는 신앙] 발동 — 5행동 받는 데미지 -60%`);
+        addLog(s, `[부서지지 않는 신앙] 발동 — 5행동 회복 효과 +100%`);
       }
     }
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
