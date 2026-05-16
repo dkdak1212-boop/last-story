@@ -28,13 +28,13 @@ const BERSERK_NODES = [
   { name: '광기의 충동', tier: 'medium', cost: 2, effects: [{ key: 'proc_next_skill_amp_pct', type: 'passive', value: 10 }], x: -14, y: -28 },
   { name: '광전사의 본능', tier: 'medium', cost: 2, effects: [{ key: 'paragon_atk_pct', type: 'passive', value: 5 }], x: -12, y: -28 },
   // T2 키스톤
-  { name: '분노의 파동', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_furor_pulse', type: 'passive', value: 1 }], x: -16, y: -26 },
+  { name: '분노의 파동', tier: 'huge', cost: 4, effects: [{ key: 'paragon_furor_pulse', type: 'passive', value: 1 }], x: -16, y: -26 },
   // T3 큰 3개
   { name: '광폭한 일격', tier: 'large', cost: 3, effects: [{ stat: 'cri', type: 'stat', value: 5 }], x: -20, y: -24 },
   { name: '피의 갈증', tier: 'large', cost: 3, effects: [{ key: 'kill_hp_recover_pct', type: 'passive', value: 5 }], x: -18, y: -24 },
   { name: '야성의 분노', tier: 'large', cost: 3, effects: [{ key: 'paragon_atk_pct', type: 'passive', value: 4 }], x: -16, y: -24 },
   // T3 키스톤
-  { name: '폭발하는 분노', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_explosive_rage', type: 'passive', value: 1 }], x: -16, y: -22 },
+  { name: '폭발하는 분노', tier: 'huge', cost: 4, effects: [{ key: 'paragon_explosive_rage', type: 'passive', value: 1 }], x: -16, y: -22 },
 ];
 
 // 갈래 2: 수호자 (north_warrior_guard) — 위치 우상단 영역 ~ x: 3..10, y: -16..-10
@@ -56,13 +56,13 @@ const GUARD_NODES = [
   { name: '흔들림 없는 자세', tier: 'medium', cost: 2, effects: [{ key: 'incoming_dmg_pct_down', type: 'passive', value: 5 }], x: 16, y: -30 },
   { name: '수호의 본능', tier: 'medium', cost: 2, effects: [{ key: 'paragon_def_pct', type: 'passive', value: 10 }], x: 18, y: -30 },
   // T2 키스톤
-  { name: '강철의 의지', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_iron_resolve', type: 'passive', value: 1 }], x: 12, y: -28 },
+  { name: '강철의 의지', tier: 'huge', cost: 4, effects: [{ key: 'paragon_iron_resolve', type: 'passive', value: 1 }], x: 12, y: -28 },
   // T3 큰 3개
   { name: '반격', tier: 'large', cost: 3, effects: [{ key: 'counter_chance_pct', type: 'passive', value: 50 }], x: 8, y: -26 },
   { name: '방벽 강화', tier: 'large', cost: 3, effects: [{ key: 'shield_amp', type: 'passive', value: 20 }], x: 10, y: -26 },
   { name: '불굴의 정신', tier: 'large', cost: 3, effects: [{ key: 'incoming_dmg_pct_down', type: 'passive', value: 8 }], x: 12, y: -26 },
   // T3 키스톤
-  { name: '응징의 방벽', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_vengeful_bulwark', type: 'passive', value: 1 }], x: 12, y: -24 },
+  { name: '응징의 방벽', tier: 'huge', cost: 4, effects: [{ key: 'paragon_vengeful_bulwark', type: 'passive', value: 1 }], x: 12, y: -24 },
 ];
 
 async function insertBranch(client, zone, nodes, branchLabel) {

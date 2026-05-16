@@ -28,13 +28,13 @@ const GUARD_NODES = [
   { name: '신성한 보호', tier: 'medium', cost: 2, effects: [{ key: 'incoming_dmg_pct_down', type: 'passive', value: 10 }], x: -10, y: -30 },
   { name: '수호의 권능', tier: 'medium', cost: 2, effects: [{ stat: 'vit', type: 'stat', value: 15 }], x: -8, y: -30 },
   // T2 키스톤
-  { name: '신성한 보호막', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_divine_aegis', type: 'passive', value: 1 }], x: -14, y: -28 },
+  { name: '신성한 보호막', tier: 'huge', cost: 4, effects: [{ key: 'paragon_divine_aegis', type: 'passive', value: 1 }], x: -14, y: -28 },
   // T3 큰 3개
   { name: '방벽 강화', tier: 'large', cost: 3, effects: [{ key: 'shield_amp', type: 'passive', value: 30 }], x: -18, y: -26 },
   { name: '흔들림 없는 신앙', tier: 'large', cost: 3, effects: [{ key: 'incoming_dmg_pct_down', type: 'passive', value: 8 }], x: -16, y: -26 },
   { name: '영원한 회복', tier: 'large', cost: 3, effects: [{ key: 'heal_amp', type: 'passive', value: 30 }], x: -14, y: -26 },
   // T3 키스톤
-  { name: '부서지지 않는 신앙', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_unbreakable_faith', type: 'passive', value: 1 }], x: -14, y: -24 },
+  { name: '부서지지 않는 신앙', tier: 'huge', cost: 4, effects: [{ key: 'paragon_unbreakable_faith', type: 'passive', value: 1 }], x: -14, y: -24 },
 ];
 
 // 갈래 2: 광명 (north_cleric_radiant)
@@ -55,13 +55,13 @@ const RADIANT_NODES = [
   { name: '광명의 화살', tier: 'medium', cost: 2, effects: [{ key: 'paragon_hp_pct', type: 'passive', value: 10 }], x: 16, y: -30 },
   { name: '강건한 신성', tier: 'medium', cost: 2, effects: [{ key: 'hp_flat', type: 'passive', value: 100 }], x: 18, y: -30 },
   // T2 키스톤
-  { name: '광휘의 폭발', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_radiant_burst', type: 'passive', value: 1 }], x: 12, y: -28 },
+  { name: '광휘의 폭발', tier: 'huge', cost: 4, effects: [{ key: 'paragon_radiant_burst', type: 'passive', value: 1 }], x: 12, y: -28 },
   // T3 큰 3개
   { name: '신성한 정수', tier: 'large', cost: 3, effects: [{ key: 'judge_amp', type: 'passive', value: 20 }], x: 8, y: -26 },
   { name: '회심의 신성', tier: 'large', cost: 3, effects: [{ stat: 'cri', type: 'stat', value: 8 }], x: 10, y: -26 },
   { name: '영원한 광명', tier: 'large', cost: 3, effects: [{ key: 'hp_flat', type: 'passive', value: 150 }], x: 12, y: -26 },
   // T3 키스톤
-  { name: '새벽의 사자', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_dawn_breaker', type: 'passive', value: 1 }], x: 12, y: -24 },
+  { name: '새벽의 사자', tier: 'huge', cost: 4, effects: [{ key: 'paragon_dawn_breaker', type: 'passive', value: 1 }], x: 12, y: -24 },
 ];
 
 async function insertBranch(client, zone, nodes, branchLabel) {
