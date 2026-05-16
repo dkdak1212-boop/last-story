@@ -13,54 +13,54 @@ const CLASS_EXCLUSIVE = 'mage';
 const BURST_ZONE = 'north_mage_burst';
 const BURST_NODES = [
   // T1 작은 7개
-  { name: '정련된 지능 1', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -10, y: -16 },
-  { name: '정련된 지능 2', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -9, y: -16 },
-  { name: '정련된 지능 3', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -8, y: -16 },
-  { name: '마력의 응축 1', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: -10, y: -15 },
-  { name: '마력의 응축 2', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: -9, y: -15 },
-  { name: '한 발의 정수 1', tier: 'small', cost: 1, effects: [{ stat: 'cri', type: 'stat', value: 3 }], x: -8, y: -15 },
-  { name: '한 발의 정수 2', tier: 'small', cost: 1, effects: [{ stat: 'cri', type: 'stat', value: 3 }], x: -7, y: -15 },
+  { name: '정련된 지능 1', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -20, y: -32 },
+  { name: '정련된 지능 2', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -18, y: -32 },
+  { name: '정련된 지능 3', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: -16, y: -32 },
+  { name: '마력의 응축 1', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: -20, y: -30 },
+  { name: '마력의 응축 2', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: -18, y: -30 },
+  { name: '한 발의 정수 1', tier: 'small', cost: 1, effects: [{ stat: 'cri', type: 'stat', value: 3 }], x: -16, y: -30 },
+  { name: '한 발의 정수 2', tier: 'small', cost: 1, effects: [{ stat: 'cri', type: 'stat', value: 3 }], x: -14, y: -30 },
   // T2 중간 5개
-  { name: '폭격의 증폭 1', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 10 }], x: -10, y: -14 },
-  { name: '폭격의 증폭 2', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 10 }], x: -9, y: -14 },
-  { name: '정확한 시전', tier: 'medium', cost: 2, effects: [{ stat: 'dex', type: 'stat', value: 20 }], x: -8, y: -14 },
-  { name: '치명적 마법', tier: 'medium', cost: 2, effects: [{ key: 'crit_damage', type: 'passive', value: 15 }], x: -7, y: -14 },
-  { name: '충전된 일격', tier: 'medium', cost: 2, effects: [{ key: 'charged_strike', type: 'passive', value: 1 }], x: -6, y: -14 },
+  { name: '폭격의 증폭 1', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 10 }], x: -20, y: -28 },
+  { name: '폭격의 증폭 2', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 10 }], x: -18, y: -28 },
+  { name: '정확한 시전', tier: 'medium', cost: 2, effects: [{ stat: 'dex', type: 'stat', value: 20 }], x: -16, y: -28 },
+  { name: '치명적 마법', tier: 'medium', cost: 2, effects: [{ key: 'crit_damage', type: 'passive', value: 15 }], x: -14, y: -28 },
+  { name: '충전된 일격', tier: 'medium', cost: 2, effects: [{ key: 'charged_strike', type: 'passive', value: 1 }], x: -12, y: -28 },
   // T2 키스톤
-  { name: '일점 폭발', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_one_shot', type: 'passive', value: 1 }], x: -8, y: -13 },
+  { name: '일점 폭발', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_one_shot', type: 'passive', value: 1 }], x: -16, y: -26 },
   // T3 큰 3개
-  { name: '압도적 권능', tier: 'large', cost: 3, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 4 }], x: -10, y: -12 },
-  { name: '회심의 일격', tier: 'large', cost: 3, effects: [{ stat: 'cri', type: 'stat', value: 8 }], x: -9, y: -12 },
-  { name: '영혼의 권능', tier: 'large', cost: 3, effects: [{ stat: 'int', type: 'stat', value: 12 }], x: -8, y: -12 },
+  { name: '압도적 권능', tier: 'large', cost: 3, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 4 }], x: -20, y: -24 },
+  { name: '회심의 일격', tier: 'large', cost: 3, effects: [{ stat: 'cri', type: 'stat', value: 8 }], x: -18, y: -24 },
+  { name: '영혼의 권능', tier: 'large', cost: 3, effects: [{ stat: 'int', type: 'stat', value: 12 }], x: -16, y: -24 },
   // T3 키스톤
-  { name: '종결의 일격', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_finishing_blow', type: 'passive', value: 1 }], x: -8, y: -11 },
+  { name: '종결의 일격', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_finishing_blow', type: 'passive', value: 1 }], x: -16, y: -22 },
 ];
 
 // 갈래 2: 지속 도트 (north_mage_dot)
 const DOT_ZONE = 'north_mage_dot';
 const DOT_NODES = [
   // T1 작은 7개
-  { name: '부패의 마법 1', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 3, y: -16 },
-  { name: '부패의 마법 2', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 4, y: -16 },
-  { name: '부패의 마법 3', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 5, y: -16 },
-  { name: '끈질긴 시전 1', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: 6, y: -16 },
-  { name: '끈질긴 시전 2', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: 7, y: -16 },
-  { name: '침식의 권능 1', tier: 'small', cost: 1, effects: [{ key: 'dot_amp', type: 'passive', value: 50 }], x: 3, y: -15 },
-  { name: '침식의 권능 2', tier: 'small', cost: 1, effects: [{ key: 'dot_amp', type: 'passive', value: 50 }], x: 4, y: -15 },
+  { name: '부패의 마법 1', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 6, y: -32 },
+  { name: '부패의 마법 2', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 8, y: -32 },
+  { name: '부패의 마법 3', tier: 'small', cost: 1, effects: [{ stat: 'int', type: 'stat', value: 5 }], x: 10, y: -32 },
+  { name: '끈질긴 시전 1', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: 12, y: -32 },
+  { name: '끈질긴 시전 2', tier: 'small', cost: 1, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 2 }], x: 14, y: -32 },
+  { name: '침식의 권능 1', tier: 'small', cost: 1, effects: [{ key: 'dot_amp', type: 'passive', value: 50 }], x: 6, y: -30 },
+  { name: '침식의 권능 2', tier: 'small', cost: 1, effects: [{ key: 'dot_amp', type: 'passive', value: 50 }], x: 8, y: -30 },
   // T2 중간 5개
-  { name: '화염 강화 1', tier: 'medium', cost: 2, effects: [{ key: 'burn_amp', type: 'passive', value: 50 }], x: 5, y: -15 },
-  { name: '마법 강화', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 20 }], x: 6, y: -15 },
-  { name: '화염 강화 2', tier: 'medium', cost: 2, effects: [{ key: 'burn_amp', type: 'passive', value: 50 }], x: 7, y: -15 },
-  { name: '깊이 새기는 저주', tier: 'medium', cost: 2, effects: [{ key: 'dot_duration_bonus', type: 'passive', value: 3 }], x: 8, y: -15 },
-  { name: '침식의 가속', tier: 'medium', cost: 2, effects: [{ key: 'dot_amp', type: 'passive', value: 10 }], x: 9, y: -15 },
+  { name: '화염 강화 1', tier: 'medium', cost: 2, effects: [{ key: 'burn_amp', type: 'passive', value: 50 }], x: 10, y: -30 },
+  { name: '마법 강화', tier: 'medium', cost: 2, effects: [{ key: 'spell_amp', type: 'passive', value: 20 }], x: 12, y: -30 },
+  { name: '화염 강화 2', tier: 'medium', cost: 2, effects: [{ key: 'burn_amp', type: 'passive', value: 50 }], x: 14, y: -30 },
+  { name: '깊이 새기는 저주', tier: 'medium', cost: 2, effects: [{ key: 'dot_duration_bonus', type: 'passive', value: 3 }], x: 16, y: -30 },
+  { name: '침식의 가속', tier: 'medium', cost: 2, effects: [{ key: 'dot_amp', type: 'passive', value: 10 }], x: 18, y: -30 },
   // T2 키스톤
-  { name: '도트 과부하', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_dot_overload', type: 'passive', value: 1 }], x: 6, y: -14 },
+  { name: '도트 과부하', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_dot_overload', type: 'passive', value: 1 }], x: 12, y: -28 },
   // T3 큰 3개
-  { name: '영원한 침식', tier: 'large', cost: 3, effects: [{ key: 'dot_amp', type: 'passive', value: 75 }], x: 4, y: -13 },
-  { name: '침투하는 권능', tier: 'large', cost: 3, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 4 }], x: 5, y: -13 },
-  { name: '부패의 영혼', tier: 'large', cost: 3, effects: [{ stat: 'int', type: 'stat', value: 15 }], x: 6, y: -13 },
+  { name: '영원한 침식', tier: 'large', cost: 3, effects: [{ key: 'dot_amp', type: 'passive', value: 75 }], x: 8, y: -26 },
+  { name: '침투하는 권능', tier: 'large', cost: 3, effects: [{ key: 'paragon_matk_pct', type: 'passive', value: 4 }], x: 10, y: -26 },
+  { name: '부패의 영혼', tier: 'large', cost: 3, effects: [{ stat: 'int', type: 'stat', value: 15 }], x: 12, y: -26 },
   // T3 키스톤
-  { name: '도트 폭발', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_dot_detonation', type: 'passive', value: 1 }], x: 6, y: -12 },
+  { name: '도트 폭발', tier: 'keystone', cost: 4, effects: [{ key: 'paragon_dot_detonation', type: 'passive', value: 1 }], x: 12, y: -24 },
 ];
 
 async function insertBranch(client, zone, nodes, branchLabel) {
