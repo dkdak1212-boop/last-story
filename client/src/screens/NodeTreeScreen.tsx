@@ -299,9 +299,31 @@ export function NodeTreeScreen() {
     return treeState?.availablePoints ?? 0;
   }
 
+  // 갈래 상호 배제 — 전사/마법사/성직자 전용 노드 2갈래는 반대 쪽에 1개라도 투자됐으면 잠금.
+  const BRANCH_PAIRS: Record<string, string> = {
+    north_warrior_berserk: 'north_warrior_guard',
+    north_warrior_guard: 'north_warrior_berserk',
+    north_mage_burst: 'north_mage_dot',
+    north_mage_dot: 'north_mage_burst',
+    north_cleric_guard: 'north_cleric_radiant',
+    north_cleric_radiant: 'north_cleric_guard',
+  };
+  function isOpposingBranchLocked(node: NodeDefinition): boolean {
+    const opposing = BRANCH_PAIRS[node.zone];
+    if (!opposing) return false;
+    if (!treeState) return false;
+    // 반대 zone 에 투자된 노드 1개라도 있으면 lock
+    for (const inv of invested) {
+      const n = nodeMap.get(inv);
+      if (n && n.zone === opposing) return true;
+    }
+    return false;
+  }
+
   function nodeStatus(node: NodeDefinition): 'invested' | 'available' | 'locked' {
     if (invested.has(node.id)) return 'invested';
     if (!treeState) return 'locked';
+    if (isOpposingBranchLocked(node)) return 'locked';
     if (pointsForNode(node) < node.cost) return 'locked';
     if (node.prerequisites.length > 0 && !node.prerequisites.every(pid => invested.has(pid))) return 'locked';
     return 'available';
@@ -309,6 +331,7 @@ export function NodeTreeScreen() {
 
   function canInvestWithPrereqs(node: NodeDefinition): boolean {
     if (!treeState || invested.has(node.id)) return false;
+    if (isOpposingBranchLocked(node)) return false;
     return pointsForNode(node) >= calcTotalCost(node.id, nodeMap, invested);
   }
 

@@ -183,6 +183,28 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     }
   }
 
+  // 갈래 상호 배제 — 전사/마법사/성직자 전용 노드 2갈래는 한 쪽에 투자하면 반대 쪽 잠금.
+  // (기존 공용 노드 트리는 영향 없음.)
+  const BRANCH_PAIRS: Record<string, string> = {
+    north_warrior_berserk: 'north_warrior_guard',
+    north_warrior_guard: 'north_warrior_berserk',
+    north_mage_burst: 'north_mage_dot',
+    north_mage_dot: 'north_mage_burst',
+    north_cleric_guard: 'north_cleric_radiant',
+    north_cleric_radiant: 'north_cleric_guard',
+  };
+  const opposingZone = BRANCH_PAIRS[node.zone];
+  if (opposingZone) {
+    const oppR = await query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n
+         FROM character_nodes cn JOIN node_definitions nd ON nd.id = cn.node_id
+        WHERE cn.character_id = $1 AND nd.zone = $2`,
+      [id, opposingZone]
+    );
+    if ((oppR.rows[0]?.n ?? 0) > 0) {
+      return res.status(400).json({ error: '반대 갈래에 이미 투자됨 — 두 갈래는 동시에 투자할 수 없습니다 (리스펙 후 다시 시도)' });
+    }
+  }
   // 이미 투자
   const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
   if (dup.rowCount && dup.rowCount > 0) return res.status(400).json({ error: 'already invested' });
