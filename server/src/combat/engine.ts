@@ -323,6 +323,13 @@ interface ActiveSession {
   paragonActionCount: number; // #13 시간의 결정: 누적 행동 수 (10번째 ×3)
   paragonCrystalActive: boolean; // #13 시간의 결정: 현재 액션이 10번째 (applyDamagePrefixes 가 ×3 적용)
   paragonSelfDotTickAt: number; // #14 고통의 군주: 자가 도트 직전 적용 시각 (ms)
+  // ── 직업 전용 노드 키스톤 상태 ──
+  paragonUnbreakableActiveUntil?: number; // 부서지지 않는 신앙: 활성 종료 actionCount
+  paragonUnbreakableCooldownUntil?: number; // 부서지지 않는 신앙: 재발동 가능 actionCount
+  paragonVengefulStacks?: number; // 응징의 방벽: 피격 스택 (0~3)
+  paragonFinishingActiveUntil?: number; // 종결의 일격: 활성 종료 actionCount (처치 후 2행동)
+  paragonCounterAtkAvailable?: boolean; // 폭발하는 격노: 발동 가능 여부 (현재 사용 X — 상시 always-on)
+  paragonChargedActsSinceProc?: number; // 충전된 일격: 5행동 카운터
   // 다단히트가 매 타마다 gauge_on_crit_pct 로 게이지 충전을 누적해 가우지가 영구 100% 정체되는 버그 차단.
   // 한 액션 내 누적 게이지 회수량을 추적해 GAUGE_MAX*0.75 (=750) 상한 도달 시 차단.
   // 다단히트도 매 hit 발동 가능 — 단 75% cap 으로 정체 불가능.
@@ -1611,6 +1618,12 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
       arr.splice(oldestIdx, 1);
     }
   }
+  // 직업 전용 노드 — dot_duration_bonus (모든 도트 지속 +N행동, 적에게 거는 도트만)
+  const dotDurBonus = getPassive(s, 'dot_duration_bonus');
+  if (dotDurBonus > 0 && effect.source === 'player'
+      && (effect.type === 'dot' || effect.type === 'poison' || effect.type === 'burn' || effect.type === 'bleed')) {
+    effect.remainingActions = effect.remainingActions + dotDurBonus;
+  }
   s.statusEffects.push({ ...effect, id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}` });
   bumpEffectVer(s);
   // 도적 독의 공명: 독 스택이 적에게 쌓일 때마다 +1 게이지 (최대 10)
@@ -1819,6 +1832,45 @@ function applyDamagePrefixes(
       dmg = Math.round(dmg * (1 + dodgeBurst / 100));
       addLog(s, `[회피의] +${dodgeBurst}%`);
       s.dodgeBurstPending = false;
+    }
+    // 수호자 키스톤 — 응징의 방벽 (피격 스택 × 60%, 최대 3 중첩, 소모)
+    if (getPassive(s, 'paragon_vengeful_bulwark') > 0 && (s.paragonVengefulStacks ?? 0) > 0) {
+      const stacks = s.paragonVengefulStacks!;
+      const bonus = stacks * 60;
+      dmg = Math.round(dmg * (1 + bonus / 100));
+      addLog(s, `[응징의 방벽] +${bonus}% (${stacks} 중첩)`);
+      s.paragonVengefulStacks = 0;
+    }
+    // 마법사 일타 키스톤 — 종결의 일격 (처치 후 2행동 다음 스킬 +100%, 소모)
+    if (getPassive(s, 'paragon_finishing_blow') > 0
+        && (s.paragonFinishingActiveUntil ?? 0) > s.actionCount) {
+      dmg = Math.round(dmg * 2.0);
+      addLog(s, `[종결의 일격] 다음 스킬 +100%`);
+      s.paragonFinishingActiveUntil = 0;
+    }
+    // 광전사 — 광기의 충동 (proc_next_skill_amp_pct: 적중 시 N% 확률 다음 스킬 +M%)
+    // 단일 키 사용: 노드 정의 값은 확률(%) 로 저장, 데미지 증가폭은 30% 고정.
+    {
+      const procChance = getPassive(s, 'proc_next_skill_amp_pct');
+      if (procChance > 0) {
+        // 펜딩 buff 있으면 소모, 없으면 굴림
+        if ((s as any).maniaProcPending) {
+          dmg = Math.round(dmg * 1.30);
+          addLog(s, `[광기의 충동] 다음 스킬 +30%`);
+          (s as any).maniaProcPending = false;
+        } else if (Math.random() * 100 < procChance) {
+          (s as any).maniaProcPending = true;
+        }
+      }
+    }
+    // 마법사 일타 — 충전된 일격 (charged_strike: 5행동마다 다음 스킬 +30%)
+    if (getPassive(s, 'charged_strike') > 0) {
+      s.paragonChargedActsSinceProc = (s.paragonChargedActsSinceProc ?? 0) + 1;
+      if (s.paragonChargedActsSinceProc >= 5) {
+        dmg = Math.round(dmg * 1.30);
+        addLog(s, `[충전된 일격] +30%`);
+        s.paragonChargedActsSinceProc = 0;
+      }
     }
   }
   // shadow_strike: 전투 시작 후 첫 스킬 데미지 증가
@@ -2112,6 +2164,16 @@ function revertDexBuff(s: ActiveSession): void {
 // dormant_burst/failure_glory 는 일회성 consume 가 있어 본체 파이프라인 책임으로 남김.
 function paragonAlwaysOnMult(s: ActiveSession): number {
   let mult = 1.0;
+  // 광전사 키스톤 — 분노의 파동 (HP ≤70% 시 ATK +50%)
+  if (getPassive(s, 'paragon_furor_pulse') > 0 && s.playerHp / s.playerMaxHp <= 0.70) mult *= 1.5;
+  // 광전사 키스톤 — 폭발하는 분노 (항상 ATK +50% + HP 35% 고정 효과는 별도 처리)
+  if (getPassive(s, 'paragon_explosive_rage') > 0) mult *= 1.5;
+  // 마법사 일타 키스톤 — 일점 폭발 (단일 대상 = 솔로 전투, 항상 +50%)
+  if (getPassive(s, 'paragon_one_shot') > 0) mult *= 1.5;
+  // 마법사 도트 키스톤 — 도트 과부하 (도트 적용된 적에게 +40%)
+  if (getPassive(s, 'paragon_dot_overload') > 0 && s.statusEffects.some(e =>
+    e.source === 'player' && e.remainingActions > 0 && (e.type === 'burn' || e.type === 'poison' || e.type === 'bleed')
+  )) mult *= 1.4;
   if (getPassive(s, 'paragon_heavy_blade') > 0) mult *= 2.0;
   if (getPassive(s, 'paragon_fate_lock') > 0) mult *= 1.75;
   if (getPassive(s, 'paragon_pain_attunement') > 0 && s.playerHp / s.playerMaxHp <= 0.35) mult *= 1.5;
@@ -3244,6 +3306,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         ascensionFinalFlat = Math.max(1, Math.round(s.playerMaxHp * 50 - s.monsterStats.mdef * 0.5));
         ascensionForceCritOnLast = true;
         addLog(s, `[${skill.name}] 천상의 빛이 강림한다…`);
+      }
+      // 성직자 광명 키스톤 — 새벽의 사자 (최대 체력 비례 스킬 데미지 +30%)
+      if ((skill.name === '신의 타격' || skill.name === '천상 강림') && getPassive(s, 'paragon_dawn_breaker') > 0) {
+        divineStrikeFlat = Math.round(divineStrikeFlat * 1.30);
+        if (ascensionFinalFlat > 0) ascensionFinalFlat = Math.round(ascensionFinalFlat * 1.30);
+        addLog(s, `[새벽의 사자] HP 비례 데미지 +30%`);
       }
       const multiHitFlat = skillFlatWithInt(skill, s.playerStats.int || 0) + divineStrikeFlat;
       // 무쌍난무: 25% / 전장의 광란: 50% 확률로 전체 타격 세트 2회 발동
@@ -4586,6 +4654,34 @@ function monsterAction(s: ActiveSession): void {
     if (dtDown > 0 && dmg > 0) {
       dmg = Math.round(dmg * (1 - dtDown / 100));
     }
+    // 직업 전용 노드 — 받는 데미지 감소 (incoming_dmg_pct_down, 패시브 합산)
+    const passDtDown = getPassive(s, 'incoming_dmg_pct_down');
+    if (passDtDown > 0 && dmg > 0) {
+      dmg = Math.round(dmg * (1 - passDtDown / 100));
+    }
+    // 광전사 키스톤 — 폭발하는 분노 (받는 데미지 -30% 곱연산)
+    if (getPassive(s, 'paragon_explosive_rage') > 0 && dmg > 0) {
+      dmg = Math.round(dmg * 0.7);
+    }
+    // 수호자 키스톤 — 강철의 의지 (체력 30% 이하 시 받는 데미지 -50%)
+    if (getPassive(s, 'paragon_iron_resolve') > 0 && s.playerHp / s.playerMaxHp <= 0.30 && dmg > 0) {
+      dmg = Math.round(dmg * 0.5);
+    }
+    // 성직자 수호 키스톤 — 부서지지 않는 신앙 (체력 50% 이하 트리거 시 5행동간 -60%, 5행동 재발동 대기)
+    if (getPassive(s, 'paragon_unbreakable_faith') > 0 && dmg > 0) {
+      // 활성 여부 — actionCount 비교 (5행동 활성 + 5행동 쿨)
+      const activeUntil = s.paragonUnbreakableActiveUntil ?? 0;
+      const cooldownUntil = s.paragonUnbreakableCooldownUntil ?? 0;
+      if (activeUntil > s.actionCount) {
+        dmg = Math.round(dmg * 0.4);
+      } else if (s.playerHp / s.playerMaxHp <= 0.50 && cooldownUntil <= s.actionCount) {
+        // 트리거 — 5행동 활성 + 5행동 쿨
+        s.paragonUnbreakableActiveUntil = s.actionCount + 5;
+        s.paragonUnbreakableCooldownUntil = s.actionCount + 10;
+        dmg = Math.round(dmg * 0.4);
+        addLog(s, `[부서지지 않는 신앙] 발동 — 5행동 받는 데미지 -60%`);
+      }
+    }
     if (guardianProc) addLog(s, `[수호자] 받는 데미지 -${guardian}%`);
 
     // 소환사 방어 오오라 — 오오라의 왕 시 ×2
@@ -4612,6 +4708,33 @@ function monsterAction(s: ActiveSession): void {
       s.playerHp -= dmg;
       const defUsed = Math.round(playerDefStats.def);
       addLog(s, `몬스터가 ${dmg} 데미지${d.crit ? '!' : ''} (방어 ${defUsed})`);
+      // 직업 전용 노드 — 반격 (counter_chance_pct, 전사 수호자 갈래)
+      // 피격 시 N% 확률로 본체 평타 1회 즉시 반격. 치명·방어 모두 적용.
+      const counterChance = getPassive(s, 'counter_chance_pct');
+      if (counterChance > 0 && s.monsterHp > 0 && Math.random() * 100 < counterChance) {
+        const def = s.monsterStats.def || 0;
+        let counterDmg = Math.max(1, Math.round((s.playerStats.atk || 1) - def * 0.5));
+        const cri = s.playerStats.cri || 0;
+        if (cri > 0 && Math.random() * 100 < cri) {
+          const cBonus = getCritDmgBonus(s);
+          counterDmg = Math.round(counterDmg * (1.5 + cBonus / 100));
+        }
+        s.monsterHp -= counterDmg;
+        addLog(s, `[반격] ${counterDmg} 데미지`);
+      }
+      // 성직자 수호 키스톤 — 신성한 보호막 (피격 시 받는 데미지의 30% 자가 회복)
+      if (getPassive(s, 'paragon_divine_aegis') > 0 && s.playerHp > 0) {
+        const healAmt = Math.round(dmg * 0.30);
+        if (healAmt > 0) {
+          const before = s.playerHp;
+          s.playerHp = Math.min(s.playerMaxHp, s.playerHp + healAmt);
+          addLog(s, `[신성한 보호막] ${s.playerHp - before} HP 회복`);
+        }
+      }
+      // 수호자 키스톤 — 응징의 방벽 (피격 시 다음 스킬 데미지 +60% 누적, 최대 3 중첩)
+      if (getPassive(s, 'paragon_vengeful_bulwark') > 0) {
+        s.paragonVengefulStacks = Math.min(3, (s.paragonVengefulStacks ?? 0) + 1);
+      }
       // 피격 → 각성 카운터 리셋
       s.ticksSinceLastHit = 0;
       // 궁수 저격수의 호흡 — 피격 시 streak 리셋, cri 보너스 회수
@@ -4688,6 +4811,44 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
     s.monsterHp = s.monsterMaxHp;
     s.dirty = true;
     return;
+  }
+  // ── 직업 전용 노드 keystone — onKill 처리 ──
+  // 전사 광전사 — 피의 갈증 (처치 시 최대 체력 N% 회복)
+  {
+    const killHpRec = getPassive(s, 'kill_hp_recover_pct');
+    if (killHpRec > 0 && s.playerHp > 0) {
+      const heal = Math.round(s.playerMaxHp * killHpRec / 100);
+      const before = s.playerHp;
+      s.playerHp = Math.min(s.playerMaxHp, s.playerHp + heal);
+      if (s.playerHp > before) addLog(s, `[피의 갈증] +${s.playerHp - before} HP 회복`);
+    }
+  }
+  // 마법사 일타 — 종결의 일격 (처치 시 다음 스킬 +100%, 2행동 유지)
+  if (getPassive(s, 'paragon_finishing_blow') > 0) {
+    s.paragonFinishingActiveUntil = s.actionCount + 2;
+    addLog(s, `[종결의 일격] 다음 스킬 +100% (2행동)`);
+  }
+  // 성직자 광명 — 광휘의 폭발 (처치 시 15% 확률로 모든 스킬 쿨다운 0)
+  if (getPassive(s, 'paragon_radiant_burst') > 0 && Math.random() < 0.15) {
+    s.skillCooldowns.clear();
+    addLog(s, `[광휘의 폭발] 모든 스킬 쿨다운 초기화!`);
+  }
+  // 마법사 도트 — 도트 폭발 (도트 적용된 적 처치 시 잔여 도트 ×3 으로 다음 적에 전이)
+  // 도트 데미지로 인한 처치(monsterHp 0 도달이 도트 tick) 시는 무한 전파 방지 — 별도 flag 필요.
+  if (getPassive(s, 'paragon_dot_detonation') > 0 && !(s as any).killedByDotTick) {
+    const playerDots = s.statusEffects.filter(e =>
+      e.source === 'player' && e.remainingActions > 0 && (e.type === 'burn' || e.type === 'poison' || e.type === 'bleed')
+    );
+    if (playerDots.length > 0) {
+      // 다음 스폰 적에게 적용할 도트 임시 캐싱 — postSpawn hook 에서 적용
+      (s as any).dotDetonationPending = playerDots.map(e => ({
+        type: e.type,
+        value: Math.round(e.value * 3),
+        remainingActions: e.remainingActions,
+        source: 'player',
+      }));
+      addLog(s, `[도트 폭발] 잔여 도트 3배로 다음 적에게 전이`);
+    }
   }
   // 도적 연쇄 처형 — 처치 시 게이지 풀필 + 다음 액션 ×2 buff
   if (s.className === 'rogue') {
@@ -5552,6 +5713,15 @@ function spawnMonsterForSession(s: ActiveSession): void {
     addLog(s, `[독 사냥꾼] 몬스터 등장! 초기 독 2스택 부여`);
   }
 
+  // 마법사 도트 — 도트 폭발 keystone 잔여 도트 전이 (×3, 도트 데미지로 처치된 경우는 set X)
+  if ((s as any).dotDetonationPending && !isDummyMonster(s)) {
+    const pending = (s as any).dotDetonationPending as Array<{ type: string; value: number; remainingActions: number; source: string }>;
+    for (const p of pending) {
+      addEffect(s, { type: p.type as any, value: p.value, remainingActions: p.remainingActions, source: 'player' });
+    }
+    addLog(s, `[도트 폭발] 잔여 도트 ${pending.length}개 ×3 전이!`);
+    (s as any).dotDetonationPending = null;
+  }
   // 도적 전용: 이전 몬스터 처치 시 캡처한 독 스택 전이 (cap 20, 잔여 액션 50% 감소)
   if (s.className === 'rogue' && !isDummyMonster(s) && s.rogueDotCarry && s.rogueDotCarry.length > 0) {
     const transferCount = Math.min(20, s.rogueDotCarry.length);
@@ -7307,6 +7477,8 @@ export function applyCombatStatBoost(
   if (pMap.has('sanctuary_guard')) {
     eff.maxHp += Math.round(charMaxHp * pMap.get('sanctuary_guard')! / 100);
   }
+  // 직업 전용 노드 hp_flat / paragon_explosive_rage 는 character.ts 만 적용 (이중 가산 방지).
+  // applyCombatStatBoost 는 기존 war_god 등 의도된 이중 적용 키만 처리.
   if (pMap.has('balance_apostle')) {
     const v = pMap.get('balance_apostle')!;
     eff.atk = Math.round(eff.atk * (1 + v / 100));

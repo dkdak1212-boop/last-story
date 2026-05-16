@@ -265,6 +265,17 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   const ppDodge = pMap.get('paragon_dodge_pct') || 0;
   const ppCri = pMap.get('paragon_cri_pct') || 0; // value 1 = +0.5%
   if (ppHp)  eff.maxHp = Math.round(eff.maxHp * (1 + ppHp / 100));
+  // 직업 전용 노드 신규 키 — hp_flat (최대 체력 +N flat). 기존 소환사 v2 신수 가호 노드 호환.
+  const hpFlat = pMap.get('hp_flat') || 0;
+  if (hpFlat) eff.maxHp += hpFlat;
+  // 직업 전용 노드 신규 키 — incoming_dmg_pct_down (받는 데미지 -N%). engine.ts 데미지 처리 hook 에서 사용.
+  // (여기는 stat 계산이 아닌 hook 용 marker 라서 별도 처리 X)
+  // 광전사 키스톤 — 폭발하는 분노 (최대 체력을 35% 로 고정 + 공격력 +50%)
+  // 받는 데미지 -30% 곱연산은 engine.ts 피격 hook 에서 적용.
+  if (pMap.has('paragon_explosive_rage')) {
+    eff.maxHp = Math.max(1, Math.round(eff.maxHp * 0.35));
+    eff.atk = Math.round(eff.atk * 1.5);
+  }
   if (ppDef) eff.def = Math.round(eff.def * (1 + ppDef / 100));
   if (ppMdef) eff.mdef = Math.round(eff.mdef * (1 + ppMdef / 100));
   if (ppAtk) eff.atk = Math.round(eff.atk * (1 + ppAtk / 100));
