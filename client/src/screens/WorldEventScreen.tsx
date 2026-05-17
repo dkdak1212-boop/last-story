@@ -60,6 +60,8 @@ export function WorldEventScreen() {
   useEffect(() => { fetchStatus(); const id = setInterval(fetchStatus, POLL_MS); return () => clearInterval(id); }, [fetchStatus]);
   useEffect(() => { if (cooldown <= 0) return; const id = setInterval(() => setCooldown(c => Math.max(0, c - 1)), 1000); return () => clearInterval(id); }, [cooldown]);
 
+  // 옛 10초 시뮬 — Step 3.5 에서 실시간 전투(handleEnter)로 대체. 향후 정리 예정.
+  // @ts-expect-error — 사용 안 함, 호환성 보존
   async function handleAttack() {
     if (!active || busy || cooldown > 0) return;
     setBusy(true); setResult(null);
@@ -76,6 +78,30 @@ export function WorldEventScreen() {
       setStatus(prev => prev ? { ...prev, currentHp: res.currentHp, maxHp: res.maxHp, myDamage: res.myDamage, myRank: res.myRank, myAttackCount: res.myAttackCount } : prev);
       await refreshActive();
     } catch {} finally { setBusy(false); }
+  }
+
+  // raid-bosses-v2 Step 3.5 — 실시간 전투 세션 입장
+  // 성공 시 활성 combat_sessions 생성 → 클라가 전투 화면으로 자동 전환
+  async function handleEnter() {
+    if (!active || busy || cooldown > 0) return;
+    setBusy(true); setResult(null);
+    try {
+      const res = await api<{ ok?: boolean; error?: string; cooldownMs?: number; eventId?: number; bossName?: string }>(`/world-event/enter/${active.id}`, {
+        method: 'POST',
+      });
+      if ((res as any).error) {
+        if ((res as any).cooldownMs) setCooldown(Math.ceil((res as any).cooldownMs / 1000));
+        alert((res as any).error);
+        return;
+      }
+      // 세션 시작됨 — 캐릭 새로고침 (CombatScreen 으로 자동 진입)
+      await refreshActive();
+      // 즉시 전투 화면 진입 안내 (CombatScreen 이 활성 세션 감지)
+      alert(`${res.bossName ?? '발라카스'} 입장! 전투 화면으로 이동합니다.`);
+      window.location.hash = '#/combat';
+    } catch (e: any) {
+      alert(`입장 실패: ${e?.message ?? '오류'}`);
+    } finally { setBusy(false); }
   }
 
   if (!status) return <div style={{ color: 'var(--text-dim)' }}>로딩...</div>;
@@ -142,15 +168,15 @@ export function WorldEventScreen() {
         )}
       </div>
 
-      {/* 공격 + 기여 */}
+      {/* 입장 + 기여 — raid-bosses-v2 Step 3.5 실시간 전투 세션 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center', borderRadius: 8 }}>
-          <button className="primary" onClick={handleAttack} disabled={busy || cooldown > 0}
+          <button className="primary" onClick={handleEnter} disabled={busy || cooldown > 0}
             style={{ fontSize: 18, padding: '14px 40px', width: '100%', fontWeight: 700 }}>
-            {busy ? '전투 중...' : cooldown > 0 ? `대기 ${cooldown}초` : '10초 전투 시작!'}
+            {busy ? '입장 중...' : cooldown > 0 ? `대기 ${cooldown}초` : '레이드 입장 (실시간)'}
           </button>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-            10초간 보스와 전투 · 보스도 공격합니다 · 사망 가능
+            실시간 전투 진입 · 5종 시그니처 패턴 · 30초마다 광폭 ×2 · 사망 시 5분 쿨다운 · 일일 10회 제한
           </div>
           {result && (
             <div style={{ marginTop: 8, padding: 8, background: result.playerDead ? 'rgba(255,50,50,0.1)' : 'rgba(100,200,100,0.1)', borderRadius: 4, fontSize: 13 }}>

@@ -317,6 +317,12 @@ interface ActiveSession {
   // skill.element 로 set. 그 액션 안의 multi_hit / 추가 발동 도 같은 element 로 누적.
   currentActionElement: string | null;
   guildBossStartedAt: number; // 광분 타이머 기준 (unix ms, 0이면 미사용)
+  // 레이드 (raid-bosses-v2 Step 3) — 길드보스와 별도 채널
+  // raidEventId 가 set 되면 RAID 분기 활성 (보스 행동/dmg 누적/사망 처리 분기)
+  raidEventId: number | null;
+  raidStartedAtMs: number; // 보스 spawn 시각 (광폭 단계 계산 기준)
+  raidDmgBuffer: number; // flush 전 누적 raw dmg
+  raidHitsBuffer: number; // flush 전 누적 타격 수
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   // ── 차원의 정수 (Paragon) 키스톤 상태 ──
@@ -1168,6 +1174,14 @@ setInterval(() => {
         catch (e) { console.error('[guild-boss] interval flush err', s.characterId, e); }
       }
       // run 의 guild_id 는 DB 에서만 알 수 있음 — runId 로 lookup
+    }
+    // raid-bosses-v2 Step 3.3 — 레이드 세션 데미지 1초 주기 flush
+    for (const [, s] of activeSessions) {
+      if (!s.raidEventId) continue;
+      if (s.raidDmgBuffer > 0 || s.raidHitsBuffer > 0) {
+        try { await flushRaidDamage(s); }
+        catch (e) { console.error('[raid] interval flush err', s.characterId, e); }
+      }
     }
     // 활성 길드보스 run 의 guild_id 수집 후 각 길드 milestone 실시간 판정
     // (practice-* runId 는 DB INSERT 되지 않으므로 guild_boss_runs 에 자연히 존재하지 않음)
@@ -4483,6 +4497,66 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
 // ── 몬스터 행동 ──
 // tickDownEffects(s, 'player')는 monsterAction 외부(메인 루프)에서 처리.
 // 도트가 먼저 적용된 뒤 카운트가 감소하도록 순서 조정 — 마지막 1틱이 사라지지 않게.
+// raid-bosses-v2 Step 3.2 — 발라카스 5종 시그니처 패턴 (실시간 전투용)
+// attackBoss 시뮬의 PATTERN_INFO 와 동일한 가중치·멀티. 라벨 토큰은 클라가 픽셀 아이콘으로 치환.
+type RaidPattern = 'basic' | 'fire_breath' | 'tail_swipe' | 'roar' | 'inferno';
+const RAID_PATTERN_INFO: Record<RaidPattern, { mul: number; pierceDodge: boolean; label: string }> = {
+  basic:       { mul: 0.10, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
+  fire_breath: { mul: 0.30, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
+  tail_swipe:  { mul: 0.50, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
+  roar:        { mul: 0.10, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
+  inferno:     { mul: 1.00, pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
+};
+function pickRaidPattern(): RaidPattern {
+  const r = Math.random() * 100;
+  if (r < 60) return 'basic';
+  if (r < 75) return 'fire_breath';
+  if (r < 85) return 'tail_swipe';
+  if (r < 95) return 'roar';
+  return 'inferno';
+}
+
+function performRaidBossAttack(s: ActiveSession): void {
+  // 광폭 단계 — spawn 후 30s마다 ×2 누적 (cap 50단계 — 2^50 == Number.MAX_SAFE_INTEGER 근접)
+  const elapsedSec = Math.max(0, (Date.now() - (s.raidStartedAtMs || Date.now())) / 1000);
+  const enrageStage = Math.floor(elapsedSec / 30);
+  const enrageMul = Math.pow(2, Math.min(50, enrageStage));
+
+  const pattern = pickRaidPattern();
+  const info = RAID_PATTERN_INFO[pattern];
+
+  // 회피 — 회피 무시 패턴은 스킵
+  if (!info.pierceDodge && Math.random() * 100 < (s.playerStats.dodge || 0)) {
+    addLog(s, `[회피] ${info.label} 회피!`);
+    return;
+  }
+
+  // 데미지 = max_hp × patternMul × enrageMul (고정 비례, 방어력 미적용)
+  const baseDmg = Math.round(s.playerMaxHp * info.mul);
+  let dmg = Math.max(1, Math.round(baseDmg * enrageMul));
+
+  // 실드 흡수는 적용 (필드 전투 동일 패턴)
+  const shields = getEffectsOfType(s, 'shield').filter(e => e.source === 'monster' && e.value > 0);
+  if (shields.length > 0 && dmg > 0) {
+    let absorbed = 0;
+    for (const shield of shields) {
+      if (dmg <= 0) break;
+      if (shield.value >= dmg) {
+        shield.value -= dmg; absorbed += dmg; dmg = 0;
+      } else {
+        absorbed += shield.value; dmg -= shield.value; shield.value = 0; shield.remainingActions = 0;
+      }
+    }
+    if (absorbed > 0) addLog(s, `실드가 ${absorbed} 흡수${dmg > 0 ? ` 후 파괴, 잔여 ${dmg}` : ''}`);
+  }
+
+  if (dmg > 0) {
+    s.playerHp -= dmg;
+    const enrageTag = enrageStage > 0 ? ` [광폭 ${enrageStage}단계 ×${enrageMul}]` : '';
+    addLog(s, `${info.label} ${dmg.toLocaleString()} 피해${enrageTag} (HP ${Math.max(0, s.playerHp).toLocaleString()}/${s.playerMaxHp.toLocaleString()})`);
+  }
+}
+
 function monsterAction(s: ActiveSession): void {
   // 스턴 체크
   if (hasEffect(s, 'player', 'stun')) {
@@ -4493,6 +4567,13 @@ function monsterAction(s: ActiveSession): void {
   // 게이지 동결 체크
   if (hasEffect(s, 'player', 'gauge_freeze')) {
     addLog(s, '몬스터가 동결 상태!');
+    return;
+  }
+
+  // raid-bosses-v2 Step 3.2 — 레이드 모드면 발라카스 5종 시그니처 패턴 전용 처리.
+  // (calcDamage / 길드보스 광분 / 110 dim_burst 로직 모두 우회)
+  if (s.raidEventId) {
+    performRaidBossAttack(s);
     return;
   }
 
@@ -5511,6 +5592,28 @@ async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   }
 }
 
+// raid-bosses-v2 Step 3.3 — 레이드 데미지 buffer flush (world_event_participants UPDATE)
+// attack_count 는 "입장 횟수" 의미 — flush 에서 가산 안 함. 입장 시점(/enter)이 책임.
+async function flushRaidDamage(s: ActiveSession): Promise<void> {
+  if (!s.raidEventId) return;
+  if (s.raidDmgBuffer <= 0) return;
+  const dmg = s.raidDmgBuffer;
+  s.raidDmgBuffer = 0;
+  s.raidHitsBuffer = 0;
+  try {
+    // 누적 dmg 만 UPDATE — row 는 /enter 에서 미리 생성됨 (ON CONFLICT 도 안전망 대비)
+    await query(
+      `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
+       VALUES ($1, $2, $3, 1, NOW())
+       ON CONFLICT (event_id, character_id) DO UPDATE SET
+         total_damage = world_event_participants.total_damage + EXCLUDED.total_damage`,
+      [s.raidEventId, s.characterId, dmg]
+    );
+  } catch (e) {
+    console.error('[raid] flushRaidDamage fail', e);
+  }
+}
+
 // 행동 전후 HP 델타를 누적 + HP가 0 이하면 즉시 풀피 복원 (절대 죽지 않음)
 function handleDummyTick(s: ActiveSession, hpBefore: number): void {
   if (!isDummyMonster(s)) return;
@@ -5603,6 +5706,43 @@ function spawnMonsterForSession(s: ActiveSession): void {
     bumpEffectVer(s);
     const floorLabel = isBossFloor(s.endlessFloor) ? `${s.endlessFloor}층 — 보스` : `${s.endlessFloor}층`;
     addLog(s, `[종언의 기둥 ${floorLabel}] ${m.name} 등장!`);
+    return;
+  }
+
+  // raid-bosses-v2 Step 3.3 — 레이드 보스 가상 몬스터 스폰 (필드 풀 무시)
+  // HP 무한대 — 사실상 처치 불가, 시간 만료 시 결산.
+  if (s.raidEventId) {
+    const RAID_BOSS_HP = 1_000_000_000_000; // 10^12 (사실상 무한)
+    s.monsterId = -999;
+    s.monsterName = '태고의 용왕 발라카스';
+    s.monsterLevel = 80;
+    s.monsterHp = RAID_BOSS_HP;
+    s.monsterMaxHp = RAID_BOSS_HP;
+    s.monsterStats = {
+      str: 200, dex: 200, int: 200, vit: 200,
+      spd: 1000, cri: 0,
+      maxHp: RAID_BOSS_HP,
+      atk: 0, matk: 0,   // performRaidBossAttack 이 max_hp 비례로 자체 계산 — monsterStats 값 미사용
+      def: 200, mdef: 200,
+      dodge: 0, accuracy: 80,
+      unconditionalDodge: false,
+    };
+    s.monsterSpeed = 1000;  // 게이지 매우 빠름
+    s.monsterGauge = 0;
+    s.monsterDrPct = 0;
+    s.monsterCcImmune = true;  // CC 면역 (raid-v2 사용자 결정)
+    s.monsterLifestealImmune = false;
+    s.monsterSkillCooldowns = new Map<string, number>();
+    s.monsterRageActivated = false;
+    s.bossPhase2Triggered = false;
+    s.hasFirstStrike = true;
+    s.hasFirstSkill = true;
+    s.monsterSpawnAt = Date.now();
+    s.statusEffects = s.statusEffects.filter(e =>
+      e.source === 'monster' || e.type === 'summon' || e.type === 'summon_buff_active' || e.type === 'summon_frenzy_active'
+    );
+    bumpEffectVer(s);
+    addLog(s, `${s.monsterName}이(가) 깨어났다!`);
     return;
   }
 
@@ -5776,6 +5916,34 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     addLog(s, `[종언의 기둥] 사망 — ${reachedFloor}층에서 1층으로 회귀합니다.`);
     s.playerHp = 0;
     try { await recordDeath(s.characterId); } catch (e) { console.error('[endless] recordDeath', e); }
+    await query(
+      'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
+      ['village', s.characterId]
+    );
+    await query('DELETE FROM combat_sessions WHERE character_id=$1', [s.characterId]);
+    await pushCombatState(s, true, true);
+    activeSessions.delete(s.characterId);
+    return;
+  }
+
+  // raid-bosses-v2 Step 3.4 — 레이드 사망 처리
+  // 부활 없음, 5분 쿨다운 시작 (last_attack_at = NOW), run 종료 + 마을 이동.
+  if (s.raidEventId) {
+    await flushRaidDamage(s);
+    try {
+      await query(
+        `UPDATE world_event_participants SET last_attack_at = NOW()
+          WHERE event_id = $1 AND character_id = $2`,
+        [s.raidEventId, s.characterId]
+      );
+    } catch (e) { console.error('[raid] update last_attack_at fail', e); }
+    addLog(s, '사망 — 레이드 입장 종료 (5분 쿨다운)');
+    s.playerHp = 0;
+    s.raidEventId = null;
+    s.raidStartedAtMs = 0;
+    s.raidDmgBuffer = 0;
+    s.raidHitsBuffer = 0;
+    await flushCharBatch(s.characterId);
     await query(
       'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
       ['village', s.characterId]
@@ -6229,6 +6397,11 @@ async function combatTick(): Promise<void> {
           s.guildBossDmgByElement[elKey].hits += 1;
           s.guildBossDmgBuffer += dealtThisAction;
           s.guildBossHitsBuffer += 1;
+        }
+        // raid-bosses-v2 Step 3.3 — 레이드 모드 데미지 누적 (raidDmgBuffer)
+        if (s.raidEventId && dealtThisAction > 0) {
+          s.raidDmgBuffer += dealtThisAction;
+          s.raidHitsBuffer += 1;
         }
         handleDummyTick(s, hpBeforePl);
         if (s.monsterHp <= 0 && !isDummyMonster(s)) { const tk = Date.now(); await handleMonsterDeath(s); perfSeg.killMs += Date.now() - tk; return 'break'; }
@@ -6693,9 +6866,24 @@ export async function setAfkMode(characterId: number, enabled: boolean): Promise
 
 // 길드 보스 전용 필드 (DB에 id=999로 등록 — fields 테이블 FK 충족용)
 const GUILD_BOSS_FIELD_ID = 999;
+// 레이드(월드 이벤트) 전용 필드 — raid-bosses-v2 Step 3
+export const RAID_FIELD_ID = 998;
 
 export async function startGuildBossCombatSession(characterId: number, runId: string, boss: GuildBossData, practice: boolean = false): Promise<void> {
   await startCombatSession(characterId, GUILD_BOSS_FIELD_ID, { guildBossRunId: runId, guildBossBoss: boss, practice });
+}
+
+// 레이드 전용 진입 — startCombatSession 에 raidOpts 전달.
+// (engine.ts 의 raid 분기는 Step 3.2 에서 본격 구현 예정)
+export async function startRaidCombatSession(
+  characterId: number,
+  raidEventId: number,
+  raidStartedAtMs: number,
+): Promise<void> {
+  await startCombatSession(characterId, RAID_FIELD_ID, undefined, {
+    raidEventId,
+    raidStartedAtMs,
+  });
 }
 
 export async function endGuildBossCombatSession(characterId: number): Promise<void> {
@@ -6705,6 +6893,18 @@ export async function endGuildBossCombatSession(characterId: number): Promise<vo
   s.guildBossRunId = null;
   s.guildBossBoss = null;
   s.guildBossPractice = false;
+  activeSessions.delete(characterId);
+}
+
+// raid-bosses-v2 Step 3.3 — 레이드 세션 종료 (flush + 정리)
+export async function endRaidCombatSession(characterId: number): Promise<void> {
+  const s = activeSessions.get(characterId);
+  if (!s) return;
+  if (s.raidEventId) await flushRaidDamage(s);
+  s.raidEventId = null;
+  s.raidStartedAtMs = 0;
+  s.raidDmgBuffer = 0;
+  s.raidHitsBuffer = 0;
   activeSessions.delete(characterId);
 }
 
@@ -6794,7 +6994,7 @@ export async function startCombatSession(
   characterId: number,
   fieldId: number,
   guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean },
-  opts?: { skipMultiCharCleanup?: boolean }
+  opts?: { skipMultiCharCleanup?: boolean; raidEventId?: number; raidStartedAtMs?: number }
 ): Promise<void> {
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
@@ -6842,7 +7042,7 @@ async function startCombatSessionInner(
   characterId: number,
   fieldId: number,
   guildBossOpts?: { guildBossRunId: string; guildBossBoss: GuildBossData; practice?: boolean },
-  opts?: { skipMultiCharCleanup?: boolean }
+  opts?: { skipMultiCharCleanup?: boolean; raidEventId?: number; raidStartedAtMs?: number },
 ): Promise<void> {
   // 기존 세션 정리
   activeSessions.delete(characterId);
@@ -7045,6 +7245,11 @@ async function startCombatSessionInner(
     // 클라가 탭 이동/재접속으로 세션을 재생성해도 60초 카운트가 reset 되지 않게.
     // run 정보 못 읽거나 practice 면 Date.now() fallback (in-memory only).
     guildBossStartedAt: 0, // 아래에서 비동기 SELECT 후 세팅
+    // 레이드 (raid-bosses-v2 Step 3) — raidOpts 가 있으면 세팅
+    raidEventId: opts?.raidEventId ?? null,
+    raidStartedAtMs: opts?.raidStartedAtMs ?? 0,
+    raidDmgBuffer: 0,
+    raidHitsBuffer: 0,
   };
 
   // 광분 타이머 기준 시각 — run 의 DB started_at 사용 (탭 이동 어뷰즈 차단)

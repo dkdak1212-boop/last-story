@@ -332,11 +332,66 @@ function pickPattern(): Pattern {
 - 모든 패턴: combatLog 에 `[발라카스 패턴이름] N피해` 표시
 - enrage 단계 0인 시점에는 fire_breath/inferno 도 견딜 만함, 시간 갈수록 위협 증가
 
-### 비목표 (Step 3 이후)
-- 광역 효과 — attackBoss 시뮬은 본인만, 다른 참여자 동시 영향 미적용 (architectural)
-- 도트 부여 (보스 → 플레이어)
-- 보스 스킬 외부 알림 (월드 채널)
-- skills.element 컬럼 → 원소 면역/약점 정밀 매칭
+### 비목표 (이번 단계 외)
+- 광역 효과 — Step 3에서 다룸
+- 도트 부여 (보스 → 플레이어) — Step 3
+- 보스 스킬 외부 알림 (월드 채널) — Step 3
+- skills.element 컬럼 → 원소 면역/약점 정밀 매칭 — 별도 spec
+
+## Step 3 — 길드보스 실시간 전투 세션 이식 (이번 단계)
+
+### 배경
+- Step 2 까지는 `attackBoss` 10초 시뮬 — 캐릭이 버튼 한 번 → 10초 후 결과 반환. 사용자 의도("길드보스처럼 똑같이 구현")와 불일치.
+- 길드보스는 `startCombatSession` 으로 WebSocket 실시간 전투 (`combat/engine.ts` 의 `GUILD_BOSS_FIELD_ID = 999`).
+- 레이드도 동일 구조 — 단, 보스 인스턴스는 캐릭별이 아니라 **공유** (모든 참여자가 같은 보스에 누적 dmg).
+
+### 디자인
+1. **가상 필드 RAID_FIELD_ID = 998** — 길드보스 999 와 분리
+2. `routes/worldEvent.ts` 에 `/enter/:characterId` 추가 — startCombatSession 호출
+3. `combat/engine.ts` 에 RAID 분기:
+   - `raidEventId: number | null` 필드 ActiveSession 에 추가
+   - 보스 행동: 광폭 단계 + 5종 시그니처 패턴 (Step 2 PATTERN_INFO 통째 이식)
+   - 보스 HP 무한 → 사망/처치 안 됨, 캐릭 사망 시만 세션 종료
+   - 캐릭이 보스에 데미지 입힐 때 → `world_event_participants.total_damage` 동시 update
+4. 캐릭 사망 시:
+   - `world_event_participants.last_attack_at` 업데이트 (5분 쿨다운 계산)
+   - 세션 종료, HP 1 로 retreat
+5. 어드민 가드 — 입장 시 is_admin 체크 (이미 attackBoss 에 적용된 가드를 enter 로 이동)
+
+### 데이터 흐름
+```
+[클라] POST /api/world-event/enter/:charId
+      ↓
+[서버] 가드 체크 (admin, attack_count<10, cooldown 종료)
+      ↓
+[서버] startCombatSession(charId, RAID_FIELD_ID, { raidEventId, raidBoss })
+      ↓
+[engine] 실시간 ticker — 매 50ms 게이지 + 보스 행동 + 캐릭 자동/수동 스킬
+      ↓
+[engine] 데미지 입힐 때: UPDATE world_event_participants SET total_damage += dmg
+      ↓
+[engine] 캐릭 사망 → markRaidSessionEnded(charId, runId)
+      ↓
+[클라] WebSocket combat-state 수신, 5분 쿨다운 시작
+```
+
+### 클라 변경
+- `WorldEventScreen` → 폐기 또는 entry-only (입장 버튼)
+- 진입 후 `CombatScreen` 활용 (재사용) — 기존 길드보스/필드 전투 UI 와 동일
+- 입장 잠금/쿨다운/입장 횟수 표시는 entry 화면에서
+
+### 비목표 (Step 3 에서도 제외)
+- 광역 효과 (다른 참여자에 동시 영향) — Step 4
+- 보스 페이즈 (광폭 단계 외) — Step 4
+- 보스→플레이어 도트 — Step 4
+
+### 리스크
+| 리스크 | 완화 |
+|---|---|
+| engine.ts 에 raid 분기 추가 — 길드보스/필드 전투 회귀 | startCombatSession 인자 명시적 분기 (raidOpts 옵션) |
+| dmg 누적 시 매 hit DB UPDATE = 부하 | 50ms 누적 후 1회 flush, 또는 actionCount 기반 throttle |
+| 어드민 가드 attackBoss 에서 enter 로 이동 | attackBoss 자체 폐기 → 가드 자동 보존 |
+| 클라 UI — WorldEventScreen 폐기 시 기존 사용자 혼란 | entry-only 화면으로 단순화, 입장 버튼만 |
 
 ## 보스 면역 — 체력비례/CC
 
