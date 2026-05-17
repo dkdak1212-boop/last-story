@@ -7,8 +7,8 @@ import { startRaidCombatSession } from '../combat/engine.js';
 
 const router = Router();
 
-const RAID_DEATH_COOLDOWN_MS = 300_000; // 5분 사망 쿨다운 (raid-bosses-v2)
-const RAID_MAX_ATTACKS_PER_DAY = 10;     // 일일 입장 한도
+const RAID_DEATH_COOLDOWN_MS = 3_600_000; // 1시간 사망 쿨다운 (raid-bosses-v2, 2026-05-17)
+// RAID_MAX_ATTACKS_PER_DAY 제거 — 입장 무제한
 
 router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   const event = await getActiveEvent();
@@ -65,27 +65,19 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
 
   // 오프라인 모드 가드 — 제거 (사용자 결정 2026-05-17). 레이드는 자유 진입.
 
-  // 입장 횟수 + 사망 쿨다운 체크
-  const existing = await query<{ attack_count: number; last_attack_at: string }>(
-    `SELECT COALESCE(attack_count, 0) AS attack_count, last_attack_at
-       FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
+  // 사망 쿨다운만 체크 (일일 입장 제한 제거)
+  const existing = await query<{ last_attack_at: string }>(
+    `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
     [event.id, characterId]
   );
-  if (existing.rows[0]) {
-    const cnt = Number(existing.rows[0].attack_count);
-    if (cnt >= RAID_MAX_ATTACKS_PER_DAY) {
-      return res.status(400).json({ error: `일일 입장 ${RAID_MAX_ATTACKS_PER_DAY}회 한도 도달.` });
-    }
-    // 사망 쿨다운: hp=1 인 캐릭은 5분 안에 재진입 불가
-    if (char.hp <= 1 && existing.rows[0].last_attack_at) {
-      const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-      if (elapsed < RAID_DEATH_COOLDOWN_MS) {
-        const remainMin = Math.ceil((RAID_DEATH_COOLDOWN_MS - elapsed) / 60000);
-        return res.status(400).json({
-          error: `사망 쿨다운 ${remainMin}분 남음`,
-          cooldownMs: RAID_DEATH_COOLDOWN_MS - elapsed,
-        });
-      }
+  if (existing.rows[0] && char.hp <= 1 && existing.rows[0].last_attack_at) {
+    const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
+    if (elapsed < RAID_DEATH_COOLDOWN_MS) {
+      const remainMin = Math.ceil((RAID_DEATH_COOLDOWN_MS - elapsed) / 60000);
+      return res.status(400).json({
+        error: `사망 쿨다운 ${remainMin}분 남음`,
+        cooldownMs: RAID_DEATH_COOLDOWN_MS - elapsed,
+      });
     }
   }
 

@@ -7,33 +7,8 @@ import type { WorldEventStatus } from '../types';
 
 const POLL_MS = 3000;
 
-// 발라카스 시그니처 패턴 → 픽셀 아이콘 매핑 (raid-bosses-v2 Step 2)
-// 서버 combatLog 라벨에 `[icon:key]` 토큰이 prefix 됨 — 클라가 파싱해 인라인 이미지로 치환.
-const PATTERN_ICON: Record<string, string> = {
-  basic:       '/images/monsters/dragon.png',
-  fire_breath: '/images/monsters/fire_dragon.png',
-  tail_swipe:  '/images/monsters/raid_hydra.png',
-  roar:        '/images/monsters/balrug.png',
-  inferno:     '/images/monsters/boss_fire.png',
-};
-const ICON_TOKEN_RE = /^\[icon:(\w+)\]/;
-
-function renderLogLine(line: string): React.ReactNode {
-  const m = line.match(ICON_TOKEN_RE);
-  if (!m) return line;
-  const iconKey = m[1];
-  const text = line.replace(ICON_TOKEN_RE, '');
-  const iconSrc = PATTERN_ICON[iconKey];
-  if (!iconSrc) return text;
-  return (
-    <>
-      <img src={iconSrc} alt={iconKey} width={16} height={16}
-        style={{ verticalAlign: 'middle', marginRight: 4, imageRendering: 'pixelated' }}
-        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-      {text}
-    </>
-  );
-}
+// 전투 로그 영역 제거 (2026-05-17 사용자 결정).
+// 옛 픽셀 아이콘 인라인 토큰 (PATTERN_ICON / renderLogLine) 도 함께 제거.
 
 interface AttackResult {
   damageDealt: number; damageReceived: number; actionCount: number; critCount: number;
@@ -278,22 +253,8 @@ export function WorldEventScreen() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* 전투 로그 */}
-        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>전투 로그</div>
-          <div style={{ maxHeight: 250, overflowY: 'auto', fontFamily: 'monospace', fontSize: 11 }}>
-            {!result && <div style={{ color: 'var(--text-dim)' }}>전투를 시작하세요</div>}
-            {result?.combatLog.map((l, i) => (
-              <div key={i} style={{
-                color: l.includes('치명타') ? '#ff4444' : (l.includes('발라카스') || l.includes('보스')) ? '#ff8800' : l.includes('사망') ? '#ff2222' : 'var(--text-dim)',
-                fontWeight: l.includes('치명타') || l.includes('사망') ? 700 : 400, marginBottom: 2,
-              }}>{renderLogLine(l)}</div>
-            ))}
-          </div>
-        </div>
-
-        {/* 리더보드 */}
+      <div>
+        {/* 리더보드 — 전투 로그 영역은 사용자 결정으로 제거 (2026-05-17) */}
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>데미지 순위</div>
           {(!status.leaderboard || status.leaderboard.length === 0) ? (

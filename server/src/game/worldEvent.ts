@@ -8,8 +8,8 @@ import type { StatusEffect } from '../combat/shared.js';
 import { calcDotTickDamage, buildDotEntry, decrementEffects } from '../combat/shared.js';
 
 const ATTACK_COOLDOWN_MS = 10_000; // 10초 쿨다운
-const DEATH_COOLDOWN_MS = 300_000; // 사망 시 5분 쿨다운 (raid-bosses-v2)
-const MAX_ATTACKS_PER_DAY = 10; // 캐릭당 일일 입장 제한 (raid-bosses-v2)
+const DEATH_COOLDOWN_MS = 3_600_000; // 사망 시 1시간 쿨다운 (raid-bosses-v2, 2026-05-17)
+// MAX_ATTACKS_PER_DAY 제거 — 입장 무제한
 
 // raid-bosses-v2: 보스 행동 시점에 사용. spawn 후 t초 → 광폭화 단계 = floor(t/30), 데미지 = base × 2^단계
 function calcEnrageStage(startedAtMs: number): number {
@@ -70,12 +70,8 @@ export async function attackBoss(characterId: number) {
     [event.id, characterId]
   );
   if (existing.rows[0]) {
-    // raid-bosses-v2: 일일 입장 10회 제한
-    if (Number(existing.rows[0].attack_count) >= MAX_ATTACKS_PER_DAY) {
-      return { error: `일일 입장 ${MAX_ATTACKS_PER_DAY}회 한도에 도달했습니다.` };
-    }
+    // 일일 입장 제한 제거 (2026-05-17). 사망 1시간 쿨다운만 적용.
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-    // 사망 기록(hp <= 1)이면 5분, 아니면 10초
     const cd = (char.hp <= 1) ? DEATH_COOLDOWN_MS : ATTACK_COOLDOWN_MS;
     if (elapsed < cd) {
       const remainMin = Math.ceil((cd - elapsed) / 60000);
