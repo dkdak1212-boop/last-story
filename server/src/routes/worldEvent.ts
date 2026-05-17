@@ -48,13 +48,7 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(403).json({ error: 'not your character' });
 
-  // 어드민 가드 (테스트 단계)
-  const adminR = await query<{ is_admin: boolean }>(
-    `SELECT is_admin FROM users WHERE id = $1`, [char.user_id]
-  );
-  if (!adminR.rowCount || !adminR.rows[0].is_admin) {
-    return res.status(403).json({ error: '레이드는 어드민 테스트 단계입니다.' });
-  }
+  // 어드민 가드 제거 (2026-05-17) — 일반 유저도 진입 가능.
 
   // 활성 보스 조회
   const event = await getActiveEvent();

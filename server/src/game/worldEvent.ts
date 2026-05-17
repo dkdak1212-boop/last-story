@@ -54,13 +54,7 @@ export async function attackBoss(characterId: number) {
 
   const char = await loadCharacter(characterId);
   if (!char) return { error: '캐릭터를 찾을 수 없습니다.' };
-  // raid-bosses-v2: 어드민 전용 (테스트 단계) — 일반 유저 진입 차단
-  const adminR = await query<{ is_admin: boolean }>(
-    `SELECT is_admin FROM users WHERE id = $1`, [char.user_id]
-  );
-  if (!adminR.rowCount || !adminR.rows[0].is_admin) {
-    return { error: '레이드는 어드민 테스트 단계입니다.' };
-  }
+  // 어드민 가드 제거 (2026-05-17) — 일반 유저도 진입 가능.
   if (char.level < event.min_level) return { error: `Lv.${event.min_level} 이상만 참여 가능합니다.` };
 
   // 쿨다운 + 일일 입장 제한 체크
