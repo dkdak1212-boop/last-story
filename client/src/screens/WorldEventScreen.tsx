@@ -94,10 +94,14 @@ export function WorldEventScreen() {
         alert((res as any).error);
         return;
       }
-      // 세션 시작됨 — 캐릭 새로고침 (CombatScreen 으로 자동 진입)
+      if (!res.ok) {
+        alert(`입장 실패 (서버 응답 ok=false): ${JSON.stringify(res)}`);
+        return;
+      }
+      // 세션 시작됨 — 캐릭 새로고침 + navigate
       await refreshActive();
-      // React Router navigate — BrowserRouter 라 hash 가 아닌 path 기반
-      navigate('/combat');
+      // 약간의 딜레이 후 navigate — CombatScreen 이 active 캐릭 변경 인식할 시간 확보
+      setTimeout(() => navigate('/combat'), 200);
     } catch (e: any) {
       alert(`입장 실패: ${e?.message ?? '오류'}`);
     } finally { setBusy(false); }

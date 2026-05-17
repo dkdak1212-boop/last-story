@@ -63,13 +63,7 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
     return res.status(400).json({ error: `Lv.${event.min_level} 이상만 참여 가능합니다.` });
   }
 
-  // 오프라인 모드 가드 — 다른 컨텐츠와 동일
-  const offR = await query<{ last_offline_at: string | null }>(
-    `SELECT last_offline_at FROM characters WHERE id = $1`, [characterId]
-  );
-  if (offR.rows[0]?.last_offline_at) {
-    return res.status(400).json({ error: '오프라인 보상 정산 후 입장할 수 있습니다.' });
-  }
+  // 오프라인 모드 가드 — 제거 (사용자 결정 2026-05-17). 레이드는 자유 진입.
 
   // 입장 횟수 + 사망 쿨다운 체크
   const existing = await query<{ attack_count: number; last_attack_at: string }>(
