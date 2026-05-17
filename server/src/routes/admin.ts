@@ -2744,7 +2744,7 @@ router.post('/world-event/spawn', async (req, res) => {
   if (existing) return res.status(400).json({ error: '이미 진행 중인 이벤트가 있습니다.' });
   const parsed = z.object({
     bossId: z.number().int().positive(),
-    durationMin: z.number().int().min(1).max(120).default(30),
+    durationMin: z.number().int().min(1).max(1440).default(540), // 최대 24시간, 기본 9시간
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
