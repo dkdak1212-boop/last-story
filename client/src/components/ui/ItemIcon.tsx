@@ -205,7 +205,7 @@ const NAMED_ICON: Record<string, string> = {
   '카르나스의 목걸이': '/images/items/amulet/ruby.png',
 
   // 망토 — 캐릭터 영구 장착 (cloak slot)
-  '낡은 망토': '/images/items/armor/robe1.png',
+  '낡은 망토': '/images/items/armor/crystal_plate.png',
 
   // 정수 3종 — 망토 강화 재료 (raid-bosses-v2)
   '발라카스의 정수': '/images/items/potion/ruby.png',
