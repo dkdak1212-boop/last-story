@@ -67,7 +67,7 @@ const KEYWORD_MAP: [string[], string][] = [
   [['리치'], 'lich'],
   [['피닉스'], 'phoenix'],
   [['타이탄'], 'titan'],
-  [['발라카스', '용왕'], 'dragon'],
+  [['발라카스', '용왕'], 'fire_dragon'],
 ];
 
 function resolveFile(name: string): string {
