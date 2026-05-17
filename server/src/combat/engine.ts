@@ -7006,10 +7006,8 @@ export async function startCombatSession(
   const existing = startInFlight.get(characterId);
   if (existing) return existing;
 
-  // 멱등성: guildBoss 진입이 아닐 때 최근 시작(같은 fieldId)이 30초 내 있으면 skip.
-  // 단, 활성 세션이 실제로 존재할 때만 dedup — 사망/예외로 세션이 사라졌다면 dedup 무시.
-  // (이전: 죽고 즉시 재도전/재입장 시 recentStartAt 만 남고 세션은 없어 무한 "전투 준비 중..." 멈춤 버그.)
-  if (!guildBossOpts) {
+  // 멱등성: guildBoss·raid 진입이 아닐 때 최근 시작(같은 fieldId)이 30초 내 있으면 skip.
+  if (!guildBossOpts && opts?.raidEventId == null) {
     const last = recentStartAt.get(characterId);
     if (last && Date.now() - last.at < START_DEDUP_MS && last.fieldId === fieldId && activeSessions.has(characterId)) {
       return;
@@ -7416,6 +7414,22 @@ export async function stopCombatSession(characterId: number, opts: { keepLocatio
   await flushCharBatch(characterId);
   const s = activeSessions.get(characterId);
   if (s) {
+    // 레이드 도중 탈주 — 사망과 동일하게 last_attack_at=NOW() 처리해 60분 쿨다운 강제.
+    // (사망 분기는 이미 raidEventId=null 로 비웠으므로 여기 진입 X. 마을 이동/로그아웃/24h cleanup/등 모든 경로 커버.)
+    if (s.raidEventId) {
+      try {
+        await flushRaidDamage(s);
+        await query(
+          `UPDATE world_event_participants SET last_attack_at = NOW()
+            WHERE event_id = $1 AND character_id = $2`,
+          [s.raidEventId, characterId]
+        );
+      } catch (e) { console.error('[raid] stop last_attack_at fail', e); }
+      s.raidEventId = null;
+      s.raidStartedAtMs = 0;
+      s.raidDmgBuffer = 0;
+      s.raidHitsBuffer = 0;
+    }
     // 소환수 상태 저장 (복원용)
     if (s.className === 'summoner') {
       const summons = getActiveSummons(s);
