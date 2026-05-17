@@ -23,8 +23,7 @@ const NAV: NavItem[] = [
   { to: '/craft', label: '제작' },
   { to: '/daily-quests', label: '일일임무' },
   { to: '/marketplace', label: '거래소' },
-  // 월드이벤트(레이드) — 일반 유저 메뉴에서 제거 (어드민 테스트 단계).
-  // 어드민은 직접 /world-event URL 로 접근 가능.
+  { to: '/world-event', label: '월드이벤트' },
   { to: '/guild', label: '길드' },
   { to: '/guild-boss', label: '길드보스' },
   { to: '/pvp', label: 'PvP' },
