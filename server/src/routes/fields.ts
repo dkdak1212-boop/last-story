@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
   }>(
     `SELECT id, name, required_level AS "requiredLevel", monster_pool AS "monsterPool", description
      FROM fields
-     WHERE id != 999 -- id=999는 길드 보스 전용 (사냥터 목록 미노출). 종언의 기둥(1000)·시공의 균열(23)은 노출.
+     WHERE id NOT IN (998, 999) -- 998=레이드, 999=길드보스 (사냥터 목록 미노출). 종언의 기둥(1000)·시공의 균열(23)은 노출.
      ORDER BY required_level ASC`
   );
 

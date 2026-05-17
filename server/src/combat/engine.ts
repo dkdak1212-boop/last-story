@@ -5715,6 +5715,12 @@ function spawnMonsterForSession(s: ActiveSession): void {
   if (s.raidEventId) {
     const RAID_BOSS_HP = 1_000_000_000_000; // 10^12 (사실상 무한)
     s.monsterId = -999;
+    s.monsterDef = {
+      id: -999, name: '태고의 용왕 발라카스', level: 80,
+      max_hp: RAID_BOSS_HP, exp: 0, gold_min: 0, gold_max: 0,
+      stats: { str: 200, dex: 200, int: 200, vit: 200, spd: 1000, cri: 0, atk: 0, matk: 0, def: 200, mdef: 200, dodge: 0, accuracy: 80 } as any,
+      drop_table: [], avg_kill_time_sec: 999999,
+    } as any;
     s.monsterName = '태고의 용왕 발라카스';
     s.monsterLevel = 80;
     s.monsterHp = RAID_BOSS_HP;
