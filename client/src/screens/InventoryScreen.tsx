@@ -585,7 +585,7 @@ export function InventoryScreen() {
               minWidth: 0,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                {item ? <ItemIcon slot={slot} grade={item.grade} size={24} /> : <SlotIcon slot={slot} size={16} />}
+                {item ? <ItemIcon slot={slot} grade={item.grade} itemName={item.name} size={24} /> : <SlotIcon slot={slot} size={16} />}
                 <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-dim)' }}>{label}</span>
                 {item && (
                   <span
