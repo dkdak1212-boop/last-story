@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
 import { MonsterIcon } from '../components/ui/MonsterIcon';
@@ -45,6 +46,7 @@ interface AttackResult {
 }
 
 export function WorldEventScreen() {
+  const navigate = useNavigate();
   const active = useCharacterStore((s) => s.activeCharacter);
   const refreshActive = useCharacterStore((s) => s.refreshActive);
   const [status, setStatus] = useState<WorldEventStatus & { phase?: number } | null>(null);
@@ -96,9 +98,8 @@ export function WorldEventScreen() {
       }
       // 세션 시작됨 — 캐릭 새로고침 (CombatScreen 으로 자동 진입)
       await refreshActive();
-      // 즉시 전투 화면 진입 안내 (CombatScreen 이 활성 세션 감지)
-      alert(`${res.bossName ?? '발라카스'} 입장! 전투 화면으로 이동합니다.`);
-      window.location.hash = '#/combat';
+      // React Router navigate — BrowserRouter 라 hash 가 아닌 path 기반
+      navigate('/combat');
     } catch (e: any) {
       alert(`입장 실패: ${e?.message ?? '오류'}`);
     } finally { setBusy(false); }
