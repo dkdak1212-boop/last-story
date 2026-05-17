@@ -1873,6 +1873,20 @@ END $$`);
     }
   }
 
+  // raid-bosses-v2 Step 4 — last_attack_at NOT NULL 제약 제거 (사망 시각 의미로 변경)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_last_attack_nullable'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE world_event_participants ALTER COLUMN last_attack_at DROP NOT NULL`);
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_last_attack_nullable') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_last_attack_nullable: last_attack_at NOT NULL 제약 제거');
+      }
+    } catch (e) {
+      console.error('[late] raid_last_attack_nullable error:', e);
+    }
+  }
+
   // raid-bosses-v2 Step 3 — RAID_FIELD_ID=998 fields 행 등록 (combat_sessions FK 충족)
   {
     try {
