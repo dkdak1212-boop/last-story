@@ -405,11 +405,11 @@ export async function attackBoss(characterId: number) {
       const pattern = pickPattern();
       // 패턴별 데미지 비율 + 회피 무시 + 라벨. 라벨 prefix `[icon:key]` 는 클라가 픽셀 에셋으로 치환.
       const PATTERN_INFO: Record<Pattern, { mul: number; pierceDodge: boolean; label: string }> = {
-        basic:       { mul: 0.07, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
-        fire_breath: { mul: 0.21, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
-        tail_swipe:  { mul: 0.35, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
-        roar:        { mul: 0.07, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
-        inferno:     { mul: 0.70, pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
+        basic:       { mul: 0.035, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
+        fire_breath: { mul: 0.105, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
+        tail_swipe:  { mul: 0.175, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
+        roar:        { mul: 0.035, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
+        inferno:     { mul: 0.35,  pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
       };
       const info = PATTERN_INFO[pattern];
       // 회피 — 회피 무시 패턴은 스킵
