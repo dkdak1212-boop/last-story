@@ -8,7 +8,18 @@ import type { StatusEffect } from '../combat/shared.js';
 import { calcDotTickDamage, buildDotEntry, decrementEffects } from '../combat/shared.js';
 
 const ATTACK_COOLDOWN_MS = 10_000; // 10초 쿨다운
-const DEATH_COOLDOWN_MS = 60_000; // 사망 시 1분 쿨다운
+const DEATH_COOLDOWN_MS = 300_000; // 사망 시 5분 쿨다운 (raid-bosses-v2)
+const MAX_ATTACKS_PER_DAY = 10; // 캐릭당 일일 입장 제한 (raid-bosses-v2)
+
+// raid-bosses-v2: 보스 행동 시점에 사용. spawn 후 t초 → 광폭화 단계 = floor(t/30), 데미지 = base × 2^단계
+function calcEnrageStage(startedAtMs: number): number {
+  const elapsedSec = Math.max(0, (Date.now() - startedAtMs) / 1000);
+  return Math.floor(elapsedSec / 30);
+}
+function enrageMul(stage: number): number {
+  // 무한 누적 — 단계당 ×2. 단계 50 이상에서 Number.MAX_SAFE_INTEGER 근접 — cap 50 으로 안전.
+  return Math.pow(2, Math.min(50, stage));
+}
 
 // ─── 활성 이벤트 조회 ───
 export async function getActiveEvent() {
@@ -17,10 +28,16 @@ export async function getActiveEvent() {
     started_at: string; ends_at: string; status: string;
     name: string; level: number; min_level: number;
     current_phase: number; phase_pattern: string; phase_changed_at: string;
+    element_immune: string | null; element_weak: string | null; weak_amp_pct: number;
+    dot_immune: boolean; alternating_immune: boolean; signature_skill: string | null;
   }>(
     `SELECT e.id, e.boss_id, e.current_hp, e.max_hp, e.started_at, e.ends_at, e.status,
             b.name, b.level, b.min_level,
-            e.current_phase, e.phase_pattern, e.phase_changed_at
+            e.current_phase, e.phase_pattern, e.phase_changed_at,
+            b.element_immune, b.element_weak, COALESCE(b.weak_amp_pct, 0) AS weak_amp_pct,
+            COALESCE(b.dot_immune, FALSE) AS dot_immune,
+            COALESCE(b.alternating_immune, FALSE) AS alternating_immune,
+            b.signature_skill
      FROM world_event_active e
      JOIN world_event_bosses b ON b.id = e.boss_id
      WHERE e.status = 'active'
@@ -37,21 +54,37 @@ export async function attackBoss(characterId: number) {
 
   const char = await loadCharacter(characterId);
   if (!char) return { error: '캐릭터를 찾을 수 없습니다.' };
+  // raid-bosses-v2: 어드민 전용 (테스트 단계) — 일반 유저 진입 차단
+  const adminR = await query<{ is_admin: boolean }>(
+    `SELECT is_admin FROM users WHERE id = $1`, [char.user_id]
+  );
+  if (!adminR.rowCount || !adminR.rows[0].is_admin) {
+    return { error: '레이드는 어드민 테스트 단계입니다.' };
+  }
   if (char.level < event.min_level) return { error: `Lv.${event.min_level} 이상만 참여 가능합니다.` };
 
-  // 쿨다운 체크 (사망 시 1분, 일반 10초)
-  const existing = await query<{ last_attack_at: string; last_death: boolean }>(
-    `SELECT last_attack_at,
-            COALESCE((SELECT TRUE FROM world_event_participants WHERE event_id = $1 AND character_id = $2 AND total_damage > 0), FALSE) AS last_death
-     FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
+  // 쿨다운 + 일일 입장 제한 체크
+  const existing = await query<{ last_attack_at: string; attack_count: number }>(
+    `SELECT last_attack_at, COALESCE(attack_count, 0) AS attack_count
+       FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
     [event.id, characterId]
   );
   if (existing.rows[0]) {
+    // raid-bosses-v2: 일일 입장 10회 제한
+    if (Number(existing.rows[0].attack_count) >= MAX_ATTACKS_PER_DAY) {
+      return { error: `일일 입장 ${MAX_ATTACKS_PER_DAY}회 한도에 도달했습니다.` };
+    }
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-    // 사망 기록이 있으면 1분, 아니면 10초
+    // 사망 기록(hp <= 1)이면 5분, 아니면 10초
     const cd = (char.hp <= 1) ? DEATH_COOLDOWN_MS : ATTACK_COOLDOWN_MS;
     if (elapsed < cd) {
-      return { error: char.hp <= 1 ? '사망 쿨다운 중입니다.' : '쿨다운 중입니다.', cooldownMs: cd - elapsed };
+      const remainMin = Math.ceil((cd - elapsed) / 60000);
+      return {
+        error: char.hp <= 1
+          ? `사망 쿨다운 ${remainMin}분 남음`
+          : '쿨다운 중입니다.',
+        cooldownMs: cd - elapsed,
+      };
     }
   }
 
@@ -135,20 +168,22 @@ export async function attackBoss(characterId: number) {
   const elementalStormExt = (passiveMap.get('elemental_storm') || 0) > 0 ? 1 : 0;
   const bleedOnHitChance = passiveMap.get('bleed_on_hit') || 0;
 
-  // 보스 스탯 (플레이어 maxHp 기준으로 밸런싱 — 10초에 3~4대 맞으면 죽을 정도)
-  const bossAtk = Math.round((eff.maxHp * 0.08 + event.level * 2) * 1.5);
+  // raid-bosses-v2: 보스 스탯
+  //  - 스피드 1000 (게이지 매우 빠름)
+  //  - 공격 데미지 = 타겟 max_hp × 10% × 광폭화 멀티 (시간 기반)
+  //  - HP 무한이라 페이즈는 HP% 가 아닌 광폭화 시간 단계로 대체
+  const bossSpd = 1000;
+  const startedAtMs = new Date(event.started_at).getTime();
+  const enrageStageNow = calcEnrageStage(startedAtMs);
+  const enrageMulNow = enrageMul(enrageStageNow);
+  // 기존 변수 호환 (다른 곳 참조 보존). 의미는 광폭화로 대체.
+  const phase = enrageStageNow >= 3 ? 3 : enrageStageNow >= 1 ? 2 : 1;
+  void phase; // 페이즈 마커 — 광폭 단계로 의미 변경됨
   const baseBossDef = event.level * 2 * 3;
-  const bossSpd = 250 + event.level * 3;
-
-  // 페이즈별 보스 강화
-  const hpPct = event.current_hp / event.max_hp;
-  const phase = hpPct > 0.6 ? 1 : hpPct > 0.3 ? 2 : 3;
-  const bossAtkMult = phase === 1 ? 1.0 : phase === 2 ? 1.5 : 2.0;
-  const bossDefMult = phase === 1 ? 1.0 : phase === 2 ? 1.0 : 0.8;
 
   // 보스 방어력 (접두사 약화 + 노드 관통 적용)
   const totalPierce = Math.min(80, armorPierce + prefixDefReduce);
-  const bossDef = Math.round(baseBossDef * bossDefMult * (1 - totalPierce / 100));
+  const bossDef = Math.round(baseBossDef * (1 - totalPierce / 100));
 
   // ── 10초 시뮬레이션 (100ms 틱) ──
   const GAUGE_MAX = 1000;
@@ -187,7 +222,19 @@ export async function attackBoss(characterId: number) {
 
       // ── 데미지 계산 헬퍼 (한 번의 타격) ──
       const dotBase = mageClass ? eff.matk : eff.atk;
+      // raid-v2 길드보스 메커닉: 교대 면역 (30초 페이즈로 physical/magical 면역)
+      const altImmuneActive = (() => {
+        if (!event.alternating_immune) return null as null | 'physical' | 'magical';
+        const phaseIdx = Math.floor(Date.now() / 1000 / 30) % 2;
+        return phaseIdx === 0 ? 'physical' : 'magical';
+      })();
       const doOneHit = (sk: typeof allSkills[number], mult: number, label: string) => {
+        const damageType: 'physical' | 'magical' = mageClass ? 'magical' : 'physical';
+        // 교대 면역 — 해당 데미지 타입이면 0
+        if (altImmuneActive === damageType) {
+          if (combatLog.length < 20) combatLog.push(`[${label}] ${damageType === 'physical' ? 'ATK' : 'MATK'} 면역 페이즈 (0)`);
+          return;
+        }
         const isCrit = Math.random() * 100 < eff.cri;
         let dmg = Math.round((playerAtk - bossDef * 0.5) * mult * (0.9 + Math.random() * 0.2)) + (sk.flat_damage || 0);
         dmg = Math.max(1, dmg);
@@ -200,8 +247,8 @@ export async function attackBoss(characterId: number) {
         totalDmgDealt += dmg;
         if (prefixLifesteal > 0) playerHp = Math.min(eff.maxHp, playerHp + Math.round(dmg * prefixLifesteal / 100));
         if (combatLog.length < 20) combatLog.push(`[${label}] ${dmg.toLocaleString()}${isCrit ? ' (치명타!)' : ''}`);
-        // 패시브: bleed_on_hit — 타격마다 출혈
-        if (bleedOnHitChance > 0 && Math.random() * 100 < bleedOnHitChance) {
+        // 패시브: bleed_on_hit — 타격마다 출혈 (도트 면역 시 push 안 함)
+        if (bleedOnHitChance > 0 && Math.random() * 100 < bleedOnHitChance && !event.dot_immune) {
           bossEffects.push(buildDotEntry({ type: 'dot', attackerBase: dotBase, multiplier: 1.2, duration: 3, source: 'player', useMatk: mageClass }));
         }
       };
@@ -272,18 +319,9 @@ export async function attackBoss(characterId: number) {
             if (sk.effect_type === 'lifesteal') {
               // doOneHit이 직접 dmg를 반환하지 않으므로 간략화: 추가 힐은 생략, 일반 데미지만 반영
             }
-            // hp_pct_damage — 보스 현재 HP%만큼 추가 (75% 확률 저항)
+            // hp_pct_damage — raid-bosses-v2 결정: 보스에 HP% 비례 데미지 완전 차단 (0 데미지)
             if (sk.effect_type === 'hp_pct_damage') {
-              if (Math.random() < 0.75) {
-                if (combatLog.length < 20) combatLog.push(`[${sk.name}] HP% 데미지 저항! (보스)`);
-              } else {
-                const remaining = Math.max(0, event.current_hp - totalDmgDealt);
-                const extra = Math.round(remaining * sk.effect_value / 100);
-                if (extra > 0) {
-                  totalDmgDealt += extra;
-                  if (combatLog.length < 20) combatLog.push(`[${sk.name}] 추가 고정 ${extra.toLocaleString()}`);
-                }
-              }
+              if (combatLog.length < 20) combatLog.push(`[${sk.name}] 체력비례 효과 무효`);
             }
             // self_hp_dmg — 자신 최대 HP의 effect_value% 만큼 추가 데미지
             if (sk.effect_type === 'self_hp_dmg') {
@@ -334,7 +372,8 @@ export async function attackBoss(characterId: number) {
       }
 
       // ── 도트 틱 (플레이어 행동 시) — 필드 전투 processDots와 동일 ──
-      if (bossEffects.length > 0) {
+      // raid-v2: 보스 dot_immune true 시 도트 데미지 0
+      if (bossEffects.length > 0 && !event.dot_immune) {
         const dotResult = calcDotTickDamage(bossEffects, 'monster', {
           defenderDef: bossDef,
           dotAmpPct,
@@ -345,45 +384,56 @@ export async function attackBoss(characterId: number) {
           if (combatLog.length < 20) combatLog.push(`[도트] ${dotResult.totalDamage.toLocaleString()} 데미지 (${dotResult.count}중첩)`);
         }
         bossEffects = decrementEffects(bossEffects);
+      } else if (bossEffects.length > 0 && event.dot_immune) {
+        bossEffects = decrementEffects(bossEffects); // 면역이라도 잔존 턴 감소
       }
     }
 
-    // 보스 행동
+    // 보스 행동 — raid-bosses-v2 Step 2: 시그니처 스킬 풀 (가중 랜덤)
     if (bossGauge >= GAUGE_MAX) {
       bossGauge = 0;
-      // 보스 공격: 물리/마법 랜덤 (마법 30%)
-      const bossUseMagic = Math.random() < 0.3;
-      const bossRawAtk = bossAtk * bossAtkMult;
-      const playerDefVal = bossUseMagic ? playerMdef : playerDef;
-      // 플레이어 회피
-      if (Math.random() * 100 < eff.dodge) {
-        if (combatLog.length < 20) combatLog.push(`[회피] 보스 공격을 회피했다!`);
+      // 발라카스 시그니처 풀 — 5종 가중 랜덤 (signature_skill 컬럼 미사용 — 향후 보스별 분기 시 활용)
+      type Pattern = 'basic' | 'fire_breath' | 'tail_swipe' | 'roar' | 'inferno';
+      const pickPattern = (): Pattern => {
+        const r = Math.random() * 100;
+        if (r < 60) return 'basic';
+        if (r < 75) return 'fire_breath';
+        if (r < 85) return 'tail_swipe';
+        if (r < 95) return 'roar';
+        return 'inferno';
+      };
+      const pattern = pickPattern();
+      // 패턴별 데미지 비율 + 회피 무시 + 라벨. 라벨 prefix `[icon:key]` 는 클라가 픽셀 에셋으로 치환.
+      const PATTERN_INFO: Record<Pattern, { mul: number; pierceDodge: boolean; label: string }> = {
+        basic:       { mul: 0.10, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
+        fire_breath: { mul: 0.30, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
+        tail_swipe:  { mul: 0.50, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
+        roar:        { mul: 0.10, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
+        inferno:     { mul: 1.00, pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
+      };
+      const info = PATTERN_INFO[pattern];
+      // 회피 — 회피 무시 패턴은 스킵
+      if (!info.pierceDodge && Math.random() * 100 < eff.dodge) {
+        if (combatLog.length < 20) combatLog.push(`[회피] ${info.label} 회피!`);
         continue;
       }
-
-      let bossDmg = Math.round((bossRawAtk - playerDefVal * 0.5) * (0.9 + Math.random() * 0.2));
-      bossDmg = Math.max(1, bossDmg);
-
-      // P3 전체공격: 추가 데미지
-      if (phase === 3 && Math.random() < 0.3) {
-        const aoeDmg = Math.round(eff.maxHp * 0.08);
-        bossDmg += aoeDmg;
-        totalDmgReceived += bossDmg;
-        playerHp -= bossDmg;
-        if (combatLog.length < 20) combatLog.push(`[보스 전체공격] ${bossDmg.toLocaleString()} (HP: ${Math.max(0, playerHp).toLocaleString()}/${eff.maxHp.toLocaleString()})`);
-      } else {
-        totalDmgReceived += bossDmg;
-        playerHp -= bossDmg;
-        if (combatLog.length < 20) combatLog.push(`[보스 공격] ${bossDmg.toLocaleString()} (HP: ${Math.max(0, playerHp).toLocaleString()}/${eff.maxHp.toLocaleString()})`);
+      const baseDmg = Math.round(eff.maxHp * info.mul);
+      const bossDmg = Math.max(1, Math.round(baseDmg * enrageMulNow));
+      totalDmgReceived += bossDmg;
+      playerHp -= bossDmg;
+      const enrageTag = enrageStageNow > 0 ? ` [광폭 ${enrageStageNow}단계 ×${enrageMulNow}]` : '';
+      if (combatLog.length < 20) {
+        combatLog.push(`[${info.label}] ${bossDmg.toLocaleString()}${enrageTag} (HP: ${Math.max(0, playerHp).toLocaleString()}/${eff.maxHp.toLocaleString()})`);
       }
 
       if (playerHp <= 0) {
         playerDead = true;
-        combatLog.push('[사망] 보스에게 쓰러졌다!');
+        combatLog.push(`[사망] ${info.label}에 쓰러졌다! (5분 쿨다운)`);
         break;
       }
     }
   }
+  void bossDef; // 보스 방어력 — 보스 받는 데미지에는 영향, 보스 공격에는 미사용 (고정 비례)
 
   // HP 업데이트 (사망 시 HP 1, max_hp로 clamp)
   const newPlayerHp = playerDead ? 1 : Math.max(1, playerHp);
@@ -504,11 +554,84 @@ async function distributeRewards(eventId: number, mult: number = 1.0) {
 
 // ─── 보스 처치/만료 ───
 export async function finishEvent(eventId: number, status: 'defeated' | 'expired', io?: Server) {
+  // 상태 갱신 전에 보스 정보·정수 분배 먼저 (UPDATE 후엔 일부 JOIN 결과 달라질 수 있음)
+  const bossR = await query<{ name: string; boss_id: number }>(
+    `SELECT b.name, e.boss_id AS boss_id
+       FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id
+      WHERE e.id = $1`, [eventId]
+  );
+
+  // raid-bosses-v2 결정: 등급 보상(S/A/B/C 골드·EXP) 폐기 — 정수만 지급.
+  // (distributeRewards 호출 제거. 함수 자체는 유지 — 향후 등급 부활 시 재사용)
+  void distributeRewards;
+
+  // 정수 분배 (라인 A/B 독립 굴림) — specs/raid-bosses-v2.md
+  //    HP 무한 디자인이라 사실상 expired 만 발생하지만 defeated 도 동일하게 분배.
+  if (bossR.rowCount) {
+    const essenceName = ESSENCE_NAME_BY_BOSS[bossR.rows[0].boss_id];
+    if (essenceName) {
+      try { await distributeEssence(eventId, essenceName, bossR.rows[0].name); }
+      catch (e) { console.error('[raid] distributeEssence err', e); }
+    }
+  }
+
   await query(`UPDATE world_event_active SET status = $1, finished_at = NOW() WHERE id = $2`, [status, eventId]);
-  const boss = await query<{ name: string }>(`SELECT b.name FROM world_event_active e JOIN world_event_bosses b ON b.id = e.boss_id WHERE e.id = $1`, [eventId]);
-  // 처치/만료 모두 100% 보상
-  await distributeRewards(eventId, 1.0);
-  if (io) io.emit('world_event', { type: 'world_event_end', bossName: boss.rows[0]?.name ?? '???', result: status });
+  if (io) io.emit('world_event', { type: 'world_event_end', bossName: bossR.rows[0]?.name ?? '???', result: status });
+}
+
+// 보스 id → 정수 이름 매핑 (specs/raid-bosses-v2.md)
+const ESSENCE_NAME_BY_BOSS: Record<number, string> = {
+  1: '발라카스의 정수',
+  2: '아트라스의 정수',
+  3: '카르나스의 정수',
+};
+
+// 정수 분배 — 두 라인 독립 굴림, 중복 가능.
+//  라인 A: 모든 참여자 25% 확률
+//  라인 B: 1~20위 100% / 21~40위 75% / 41~100위 50% / 101위~ 0%
+async function distributeEssence(eventId: number, essenceName: string, bossName: string): Promise<void> {
+  const essR = await query<{ id: number }>(
+    `SELECT id FROM items WHERE name = $1 LIMIT 1`, [essenceName]
+  );
+  if (essR.rowCount === 0) {
+    console.warn(`[raid] essence item not found: ${essenceName}`);
+    return;
+  }
+  const essenceItemId = essR.rows[0].id;
+  const participants = await query<{ character_id: number; total_damage: string; rank: string }>(
+    `SELECT character_id, total_damage::text AS total_damage,
+            ROW_NUMBER() OVER (ORDER BY total_damage DESC)::text AS rank
+       FROM world_event_participants WHERE event_id = $1`, [eventId]
+  );
+  for (const p of participants.rows) {
+    let gained = 0;
+    const rolls: string[] = [];
+    // 라인 A
+    if (Math.random() < 0.25) { gained++; rolls.push('A(25%)'); }
+    // 라인 B
+    const rank = Number(p.rank);
+    let bChance = 0;
+    if (rank <= 20) bChance = 1.0;
+    else if (rank <= 40) bChance = 0.75;
+    else if (rank <= 100) bChance = 0.5;
+    if (bChance > 0 && Math.random() < bChance) {
+      gained++;
+      rolls.push(`B(${Math.round(bChance * 100)}%·${rank}위)`);
+    }
+    if (gained > 0) {
+      try {
+        const { overflow } = await addItemToInventory(p.character_id, essenceItemId, gained);
+        if (overflow > 0) {
+          await deliverToMailbox(
+            p.character_id,
+            `${bossName} 정수`,
+            `랭크 ${rank}위 보상 — ${rolls.join(', ')}\n인벤토리 가득 → 우편 발송 ${overflow}개`,
+            essenceItemId, overflow,
+          );
+        }
+      } catch (e) { console.error('[raid] essence give fail', p.character_id, e); }
+    }
+  }
 }
 
 // ─── 스케줄러 ───
@@ -524,20 +647,14 @@ export async function checkAndSpawnWorldEvent(io?: Server) {
   );
   if (schedRows.rowCount === 0) return;
 
-  // 요일별 스폰 가능 보스 결정
-  // - 아트라스(2): 토(6)/일(0)에만 등장
-  // - 카르나스(3): 아트라스 양보 — 토/일엔 스폰 안 함
+  // raid-bosses-v2 — 발라카스 단일 보스, 매일 KST 17:00 (UTC 08:00) 1회 spawn.
+  // 9시간 진행 (time_limit_sec = 32400) → KST 02:00 만료 결산.
+  // 아트라스(2)/카르나스(3) 는 보류 — DB 정의는 유지하지만 spawn 안 함.
+  void kstDay; // 요일 미사용 (단일 보스, 매일 동일)
   let chosenBossId: number | null = null;
-  const isWeekend = kstDay === 0 || kstDay === 6;
-  const candidateIds = schedRows.rows.map(r => r.boss_id);
-  if (isWeekend && candidateIds.includes(2)) {
-    chosenBossId = 2; // 아트라스 우선
-  } else {
-    for (const bid of candidateIds) {
-      if (bid === 2) continue; // 주말이 아니면 아트라스는 스킵
-      chosenBossId = bid;
-      break;
-    }
+  if (hour === 8) {
+    chosenBossId = 1; // 발라카스
+    if (!schedRows.rows.some(r => r.boss_id === 1)) chosenBossId = null;
   }
   if (!chosenBossId) return;
 

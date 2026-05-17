@@ -8,6 +8,34 @@ import type { WorldEventStatus } from '../types';
 const POLL_MS = 3000;
 const PHASE_COLOR = ['', '#44cc44', '#ff8800', '#ff3333'];
 
+// 발라카스 시그니처 패턴 → 픽셀 아이콘 매핑 (raid-bosses-v2 Step 2)
+// 서버 combatLog 라벨에 `[icon:key]` 토큰이 prefix 됨 — 클라가 파싱해 인라인 이미지로 치환.
+const PATTERN_ICON: Record<string, string> = {
+  basic:       '/images/monsters/dragon.png',
+  fire_breath: '/images/monsters/fire_dragon.png',
+  tail_swipe:  '/images/monsters/raid_hydra.png',
+  roar:        '/images/monsters/balrug.png',
+  inferno:     '/images/monsters/boss_fire.png',
+};
+const ICON_TOKEN_RE = /^\[icon:(\w+)\]/;
+
+function renderLogLine(line: string): React.ReactNode {
+  const m = line.match(ICON_TOKEN_RE);
+  if (!m) return line;
+  const iconKey = m[1];
+  const text = line.replace(ICON_TOKEN_RE, '');
+  const iconSrc = PATTERN_ICON[iconKey];
+  if (!iconSrc) return text;
+  return (
+    <>
+      <img src={iconSrc} alt={iconKey} width={16} height={16}
+        style={{ verticalAlign: 'middle', marginRight: 4, imageRendering: 'pixelated' }}
+        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+      {text}
+    </>
+  );
+}
+
 interface AttackResult {
   damageDealt: number; damageReceived: number; actionCount: number; critCount: number;
   playerDead: boolean; playerHp: number; phase: number;
@@ -152,9 +180,9 @@ export function WorldEventScreen() {
             {!result && <div style={{ color: 'var(--text-dim)' }}>전투를 시작하세요</div>}
             {result?.combatLog.map((l, i) => (
               <div key={i} style={{
-                color: l.includes('치명타') ? '#ff4444' : l.includes('보스') ? '#ff8800' : l.includes('사망') ? '#ff2222' : 'var(--text-dim)',
+                color: l.includes('치명타') ? '#ff4444' : (l.includes('발라카스') || l.includes('보스')) ? '#ff8800' : l.includes('사망') ? '#ff2222' : 'var(--text-dim)',
                 fontWeight: l.includes('치명타') || l.includes('사망') ? 700 : 400, marginBottom: 2,
-              }}>{l}</div>
+              }}>{renderLogLine(l)}</div>
             ))}
           </div>
         </div>

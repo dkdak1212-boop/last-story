@@ -25,6 +25,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import characterRoutes from './routes/characters.js';
+import cloakRoutes from './routes/cloak.js';
 import fieldRoutes from './routes/fields.js';
 import shopRoutes from './routes/shop.js';
 import shopBuyRoutes from './routes/shop-buy.js';
@@ -167,6 +168,7 @@ app.use('/api/characters', offlineRoutes);
 app.use('/api/characters', mailboxRoutes);
 app.use('/api/characters', questsRoutes);
 app.use('/api/characters', settingsRoutes);
+app.use('/api/cloak', cloakRoutes);
 app.use('/api/guilds', guildsRoutes);
 // party removed in v0.9
 app.use('/api/marketplace', marketplaceRoutes);
@@ -1593,6 +1595,264 @@ END $$`);
       }
     } catch (e) {
       console.error('[late] summoner_v2 nodes inline error:', e);
+    }
+  }
+
+  // 망토 장비 시스템 — 모든 캐릭터에 영구 장착되는 cloak slot.
+  // specs/cloak-equipment-system.md 참조.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'cloak_equipment_v1'`);
+      if (!applied.rowCount) {
+        console.log('[late] cloak_equipment_v1: 망토 시스템 설치...');
+
+        // 1) 기본 망토 아이템 — '낡은 망토', defense 10, common, soulbound 표시.
+        //    items.id 는 SERIAL 시퀀스에서 자동 부여. 이름으로 lookup 하여 idempotent 보장.
+        let cloakItemId: number;
+        const existR = await query<{ id: number }>(
+          `SELECT id FROM items WHERE name = '낡은 망토' AND slot = 'cloak' LIMIT 1`
+        );
+        if (existR.rowCount && existR.rowCount > 0) {
+          cloakItemId = existR.rows[0].id;
+        } else {
+          const ins = await query<{ id: number }>(
+            `INSERT INTO items (name, type, grade, slot, stats, description, stack_size, sell_price, required_level)
+             VALUES ('낡은 망토', 'armor', 'common', 'cloak',
+                     '{"def":10}'::jsonb,
+                     '캐릭터 영구 장착 · 해제 불가. 발라카스/아트라스/카르나스의 정수로 강화.',
+                     1, 0, 1)
+             RETURNING id`
+          );
+          cloakItemId = ins.rows[0].id;
+        }
+        console.log(`[late] cloak_equipment_v1: 기본 망토 item_id=${cloakItemId}`);
+
+        // 2) character_cloak_levels — 7효과별 누적 단계 테이블
+        await query(`
+          CREATE TABLE IF NOT EXISTS character_cloak_levels (
+            character_id INT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+            atk_lv INT NOT NULL DEFAULT 0,
+            matk_lv INT NOT NULL DEFAULT 0,
+            speed_lv INT NOT NULL DEFAULT 0,
+            hp_pct_lv INT NOT NULL DEFAULT 0,
+            def_pct_lv INT NOT NULL DEFAULT 0,
+            crit_lv INT NOT NULL DEFAULT 0,
+            crit_dmg_lv INT NOT NULL DEFAULT 0,
+            total_essences_used INT NOT NULL DEFAULT 0,
+            last_used_at TIMESTAMPTZ DEFAULT NOW()
+          )
+        `);
+
+        // 3) cloak_item_id 를 server_settings 에 저장해 코드/라우트에서 lookup 가능하게 함
+        await query(
+          `INSERT INTO server_settings (key, value) VALUES ('cloak_default_item_id', $1)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+          [String(cloakItemId)]
+        );
+
+        // 4) 기존 캐릭 일괄 백필 — cloak 미장착 캐릭에게 INSERT
+        const backfillEq = await query(
+          `INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, soulbound, locked)
+           SELECT c.id, 'cloak', $1, 0, TRUE, TRUE
+             FROM characters c
+            WHERE NOT EXISTS (
+              SELECT 1 FROM character_equipped ce
+               WHERE ce.character_id = c.id AND ce.slot = 'cloak'
+            )`,
+          [cloakItemId]
+        );
+        console.log(`[late] cloak_equipment_v1: 망토 백필 ${backfillEq.rowCount}명`);
+
+        const backfillLv = await query(
+          `INSERT INTO character_cloak_levels (character_id)
+           SELECT c.id FROM characters c
+            ON CONFLICT (character_id) DO NOTHING`
+        );
+        console.log(`[late] cloak_equipment_v1: cloak_levels 백필 ${backfillLv.rowCount}명`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('cloak_equipment_v1') ON CONFLICT DO NOTHING`);
+        console.log('[late] cloak_equipment_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] cloak_equipment_v1 error:', e);
+    }
+  }
+
+  // 레이드 보스 v2 — 발라카스/아트라스/카르나스 + 정수 3종 + 일순환 스케줄.
+  // specs/raid-bosses-v2.md 참조. HP 무한, 시간 만료 시 누적 dmg 순위로 정수 분배.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_bosses_v2'`);
+      if (!applied.rowCount) {
+        console.log('[late] raid_bosses_v2: 보스 + 정수 재등록...');
+
+        // 1) world_event_active 누락 컬럼 보강 (021_raid_phase 미적용 보정)
+        await query(`
+          ALTER TABLE world_event_active
+            ADD COLUMN IF NOT EXISTS current_phase INT DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS phase_pattern TEXT DEFAULT 'normal',
+            ADD COLUMN IF NOT EXISTS phase_changed_at TIMESTAMPTZ DEFAULT NOW()
+        `);
+
+        // 2) 정수 아이템 3종 INSERT — 이름 lookup idempotent
+        const ESSENCES = [
+          { name: '발라카스의 정수', desc: '망토 강화 — 사용 시 7효과 중 1개 +1단계' },
+          { name: '아트라스의 정수', desc: '망토 강화 — 사용 시 7효과 중 1개 +2단계' },
+          { name: '카르나스의 정수', desc: '망토 강화 — 사용 시 7효과 중 1개 +3단계' },
+        ];
+        for (const e of ESSENCES) {
+          const exists = await query(`SELECT 1 FROM items WHERE name = $1`, [e.name]);
+          if (exists.rowCount === 0) {
+            await query(
+              `INSERT INTO items (name, type, grade, stack_size, sell_price, required_level, description)
+               VALUES ($1, 'etc', 'legendary', 99, 0, 1, $2)`,
+              [e.name, e.desc]
+            );
+            console.log(`[late] raid_bosses_v2: 정수 아이템 '${e.name}' 등록`);
+          }
+        }
+
+        // 3) 기본 reward_table (S/A/B/C 골드·EXP) — 보스 등급별 수치 차이
+        const REWARD_TABLE_BY_LEVEL: Record<number, unknown> = {
+          80: [
+            { tier: 'S', maxRank: 3,  minRank: 1, rewards: { exp: 500000, gold: 50000 } },
+            { tier: 'A', maxPct: 5,   minPct: 0,  rewards: { exp: 300000, gold: 30000 } },
+            { tier: 'B', maxPct: 20,  minPct: 5,  rewards: { exp: 150000, gold: 15000 } },
+            { tier: 'C', maxPct: 100, minPct: 20, rewards: { exp: 50000,  gold: 5000 } },
+          ],
+          90: [
+            { tier: 'S', maxRank: 3,  minRank: 1, rewards: { exp: 800000, gold: 80000 } },
+            { tier: 'A', maxPct: 5,   minPct: 0,  rewards: { exp: 500000, gold: 50000 } },
+            { tier: 'B', maxPct: 20,  minPct: 5,  rewards: { exp: 250000, gold: 25000 } },
+            { tier: 'C', maxPct: 100, minPct: 20, rewards: { exp: 80000,  gold: 8000 } },
+          ],
+          100: [
+            { tier: 'S', maxRank: 3,  minRank: 1, rewards: { exp: 1200000, gold: 120000 } },
+            { tier: 'A', maxPct: 5,   minPct: 0,  rewards: { exp: 800000,  gold: 80000 } },
+            { tier: 'B', maxPct: 20,  minPct: 5,  rewards: { exp: 400000,  gold: 40000 } },
+            { tier: 'C', maxPct: 100, minPct: 20, rewards: { exp: 120000,  gold: 12000 } },
+          ],
+        };
+
+        // 4) 보스 3종 — 처치 불가능한 큰 HP, 30분 제한
+        const BOSSES = [
+          { id: 1, name: '태고의 용왕 발라카스',  level: 80,  min_level: 30 },
+          { id: 2, name: '천공의 거인 아트라스',  level: 90,  min_level: 60 },
+          { id: 3, name: '심연의 군주 카르나스', level: 100, min_level: 80 },
+        ];
+        for (const b of BOSSES) {
+          await query(
+            `INSERT INTO world_event_bosses (id, name, max_hp, level, time_limit_sec, min_level, reward_table)
+             VALUES ($1, $2, 1000000000000, $3, 1800, $4, $5::jsonb)
+             ON CONFLICT (id) DO UPDATE SET
+               name = EXCLUDED.name,
+               max_hp = EXCLUDED.max_hp,
+               level = EXCLUDED.level,
+               time_limit_sec = EXCLUDED.time_limit_sec,
+               min_level = EXCLUDED.min_level,
+               reward_table = EXCLUDED.reward_table`,
+            [b.id, b.name, b.level, b.min_level, JSON.stringify(REWARD_TABLE_BY_LEVEL[b.level])]
+          );
+          console.log(`[late] raid_bosses_v2: 보스 ${b.name} 등록`);
+        }
+
+        // bosses id 시퀀스가 1,2,3 직접 INSERT 라 다음 자동 INSERT 가 충돌 가능 — 시퀀스 재정렬
+        await query(`SELECT setval(pg_get_serial_sequence('world_event_bosses', 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM world_event_bosses), 1))`);
+
+        // 5) 스케줄 INSERT — UTC 03:00 / 11:00 × 3보스 모두 등록. 요일 분기는 코드 ROTATION 에서 처리.
+        for (const hour of [3, 11]) {
+          for (const bossId of [1, 2, 3]) {
+            await query(
+              `INSERT INTO world_event_schedule (hour_utc, boss_id, enabled)
+               VALUES ($1, $2, TRUE)
+               ON CONFLICT DO NOTHING`,
+              [hour, bossId]
+            );
+          }
+        }
+
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_bosses_v2') ON CONFLICT DO NOTHING`);
+        // 021_raid_phase 도 함께 적용된 것으로 기록 (컬럼 추가 완료)
+        await query(`INSERT INTO _migrations (name) VALUES ('021_raid_phase') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_bosses_v2: 완료');
+      }
+    } catch (e) {
+      console.error('[late] raid_bosses_v2 error:', e);
+    }
+  }
+
+  // raid-bosses-v2 Step 1: 길드보스 메커닉 이식 — world_event_bosses 컬럼 확장 + 발라카스 default
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_v2_guild_mechanics'`);
+      if (!applied.rowCount) {
+        console.log('[late] raid_v2_guild_mechanics: 보스 메커닉 컬럼 추가...');
+        await query(`
+          ALTER TABLE world_event_bosses
+            ADD COLUMN IF NOT EXISTS element_immune TEXT,
+            ADD COLUMN IF NOT EXISTS element_weak TEXT,
+            ADD COLUMN IF NOT EXISTS weak_amp_pct INT DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS dot_immune BOOLEAN DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS hp_recover_pct INT DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS hp_recover_interval_sec INT DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS random_weakness BOOLEAN DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS alternating_immune BOOLEAN DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS signature_skill TEXT
+        `);
+        // 발라카스 (id=1) default 값. 면역 메커닉은 사용자 결정으로 비활성.
+        await query(
+          `UPDATE world_event_bosses
+              SET element_immune = 'fire',
+                  element_weak = 'frost',
+                  weak_amp_pct = 30,
+                  dot_immune = FALSE,
+                  alternating_immune = FALSE,
+                  signature_skill = 'fire_breath'
+            WHERE id = 1`
+        );
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_v2_guild_mechanics') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_v2_guild_mechanics: 완료 (발라카스 화염 면역/얼음 약점/ATK·MATK 교대 면역)');
+      }
+    } catch (e) {
+      console.error('[late] raid_v2_guild_mechanics error:', e);
+    }
+  }
+
+  // 레이드 v2 추가 결정 (2026-05-17 사용자) — 발라카스만 활성, KST 17-02 (9h), 등급보상 폐기
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_v2_balacas_only'`);
+      if (!applied.rowCount) {
+        console.log('[late] raid_v2_balacas_only: 스케줄/시간 갱신...');
+
+        // 1) 발라카스 time_limit 9시간 + 등급보상 빈 배열
+        await query(`UPDATE world_event_bosses SET time_limit_sec = 32400, reward_table = '[]'::jsonb WHERE id = 1`);
+        await query(`UPDATE world_event_bosses SET reward_table = '[]'::jsonb WHERE id IN (2, 3)`);
+
+        // 2) 스케줄 전부 제거 후 KST 17:00 (UTC 08:00) 발라카스만 등록
+        await query(`DELETE FROM world_event_schedule`);
+        await query(`INSERT INTO world_event_schedule (hour_utc, boss_id, enabled) VALUES (8, 1, TRUE)`);
+
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_v2_balacas_only') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_v2_balacas_only: 완료 (KST 17:00 → 9h)');
+      }
+    } catch (e) {
+      console.error('[late] raid_v2_balacas_only error:', e);
+    }
+  }
+
+  // raid-v2: 발라카스 ATK/MATK 교대 면역 + 도트 면역 취소 (2026-05-17 사용자 결정).
+  // raid_v2_guild_mechanics 가 이미 적용된 환경에서도 강제로 FALSE 로 되돌림.
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_v2_disable_balacas_immune'`);
+      if (!applied.rowCount) {
+        await query(`UPDATE world_event_bosses SET alternating_immune = FALSE, dot_immune = FALSE WHERE id = 1`);
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_v2_disable_balacas_immune') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_v2_disable_balacas_immune: 발라카스 면역 메커닉 취소');
+      }
+    } catch (e) {
+      console.error('[late] raid_v2_disable_balacas_immune error:', e);
     }
   }
 }

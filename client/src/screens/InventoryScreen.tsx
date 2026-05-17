@@ -11,7 +11,7 @@ import { StorageModal } from '../components/storage/StorageModal';
 
 const SLOT_LABEL: Record<string, string> = {
   weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화',
-  ring: '반지', amulet: '목걸이',
+  ring: '반지', amulet: '목걸이', cloak: '망토',
 };
 function SlotIcon({ slot, size = 20 }: { slot: string; size?: number }) {
   return <img src={`/images/slots/${slot}.png`} alt={slot} width={size} height={size}
@@ -72,6 +72,23 @@ export function InventoryScreen() {
   const [tab, setTab] = useState<'equip' | 'bag'>('bag');
   const [storageOpen, setStorageOpen] = useState(false);
   const [sortMode, setSortMode] = useState<'recent' | 'grade' | 'type' | 'level'>('recent');
+  // 망토 강화 단계 — /cloak/:id 응답
+  const [cloak, setCloak] = useState<{
+    effects: { key: string; label: string; level: number; perStep: number; total: number; unit: 'flat' | 'pct' }[];
+    totalEssencesUsed: number;
+  } | null>(null);
+  const [cloakBusy, setCloakBusy] = useState(false);
+  const ESSENCE_NAMES = new Set(['발라카스의 정수', '아트라스의 정수', '카르나스의 정수']);
+  const ESSENCE_KIND: Record<string, 'balacas' | 'atras' | 'carnas'> = {
+    '발라카스의 정수': 'balacas',
+    '아트라스의 정수': 'atras',
+    '카르나스의 정수': 'carnas',
+  };
+  const ESSENCE_STEP_GAIN: Record<string, number> = {
+    '발라카스의 정수': 1,
+    '아트라스의 정수': 2,
+    '카르나스의 정수': 3,
+  };
   const [filterPanel, setFilterPanel] = useState<'sell' | 'drop' | null>(null);
   // 거래소 등록 모달
   const [listModal, setListModal] = useState<InventorySlot | null>(null);
@@ -85,12 +102,45 @@ export function InventoryScreen() {
     setInv(data.inventory); setEquipped(data.equipped);
   }
 
+  async function refreshCloak() {
+    if (!active) return;
+    try {
+      const r = await api<{
+        effects: { key: string; label: string; level: number; perStep: number; total: number; unit: 'flat' | 'pct' }[];
+        totalEssencesUsed: number;
+      }>(`/cloak/${active.id}`);
+      setCloak({ effects: r.effects, totalEssencesUsed: r.totalEssencesUsed });
+    } catch { /* 마이그 전 / 응답 실패 무시 */ }
+  }
+
+  async function useEssence(itemName: string, count: number) {
+    if (!active || cloakBusy || count <= 0) return;
+    const kind = ESSENCE_KIND[itemName];
+    if (!kind) return;
+    setCloakBusy(true);
+    try {
+      const r = await api<{
+        summary: { label: string; totalGain: number }[];
+        consumed: { count: number; name: string };
+      }>(`/cloak/${active.id}/apply`, {
+        method: 'POST', body: JSON.stringify({ kind, count }),
+      });
+      const summary = r.summary.map(s => `${s.label} +${s.totalGain}단계`).join(' · ');
+      setMsg(`🎲 ${r.consumed.name} ${r.consumed.count}개 → ${summary}`);
+      await Promise.all([refresh(), refreshCloak(), refreshActive()]);
+    } catch (e: any) {
+      setMsg(`정수 사용 실패: ${e?.message || '오류'}`);
+    } finally {
+      setCloakBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (!active) return;
     api<typeof dropFilter>(`/characters/${active.id}/drop-filter`)
       .then(d => setDropFilter(d)).catch(() => {});
   }, [active?.id]);
-  useEffect(() => { refresh(); }, [active, sortMode]);
+  useEffect(() => { refresh(); refreshCloak(); }, [active, sortMode]);
 
   async function equip(slotIndex: number) {
     if (!active) return; setMsg('');
@@ -571,18 +621,38 @@ export function InventoryScreen() {
                   <div style={{ marginTop: 3 }}>
                     <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} quality={(item as any).quality || 0} />
                   </div>
-                  <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} uniquePrefixStats={(item as any).uniquePrefixStats} enhanceLevel={item.enhanceLevel} />
-                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
-                    <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>
-                    {!locked && (item.enhanceLevel || 0) < 20 && (() => {
-                      const eInfo = getEnhanceInfo(item.enhanceLevel || 0, active?.level || 1);
-                      return (
-                        <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e, item.enhanceLevel || 0)} style={btnStyle('var(--accent)', 'var(--accent)')}>
-                          강화 {Math.round(eInfo.chance * 100)}% · {eInfo.cost.toLocaleString()}G
-                        </button>
-                      );
-                    })()}
-                  </div>
+                  {slot === 'cloak' ? (
+                    /* 망토 — 7효과 누적 단계 표시. 해제/강화 불가 (영구 고정) */
+                    <div style={{ marginTop: 4, fontSize: 11 }}>
+                      {(() => {
+                        const list = (cloak?.effects ?? []).filter(e => e.level > 0);
+                        if (list.length === 0) return <span style={{ opacity: 0.5 }}>강화 옵션 없음 (정수를 사용하세요)</span>;
+                        return list.map(e => (
+                          <div key={e.key} style={{ color: '#7cbbff' }}>
+                            {e.label} <span style={{ color: '#ffe135' }}>Lv.{e.level}</span> ({e.unit === 'flat' ? `+${e.total}` : `+${e.total.toFixed(1)}%`})
+                          </div>
+                        ));
+                      })()}
+                      {cloak && cloak.totalEssencesUsed > 0 && (
+                        <div style={{ opacity: 0.6, marginTop: 3 }}>누적 정수 {cloak.totalEssencesUsed}개</div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} uniquePrefixStats={(item as any).uniquePrefixStats} enhanceLevel={item.enhanceLevel} />
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        <button onClick={() => unequip(slot)} style={btnStyle('var(--text-dim)', 'var(--border)')}>해제</button>
+                        {!locked && (item.enhanceLevel || 0) < 20 && (() => {
+                          const eInfo = getEnhanceInfo(item.enhanceLevel || 0, active?.level || 1);
+                          return (
+                            <button onClick={(e) => enhanceItem(-1, 'equipped', slot, e, item.enhanceLevel || 0)} style={btnStyle('var(--accent)', 'var(--accent)')}>
+                              강화 {Math.round(eInfo.chance * 100)}% · {eInfo.cost.toLocaleString()}G
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    </>
+                  )}
                 </>
               ) : (
                 <div style={{ textAlign: 'center', padding: '8px 0', opacity: 0.12 }}>
@@ -629,6 +699,7 @@ export function InventoryScreen() {
               {renderSlot('chest', '갑옷')}
               {renderSlot('ring', '반지')}
               {renderSlot('boots', '장화')}
+              {renderSlot('cloak', '망토')}
             </div>
             <PresetBar type="equip" characterId={active?.id} onLoad={async () => { await Promise.all([refresh(), refreshActive()]); }} setMsg={setMsg} />
           </div>
@@ -1030,6 +1101,30 @@ export function InventoryScreen() {
                             padding: '8px 20px', fontSize: 13, fontWeight: 700,
                             background: 'var(--accent)', color: '#000', border: 'none', cursor: 'pointer', borderRadius: 4,
                           }}>장착</button>
+                        )}
+                        {/* 망토 정수 — 사용 시 7효과 중 1개 랜덤 단계 상승 */}
+                        {ESSENCE_NAMES.has(s.item.name) && (
+                          <>
+                            <button onClick={(e) => { e.stopPropagation(); useEssence(s.item.name, 1); }}
+                              disabled={cloakBusy}
+                              title={`망토 +${ESSENCE_STEP_GAIN[s.item.name]}단계 (랜덤 1효과)`}
+                              style={{
+                                padding: '8px 18px', fontSize: 13, fontWeight: 700,
+                                background: 'linear-gradient(180deg, #ff9a6b, #c452ff)',
+                                color: '#fff', border: '1px solid #ffe135', cursor: cloakBusy ? 'not-allowed' : 'pointer', borderRadius: 4,
+                                opacity: cloakBusy ? 0.6 : 1,
+                              }}>사용 (+{ESSENCE_STEP_GAIN[s.item.name]}단계)</button>
+                            {s.quantity > 1 && (
+                              <button onClick={(e) => { e.stopPropagation(); useEssence(s.item.name, s.quantity); }}
+                                disabled={cloakBusy}
+                                style={{
+                                  padding: '8px 14px', fontSize: 12, fontWeight: 700,
+                                  background: '#2a2a2a', color: '#ffe135', border: '1px solid #ffe135',
+                                  cursor: cloakBusy ? 'not-allowed' : 'pointer', borderRadius: 4,
+                                  opacity: cloakBusy ? 0.6 : 1,
+                                }}>전체 사용 ({s.quantity})</button>
+                            )}
+                          </>
                         )}
                         {s.item.id === 477 && (
                           <button onClick={useUniqueTicket} style={{

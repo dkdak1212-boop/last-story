@@ -377,6 +377,39 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     eff.matk += permR.rows[0].matk;
     eff.maxHp += permR.rows[0].hp;
   }
+
+  // 망토 강화 — character_cloak_levels 7효과 단계 합산.
+  // 단계당 수치 (확정): ATK +25, MATK +25, SPD +2, HP +0.5%, DEF +0.5%, CRI +0.5%, CRIDMG +0.5%.
+  // crit_dmg 는 별도 필드가 없어 prefix-style equipPrefixes 와 동일하게 prefix 합산 채널에 적재
+  // 가능하지만, 다른 prefix 들이 이미 위에서 처리됐으므로 여기는 직접 eff 에 적용.
+  // crit_dmg_pct 는 getCritDmgBonus 가 별도로 처리 — engine 통과 시 적용되므로 cloak 의 crit_dmg
+  // 은 paragon_crit_dmg_pct 와 같은 채널(equipPrefixes 또는 pMap)을 안 거치고 직접 누적하기 어렵다.
+  // 따라서 cloak crit_dmg 는 캐릭터에 crit_dmg_pct 누적값으로 노출 (engine 이 이미 합산하는 키 활용).
+  try {
+    const clR = await query<{
+      atk_lv: number; matk_lv: number; speed_lv: number;
+      hp_pct_lv: number; def_pct_lv: number; crit_lv: number; crit_dmg_lv: number;
+    }>(
+      `SELECT atk_lv, matk_lv, speed_lv, hp_pct_lv, def_pct_lv, crit_lv, crit_dmg_lv
+         FROM character_cloak_levels WHERE character_id = $1`, [char.id]
+    );
+    if (clR.rowCount) {
+      const lv = clR.rows[0];
+      if (lv.atk_lv)     eff.atk    += lv.atk_lv * 25;
+      if (lv.matk_lv)    eff.matk   += lv.matk_lv * 25;
+      if (lv.speed_lv)   eff.spd    += lv.speed_lv * 2;
+      if (lv.hp_pct_lv)  eff.maxHp   = Math.round(eff.maxHp * (1 + lv.hp_pct_lv * 0.005));
+      if (lv.def_pct_lv) eff.def     = Math.round(eff.def   * (1 + lv.def_pct_lv * 0.005));
+      if (lv.crit_lv)    eff.cri    += lv.crit_lv * 0.5;
+      // crit_dmg 는 engine 에서 getCritDmgBonus(char) 가 별도 합산. cloak crit_dmg_lv 은
+      // engine 측에서 cloak_levels 한 번 더 읽어 적용 (또는 별도 hook). 여기서는 eff 에 직접
+      // 영향 줄 수 없는 영역이라 cloakCritDmgPct 마커만 부착 — engine 이 인식하면 사용.
+      (eff as any).cloakCritDmgPct = lv.crit_dmg_lv * 0.5;
+    }
+  } catch (e) {
+    // 마이그 전 환경 호환 — 테이블 없으면 무시
+  }
+
   return eff;
 }
 

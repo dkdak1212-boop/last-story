@@ -230,6 +230,28 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   } catch (e) {
     console.error('[sprout-box] lv1 send fail', e);
   }
+  // 망토 영구 장착 + cloak_levels 행 생성 (specs/cloak-equipment-system.md)
+  try {
+    const cidStr = (await query<{ value: string }>(
+      `SELECT value FROM server_settings WHERE key = 'cloak_default_item_id'`
+    )).rows[0]?.value;
+    const cloakItemId = cidStr ? Number(cidStr) : 0;
+    if (cloakItemId > 0) {
+      await query(
+        `INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, soulbound, locked)
+         VALUES ($1, 'cloak', $2, 0, TRUE, TRUE)
+         ON CONFLICT DO NOTHING`,
+        [r.rows[0].id, cloakItemId]
+      );
+    }
+    await query(
+      `INSERT INTO character_cloak_levels (character_id) VALUES ($1)
+       ON CONFLICT (character_id) DO NOTHING`,
+      [r.rows[0].id]
+    );
+  } catch (e) {
+    console.error('[cloak] new-char grant fail', e);
+  }
   res.json(r.rows[0]);
 });
 

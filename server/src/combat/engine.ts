@@ -280,6 +280,7 @@ interface ActiveSession {
   skills: SkillDef[];
   passives: Map<string, number>;
   equipPrefixes: Record<string, number>;
+  cloakCritDmgPct: number; // 망토 정수 강화 — crit_dmg_lv × 0.5 (specs/cloak-equipment-system.md)
   fieldName: string;
   dirty: boolean;
   ticksSinceLastHit: number; // 각성 접두사용 (5초 = 50틱)
@@ -2226,6 +2227,8 @@ function getCritDmgBonus(s: ActiveSession): number {
   let bonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
   // 차원의 정수 — 잔혹 (paragon_crit_dmg_pct, value 1 = +1% 치명타 데미지)
   bonus += getPassive(s, 'paragon_crit_dmg_pct');
+  // 망토 정수 강화 — crit_dmg_lv × 0.5
+  bonus += s.cloakCritDmgPct || 0;
   bonus += (s.playerStats.dex || 0) * 0.35;
   const dotToCrit = getPassive(s, 'dot_to_crit');
   if (dotToCrit > 0) {
@@ -6918,6 +6921,15 @@ async function startCombatSessionInner(
   const passives = buildPassiveMap(passivesRaw);
   const equipPrefixes = await loadEquipPrefixes(characterId);
 
+  // 망토 crit_dmg 단계 로드 (cloak_levels.crit_dmg_lv × 0.5%)
+  let cloakCritDmgPct = 0;
+  try {
+    const cl = await query<{ crit_dmg_lv: number }>(
+      `SELECT crit_dmg_lv FROM character_cloak_levels WHERE character_id = $1`, [characterId]
+    );
+    if (cl.rowCount && cl.rows[0].crit_dmg_lv) cloakCritDmgPct = cl.rows[0].crit_dmg_lv * 0.5;
+  } catch { /* 마이그 전 환경 호환 */ }
+
   // 전투 시작 시 키스톤/접두사 보너스 추가 적용 (getEffectiveStats와 합쳐 이중 적용)
   // 기존 라이브 밸런스를 유지하기 위해 보존 — refreshSessionStats에서도 동일하게 적용.
   applyCombatStatBoost(eff, passives, equipPrefixes, char.max_hp);
@@ -6956,6 +6968,7 @@ async function startCombatSessionInner(
     skills,
     passives,
     equipPrefixes,
+    cloakCritDmgPct,
     fieldName,
     dirty: true,
     userId: char.user_id,
@@ -7501,6 +7514,13 @@ export async function refreshSessionStats(characterId: number): Promise<void> {
   if (!char) return;
   const eff = await getEffectiveStats(char);
   s.equipPrefixes = await loadEquipPrefixes(characterId);
+  // 망토 crit_dmg 단계 재로드 (정수 적용 직후 즉시 반영)
+  try {
+    const cl = await query<{ crit_dmg_lv: number }>(
+      `SELECT crit_dmg_lv FROM character_cloak_levels WHERE character_id = $1`, [characterId]
+    );
+    s.cloakCritDmgPct = cl.rowCount ? (cl.rows[0].crit_dmg_lv || 0) * 0.5 : 0;
+  } catch { s.cloakCritDmgPct = s.cloakCritDmgPct || 0; }
   s.passives = buildPassiveMap(await getNodePassives(characterId)); // 노드 패시브 재로드
   // 전투 시작 시와 동일한 2차 버프를 적용하여 인벤 조작 후 데미지 드랍 방지
   applyCombatStatBoost(eff, s.passives, s.equipPrefixes, char.max_hp);

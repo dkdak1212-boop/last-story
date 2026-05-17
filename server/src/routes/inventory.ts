@@ -320,6 +320,11 @@ router.post('/:id/unequip', async (req: AuthedRequest, res: Response) => {
   const parsed = z.object({ slot: z.string() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
+  // cloak 슬롯은 영구 고정 — 해제 불가 (spec: cloak-equipment-system.md)
+  if (parsed.data.slot === 'cloak') {
+    return res.status(400).json({ error: '망토는 해제할 수 없습니다.' });
+  }
+
   type Outcome = { ok: true } | { ok: false; status: number; error: string };
   const result = await withTransaction<Outcome>(async (tx) => {
     await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [id]);
