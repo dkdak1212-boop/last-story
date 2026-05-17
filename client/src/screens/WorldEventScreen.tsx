@@ -231,7 +231,7 @@ export function WorldEventScreen() {
             {busy ? '입장 중...' : cooldown > 0 ? `대기 ${cooldown}초` : '레이드 입장 (실시간)'}
           </button>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-            실시간 전투 진입 · 5종 시그니처 패턴 · 30초마다 광폭 ×2 · 사망 시 5분 쿨다운 · 일일 10회 제한
+            실시간 전투 진입 · 5종 시그니처 패턴 · 30초마다 광폭 2배 · 사망 시 60분 쿨다운 · 입장 무제한
           </div>
           {result && (
             <div style={{ marginTop: 8, padding: 8, background: result.playerDead ? 'rgba(255,50,50,0.1)' : 'rgba(100,200,100,0.1)', borderRadius: 4, fontSize: 13 }}>
