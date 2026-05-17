@@ -199,7 +199,8 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
     eff.atk = Math.round(eff.atk * (1 + pMap.get('berserker_heart')! / 100));
     eff.def = Math.round(eff.def * (1 - pMap.get('berserker_heart')! / 200));
   }
-  if (pMap.has('sanctuary_guard')) eff.maxHp += Math.round(char.max_hp * pMap.get('sanctuary_guard')! / 100);
+  // 성역의 수호자 — final maxHp 곱연산 (이전: char.max_hp raw 기준 더하기 → 길드/장비/vit 보너스 반영 안 되어 사용자 체감 +25% 못 도달)
+  if (pMap.has('sanctuary_guard')) eff.maxHp = Math.round(eff.maxHp * (1 + pMap.get('sanctuary_guard')! / 100));
   if (pMap.has('balance_apostle')) {
     const v = pMap.get('balance_apostle')!;
     eff.atk = Math.round(eff.atk * (1 + v / 100));

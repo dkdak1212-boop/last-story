@@ -7717,9 +7717,8 @@ export function applyCombatStatBoost(
     eff.atk = Math.round(eff.atk * (1 + v / 100));
     eff.def = Math.round(eff.def * (1 - v / 200));
   }
-  if (pMap.has('sanctuary_guard')) {
-    eff.maxHp += Math.round(charMaxHp * pMap.get('sanctuary_guard')! / 100);
-  }
+  // sanctuary_guard 는 character.ts getEffectiveStats 에서 곱연산으로 1회 적용 (이중 가산 방지).
+  // 이전: 여기서도 base raw 25% 더하기 → 이중 적용으로 +50%(base 기준) 되거나 적게 보이는 버그.
   // 직업 전용 노드 hp_flat / paragon_explosive_rage 는 character.ts 만 적용 (이중 가산 방지).
   // applyCombatStatBoost 는 기존 war_god 등 의도된 이중 적용 키만 처리.
   if (pMap.has('balance_apostle')) {
