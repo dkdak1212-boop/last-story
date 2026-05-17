@@ -168,12 +168,30 @@ export function InventoryScreen() {
     try { await api(`/characters/${active.id}/unequip`, { method: 'POST', body: JSON.stringify({ slot }) }); await Promise.all([refresh(), refreshActive()]); }
     catch (e) { setMsg(e instanceof Error ? e.message : '실패'); }
   }
-  async function sell(slotIndex: number, enhanceLevel: number, itemName: string, grade: string, e: React.MouseEvent) {
+  async function sell(s: InventorySlot, e: React.MouseEvent) {
     e.stopPropagation(); if (!active) return;
-    // 강화한 템 / 유니크는 추가 경고창 (2단계 확인)
+    const slotIndex = s.slotIndex;
+    const enhanceLevel = s.enhanceLevel;
+    const itemName = s.item.name;
+    const grade = s.item.grade;
+    // 강화한 템 / 유니크 / T4 100제 는 추가 경고창 (2단계 확인)
+    // T4 100제 보호: prefixTiers 에 4가 있고 requiredLevel >= 100 인 핵심 엔드템 → 실수 폐기 사고 다발 보고로 강화 경고
+    const reqLv = (s.item as any).requiredLevel || 0;
+    const tiers: number[] = (s as any).prefixTiers || [];
+    const hasT4 = tiers.includes(4);
+    const isHighEndT4 = hasT4 && reqLv >= 100;
     const isUnique = grade === 'unique';
     const isEnhanced = enhanceLevel > 0;
-    if (isUnique || isEnhanced) {
+    if (isHighEndT4) {
+      // T4 100제 — 이름 타이핑 강제 (실수 폐기 차단)
+      const typed = prompt(
+        `🚨 T4 접두사 보유 ${reqLv}제 핵심 장비를 폐기합니다.\n\n` +
+        `[${itemName}]${isEnhanced ? ` +${enhanceLevel}` : ''}\n\n` +
+        `골드는 지급되지 않고 영구 삭제됩니다.\n` +
+        `정말 폐기하려면 아래에 「폐기」 두 글자를 입력하세요.`
+      );
+      if (typed?.trim() !== '폐기') return;
+    } else if (isUnique || isEnhanced) {
       const tag = isUnique ? '⚠ 유니크' : `⚠ +${enhanceLevel} 강화`;
       const confirmed = confirm(
         `${tag} 아이템을 폐기합니다.\n\n` +
@@ -1195,7 +1213,7 @@ export function InventoryScreen() {
                           </>
                         )}
                         {s.item.sellPrice > 0 && !locked && (
-                          <button onClick={(e) => sell(s.slotIndex, s.enhanceLevel, s.item.name, s.item.grade, e)}
+                          <button onClick={(e) => sell(s, e)}
                             style={actionBtn('#e0a040')}>폐기</button>
                         )}
                         {isEquipment && (

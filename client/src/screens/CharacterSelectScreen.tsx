@@ -279,7 +279,7 @@ export function CharacterSelectScreen() {
               </div>
             </div>
             <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>
-              {c.gold}G
+              {(c.gold ?? 0).toLocaleString()}G
             </div>
             <button
               onClick={(e) => handleDelete(c.id, c.name, e)}

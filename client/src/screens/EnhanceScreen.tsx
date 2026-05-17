@@ -224,6 +224,12 @@ export function EnhanceScreen() {
 
   const info = selected ? getInfo(selected.enhanceLevel, active?.level ?? 1, selected.enhancePity || 0) : null;
 
+  // 스크롤 사용 불가 단계(+21+)로 진입하면 useScroll 자동 해제 — 체크박스가 숨겨져 유저가 직접 해제할 수 없으므로
+  // 그대로 두면 서버에 useScroll=true 전송 → "+21 이상 사용 불가" 400 발생.
+  useEffect(() => {
+    if (info && !info.scrollAllowed && useScroll) setUseScroll(false);
+  }, [info?.scrollAllowed, useScroll]);
+
   async function attempt() {
     if (!active || !selected) return;
     setBusy(true); setResult(null);
