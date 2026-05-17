@@ -4500,12 +4500,13 @@ function tryRift110MonsterSkills(s: ActiveSession): { skillMult: number; defPier
 // raid-bosses-v2 Step 3.2 — 발라카스 5종 시그니처 패턴 (실시간 전투용)
 // attackBoss 시뮬의 PATTERN_INFO 와 동일한 가중치·멀티. 라벨 토큰은 클라가 픽셀 아이콘으로 치환.
 type RaidPattern = 'basic' | 'fire_breath' | 'tail_swipe' | 'roar' | 'inferno';
+// raid-bosses-v2: 발라카스 데미지 -30% (2026-05-17 사용자 결정) — 모든 패턴 mul ×0.7
 const RAID_PATTERN_INFO: Record<RaidPattern, { mul: number; pierceDodge: boolean; label: string }> = {
-  basic:       { mul: 0.10, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
-  fire_breath: { mul: 0.30, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
-  tail_swipe:  { mul: 0.50, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
-  roar:        { mul: 0.10, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
-  inferno:     { mul: 1.00, pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
+  basic:       { mul: 0.07, pierceDodge: false, label: '[icon:basic]발라카스 공격' },
+  fire_breath: { mul: 0.21, pierceDodge: true,  label: '[icon:fire_breath]발라카스 — 화염 브레스' },
+  tail_swipe:  { mul: 0.35, pierceDodge: false, label: '[icon:tail_swipe]발라카스 — 꼬리치기' },
+  roar:        { mul: 0.07, pierceDodge: false, label: '[icon:roar]발라카스 — 포효' },
+  inferno:     { mul: 0.70, pierceDodge: true,  label: '[icon:inferno]발라카스 — 융화' },
 };
 function pickRaidPattern(): RaidPattern {
   const r = Math.random() * 100;

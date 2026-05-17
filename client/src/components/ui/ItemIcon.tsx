@@ -204,6 +204,14 @@ const NAMED_ICON: Record<string, string> = {
   '카르나스의 반지': '/images/items/ring/coral.png',
   '카르나스의 목걸이': '/images/items/amulet/ruby.png',
 
+  // 망토 — 캐릭터 영구 장착 (cloak slot)
+  '낡은 망토': '/images/items/armor/robe1.png',
+
+  // 정수 3종 — 망토 강화 재료 (raid-bosses-v2)
+  '발라카스의 정수': '/images/items/potion/ruby.png',
+  '아트라스의 정수': '/images/items/potion/cyan.png',
+  '카르나스의 정수': '/images/items/potion/magenta.png',
+
   // 아트라스 세트 (황금 테마)
   '아트라스의 대검': '/images/items/weapon/demon_blade2.png',
   '아트라스의 지팡이': '/images/items/staff/staff04.png',
