@@ -59,12 +59,13 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
 
   // 오프라인 모드 가드 — 제거 (사용자 결정 2026-05-17). 레이드는 자유 진입.
 
-  // 사망 쿨다운만 체크 (일일 입장 제한 제거)
-  const existing = await query<{ last_attack_at: string }>(
+  // 사망 쿨다운만 체크 — last_attack_at 은 "마지막 사망 시각" 의미
+  // (handlePlayerDeath 에서만 갱신, /enter 입장 시는 갱신하지 않음)
+  const existing = await query<{ last_attack_at: string | null }>(
     `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
     [event.id, characterId]
   );
-  if (existing.rows[0] && char.hp <= 1 && existing.rows[0].last_attack_at) {
+  if (existing.rows[0]?.last_attack_at) {
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
     if (elapsed < RAID_DEATH_COOLDOWN_MS) {
       const remainMin = Math.ceil((RAID_DEATH_COOLDOWN_MS - elapsed) / 60000);
@@ -83,12 +84,12 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
     }
   } catch (e) { console.error('[raid] hp refill fail', e); }
 
+  // last_attack_at 은 갱신하지 않음 — 사망 시각 의미 (handlePlayerDeath 가 책임).
   await query(
     `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
-     VALUES ($1, $2, 0, 1, NOW())
+     VALUES ($1, $2, 0, 1, NULL)
      ON CONFLICT (event_id, character_id) DO UPDATE SET
-       attack_count = world_event_participants.attack_count + 1,
-       last_attack_at = NOW()`,
+       attack_count = world_event_participants.attack_count + 1`,
     [event.id, characterId]
   );
 
