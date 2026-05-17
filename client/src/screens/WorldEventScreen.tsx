@@ -2,12 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useCharacterStore } from '../stores/characterStore';
-import { MonsterIcon } from '../components/ui/MonsterIcon';
 import { motion } from 'framer-motion';
 import type { WorldEventStatus } from '../types';
 
 const POLL_MS = 3000;
-const PHASE_COLOR = ['', '#44cc44', '#ff8800', '#ff3333'];
 
 // 발라카스 시그니처 패턴 → 픽셀 아이콘 매핑 (raid-bosses-v2 Step 2)
 // 서버 combatLog 라벨에 `[icon:key]` 토큰이 prefix 됨 — 클라가 파싱해 인라인 이미지로 치환.
@@ -128,42 +126,119 @@ export function WorldEventScreen() {
     </div>
   );
 
-  const hpPct = Math.max(0, Math.min(100, ((status.currentHp ?? 0) / (status.maxHp ?? 1)) * 100));
   const timeLeft = Math.max(0, new Date(status.endsAt!).getTime() - Date.now());
-  const minutes = Math.floor(timeLeft / 60000);
+  const hours = Math.floor(timeLeft / 3600000);
+  const minutes = Math.floor((timeLeft % 3600000) / 60000);
   const seconds = Math.floor((timeLeft % 60000) / 1000);
-  const phase = (status as any).phase || (hpPct > 60 ? 1 : hpPct > 30 ? 2 : 3);
+
+  // 발라카스 픽셀 sprite (DCSS 마지막이야기 monsters 폴더). 다른 보스도 같은 폴더에서 가져옴.
+  const bossSprite = '/images/monsters/fire_dragon.png';
 
   return (
     <div>
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>레이드</h2>
 
-      {/* 보스 */}
-      <div style={{ padding: 20, background: 'var(--bg-panel)', border: `2px solid ${PHASE_COLOR[phase]}`, marginBottom: 16, borderRadius: 8, position: 'relative' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <MonsterIcon name={status.bossName!} size={48} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--danger)' }}>{status.bossName}</div>
-            <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>Lv.{status.bossLevel} · {minutes}분 {seconds}초</div>
+      {/* 보스 영웅 무대 — 큰 픽셀 + 분위기 */}
+      <div style={{
+        position: 'relative',
+        padding: '36px 20px 24px',
+        marginBottom: 16,
+        borderRadius: 12,
+        border: '2px solid #ff4422',
+        background: 'radial-gradient(ellipse at center, #2a0808 0%, #0a0303 70%, #000 100%)',
+        boxShadow: '0 0 32px rgba(255,70,30,0.45), inset 0 0 60px rgba(255,80,20,0.15)',
+        overflow: 'hidden',
+        textAlign: 'center',
+      }}>
+        {/* 배경 펄스 후광 */}
+        <motion.div
+          animate={{ opacity: [0.4, 0.8, 0.4], scale: [1, 1.05, 1] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(circle at center, rgba(255,80,20,0.35) 0%, transparent 60%)',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* 회전 후광 ring */}
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
+          style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: 360, height: 360,
+            marginTop: -180, marginLeft: -180,
+            border: '1px dashed rgba(255,140,30,0.25)',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+          }}
+        />
+        <motion.div
+          animate={{ rotate: -360 }}
+          transition={{ duration: 28, repeat: Infinity, ease: 'linear' }}
+          style={{
+            position: 'absolute', top: '50%', left: '50%',
+            width: 460, height: 460,
+            marginTop: -230, marginLeft: -230,
+            border: '1px dotted rgba(255,80,20,0.18)',
+            borderRadius: '50%',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* 큰 픽셀 보스 + 떨림/광폭 ring */}
+        <motion.div
+          animate={{ y: [0, -6, 0] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ position: 'relative', display: 'inline-block', zIndex: 2 }}
+        >
+          <motion.img
+            src={bossSprite}
+            alt={status.bossName ?? '발라카스'}
+            width={256}
+            height={256}
+            animate={{ scale: [1, 1.03, 1] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            style={{
+              imageRendering: 'pixelated',
+              filter: 'drop-shadow(0 0 24px rgba(255,90,20,0.85)) drop-shadow(0 0 8px rgba(255,180,40,0.6))',
+            }}
+            onError={(e) => { (e.target as HTMLImageElement).src = '/images/monsters/dragon.png'; }}
+          />
+        </motion.div>
+
+        {/* 보스 이름 — 거대 글씨 */}
+        <div style={{ position: 'relative', zIndex: 2, marginTop: 16 }}>
+          <motion.div
+            animate={{ textShadow: [
+              '0 0 8px rgba(255,80,20,0.7)',
+              '0 0 24px rgba(255,140,40,1)',
+              '0 0 8px rgba(255,80,20,0.7)',
+            ] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            style={{
+              fontSize: 36, fontWeight: 900, letterSpacing: 4,
+              color: '#ffd28a',
+              fontFamily: 'serif',
+            }}
+          >
+            {status.bossName}
+          </motion.div>
+          <div style={{
+            marginTop: 6, fontSize: 13, color: '#c08060',
+            letterSpacing: 6, textTransform: 'uppercase',
+          }}>
+            ★ ★ ★ Lv.{status.bossLevel} ★ ★ ★
           </div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: PHASE_COLOR[phase] }}>Phase {phase}</div>
+          <div style={{ marginTop: 10, fontSize: 11, color: '#8a5040', letterSpacing: 2 }}>
+            잔여 시간 · {hours > 0 ? `${hours}시간 ` : ''}{minutes}분 {seconds}초
+          </div>
         </div>
 
-        <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-dim)' }}>
-          <span>HP</span>
-          <span>{(status.currentHp ?? 0).toLocaleString()} / {(status.maxHp ?? 0).toLocaleString()} ({hpPct.toFixed(1)}%)</span>
-        </div>
-        <div style={{ height: 20, background: 'var(--bg)', border: '1px solid var(--border)', overflow: 'hidden', position: 'relative', borderRadius: 4 }}>
-          <motion.div animate={{ width: `${hpPct}%` }} transition={{ duration: 0.5 }}
-            style={{ height: '100%', background: `linear-gradient(90deg, ${PHASE_COLOR[3]}, ${PHASE_COLOR[phase]})` }} />
-          <div style={{ position: 'absolute', left: '30%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,0.3)' }} />
-          <div style={{ position: 'absolute', left: '60%', top: 0, bottom: 0, width: 2, background: 'rgba(255,255,255,0.3)' }} />
-        </div>
-
+        {/* 데미지 토스트 */}
         {result && (
-          <motion.div key={Date.now()} initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -50, scale: 1.5 }}
-            transition={{ duration: 1.2 }}
-            style={{ position: 'absolute', top: 20, right: 20, color: 'var(--accent)', fontSize: 28, fontWeight: 900, pointerEvents: 'none' }}>
+          <motion.div key={Date.now()} initial={{ opacity: 1, y: 0, scale: 0.8 }} animate={{ opacity: 0, y: -80, scale: 1.8 }}
+            transition={{ duration: 1.4 }}
+            style={{ position: 'absolute', top: 24, right: 28, color: '#ffe135', fontSize: 32, fontWeight: 900, pointerEvents: 'none', zIndex: 3, textShadow: '0 0 8px rgba(255,80,20,1)' }}>
             -{result.damageDealt.toLocaleString()}
           </motion.div>
         )}
