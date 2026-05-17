@@ -1859,6 +1859,20 @@ END $$`);
     }
   }
 
+  // raid-bosses-v2 Step 4 — 레이드 포인트 컬럼 (순위별 보상, 상점 화폐)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_points_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS raid_points INT NOT NULL DEFAULT 0`);
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_points_v1') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_points_v1: characters.raid_points 컬럼 추가');
+      }
+    } catch (e) {
+      console.error('[late] raid_points_v1 error:', e);
+    }
+  }
+
   // raid-bosses-v2 Step 3 — RAID_FIELD_ID=998 fields 행 등록 (combat_sessions FK 충족)
   {
     try {

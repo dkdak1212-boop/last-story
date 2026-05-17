@@ -571,6 +571,10 @@ export async function finishEvent(eventId: number, status: 'defeated' | 'expired
     }
   }
 
+  // 레이드 포인트 분배 (순위별, raid 상점 화폐로 사용 예정)
+  try { await distributeRaidPoints(eventId); }
+  catch (e) { console.error('[raid] distributeRaidPoints err', e); }
+
   await query(`UPDATE world_event_active SET status = $1, finished_at = NOW() WHERE id = $2`, [status, eventId]);
   if (io) io.emit('world_event', { type: 'world_event_end', bossName: bossR.rows[0]?.name ?? '???', result: status });
 }
@@ -581,6 +585,32 @@ const ESSENCE_NAME_BY_BOSS: Record<number, string> = {
   2: '아트라스의 정수',
   3: '카르나스의 정수',
 };
+
+// 레이드 포인트 — 순위별 확정 지급 (2026-05-17)
+// 1~10위 2000pt · 11~20위 1500pt · 21~30위 1000pt · 31~100위 500pt · 101~200위 250pt · 그 외 0
+async function distributeRaidPoints(eventId: number): Promise<void> {
+  const participants = await query<{ character_id: number }>(
+    `SELECT character_id FROM world_event_participants WHERE event_id = $1
+      ORDER BY total_damage DESC`, [eventId]
+  );
+  for (let i = 0; i < participants.rows.length; i++) {
+    const rank = i + 1;
+    let pts = 0;
+    if      (rank <=  10) pts = 2000;
+    else if (rank <=  20) pts = 1500;
+    else if (rank <=  30) pts = 1000;
+    else if (rank <= 100) pts = 500;
+    else if (rank <= 200) pts = 250;
+    if (pts > 0) {
+      try {
+        await query(
+          'UPDATE characters SET raid_points = COALESCE(raid_points, 0) + $1 WHERE id = $2',
+          [pts, participants.rows[i].character_id]
+        );
+      } catch (e) { console.error('[raid] points UPDATE fail', participants.rows[i].character_id, e); }
+    }
+  }
+}
 
 // 정수 분배 — 두 라인 독립 굴림, 중복 가능.
 //  라인 A: 모든 참여자 25% 확률
