@@ -232,16 +232,15 @@ router.post('/', async (req: AuthedRequest, res: Response) => {
   }
   // 망토 영구 장착 + cloak_levels 행 생성 (specs/cloak-equipment-system.md)
   try {
-    const cidStr = (await query<{ value: string }>(
-      `SELECT value FROM server_settings WHERE key = 'cloak_default_item_id'`
-    )).rows[0]?.value;
-    const cloakItemId = cidStr ? Number(cidStr) : 0;
-    if (cloakItemId > 0) {
+    const cloakR = await query<{ id: number }>(
+      `SELECT id FROM items WHERE name = '낡은 망토' AND slot = 'cloak' LIMIT 1`
+    );
+    if (cloakR.rowCount && cloakR.rows[0].id) {
       await query(
         `INSERT INTO character_equipped (character_id, slot, item_id, enhance_level, soulbound, locked)
          VALUES ($1, 'cloak', $2, 0, TRUE, TRUE)
          ON CONFLICT DO NOTHING`,
-        [r.rows[0].id, cloakItemId]
+        [r.rows[0].id, cloakR.rows[0].id]
       );
     }
     await query(

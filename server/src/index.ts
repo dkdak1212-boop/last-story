@@ -1643,12 +1643,8 @@ END $$`);
           )
         `);
 
-        // 3) cloak_item_id 를 server_settings 에 저장해 코드/라우트에서 lookup 가능하게 함
-        await query(
-          `INSERT INTO server_settings (key, value) VALUES ('cloak_default_item_id', $1)
-           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-          [String(cloakItemId)]
-        );
+        // 3) cloak_default_item_id 는 server_settings 대신 items.name lookup 으로 처리
+        //    (server_settings 테이블이 환경마다 없을 수 있어 chain fail 방지)
 
         // 4) 기존 캐릭 일괄 백필 — cloak 미장착 캐릭에게 INSERT
         const backfillEq = await query(
@@ -1756,8 +1752,15 @@ END $$`);
           console.log(`[late] raid_bosses_v2: 보스 ${b.name} 등록`);
         }
 
-        // bosses id 시퀀스가 1,2,3 직접 INSERT 라 다음 자동 INSERT 가 충돌 가능 — 시퀀스 재정렬
-        await query(`SELECT setval(pg_get_serial_sequence('world_event_bosses', 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM world_event_bosses), 1))`);
+        // bosses id 시퀀스 재정렬 — SERIAL 아닐 수도 있으므로 안전 처리
+        try {
+          const seqR = await query<{ s: string | null }>(
+            `SELECT pg_get_serial_sequence('world_event_bosses', 'id') AS s`
+          );
+          if (seqR.rows[0]?.s) {
+            await query(`SELECT setval($1::regclass, GREATEST((SELECT COALESCE(MAX(id), 0) FROM world_event_bosses), 1))`, [seqR.rows[0].s]);
+          }
+        } catch (e) { console.warn('[late] raid_bosses_v2 setval skip:', (e as Error).message); }
 
         // 5) 스케줄 INSERT — UTC 03:00 / 11:00 × 3보스 모두 등록. 요일 분기는 코드 ROTATION 에서 처리.
         for (const hour of [3, 11]) {
@@ -1853,6 +1856,23 @@ END $$`);
       }
     } catch (e) {
       console.error('[late] raid_v2_disable_balacas_immune error:', e);
+    }
+  }
+
+  // raid-bosses-v2 Step 3 — RAID_FIELD_ID=998 fields 행 등록 (combat_sessions FK 충족)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'raid_field_998'`);
+      if (!applied.rowCount) {
+        await query(`INSERT INTO fields (id, name, required_level, monster_pool, description)
+          VALUES (998, '레이드 (월드 이벤트)', 1, '[]'::jsonb,
+                  '월드 보스 실시간 전투 필드. 캐릭별 가상 보스 인스턴스 (HP 무한).')
+          ON CONFLICT (id) DO NOTHING`);
+        await query(`INSERT INTO _migrations (name) VALUES ('raid_field_998') ON CONFLICT DO NOTHING`);
+        console.log('[late] raid_field_998: 완료');
+      }
+    } catch (e) {
+      console.error('[late] raid_field_998 error:', e);
     }
   }
 }
