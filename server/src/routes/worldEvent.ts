@@ -43,72 +43,88 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
 
 // raid-bosses-v2 Step 3.5 — /enter: 실시간 전투 세션 진입
 router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res) => {
-  const characterId = Number(req.params.characterId);
-  if (!characterId) return res.status(400).json({ error: 'characterId required' });
-  const char = await loadCharacterOwned(characterId, req.userId!);
-  if (!char) return res.status(403).json({ error: 'not your character' });
-
-  // 어드민 가드 제거 (2026-05-17) — 일반 유저도 진입 가능.
-
-  // 활성 보스 조회
-  const event = await getActiveEvent();
-  if (!event) return res.status(400).json({ error: '진행 중인 레이드가 없습니다.' });
-  if (char.level < event.min_level) {
-    return res.status(400).json({ error: `Lv.${event.min_level} 이상만 참여 가능합니다.` });
-  }
-
-  // 오프라인 모드 가드 — 제거 (사용자 결정 2026-05-17). 레이드는 자유 진입.
-
-  // 사망 쿨다운만 체크 — last_attack_at 은 "마지막 사망 시각" 의미
-  // (handlePlayerDeath 에서만 갱신, /enter 입장 시는 갱신하지 않음)
-  const existing = await query<{ last_attack_at: string | null }>(
-    `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
-    [event.id, characterId]
-  );
-  if (existing.rows[0]?.last_attack_at) {
-    const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
-    if (elapsed < RAID_DEATH_COOLDOWN_MS) {
-      const remainMin = Math.ceil((RAID_DEATH_COOLDOWN_MS - elapsed) / 60000);
-      return res.status(400).json({
-        error: `사망 쿨다운 ${remainMin}분 남음`,
-        cooldownMs: RAID_DEATH_COOLDOWN_MS - elapsed,
-      });
-    }
-  }
-
-  // 진입 시 HP 풀피 (성직자 제외) + participants row UPSERT (attack_count +1)
+  // 전체 try/catch — 어떤 단계에서 throw 되든 상세 메시지 노출 (디버그 단계)
   try {
-    if (char.class_name !== 'cleric') {
-      const eff = await getEffectiveStats(char);
-      await query('UPDATE characters SET hp = $1 WHERE id = $2', [eff.maxHp, characterId]);
+    const characterId = Number(req.params.characterId);
+    if (!characterId) return res.status(400).json({ error: 'characterId required' });
+    const char = await loadCharacterOwned(characterId, req.userId!);
+    if (!char) return res.status(403).json({ error: 'not your character' });
+
+    // 활성 보스 조회 — 컬럼 부재 등 SQL 에러 발생 시 catch
+    let event: Awaited<ReturnType<typeof getActiveEvent>>;
+    try { event = await getActiveEvent(); }
+    catch (e: any) {
+      console.error('[raid/enter] getActiveEvent fail', e);
+      return res.status(500).json({ error: `getActiveEvent: ${e?.message || String(e)}` });
     }
-  } catch (e) { console.error('[raid] hp refill fail', e); }
+    if (!event) return res.status(400).json({ error: '진행 중인 레이드가 없습니다.' });
+    if (char.level < event.min_level) {
+      return res.status(400).json({ error: `Lv.${event.min_level} 이상만 참여 가능합니다.` });
+    }
 
-  // last_attack_at 은 갱신하지 않음 — 사망 시각 의미 (handlePlayerDeath 가 책임).
-  await query(
-    `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
-     VALUES ($1, $2, 0, 1, NULL)
-     ON CONFLICT (event_id, character_id) DO UPDATE SET
-       attack_count = world_event_participants.attack_count + 1`,
-    [event.id, characterId]
-  );
+    // 사망 쿨다운 체크 — last_attack_at 은 사망 시각 의미
+    let existing: { rows: { last_attack_at: string | null }[] };
+    try {
+      existing = await query<{ last_attack_at: string | null }>(
+        `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
+        [event.id, characterId]
+      );
+    } catch (e: any) {
+      console.error('[raid/enter] cooldown SELECT fail', e);
+      return res.status(500).json({ error: `cooldown SELECT: ${e?.message || String(e)}` });
+    }
+    if (existing.rows[0]?.last_attack_at) {
+      const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
+      if (elapsed < RAID_DEATH_COOLDOWN_MS) {
+        const remainMin = Math.ceil((RAID_DEATH_COOLDOWN_MS - elapsed) / 60000);
+        return res.status(400).json({
+          error: `사망 쿨다운 ${remainMin}분 남음`,
+          cooldownMs: RAID_DEATH_COOLDOWN_MS - elapsed,
+        });
+      }
+    }
 
-  // 실시간 전투 세션 시작 — 광폭 단계는 캐릭 입장 시각 기준 (2026-05-17 옵션 B)
-  // 모든 입장자가 0단계로 시작, 30초마다 ×2. 사망 후 재입장 시 다시 0단계 (1시간 쿨다운 자연 제한).
-  try {
-    const startedAtMs = Date.now();
-    await startRaidCombatSession(characterId, event.id, startedAtMs);
-  } catch (e) {
-    console.error('[raid] startRaidCombatSession fail', e);
-    return res.status(500).json({ error: '전투 세션 시작 실패' });
+    // 진입 시 HP 풀피 (성직자 제외)
+    try {
+      if (char.class_name !== 'cleric') {
+        const eff = await getEffectiveStats(char);
+        await query('UPDATE characters SET hp = $1 WHERE id = $2', [eff.maxHp, characterId]);
+      }
+    } catch (e) { console.error('[raid/enter] hp refill fail', e); }
+
+    // participants UPSERT — last_attack_at 갱신 안 함 (사망 시각 의미 보존)
+    try {
+      await query(
+        `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
+         VALUES ($1, $2, 0, 1, NULL)
+         ON CONFLICT (event_id, character_id) DO UPDATE SET
+           attack_count = world_event_participants.attack_count + 1`,
+        [event.id, characterId]
+      );
+    } catch (e: any) {
+      console.error('[raid/enter] participants UPSERT fail', e);
+      return res.status(500).json({ error: `participants UPSERT: ${e?.message || String(e)}` });
+    }
+
+    // 실시간 전투 세션 시작
+    try {
+      const startedAtMs = Date.now();
+      await startRaidCombatSession(characterId, event.id, startedAtMs);
+    } catch (e: any) {
+      console.error('[raid/enter] startRaidCombatSession fail', e);
+      return res.status(500).json({ error: `startRaidCombatSession: ${e?.message || String(e)}` });
+    }
+
+    res.json({
+      ok: true,
+      eventId: event.id,
+      bossName: event.name,
+      endsAt: event.ends_at,
+    });
+  } catch (e: any) {
+    console.error('[raid/enter] unhandled', e);
+    return res.status(500).json({ error: `unhandled: ${e?.message || String(e)}` });
   }
-
-  res.json({
-    ok: true,
-    eventId: event.id,
-    bossName: event.name,
-    endsAt: event.ends_at,
-  });
 });
 
 // 옛 10초 시뮬 — deprecated, raid-v3 가 실시간 세션으로 대체.

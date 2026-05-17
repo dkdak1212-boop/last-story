@@ -871,8 +871,10 @@ router.post('/:id/equip-presets/:idx/save', async (req: AuthedRequest, res: Resp
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
+  // cloak slot 은 영구 고정 — 프리셋 저장에서 제외 (로드 시 영향 안 받게)
   const eqR = await query<{ slot: string; item_id: number; enhance_level: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
-    'SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound FROM character_equipped WHERE character_id = $1', [id]
+    `SELECT slot, item_id, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound
+       FROM character_equipped WHERE character_id = $1 AND slot <> 'cloak'`, [id]
   );
   const slots: Record<string, any> = {};
   for (const row of eqR.rows) {
@@ -913,17 +915,17 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
     await withTransaction(async (tx) => {
       await tx.query('SELECT id FROM characters WHERE id = $1 FOR UPDATE', [id]);
 
+      // cloak slot 은 영구 고정 — 프리셋 스왑에서 제외 (이동·삭제 안 함).
       const curEq = await tx.query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; prefix_ids: number[]; prefix_stats: any; quality: number; locked: boolean; soulbound: boolean }>(
         `SELECT slot, item_id, enhance_level, COALESCE(enhance_pity, 0) AS enhance_pity,
                 prefix_ids, prefix_stats,
                 COALESCE(quality, 0) AS quality, locked, COALESCE(soulbound, FALSE) AS soulbound
-           FROM character_equipped WHERE character_id = $1
+           FROM character_equipped WHERE character_id = $1 AND slot <> 'cloak'
            FOR UPDATE`,
         [id]
       );
 
-      // 1) 현재 장비 → 인벤 (전체 성공 or 전체 rollback)
-      // 처음 한 번만 used set 로드, 이후 로컬에서 차감 (트랜잭션 안 INSERT 가시성 의존 X).
+      // 1) 현재 장비 → 인벤 (cloak 제외, 전체 성공 or 전체 rollback)
       const usedR0 = await tx.query<{ slot_index: number }>(
         'SELECT slot_index FROM character_inventory WHERE character_id = $1', [id]
       );
@@ -935,7 +937,6 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
       for (const eq of curEq.rows) {
         if (freeQueue.length === 0) throw new LoadFail(400, '인벤토리가 가득 찼습니다');
         const freeSlot = freeQueue.shift()!;
-        // enhance_pity 보존 — 프리셋 스왑 시 강화 누적 카운터 유지
         const ins = await tx.query(
           `INSERT INTO character_inventory
              (character_id, item_id, slot_index, quantity, enhance_level, enhance_pity, prefix_ids, prefix_stats, quality, locked, soulbound)
@@ -947,7 +948,8 @@ router.post('/:id/equip-presets/:idx/load', async (req: AuthedRequest, res: Resp
         );
         if (!ins.rowCount) throw new LoadFail(409, '슬롯 충돌 — 다시 시도해주세요.');
       }
-      await tx.query('DELETE FROM character_equipped WHERE character_id = $1', [id]);
+      // cloak slot 은 보존 — DELETE 에서 제외
+      await tx.query(`DELETE FROM character_equipped WHERE character_id = $1 AND slot <> 'cloak'`, [id]);
 
       // 2) 프리셋 매칭 — usedInvIds 추적해 동일 inventory row 재선택 차단
       const usedInvIds = new Set<number>();
