@@ -98,9 +98,10 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
     [event.id, characterId]
   );
 
-  // 실시간 전투 세션 시작
+  // 실시간 전투 세션 시작 — 광폭 단계는 캐릭 입장 시각 기준 (2026-05-17 옵션 B)
+  // 모든 입장자가 0단계로 시작, 30초마다 ×2. 사망 후 재입장 시 다시 0단계 (1시간 쿨다운 자연 제한).
   try {
-    const startedAtMs = new Date(event.started_at).getTime();
+    const startedAtMs = Date.now();
     await startRaidCombatSession(characterId, event.id, startedAtMs);
   } catch (e) {
     console.error('[raid] startRaidCombatSession fail', e);
