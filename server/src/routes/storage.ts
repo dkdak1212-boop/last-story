@@ -122,6 +122,8 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const it = inv.rows[0];
     // 창고에는 장비만 보관 가능
     if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
+    // 망토는 캐릭 영구 장착 — 창고 이동 차단 (2026-05-18)
+    if (it.item_slot === 'cloak') return { error: '망토는 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 321) return { error: '노드 스크롤 +8은 창고에 보관할 수 없습니다.', status: 400 };
     // 100제 시공 분쇄 세트 (id 900-909) 캐릭 귀속 — 일반 100제 시공(800-838)은 허용.

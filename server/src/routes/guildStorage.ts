@@ -188,17 +188,19 @@ router.post('/:characterId/deposit-item', async (req: AuthedRequest, res: Respon
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      item_name: string; soulbound: boolean;
+      item_name: string; soulbound: boolean; item_slot: string | null;
     }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, i.name AS item_name,
-              COALESCE(ci.soulbound, FALSE) AS soulbound
+              COALESCE(ci.soulbound, FALSE) AS soulbound, i.slot AS item_slot
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
        WHERE ci.character_id = $1 AND ci.slot_index = $2 FOR UPDATE`,
       [cid, inventorySlotIndex]
     );
     if (inv.rowCount === 0) return { error: '아이템 없음', status: 404 };
     const it = inv.rows[0];
+    // 망토는 캐릭 영구 장착 — 길드 창고 이동 차단 (2026-05-18)
+    if (it.item_slot === 'cloak') return { error: '망토는 길드 창고에 보관할 수 없습니다.', status: 400 };
     // soulbound (bound_on_pickup=true 인 시공 분쇄 포함) 은 이미 차단됨 — lv100 일반 시공은 허용.
     if (it.soulbound) return { error: '착용한 적이 있는 장비는 길드 창고에 보관할 수 없습니다. (계정 귀속)', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 길드 창고에 보관할 수 없습니다.', status: 400 };
