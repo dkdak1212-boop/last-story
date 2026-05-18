@@ -51,25 +51,43 @@ export function calcEnhanceMult(level: number): number {
   return 1 + a + b + c;
 }
 
+// 망토 가드 (2026-05-18) — 일반 강화/접두사 굴림/티어 추첨/3옵 굴림 모두 거절.
+// 망토는 정수(/cloak/apply) 로만 단계 누적 가능.
+async function isCloakTarget(
+  cid: number,
+  kind: 'inventory' | 'equipped',
+  slotKey: number | string,
+): Promise<boolean> {
+  if (kind === 'equipped' && slotKey === 'cloak') return true;
+  const r = kind === 'inventory'
+    ? await query<{ slot: string | null }>(
+        `SELECT i.slot FROM character_inventory ci JOIN items i ON i.id = ci.item_id
+         WHERE ci.character_id = $1 AND ci.slot_index = $2`, [cid, slotKey])
+    : await query<{ slot: string | null }>(
+        `SELECT i.slot FROM character_equipped ce JOIN items i ON i.id = ce.item_id
+         WHERE ce.character_id = $1 AND ce.slot = $2`, [cid, slotKey]);
+  return r.rows[0]?.slot === 'cloak';
+}
+
 // 현재 인벤 / 장착 중 강화 가능한 아이템 목록
 router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
   const cid = Number(req.params.characterId);
   const char = await loadCharacterOwned(cid, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  // 인벤토리
+  // 인벤토리 — 망토는 정수 전용이라 enhance UI 에서 제외
   const inv = await query<{ slot_index: number; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; slot: string | null; stats: Record<string, number> | null; unique_prefix_stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
     `SELECT ci.slot_index, ci.item_id, ci.enhance_level, COALESCE(ci.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot, i.stats, i.unique_prefix_stats, ci.prefix_ids, ci.prefix_stats, COALESCE(ci.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
-     WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND ci.quantity = 1
+     WHERE ci.character_id = $1 AND i.slot IS NOT NULL AND i.slot <> 'cloak' AND ci.quantity = 1
      ORDER BY ci.slot_index`,
     [cid]
   );
-  // 장착
+  // 장착 — 망토 슬롯은 정수 전용이라 제외
   const eq = await query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; unique_prefix_stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
     `SELECT ce.slot, ce.item_id, ce.enhance_level, COALESCE(ce.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot AS item_slot, i.stats, i.unique_prefix_stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
-     WHERE ce.character_id = $1`,
+     WHERE ce.character_id = $1 AND ce.slot <> 'cloak'`,
     [cid]
   );
 
@@ -251,6 +269,11 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
+  // 망토는 정수(/cloak/apply) 로만 강화 가능
+  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
+    return res.status(400).json({ error: '망토는 정수로만 강화할 수 있습니다.' });
+  }
+
   // 대상 아이템 조회 (pity 같이)
   let currentLevel: number;
   let currentPity: number;
@@ -406,6 +429,11 @@ router.post('/:characterId/reroll-prefix', async (req: AuthedRequest, res: Respo
     prefixIndex: z.number().int().min(0).max(2).optional(), // 단일 인덱스만 재굴림 (2~3옵에서 선택)
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // 망토는 접두사 적용 대상 아님
+  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
+    return res.status(400).json({ error: '망토는 접두사를 적용할 수 없습니다.' });
+  }
 
   // 재굴림권 소모
   const ticketR = await query<{ id: number; quantity: number }>(
@@ -585,6 +613,12 @@ async function handleTierTicketUse(req: AuthedRequest, res: Response, tier: 1 | 
   }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'invalid input' }); return; }
 
+  // 망토는 접두사 적용 대상 아님
+  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
+    res.status(400).json({ error: '망토는 접두사를 적용할 수 없습니다.' });
+    return;
+  }
+
   const ticketName = TIER_TICKET_NAMES[tier];
 
   const ticketR = await query<{ id: number; quantity: number }>(
@@ -691,6 +725,11 @@ router.post('/:characterId/use-3prefix-ticket', async (req: AuthedRequest, res: 
     slotKey: z.union([z.number().int().min(0), z.string()]),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // 망토는 3옵 굴림 대상 아님
+  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
+    return res.status(400).json({ error: '망토는 접두사를 적용할 수 없습니다.' });
+  }
 
   const ticketR = await query<{ id: number; quantity: number }>(
     `SELECT ci.id, ci.quantity FROM character_inventory ci JOIN items i ON i.id = ci.item_id
