@@ -88,7 +88,7 @@ export function WorldEventScreen() {
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>레이드</h2>
       <div style={{ padding: 30, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center', borderRadius: 8, marginBottom: 16 }}>
         <div style={{ fontSize: 18, color: 'var(--text-dim)' }}>현재 진행 중인 레이드가 없습니다</div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 8 }}>매일 KST 17:00 레이드 보스 출현</div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 8 }}>매일 17:00 레이드 보스 출현</div>
       </div>
 
       <RewardTable />
