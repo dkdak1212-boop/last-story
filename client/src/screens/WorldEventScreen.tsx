@@ -279,10 +279,6 @@ function ClassLeaderboard({
   leaderboard: { rank: number; characterName: string; className: string; damage: number }[];
   myClassName?: string;
 }) {
-  // 내 클래스가 있으면 그걸 기본 탭으로
-  const initialTab = myClassName && CLASS_ORDER.includes(myClassName) ? myClassName : CLASS_ORDER[0];
-  const [tab, setTab] = useState<string>(initialTab);
-
   // 클래스별 그룹화
   const grouped = new Map<string, typeof leaderboard>();
   for (const cls of CLASS_ORDER) grouped.set(cls, []);
@@ -293,46 +289,77 @@ function ClassLeaderboard({
   for (const arr of grouped.values()) {
     arr.sort((a, b) => a.rank - b.rank);
   }
-  const list = grouped.get(tab) ?? [];
 
   return (
     <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>데미지 순위 (직업별)</div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
+        데미지 순위 (직업별)
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 12 }}>
+        같은 클래스 안에서 비교됩니다. 각 열은 클래스 내 톱 순위.
+      </div>
+      {/* 6 열 가로 나열 — 데스크탑 6열, 좁은 화면은 가로 스크롤 */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(6, minmax(150px, 1fr))',
+        gap: 10,
+        overflowX: 'auto',
+      }}>
         {CLASS_ORDER.map(cls => {
-          const count = grouped.get(cls)?.length ?? 0;
-          const isActive = tab === cls;
+          const list = grouped.get(cls) ?? [];
           const isMine = myClassName === cls;
           return (
-            <button
+            <div
               key={cls}
-              onClick={() => setTab(cls)}
               style={{
-                fontSize: 12, padding: '5px 10px', borderRadius: 4,
-                background: isActive ? 'var(--accent)' : 'transparent',
-                color: isActive ? '#000' : (isMine ? 'var(--accent)' : 'var(--text-dim)'),
-                border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
-                fontWeight: isActive || isMine ? 700 : 400,
-                cursor: 'pointer',
+                background: isMine ? 'rgba(218,165,32,0.08)' : 'var(--bg)',
+                border: `1px solid ${isMine ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 6,
+                padding: 10,
+                minWidth: 0,
               }}
             >
-              {CLASS_KO[cls] || cls}{isMine ? ' (나)' : ''} {count > 0 ? `· ${count}` : ''}
-            </button>
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: isMine ? 'var(--accent)' : 'var(--text)',
+                marginBottom: 8, paddingBottom: 6,
+                borderBottom: `1px solid ${isMine ? 'var(--accent)' : 'var(--border)'}`,
+                textAlign: 'center',
+              }}>
+                {CLASS_KO[cls] || cls}{isMine ? ' (나)' : ''}
+                <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-dim)', marginLeft: 6 }}>
+                  {list.length}명
+                </span>
+              </div>
+              {list.length === 0 ? (
+                <div style={{ color: 'var(--text-dim)', fontSize: 11, textAlign: 'center', padding: '12px 0' }}>
+                  참여자 없음
+                </div>
+              ) : list.map(e => (
+                <div key={`${e.className}-${e.rank}`} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                  padding: '3px 0', fontSize: 11,
+                  borderBottom: '1px solid var(--border)',
+                  color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)',
+                  fontWeight: e.rank <= 3 ? 700 : 400,
+                  gap: 4,
+                }}>
+                  <span style={{
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    flex: '1 1 auto', minWidth: 0,
+                  }}>
+                    <span style={{ color: 'var(--text-dim)', marginRight: 4 }}>{e.rank}.</span>
+                    {e.characterName}
+                  </span>
+                  <span style={{ flex: '0 0 auto', fontVariantNumeric: 'tabular-nums', fontSize: 10 }}>
+                    {e.damage.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
           );
         })}
       </div>
-      {list.length === 0 ? (
-        <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>이 클래스 참여자가 없습니다</div>
-      ) : list.map(e => (
-        <div key={`${e.className}-${e.rank}`} style={{
-          display: 'flex', justifyContent: 'space-between', padding: '4px 0',
-          borderBottom: '1px solid var(--border)',
-          color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)', fontWeight: e.rank <= 3 ? 700 : 400,
-        }}>
-          <span>{e.rank}. {e.characterName}</span>
-          <span>{e.damage.toLocaleString()}</span>
-        </div>
-      ))}
     </div>
   );
 }
