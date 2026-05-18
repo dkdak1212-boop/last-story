@@ -165,6 +165,24 @@ export async function resetDailyHighest(): Promise<number> {
   return r.rowCount ?? 0;
 }
 
+// 어드민 전체 초기화 (2026-05-18) — 등수(daily + all-time) + 등반 중 캐릭 강제 1층 회귀
+// 보상 발송 없음. floor_log 는 보존 (역사 기록).
+// 호출 측 책임: 활성 세션 정리 (stopCombatSession) 및 location 변경.
+export async function adminResetAllProgress(): Promise<{ resetRows: number }> {
+  const r = await query(
+    `UPDATE endless_pillar_progress
+       SET current_floor = 1,
+           current_hp = 0,
+           paused = TRUE,
+           highest_floor = 0,
+           daily_highest_floor = 0,
+           daily_highest_at = NULL,
+           floor_started_at = NULL,
+           last_updated = NOW()`
+  );
+  return { resetRows: r.rowCount ?? 0 };
+}
+
 // 주간 랭킹 보상 발송 — KST 월요일 00:00 cron 에서 호출.
 // 인터뷰 변경 (2026-04-27): 일일 보상 → 주간 보상 + 직업별 별도 랭킹 그룹.
 //

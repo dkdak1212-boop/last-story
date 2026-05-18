@@ -6,7 +6,8 @@ import { adminRequired } from '../middleware/admin.js';
 import { addItemToInventory, deliverToMailbox } from '../game/inventory.js';
 import { getIo } from '../ws/io.js';
 import { getActiveEvent, finishEvent } from '../game/worldEvent.js';
-import { stopCombatSession, getKillStats, invalidateSessionMeta } from '../combat/engine.js';
+import { stopCombatSession, getKillStats, invalidateSessionMeta, activeSessions } from '../combat/engine.js';
+import { adminResetAllProgress, ENDLESS_FIELD_ID } from '../game/endlessPillar.js';
 import { CLASS_START, type ClassName } from '../game/classes.js';
 
 const router = Router();
@@ -2825,5 +2826,49 @@ router.post('/new-char-event', async (req: AuthedRequest, res: Response) => {
   await query("UPDATE server_settings SET value=$1, updated_at=NOW() WHERE key='new_char_exp_until'", [until]);
   res.json({ ok: true, pct, until, hours });
 });
+
+// 종언의 기둥 전체 초기화 (2026-05-18) — 등수(daily + all-time) 초기화 + 등반 중 캐릭 1층 강제 회귀
+// 보상 발송 없음. 활성 세션 중단 + 마을 이동.
+const endlessPillarFullResetHandler = async (_req: AuthedRequest, res: Response) => {
+  const log: string[] = [];
+  try {
+    log.push(`[endless-reset] 시작 ${new Date().toISOString()}`);
+
+    // 1) ENDLESS 필드에 활성 세션 보유한 캐릭 식별 + 세션 중단
+    const climbers: number[] = [];
+    for (const [cid, sess] of activeSessions) {
+      if (sess.fieldId === ENDLESS_FIELD_ID) climbers.push(cid);
+    }
+    log.push(`활성 등반 세션: ${climbers.length}명`);
+    let stopped = 0;
+    for (const cid of climbers) {
+      try {
+        await stopCombatSession(cid, { keepLocation: false });
+        stopped++;
+      } catch (e) {
+        log.push(`stopSession 실패 char=${cid}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    log.push(`세션 중단: ${stopped}/${climbers.length}`);
+
+    // 2) location 이 field:1000 인 모든 캐릭 → village (세션 없이 location 만 박힌 경우 커버)
+    const locUpd = await query(
+      `UPDATE characters SET location = 'village', hp = max_hp, last_online_at = NOW() WHERE location = $1`,
+      [`field:${ENDLESS_FIELD_ID}`]
+    );
+    log.push(`location 정리: ${locUpd.rowCount}명`);
+
+    // 3) endless_pillar_progress 전체 초기화 (rankings + current_floor=1 강제)
+    const { resetRows } = await adminResetAllProgress();
+    log.push(`endless_pillar_progress 초기화: ${resetRows}행`);
+
+    log.push(`[endless-reset] 완료 ${new Date().toISOString()}`);
+    res.json({ ok: true, log, stoppedSessions: stopped, locationReset: locUpd.rowCount ?? 0, progressReset: resetRows });
+  } catch (e) {
+    log.push(`에러: ${e instanceof Error ? e.message : String(e)}`);
+    res.status(500).json({ ok: false, log });
+  }
+};
+router.post('/endless-pillar-full-reset', endlessPillarFullResetHandler);
 
 export default router;

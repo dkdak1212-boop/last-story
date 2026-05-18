@@ -826,6 +826,8 @@ function WorldEventTab() {
   const [selectedBoss, setSelectedBoss] = useState<number>(0);
   const [duration, setDuration] = useState(30);
   const [msg, setMsg] = useState('');
+  const [pillarBusy, setPillarBusy] = useState(false);
+  const [pillarLog, setPillarLog] = useState<string[] | null>(null);
 
   async function load() {
     const r = await api<{ activeEvent: ActiveEvent | null; bosses: BossInfo[] }>('/admin/world-event/status');
@@ -866,6 +868,35 @@ function WorldEventTab() {
         </div>
       )}
       {msg && <div style={{ marginTop: 10, padding: 8, fontSize: 13, color: 'var(--accent)', background: 'var(--bg-panel)', border: '1px solid var(--accent)' }}>{msg}</div>}
+
+      <div style={{ padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--border)', marginTop: 12 }}>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>종언의 기둥 — 전체 초기화</div>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
+          모든 캐릭터의 일일/명예의 전당 등수를 초기화하고, 등반 중인 유저는 강제로 1층으로 이전합니다. 보상 지급 없음.
+        </div>
+        <button
+          disabled={pillarBusy}
+          onClick={async () => {
+            if (!confirm('전체 등수 초기화 + 등반 중 캐릭 1층 강제 회귀. 진행할까요?')) return;
+            setPillarBusy(true); setPillarLog(null);
+            try {
+              const r = await api<{ ok: boolean; log: string[] }>('/admin/endless-pillar-full-reset', { method: 'POST' });
+              setPillarLog(r.log);
+            } catch (e) {
+              setPillarLog([String(e)]);
+            }
+            setPillarBusy(false);
+          }}
+          style={{ color: 'var(--danger)', border: '1px solid var(--danger)', fontSize: 13, padding: '6px 16px' }}
+        >
+          {pillarBusy ? '진행 중...' : '전체 초기화'}
+        </button>
+        {pillarLog && (
+          <pre style={{ marginTop: 10, padding: 8, background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 11, maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+            {pillarLog.join('\n')}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }

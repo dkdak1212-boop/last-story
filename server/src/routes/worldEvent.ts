@@ -8,7 +8,8 @@ import { startRaidCombatSession } from '../combat/engine.js';
 const router = Router();
 
 const RAID_DEATH_COOLDOWN_MS = 3_600_000; // 1시간 사망 쿨다운 (raid-bosses-v2, 2026-05-17)
-// RAID_MAX_ATTACKS_PER_DAY 제거 — 입장 무제한
+// 일일 입장 1회 제한 (2026-05-18) — 1 event = 하루 1회 spawn 이므로 attack_count >= 1 이면 거절
+const RAID_MAX_ENTRIES_PER_EVENT = 1;
 
 router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   const event = await getActiveEvent();
@@ -62,16 +63,23 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
       return res.status(400).json({ error: `Lv.${event.min_level} 이상만 참여 가능합니다.` });
     }
 
-    // 사망 쿨다운 체크 — last_attack_at 은 사망 시각 의미
-    let existing: { rows: { last_attack_at: string | null }[] };
+    // 사망 쿨다운 + 일일 입장 제한 체크
+    let existing: { rows: { last_attack_at: string | null; attack_count: number }[] };
     try {
-      existing = await query<{ last_attack_at: string | null }>(
-        `SELECT last_attack_at FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
+      existing = await query<{ last_attack_at: string | null; attack_count: number }>(
+        `SELECT last_attack_at, COALESCE(attack_count, 0) AS attack_count
+           FROM world_event_participants WHERE event_id = $1 AND character_id = $2`,
         [event.id, characterId]
       );
     } catch (e: any) {
       console.error('[raid/enter] cooldown SELECT fail', e);
       return res.status(500).json({ error: `cooldown SELECT: ${e?.message || String(e)}` });
+    }
+    // 일일 1회 입장 제한 — 1 event 당 attack_count >= 1 이면 재입장 불가 (2026-05-18)
+    if ((existing.rows[0]?.attack_count ?? 0) >= RAID_MAX_ENTRIES_PER_EVENT) {
+      return res.status(400).json({
+        error: '이미 오늘 레이드에 입장하셨습니다. (1일 1회 입장 가능)',
+      });
     }
     if (existing.rows[0]?.last_attack_at) {
       const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
