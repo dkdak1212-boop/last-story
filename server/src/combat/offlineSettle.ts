@@ -27,7 +27,9 @@ const MIN_ELAPSED_SEC = 60;                 // 1분 미만은 스킵 (노이즈)
 // 사냥터 이동 시 0 리셋 → 새 사냥터에서 20킬 이상 잡아야 정산 가능.
 // 누적 total_kills 가 아니라 현재 사냥터 카운트라 더 정확.
 const MIN_CURRENT_FIELD_KILLS = 20;
-const MAX_DROP_COUNT = 50000;               // 드랍 추첨 폭주 가드
+// 2026-05-18 완화: 5만 → 20만. 빠른 캐릭(kill_rate ~2/s) × 24h offline = 17만 킬에도
+// 캡으로 truncate 되어 드랍 체감이 낮던 문제 완화. 가상 킬 루프 무거우면 추후 재조정.
+const MAX_DROP_COUNT = 200000;              // 드랍 추첨 폭주 가드
 const DROP_RATE_MULT = 0.1;                 // engine.ts 와 동일 (비유니크 기본 배율)
 
 export interface OfflineRewardResult {
@@ -474,10 +476,10 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
 
     const appliedDrops: { itemId: number; qty: number; itemName?: string }[] = [];
     let filteredCount = 0;
-    // 2026-04-30: settle 트랜잭션이 connection 장기 점유 → SLOW TICK 폭주.
-    // 한 캐릭당 처리할 비유니크 장비 인스턴스 수 상한 100. 초과는 폐기 카운트로.
-    // 일반 사냥 1회 정산이면 100개 이내 충분. 인벤 가득 + 장기 정산 케이스만 일부 손실.
-    const MAX_INSTANCES_PER_SETTLE = 100;
+    // 2026-04-30: settle 트랜잭션이 connection 장기 점유 → SLOW TICK 폭주 → 상한 100.
+    // 2026-05-18 완화: 사용자 보고 "드랍이 조금 안 됨". 100 은 장기 정산 + 인벤 여유 케이스에
+    // 자연 손실 다발. 500 으로 상향. SLOW TICK 재발 시 재조정.
+    const MAX_INSTANCES_PER_SETTLE = 500;
     let processedInstances = 0;
     // 비유니크 장비는 인스턴스별로 prefix 새로 굴리고 필터 체크 — 온라인 사냥과 동일.
     // 과거 stack 단위 1회 prefix → qty 통째로 필터되는 버그 (T1 필터 시 거의 전손) 수정.
