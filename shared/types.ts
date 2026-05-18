@@ -139,7 +139,7 @@ export interface OfflineReport {
   overflow: number;          // inventory overflow → mailbox count
 }
 
-// 월드 이벤트
+// 월드 이벤트 (2026-05-18 직업별 순위 개편)
 export interface WorldEventStatus {
   active: boolean;
   eventId?: number;
@@ -150,8 +150,10 @@ export interface WorldEventStatus {
   startedAt?: string;
   endsAt?: string;
   myDamage?: number;
-  myRank?: number;
+  myRank?: number;          // 클래스 내 순위
   myAttackCount?: number;
+  myClassName?: string;     // 내 캐릭 클래스 (UI 라벨용)
+  // leaderboard 의 rank 는 클래스 내 순위. 같은 character 가 여러 클래스에 노출되지 않음.
   leaderboard?: { rank: number; characterName: string; className: string; damage: number }[];
 }
 

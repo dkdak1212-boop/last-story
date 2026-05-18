@@ -480,17 +480,31 @@ export async function attackBoss(characterId: number) {
   };
 }
 
-// ─── 리더보드 ───
+// ─── 리더보드 (직업별, 2026-05-18 개편) ───
+// 클래스 내 순위 1~limit 까지 반환. 클라이언트는 클래스별 섹션/탭으로 표시.
+// rank 는 클래스 내 순위. 같은 character 가 여러 클래스 보드에 노출되지 않음 (1캐릭 1클래스).
 export async function getLeaderboard(eventId: number, limit = 20) {
-  const r = await query<{ character_name: string; class_name: string; total_damage: number }>(
-    `SELECT c.name AS character_name, c.class_name, p.total_damage
-     FROM world_event_participants p JOIN characters c ON c.id = p.character_id
-     JOIN users u ON u.id = c.user_id
-     WHERE p.event_id = $1 AND u.is_admin = FALSE
-     ORDER BY p.total_damage DESC LIMIT $2`,
+  const r = await query<{ character_name: string; class_name: string; total_damage: number; class_rank: string }>(
+    `WITH ranked AS (
+       SELECT c.name AS character_name, c.class_name, p.total_damage,
+              ROW_NUMBER() OVER (PARTITION BY c.class_name ORDER BY p.total_damage DESC) AS class_rank
+         FROM world_event_participants p
+         JOIN characters c ON c.id = p.character_id
+         JOIN users u ON u.id = c.user_id
+        WHERE p.event_id = $1 AND u.is_admin = FALSE
+     )
+     SELECT character_name, class_name, total_damage, class_rank::text
+       FROM ranked
+      WHERE class_rank <= $2
+      ORDER BY class_name, class_rank`,
     [eventId, limit]
   );
-  return r.rows.map((row, i) => ({ rank: i + 1, characterName: row.character_name, className: row.class_name, damage: row.total_damage }));
+  return r.rows.map(row => ({
+    rank: Number(row.class_rank),
+    characterName: row.character_name,
+    className: row.class_name,
+    damage: row.total_damage,
+  }));
 }
 
 // ─── 보상 분배 ───
@@ -584,35 +598,64 @@ const ESSENCE_NAME_BY_BOSS: Record<number, string> = {
   3: '카르나스의 정수',
 };
 
-// 레이드 포인트 — 순위별 확정 지급 (2026-05-17)
-// 1~10위 2000pt · 11~20위 1500pt · 21~30위 1000pt · 31~100위 500pt · 101~200위 250pt · 그 외 0
+// 레이드 포인트 — 직업별 순위 기준 (2026-05-18)
+// 클래스 내 1~10위 1000pt · 11~20위 900 · 21~30위 800 · 31~40위 700 · 41~50위 600
+// 51~60위 500 · 61~70위 400 · 71~80위 300 · 81~90위 200 · 91~100위 100 · 그 외 0
+function pointsForClassRank(rank: number): number {
+  if (rank <=  10) return 1000;
+  if (rank <=  20) return 900;
+  if (rank <=  30) return 800;
+  if (rank <=  40) return 700;
+  if (rank <=  50) return 600;
+  if (rank <=  60) return 500;
+  if (rank <=  70) return 400;
+  if (rank <=  80) return 300;
+  if (rank <=  90) return 200;
+  if (rank <= 100) return 100;
+  return 0;
+}
+
 async function distributeRaidPoints(eventId: number): Promise<void> {
-  const participants = await query<{ character_id: number }>(
-    `SELECT character_id FROM world_event_participants WHERE event_id = $1
-      ORDER BY total_damage DESC`, [eventId]
+  const participants = await query<{ character_id: number; class_rank: string; class_name: string }>(
+    `SELECT p.character_id, c.class_name,
+            ROW_NUMBER() OVER (PARTITION BY c.class_name ORDER BY p.total_damage DESC)::text AS class_rank
+       FROM world_event_participants p
+       JOIN characters c ON c.id = p.character_id
+      WHERE p.event_id = $1`,
+    [eventId]
   );
-  for (let i = 0; i < participants.rows.length; i++) {
-    const rank = i + 1;
-    let pts = 0;
-    if      (rank <=  10) pts = 2000;
-    else if (rank <=  20) pts = 1500;
-    else if (rank <=  30) pts = 1000;
-    else if (rank <= 100) pts = 500;
-    else if (rank <= 200) pts = 250;
+  for (const row of participants.rows) {
+    const rank = Number(row.class_rank);
+    const pts = pointsForClassRank(rank);
     if (pts > 0) {
       try {
         await query(
           'UPDATE characters SET raid_points = COALESCE(raid_points, 0) + $1 WHERE id = $2',
-          [pts, participants.rows[i].character_id]
+          [pts, row.character_id]
         );
-      } catch (e) { console.error('[raid] points UPDATE fail', participants.rows[i].character_id, e); }
+      } catch (e) { console.error('[raid] points UPDATE fail', row.character_id, e); }
     }
   }
 }
 
-// 정수 분배 — 두 라인 독립 굴림, 중복 가능.
-//  라인 A: 모든 참여자 25% 확률
-//  라인 B: 1~20위 100% / 21~40위 75% / 41~100위 50% / 101위~ 0%
+// 정수 분배 — 두 라인 독립 굴림, 중복 가능. (2026-05-18 직업별 순위 기준 개편)
+//  라인 A: 모든 참여자 25% 확률 (변경 없음)
+//  라인 B: 클래스 내 1~10위 100% · 11~20위 90% · 21~30위 80% · 31~40위 70% · 41~50위 60%
+//          51~60위 50% · 61~70위 40% · 71~80위 30% · 81~90위 20% · 91~100위 10% · 그 외 0
+function lineBChanceForClassRank(rank: number): number {
+  if (rank <=  10) return 1.00;
+  if (rank <=  20) return 0.90;
+  if (rank <=  30) return 0.80;
+  if (rank <=  40) return 0.70;
+  if (rank <=  50) return 0.60;
+  if (rank <=  60) return 0.50;
+  if (rank <=  70) return 0.40;
+  if (rank <=  80) return 0.30;
+  if (rank <=  90) return 0.20;
+  if (rank <= 100) return 0.10;
+  return 0;
+}
+
 async function distributeEssence(eventId: number, essenceName: string, bossName: string): Promise<void> {
   const essR = await query<{ id: number }>(
     `SELECT id FROM items WHERE name = $1 LIMIT 1`, [essenceName]
@@ -622,25 +665,25 @@ async function distributeEssence(eventId: number, essenceName: string, bossName:
     return;
   }
   const essenceItemId = essR.rows[0].id;
-  const participants = await query<{ character_id: number; total_damage: string; rank: string }>(
-    `SELECT character_id, total_damage::text AS total_damage,
-            ROW_NUMBER() OVER (ORDER BY total_damage DESC)::text AS rank
-       FROM world_event_participants WHERE event_id = $1`, [eventId]
+  const participants = await query<{ character_id: number; total_damage: string; class_rank: string; class_name: string }>(
+    `SELECT p.character_id, p.total_damage::text AS total_damage, c.class_name,
+            ROW_NUMBER() OVER (PARTITION BY c.class_name ORDER BY p.total_damage DESC)::text AS class_rank
+       FROM world_event_participants p
+       JOIN characters c ON c.id = p.character_id
+      WHERE p.event_id = $1`,
+    [eventId]
   );
   for (const p of participants.rows) {
     let gained = 0;
     const rolls: string[] = [];
-    // 라인 A
+    // 라인 A — 모든 참여자 25%
     if (Math.random() < 0.25) { gained++; rolls.push('A(25%)'); }
-    // 라인 B
-    const rank = Number(p.rank);
-    let bChance = 0;
-    if (rank <= 20) bChance = 1.0;
-    else if (rank <= 40) bChance = 0.75;
-    else if (rank <= 100) bChance = 0.5;
+    // 라인 B — 클래스 내 순위 기반
+    const rank = Number(p.class_rank);
+    const bChance = lineBChanceForClassRank(rank);
     if (bChance > 0 && Math.random() < bChance) {
       gained++;
-      rolls.push(`B(${Math.round(bChance * 100)}%·${rank}위)`);
+      rolls.push(`B(${Math.round(bChance * 100)}%·${p.class_name} ${rank}위)`);
     }
     if (gained > 0) {
       try {
@@ -649,7 +692,7 @@ async function distributeEssence(eventId: number, essenceName: string, bossName:
           await deliverToMailbox(
             p.character_id,
             `${bossName} 정수`,
-            `랭크 ${rank}위 보상 — ${rolls.join(', ')}\n인벤토리 가득 → 우편 발송 ${overflow}개`,
+            `${p.class_name} ${rank}위 보상 — ${rolls.join(', ')}\n인벤토리 가득 → 우편 발송 ${overflow}개`,
             essenceItemId, overflow,
           );
         }

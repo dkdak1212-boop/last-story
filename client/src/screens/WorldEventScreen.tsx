@@ -238,28 +238,22 @@ export function WorldEventScreen() {
         <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>내 기여</div>
           <Row label="총 데미지" value={(status.myDamage ?? 0).toLocaleString()} />
-          <Row label="순위" value={status.myRank ? `${status.myRank}위` : '-'} />
+          <Row
+            label="순위 (직업 내)"
+            value={status.myRank
+              ? `${(status as any).myClassName ? (CLASS_KO[(status as any).myClassName] || (status as any).myClassName) + ' ' : ''}${status.myRank}위`
+              : '-'}
+          />
           <Row label="참전" value={`${status.myAttackCount ?? 0}회`} />
         </div>
       </div>
 
       <div>
-        {/* 리더보드 — 전투 로그 영역은 사용자 결정으로 제거 (2026-05-17) */}
-        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>데미지 순위</div>
-          {(!status.leaderboard || status.leaderboard.length === 0) ? (
-            <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>아직 참여자가 없습니다</div>
-          ) : status.leaderboard.map(e => (
-            <div key={e.rank} style={{
-              display: 'flex', justifyContent: 'space-between', padding: '4px 0',
-              borderBottom: '1px solid var(--border)',
-              color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)', fontWeight: e.rank <= 3 ? 700 : 400,
-            }}>
-              <span>{e.rank}. {e.characterName}</span>
-              <span>{e.damage.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
+        {/* 리더보드 — 직업별 순위 (2026-05-18 개편) */}
+        <ClassLeaderboard
+          leaderboard={status.leaderboard ?? []}
+          myClassName={(status as any).myClassName}
+        />
       </div>
 
       <RewardTable />
@@ -267,36 +261,116 @@ export function WorldEventScreen() {
   );
 }
 
-// 순위별 레이드 보상 — 서버 game/worldEvent.ts distributeEssence + distributeRaidPoints 정책 반영.
-// 정수: 모든 참여자 라인 A 25% (1개) + 순위 라인 B (1~20위 100%, 21~40위 75%, 41~100위 50%) 독립 굴림.
-// 레이드 포인트: 1~10위 2000 / 11~20위 1500 / 21~30위 1000 / 31~100위 500 / 101~200위 250.
+// 직업별 순위 표시 — 클래스 탭 + 클래스 내 순위 리스트
+const CLASS_KO: Record<string, string> = {
+  warrior: '전사',
+  mage: '마법사',
+  rogue: '도적',
+  cleric: '성직자',
+  summoner: '소환사',
+  archer: '궁수',
+};
+const CLASS_ORDER = ['warrior', 'mage', 'rogue', 'cleric', 'summoner', 'archer'];
+
+function ClassLeaderboard({
+  leaderboard,
+  myClassName,
+}: {
+  leaderboard: { rank: number; characterName: string; className: string; damage: number }[];
+  myClassName?: string;
+}) {
+  // 내 클래스가 있으면 그걸 기본 탭으로
+  const initialTab = myClassName && CLASS_ORDER.includes(myClassName) ? myClassName : CLASS_ORDER[0];
+  const [tab, setTab] = useState<string>(initialTab);
+
+  // 클래스별 그룹화
+  const grouped = new Map<string, typeof leaderboard>();
+  for (const cls of CLASS_ORDER) grouped.set(cls, []);
+  for (const e of leaderboard) {
+    if (!grouped.has(e.className)) grouped.set(e.className, []);
+    grouped.get(e.className)!.push(e);
+  }
+  for (const arr of grouped.values()) {
+    arr.sort((a, b) => a.rank - b.rank);
+  }
+  const list = grouped.get(tab) ?? [];
+
+  return (
+    <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>데미지 순위 (직업별)</div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, flexWrap: 'wrap' }}>
+        {CLASS_ORDER.map(cls => {
+          const count = grouped.get(cls)?.length ?? 0;
+          const isActive = tab === cls;
+          const isMine = myClassName === cls;
+          return (
+            <button
+              key={cls}
+              onClick={() => setTab(cls)}
+              style={{
+                fontSize: 12, padding: '5px 10px', borderRadius: 4,
+                background: isActive ? 'var(--accent)' : 'transparent',
+                color: isActive ? '#000' : (isMine ? 'var(--accent)' : 'var(--text-dim)'),
+                border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                fontWeight: isActive || isMine ? 700 : 400,
+                cursor: 'pointer',
+              }}
+            >
+              {CLASS_KO[cls] || cls}{isMine ? ' (나)' : ''} {count > 0 ? `· ${count}` : ''}
+            </button>
+          );
+        })}
+      </div>
+      {list.length === 0 ? (
+        <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>이 클래스 참여자가 없습니다</div>
+      ) : list.map(e => (
+        <div key={`${e.className}-${e.rank}`} style={{
+          display: 'flex', justifyContent: 'space-between', padding: '4px 0',
+          borderBottom: '1px solid var(--border)',
+          color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)', fontWeight: e.rank <= 3 ? 700 : 400,
+        }}>
+          <span>{e.rank}. {e.characterName}</span>
+          <span>{e.damage.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 순위별 레이드 보상 — 2026-05-18 직업별 순위 개편.
+// 서버 game/worldEvent.ts distributeEssence + distributeRaidPoints 정책 반영.
+// 정수: 라인 A 모든 참여자 25%(고정) + 라인 B 클래스 내 순위 기반 10단계 선형 감소.
+// 레이드 포인트: 클래스 내 순위 기반 10단계 선형 감소 (1000→100).
 function RewardTable() {
-  const rows: { rank: string; essence: string; points: string }[] = [
-    { rank: '1~10위',    essence: 'A 25% + B 100% (최대 2개)', points: '2,000 pt' },
-    { rank: '11~20위',   essence: 'A 25% + B 100% (최대 2개)', points: '1,500 pt' },
-    { rank: '21~30위',   essence: 'A 25% + B 75% (최대 2개)',  points: '1,000 pt' },
-    { rank: '31~40위',   essence: 'A 25% + B 75% (최대 2개)',  points: '500 pt' },
-    { rank: '41~100위',  essence: 'A 25% + B 50% (최대 2개)',  points: '500 pt' },
-    { rank: '101~200위', essence: 'A 25% (최대 1개)',          points: '250 pt' },
-    { rank: '201위 이하', essence: 'A 25% (최대 1개)',          points: '0' },
+  const rows: { rank: string; lineB: string; points: string }[] = [
+    { rank: '1~10위',   lineB: '100%', points: '1,000 pt' },
+    { rank: '11~20위',  lineB: '90%',  points: '900 pt' },
+    { rank: '21~30위',  lineB: '80%',  points: '800 pt' },
+    { rank: '31~40위',  lineB: '70%',  points: '700 pt' },
+    { rank: '41~50위',  lineB: '60%',  points: '600 pt' },
+    { rank: '51~60위',  lineB: '50%',  points: '500 pt' },
+    { rank: '61~70위',  lineB: '40%',  points: '400 pt' },
+    { rank: '71~80위',  lineB: '30%',  points: '300 pt' },
+    { rank: '81~90위',  lineB: '20%',  points: '200 pt' },
+    { rank: '91~100위', lineB: '10%',  points: '100 pt' },
+    { rank: '101위~',   lineB: '0%',   points: '0' },
   ];
   return (
     <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
-        순위별 보상
+        순위별 보상 (직업 내 순위 기준)
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginBottom: 10 }}>
-        보스 보상으로 보스 정수와 레이드 포인트가 지급됩니다.
-        정수는 두 라인(A: 모든 참여자 / B: 순위)에서 독립 굴림으로 0~2개 누적되며,
-        레이드 포인트는 순위에 따라 확정 지급됩니다.
+        순위는 같은 클래스 안에서 비교됩니다. 보스 보상으로 보스 정수와 레이드 포인트가 지급됩니다.
+        정수는 두 라인(A: 모든 참여자 / B: 클래스 내 순위) 독립 굴림으로 0~2개 누적, 포인트는 확정 지급.
       </div>
       <div style={{
         display: 'grid', gridTemplateColumns: '110px 1fr 110px',
         fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
         padding: '6px 0', borderBottom: '1px solid var(--border)',
       }}>
-        <span>순위</span>
-        <span>정수 (보스별)</span>
+        <span>클래스 내 순위</span>
+        <span>라인 B 확률 (정수)</span>
         <span style={{ textAlign: 'right' }}>레이드 포인트</span>
       </div>
       {rows.map((r) => (
@@ -306,14 +380,14 @@ function RewardTable() {
           alignItems: 'center',
         }}>
           <span style={{ fontWeight: 700 }}>{r.rank}</span>
-          <span style={{ color: 'var(--text-dim)' }}>{r.essence}</span>
+          <span style={{ color: 'var(--text-dim)' }}>{r.lineB}</span>
           <span style={{ textAlign: 'right', fontWeight: 700 }}>{r.points}</span>
         </div>
       ))}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
-        라인 A: 참여자 전원 25% 확률로 정수 1개.{' '}
-        라인 B: 1~20위 100% · 21~40위 75% · 41~100위 50% 확률 (101위~ 0%).{' '}
-        두 라인은 독립적으로 굴려지며, 한 회 결산에서 최대 2개까지 누적됩니다.
+        라인 A: 참여자 전원 25% 확률로 정수 1개 (변경 없음).{' '}
+        라인 B: 클래스 내 순위에 따라 위 확률로 정수 1개 추가 굴림.{' '}
+        두 라인은 독립이며, 한 회 결산에서 최대 2개까지 누적됩니다.
       </div>
     </div>
   );

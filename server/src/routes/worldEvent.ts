@@ -17,17 +17,30 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
 
   const characterId = Number(req.query.characterId);
   let myDamage: number | undefined, myRank: number | undefined, myAttackCount: number | undefined;
+  let myClassName: string | undefined;
 
   if (characterId) {
     const { query: dbQuery } = await import('../db/pool.js');
-    const my = await dbQuery<{ total_damage: number; attack_count: number; rank: number }>(
-      `SELECT total_damage, attack_count,
-              (SELECT COUNT(*) + 1 FROM world_event_participants p2
-               WHERE p2.event_id = $1 AND p2.total_damage > p.total_damage)::int AS rank
-       FROM world_event_participants p WHERE event_id = $1 AND character_id = $2`,
+    // 2026-05-18: 직업별 순위 — 같은 클래스 내에서만 비교
+    const my = await dbQuery<{ total_damage: number; attack_count: number; rank: number; class_name: string }>(
+      `SELECT p.total_damage, p.attack_count, c.class_name,
+              (SELECT COUNT(*) + 1
+                 FROM world_event_participants p2
+                 JOIN characters c2 ON c2.id = p2.character_id
+                WHERE p2.event_id = $1
+                  AND c2.class_name = c.class_name
+                  AND p2.total_damage > p.total_damage)::int AS rank
+         FROM world_event_participants p
+         JOIN characters c ON c.id = p.character_id
+        WHERE p.event_id = $1 AND p.character_id = $2`,
       [event.id, characterId]
     );
-    if (my.rows[0]) { myDamage = my.rows[0].total_damage; myRank = my.rows[0].rank; myAttackCount = my.rows[0].attack_count; }
+    if (my.rows[0]) {
+      myDamage = my.rows[0].total_damage;
+      myRank = my.rows[0].rank;
+      myAttackCount = my.rows[0].attack_count;
+      myClassName = my.rows[0].class_name;
+    }
   }
 
   const leaderboard = await getLeaderboard(event.id);
@@ -38,7 +51,7 @@ router.get('/status', authRequired, async (req: AuthedRequest, res) => {
     currentHp: event.current_hp, maxHp: event.max_hp,
     startedAt: event.started_at, endsAt: event.ends_at,
     phase: hpPct > 0.6 ? 1 : hpPct > 0.3 ? 2 : 3,
-    myDamage, myRank, myAttackCount, leaderboard,
+    myDamage, myRank, myAttackCount, myClassName, leaderboard,
   });
 });
 
