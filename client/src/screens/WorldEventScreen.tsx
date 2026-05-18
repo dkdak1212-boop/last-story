@@ -88,20 +88,10 @@ export function WorldEventScreen() {
       <h2 style={{ color: 'var(--accent)', marginBottom: 16 }}>레이드</h2>
       <div style={{ padding: 30, background: 'var(--bg-panel)', border: '1px solid var(--border)', textAlign: 'center', borderRadius: 8, marginBottom: 16 }}>
         <div style={{ fontSize: 18, color: 'var(--text-dim)' }}>현재 진행 중인 레이드가 없습니다</div>
+        <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 8 }}>매일 KST 17:00 레이드 보스 출현</div>
       </div>
 
-      <div style={{
-        padding: 24, background: 'var(--bg-panel)',
-        border: '1px solid var(--accent)', borderRadius: 8, textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
-          레이드 일시 중단
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.6 }}>
-          레이드 보스 등장이 일시적으로 중단되었습니다.<br/>
-          재개 일정은 공지를 통해 안내드리겠습니다.
-        </div>
-      </div>
+      <RewardTable />
     </div>
   );
 
@@ -255,7 +245,7 @@ export function WorldEventScreen() {
 
       <div>
         {/* 리더보드 — 전투 로그 영역은 사용자 결정으로 제거 (2026-05-17) */}
-        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>데미지 순위</div>
           {(!status.leaderboard || status.leaderboard.length === 0) ? (
             <div style={{ color: 'var(--text-dim)', fontSize: 13 }}>아직 참여자가 없습니다</div>
@@ -270,6 +260,60 @@ export function WorldEventScreen() {
             </div>
           ))}
         </div>
+      </div>
+
+      <RewardTable />
+    </div>
+  );
+}
+
+// 순위별 레이드 보상 — 서버 game/worldEvent.ts distributeEssence + distributeRaidPoints 정책 반영.
+// 정수: 모든 참여자 라인 A 25% (1개) + 순위 라인 B (1~20위 100%, 21~40위 75%, 41~100위 50%) 독립 굴림.
+// 레이드 포인트: 1~10위 2000 / 11~20위 1500 / 21~30위 1000 / 31~100위 500 / 101~200위 250.
+function RewardTable() {
+  const rows: { rank: string; essence: string; points: string }[] = [
+    { rank: '1~10위',    essence: 'A 25% + B 100% (최대 2개)', points: '2,000 pt' },
+    { rank: '11~20위',   essence: 'A 25% + B 100% (최대 2개)', points: '1,500 pt' },
+    { rank: '21~30위',   essence: 'A 25% + B 75% (최대 2개)',  points: '1,000 pt' },
+    { rank: '31~40위',   essence: 'A 25% + B 75% (최대 2개)',  points: '500 pt' },
+    { rank: '41~100위',  essence: 'A 25% + B 50% (최대 2개)',  points: '500 pt' },
+    { rank: '101~200위', essence: 'A 25% (최대 1개)',          points: '250 pt' },
+    { rank: '201위 이하', essence: 'A 25% (최대 1개)',          points: '0' },
+  ];
+  return (
+    <div style={{ padding: 16, background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
+        순위별 보상
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5, marginBottom: 10 }}>
+        보스 보상으로 보스 정수와 레이드 포인트가 지급됩니다.
+        정수는 두 라인(A: 모든 참여자 / B: 순위)에서 독립 굴림으로 0~2개 누적되며,
+        레이드 포인트는 순위에 따라 확정 지급됩니다.
+      </div>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '110px 1fr 110px',
+        fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
+        padding: '6px 0', borderBottom: '1px solid var(--border)',
+      }}>
+        <span>순위</span>
+        <span>정수 (보스별)</span>
+        <span style={{ textAlign: 'right' }}>레이드 포인트</span>
+      </div>
+      {rows.map((r) => (
+        <div key={r.rank} style={{
+          display: 'grid', gridTemplateColumns: '110px 1fr 110px',
+          fontSize: 12, padding: '6px 0', borderBottom: '1px solid var(--border)',
+          alignItems: 'center',
+        }}>
+          <span style={{ fontWeight: 700 }}>{r.rank}</span>
+          <span style={{ color: 'var(--text-dim)' }}>{r.essence}</span>
+          <span style={{ textAlign: 'right', fontWeight: 700 }}>{r.points}</span>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.5 }}>
+        라인 A: 참여자 전원 25% 확률로 정수 1개.{' '}
+        라인 B: 1~20위 100% · 21~40위 75% · 41~100위 50% 확률 (101위~ 0%).{' '}
+        두 라인은 독립적으로 굴려지며, 한 회 결산에서 최대 2개까지 누적됩니다.
       </div>
     </div>
   );
