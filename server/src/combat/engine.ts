@@ -2604,7 +2604,10 @@ function fireSummonerV2Special(s: ActiveSession): void {
 // 본체가 multi_hit / multi_hit_poison 스킬을 쓰면 분신도 동일 타수만큼 발동.
 function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
   if (s.className !== 'rogue') return;
-  if (s.monsterHp <= 0) return; // 이미 처치
+  // 허수아비: 본체 일격에 HP 0 이하로 가도 분신이 끝까지 발동되도록 가드 우회.
+  // monsterHp 음수까지 누적 → handleDummyTick 가 delta(hpBefore - monsterHp) 로 정확히 집계.
+  const isDummy = isDummyMonster(s);
+  if (!isDummy && s.monsterHp <= 0) return; // 이미 처치
 
   // 본체 스킬 모방 모드 — damage_mult 차용, 컨트롤/CC 효과는 본체 전용
   // buff/debuff(백스텝/연막탄/독안개/그림자 은신/기습) · damage_mult=0(맹독 강화/독의 축제) → 분신 미발동
@@ -2649,9 +2652,9 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
     : 0;
 
   for (let i = 1; i <= cloneCount; i++) {
-    if (s.monsterHp <= 0) break;
+    if (!isDummy && s.monsterHp <= 0) break;
     for (let h = 1; h <= skillHits; h++) {
-      if (s.monsterHp <= 0) break;
+      if (!isDummy && s.monsterHp <= 0) break;
       let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
       // 분신 다단 (확률)
       if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
@@ -2678,7 +2681,8 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
         if (heal > 0) addLog(s, `[흡혈] HP +${heal}`);
       }
       // 독 스택 부여 (스킬 모방 시에만) — multi_hit_poison 은 hit 마다 stack 부여 (본체 패턴 동일)
-      if (skillHasPoison && s.monsterHp > 0) {
+      // 허수아비는 monsterHp 음수까지 가도 곧바로 풀피 복원되므로 hp>0 가드 우회.
+      if (skillHasPoison && (isDummy || s.monsterHp > 0)) {
         addEffect(s, { type: 'poison', value: cloneDotDmg, remainingActions: cloneDotDur, source: 'player', dotMult: POISON_MULT, dotUseMatk: false });
       }
     }
@@ -2865,8 +2869,9 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
     const extraCount = getPassive(s, 'clone_count_extra') + (s.equipPrefixes.clone_count_extra || 0);
     const cloneCount = Math.min(5, cloneBase + extraCount);
     const cloneBurst = Math.round(burst * 0.5);
+    const burstIsDummy = isDummyMonster(s);
     for (let i = 1; i <= cloneCount; i++) {
-      if (s.monsterHp <= 0) break;
+      if (!burstIsDummy && s.monsterHp <= 0) break;
       if (cloneBurst <= 0) break;
       s.monsterHp -= cloneBurst;
       const cTag = cloneCount > 1 ? ` ${i}` : '';
