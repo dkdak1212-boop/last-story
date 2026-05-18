@@ -176,9 +176,11 @@ export function InventoryScreen() {
     const grade = s.item.grade;
     // 강화한 템 / 유니크 / T4 100제 는 추가 경고창 (2단계 확인)
     // T4 100제 보호: prefixTiers 에 4가 있고 requiredLevel >= 100 인 핵심 엔드템 → 실수 폐기 사고 다발 보고로 강화 경고
+    // prefixTiers 는 서버 응답이 Record<string, number> (식별) 또는 [] (미확인) 둘 다 가능 — Object.values 로 통일 처리.
+    // (과거: `tiers.includes(4)` 가 객체에서 TypeError 던져 식별 장비 개별 폐기가 무음 실패하던 버그 — 2026-05-18 수정)
     const reqLv = (s.item as any).requiredLevel || 0;
-    const tiers: number[] = (s as any).prefixTiers || [];
-    const hasT4 = tiers.includes(4);
+    const tiersRaw = (s as any).prefixTiers;
+    const hasT4 = !!tiersRaw && Object.values(tiersRaw).some((t: any) => t === 4);
     const isHighEndT4 = hasT4 && reqLv >= 100;
     const isUnique = grade === 'unique';
     const isEnhanced = enhanceLevel > 0;
