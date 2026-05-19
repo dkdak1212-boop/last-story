@@ -22,12 +22,14 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
     id: number; slot_index: number; item_id: number; quantity: number;
     enhance_level: number; prefix_ids: number[] | null;
     prefix_stats: Record<string, number> | null; quality: number;
+    locked: boolean;
     item_name: string; item_grade: string; item_slot: string | null;
     item_type: string; item_description: string;
     item_stats: Record<string, number> | null; class_restriction: string | null;
     required_level: number;
   }>(
     `SELECT s.id, s.slot_index, s.item_id, s.quantity, s.enhance_level, s.prefix_ids, s.prefix_stats, s.quality,
+            COALESCE(s.locked, FALSE) AS locked,
             i.name AS item_name, i.grade AS item_grade, i.slot AS item_slot, i.type AS item_type,
             i.description AS item_description, i.stats AS item_stats, i.class_restriction,
             COALESCE(i.required_level, 1) AS required_level
@@ -78,6 +80,7 @@ router.get('/', async (req: AuthedRequest, res: Response) => {
         prefixName,
         prefixTiers: buildPrefixTiers(pIds),
         quality: r.quality,
+        locked: r.locked === true,
         item: {
           id: r.item_id,
           name: prefixName ? `${prefixName} ${r.item_name}` : r.item_name,
@@ -108,10 +111,11 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     const inv = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      soulbound: boolean; item_slot: string | null; required_level: number; bound_on_pickup: boolean;
+      soulbound: boolean; locked: boolean; item_slot: string | null; required_level: number; bound_on_pickup: boolean;
     }>(
       `SELECT ci.id, ci.item_id, ci.quantity, ci.enhance_level, ci.prefix_ids, ci.prefix_stats,
               COALESCE(ci.quality, 0) AS quality, COALESCE(ci.soulbound, FALSE) AS soulbound,
+              COALESCE(ci.locked, FALSE) AS locked,
               i.slot AS item_slot, COALESCE(i.required_level, 1) AS required_level,
               COALESCE(i.bound_on_pickup, FALSE) AS bound_on_pickup
        FROM character_inventory ci JOIN items i ON i.id = ci.item_id
@@ -143,11 +147,12 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < maxSlots; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return { error: '창고가 가득 찼습니다', status: 400 };
 
+    // 2026-05-19: 잠금 상태 보존 (locked) — 사용자 보고 "잠금 아이템 창고 왕복 시 잠금 유지" 요청
     await tx.query(
-      `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+      `INSERT INTO account_storage_items (user_id, slot_index, item_id, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound, locked)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
       [userId, freeSlot, it.item_id, it.quantity, it.enhance_level,
-       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound]
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound, it.locked]
     );
     await tx.query('DELETE FROM character_inventory WHERE id = $1', [it.id]);
     return { ok: true };
@@ -173,9 +178,12 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
     const sr = await tx.query<{
       id: number; item_id: number; quantity: number; enhance_level: number;
       prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number;
-      soulbound: boolean;
+      soulbound: boolean; locked: boolean;
     }>(
-      'SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats, COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound FROM account_storage_items WHERE id = $1 AND user_id = $2 FOR UPDATE',
+      `SELECT id, item_id, quantity, enhance_level, prefix_ids, prefix_stats,
+              COALESCE(quality, 0) AS quality, COALESCE(soulbound, FALSE) AS soulbound,
+              COALESCE(locked, FALSE) AS locked
+         FROM account_storage_items WHERE id = $1 AND user_id = $2 FOR UPDATE`,
       [storageItemId, userId]
     );
     if (sr.rowCount === 0) return { error: '창고 아이템 없음', status: 404 };
@@ -189,11 +197,12 @@ router.post('/withdraw', async (req: AuthedRequest, res: Response) => {
     for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
     if (freeSlot < 0) return { error: '인벤토리가 가득 찼습니다', status: 400 };
 
+    // 2026-05-19: 창고에 박제된 locked 그대로 복원
     await tx.query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, enhance_level, prefix_ids, prefix_stats, quality, soulbound, locked)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
       [characterId, it.item_id, freeSlot, it.quantity, it.enhance_level,
-       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound]
+       it.prefix_ids || [], JSON.stringify(it.prefix_stats || {}), it.quality, it.soulbound, it.locked]
     );
     await tx.query('DELETE FROM account_storage_items WHERE id = $1', [it.id]);
     return { ok: true };
