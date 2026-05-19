@@ -61,12 +61,12 @@ export function CraftScreen() {
     });
   }
 
-  async function craft(recipeId: number) {
+  async function craft(recipeId: number, quantity: number = 1) {
     if (!active || busy) return;
     setBusy(true); setMsg(''); setResult(null);
     try {
-      const r = await api<{ itemName: string; prefixCount: number; message: string }>(
-        '/craft/craft', { method: 'POST', body: JSON.stringify({ characterId: active.id, recipeId }) }
+      const r = await api<{ itemName: string; prefixCount: number; message: string; quantity?: number; successCount?: number }>(
+        '/craft/craft', { method: 'POST', body: JSON.stringify({ characterId: active.id, recipeId, quantity }) }
       );
       setResult({ itemName: r.itemName, prefixCount: r.prefixCount });
       setMsg(r.message);
@@ -117,7 +117,7 @@ export function CraftScreen() {
           </button>
           {openSets.has('etc') && (
             <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {standalone.map(r => <RecipeCard key={r.id} r={r} onCraft={craft} busy={busy} />)}
+              {standalone.map(r => <RecipeCard key={r.id} r={r} onCraft={(id, q) => craft(id, q)} busy={busy} />)}
             </div>
           )}
         </div>
@@ -158,7 +158,7 @@ export function CraftScreen() {
 
                 {/* 레시피 */}
                 <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {recs.map(r => <RecipeCard key={r.id} r={r} onCraft={craft} busy={busy} isSet />)}
+                  {recs.map(r => <RecipeCard key={r.id} r={r} onCraft={(id, q) => craft(id, q)} busy={busy} isSet />)}
                 </div>
               </>
             )}
@@ -171,21 +171,40 @@ export function CraftScreen() {
   );
 }
 
-function RecipeCard({ r, onCraft, busy, isSet }: { r: Recipe; onCraft: (id: number) => void; busy: boolean; isSet?: boolean }) {
+function RecipeCard({ r, onCraft, busy, isSet }: { r: Recipe; onCraft: (id: number, quantity: number) => void; busy: boolean; isSet?: boolean }) {
+  const [qty, setQty] = useState(1);
+  const totalMatQty = r.materialQty * qty;
   return (
     <div style={{
       padding: 12, background: 'rgba(0,0,0,0.2)', borderRadius: 6,
       border: '1px solid rgba(255,255,255,0.05)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 14 }}>{r.name}</div>
-        <button className="primary" onClick={() => onCraft(r.id)} disabled={busy}
-          style={{ padding: '6px 18px', fontWeight: 700 }}>제작</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+        <div style={{ fontWeight: 700, color: 'var(--accent)', fontSize: 14, flex: 1, minWidth: 0 }}>{r.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => setQty(Math.max(1, qty - 1))} disabled={busy || qty <= 1} style={{
+            padding: '4px 8px', fontSize: 13, fontWeight: 700, minWidth: 28,
+          }}>−</button>
+          <input
+            type="number" min={1} max={100} value={qty}
+            onChange={(e) => setQty(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+            style={{ width: 50, padding: '4px 6px', fontSize: 13, textAlign: 'center' }}
+            disabled={busy}
+          />
+          <button onClick={() => setQty(Math.min(100, qty + 1))} disabled={busy || qty >= 100} style={{
+            padding: '4px 8px', fontSize: 13, fontWeight: 700, minWidth: 28,
+          }}>+</button>
+          <button className="primary" onClick={() => onCraft(r.id, qty)} disabled={busy}
+            style={{ padding: '6px 14px', fontWeight: 700, marginLeft: 4 }}>
+            {qty > 1 ? `${qty}개 제작` : '제작'}
+          </button>
+        </div>
       </div>
       <div style={{ fontSize: 12, marginBottom: 6 }}>
         <span style={{ color: 'var(--text-dim)' }}>재료: </span>
         <span style={{ color: GRADE_COLOR[r.materialGrade], fontWeight: 700 }}>{r.materialName}</span>
-        <span style={{ color: 'var(--accent)' }}> ×{r.materialQty}</span>
+        <span style={{ color: 'var(--accent)' }}> ×{totalMatQty}</span>
+        {qty > 1 && <span style={{ color: 'var(--text-dim)' }}> (단가 {r.materialQty})</span>}
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
         <span>결과: </span>

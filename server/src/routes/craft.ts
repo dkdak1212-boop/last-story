@@ -65,13 +65,16 @@ router.get('/sets', async (_req, res) => {
 
 // 제작 실행
 router.post('/craft', async (req: AuthedRequest, res: Response) => {
+  // 2026-05-19: quantity 파라미터 (1~100) — 일괄 제작 지원.
   const parsed = z.object({
     characterId: z.number().int().positive(),
     recipeId: z.number().int().positive(),
+    quantity: z.number().int().min(1).max(100).optional(),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
   const { characterId, recipeId } = parsed.data;
+  const quantity = parsed.data.quantity ?? 1;
   const char = await loadCharacterOwned(characterId, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
@@ -83,10 +86,10 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
   if (recipeR.rowCount === 0) return res.status(404).json({ error: 'recipe not found' });
   const recipe = recipeR.rows[0];
 
-  // 멀티 재료: 메인 + extra 통합 보유 체크
-  const allMats: Array<{ itemId: number; qty: number; name?: string }> = [
-    { itemId: recipe.material_item_id, qty: recipe.material_qty },
-    ...(Array.isArray(recipe.extra_materials) ? recipe.extra_materials : []),
+  // 멀티 재료: 메인 + extra 통합 보유 체크 (수량 × quantity 만큼 필요)
+  const allMats: Array<{ itemId: number; qty: number }> = [
+    { itemId: recipe.material_item_id, qty: recipe.material_qty * quantity },
+    ...(Array.isArray(recipe.extra_materials) ? recipe.extra_materials.map(m => ({ itemId: m.itemId, qty: m.qty * quantity })) : []),
   ];
   for (const mat of allMats) {
     const haveR = await query<{ total: string; name: string }>(
@@ -113,7 +116,25 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     }
   }
 
-  // 모든 재료 일괄 차감 (멀티 재료 지원)
+  // 장비 결과 여부 사전 판정 — 인벤 빈 슬롯 quantity 개 확보 필요.
+  // candidateIds 의 첫 아이템 slot 으로 대표. (장비/소비 혼합 레시피는 없는 전제)
+  const firstItemR = await query<{ slot: string | null }>(
+    'SELECT slot FROM items WHERE id = $1', [candidateIds[0]]
+  );
+  const willBeEquipment = !!firstItemR.rows[0]?.slot;
+  if (willBeEquipment) {
+    const usedR = await query<{ slot_index: number }>(
+      'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+    );
+    const used = new Set(usedR.rows.map(r => r.slot_index));
+    let freeCount = 0;
+    for (let i = 0; i < 300; i++) if (!used.has(i)) freeCount++;
+    if (freeCount < quantity) {
+      return res.status(400).json({ error: `인벤토리 빈 슬롯 부족 (필요 ${quantity} / 남은 ${freeCount})` });
+    }
+  }
+
+  // 모든 재료 일괄 차감 (멀티 재료 × quantity)
   for (const mat of allMats) {
     let remaining = mat.qty;
     const slots = await query<{ id: number; quantity: number }>(
@@ -132,77 +153,93 @@ router.post('/craft', async (req: AuthedRequest, res: Response) => {
     }
   }
 
-  // 랜덤 결과 아이템 선택 (class_locked 시 직업 필터된 후보에서)
-  const resultItemId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
+  // N 번 반복 제작
+  const summary: { itemName: string; quality: number; prefixCount: number; unidentified: boolean }[] = [];
+  for (let iter = 0; iter < quantity; iter++) {
+    // 랜덤 결과 아이템 선택 (class_locked 시 직업 필터된 후보에서)
+    const resultItemId = candidateIds[Math.floor(Math.random() * candidateIds.length)];
 
-  // 아이템 종류 확인 (장비 vs 소비) + bound_on_pickup + 유니크 고정 옵션
-  const itemInfoR = await query<{ name: string; slot: string | null; type: string; grade: string; bound_on_pickup: boolean; unique_prefix_stats: Record<string, number> | null }>(
-    'SELECT name, slot, type, grade, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup, unique_prefix_stats FROM items WHERE id = $1', [resultItemId]
-  );
-  const itemInfo = itemInfoR.rows[0];
-  if (!itemInfo) return res.status(500).json({ error: 'item not found' });
-
-  const isEquipment = !!itemInfo.slot;
-  const isUnique = itemInfo.grade === 'unique';
-
-  // 아이템 레벨 조회 (접두사 스케일링용)
-  const rlR = await query<{ required_level: number }>('SELECT COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [resultItemId]);
-  const craftItemLevel = rlR.rows[0]?.required_level ?? 35;
-
-  if (isEquipment) {
-    // 인벤 빈 슬롯 확보
-    const usedR = await query<{ slot_index: number }>(
-      'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
+    // 아이템 종류 확인 (장비 vs 소비) + bound_on_pickup + 유니크 고정 옵션
+    const itemInfoR = await query<{ name: string; slot: string | null; type: string; grade: string; bound_on_pickup: boolean; unique_prefix_stats: Record<string, number> | null }>(
+      'SELECT name, slot, type, grade, COALESCE(bound_on_pickup, FALSE) AS bound_on_pickup, unique_prefix_stats FROM items WHERE id = $1', [resultItemId]
     );
-    const used = new Set(usedR.rows.map(r => r.slot_index));
-    let freeSlot = -1;
-    for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
-    if (freeSlot < 0) return res.status(400).json({ error: '인벤토리 가득!' });
+    const itemInfo = itemInfoR.rows[0];
+    if (!itemInfo) continue;
 
-    // ─ unidentified_set 분기: 옵션 미정 + 거래 가능 (soulbound=FALSE 강제) ─
-    if (recipe.result_type === 'unidentified_set') {
-      // 품질도 미확인 — 0 으로 두고 buyout 시 굴림. (단순화: quality 만 미리 굴려도 됨)
-      await query(
-        `INSERT INTO character_inventory
-           (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound, unidentified)
-         VALUES ($1, $2, $3, 1, NULL, '{}'::jsonb, 0, FALSE, TRUE)`,
-        [characterId, resultItemId, freeSlot]
+    const isEquipment = !!itemInfo.slot;
+    const isUnique = itemInfo.grade === 'unique';
+
+    // 아이템 레벨 조회 (접두사 스케일링용)
+    const rlR = await query<{ required_level: number }>('SELECT COALESCE(required_level, 1) AS required_level FROM items WHERE id = $1', [resultItemId]);
+    const craftItemLevel = rlR.rows[0]?.required_level ?? 35;
+
+    if (isEquipment) {
+      // 빈 슬롯 매 iter 재계산 (이전 iter 들이 슬롯 채워나감)
+      const usedR = await query<{ slot_index: number }>(
+        'SELECT slot_index FROM character_inventory WHERE character_id = $1', [characterId]
       );
-      return res.json({
-        ok: true, itemName: itemInfo.name, prefixCount: 0, quality: 0,
-        unidentified: true,
-        message: `${itemInfo.name} (미확인) 제작 성공! 거래소에 등록 가능, 구매 시 옵션 결정.`,
-      });
-    }
+      const used = new Set(usedR.rows.map(r => r.slot_index));
+      let freeSlot = -1;
+      for (let i = 0; i < 300; i++) if (!used.has(i)) { freeSlot = i; break; }
+      if (freeSlot < 0) break; // 사전 체크 했지만 안전망
 
-    // 장비: 3옵 접두사 강제 부여
-    const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
-
-    // 유니크면 고정 특수옵션(unique_prefix_stats) 을 prefix_stats 에 병합 — 드랍 경로와 동일.
-    let finalPrefixStats: Record<string, number> = bonusStats;
-    if (isUnique && itemInfo.unique_prefix_stats) {
-      finalPrefixStats = { ...itemInfo.unique_prefix_stats };
-      for (const [k, v] of Object.entries(bonusStats)) {
-        finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
+      if (recipe.result_type === 'unidentified_set') {
+        await query(
+          `INSERT INTO character_inventory
+             (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound, unidentified)
+           VALUES ($1, $2, $3, 1, NULL, '{}'::jsonb, 0, FALSE, TRUE)`,
+          [characterId, resultItemId, freeSlot]
+        );
+        summary.push({ itemName: itemInfo.name, quality: 0, prefixCount: 0, unidentified: true });
+        continue;
       }
-    }
 
-    // 품질 1~100 랜덤 (드랍과 달리 0% 제외 — 제작 보상 가치 보장)
-    const quality = Math.floor(Math.random() * 100) + 1;
-    // bound_on_pickup → soulbound=TRUE 즉시 귀속 (110제 등 거래 불가)
-    await query(
-      `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
-       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6, $7)`,
-      [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(finalPrefixStats), quality, itemInfo.bound_on_pickup]
-    );
-    res.json({ ok: true, itemName: itemInfo.name, prefixCount: prefixIds.length, quality, message: `${itemInfo.name} 제작 성공! (3옵 부여 · 품질 ${quality}%)` });
-  } else {
-    // 소비/재료: 접두사 없이 추가
-    const { addItemToInventory: addItem } = await import('../game/inventory.js');
-    const { added, overflow } = await addItem(characterId, resultItemId, 1);
-    if (overflow > 0) return res.status(400).json({ error: '인벤토리 가득!' });
-    res.json({ ok: true, itemName: itemInfo.name, prefixCount: 0, message: `${itemInfo.name} 제작 성공!` });
+      const { prefixIds, bonusStats } = await generate3Prefixes(craftItemLevel);
+      let finalPrefixStats: Record<string, number> = bonusStats;
+      if (isUnique && itemInfo.unique_prefix_stats) {
+        finalPrefixStats = { ...itemInfo.unique_prefix_stats };
+        for (const [k, v] of Object.entries(bonusStats)) {
+          finalPrefixStats[k] = (finalPrefixStats[k] || 0) + (v as number);
+        }
+      }
+      const quality = Math.floor(Math.random() * 100) + 1;
+      await query(
+        `INSERT INTO character_inventory (character_id, item_id, slot_index, quantity, prefix_ids, prefix_stats, quality, soulbound)
+         VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6, $7)`,
+        [characterId, resultItemId, freeSlot, prefixIds, JSON.stringify(finalPrefixStats), quality, itemInfo.bound_on_pickup]
+      );
+      summary.push({ itemName: itemInfo.name, quality, prefixCount: prefixIds.length, unidentified: false });
+    } else {
+      const { addItemToInventory: addItem } = await import('../game/inventory.js');
+      const { overflow } = await addItem(characterId, resultItemId, 1);
+      if (overflow > 0) {
+        // 인벤 가득 — 남은 iter 중단 (자원은 이미 차감됨, 일부 손실 발생)
+        break;
+      }
+      summary.push({ itemName: itemInfo.name, quality: 0, prefixCount: 0, unidentified: false });
+    }
   }
+
+  // 응답 — quantity=1 호환 필드 + bulk 결과
+  const first = summary[0];
+  const successCount = summary.length;
+  const message = quantity === 1
+    ? (first
+        ? `${first.itemName} 제작 성공!${first.unidentified ? ' (미확인)' : first.prefixCount > 0 ? ` (3옵 부여 · 품질 ${first.quality}%)` : ''}`
+        : '제작 실패')
+    : `${successCount}개 제작 완료${quantity > successCount ? ` (${quantity - successCount}회 누락 — 인벤 부족 가능)` : ''}`;
+  res.json({
+    ok: true,
+    quantity,
+    successCount,
+    summary,
+    // 단일 제작 호환 (옛 클라가 itemName/quality/prefixCount 읽음)
+    itemName: first?.itemName,
+    quality: first?.quality,
+    prefixCount: first?.prefixCount,
+    unidentified: first?.unidentified,
+    message,
+  });
 });
 
 // 3옵 접두사 강제 생성 (아이템 레벨 비례 스케일링)
