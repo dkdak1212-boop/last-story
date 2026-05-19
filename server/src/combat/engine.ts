@@ -821,9 +821,7 @@ function enqueueStackDrop(d: PendingStackDrop): void {
   let arr = pendingStackDrops.get(d.characterId);
   if (!arr) { arr = []; pendingStackDrops.set(d.characterId, arr); }
   arr.push(d);
-  if (isRiftMat(d.itemId) && (d.retryCount ?? 0) === 0) {
-    console.log(`[rift-drop-trace] enqueue char=${d.characterId} item=${d.itemId} qty=${d.qty} stackSize=${d.stackSize} bound=${d.boundOnPickup} queueLen=${arr.length}`);
-  }
+  // 2026-05-20: 진단 info 로그 제거 (운영 콘솔 스팸). 실패/리트라이/손실 로그만 유지.
 }
 
 // flush 실패 (deadlock/timeout) 시 원본 drops 를 큐로 재적재.
@@ -833,14 +831,12 @@ function reEnqueueStackDrops(drops: readonly PendingStackDrop[], reason: string)
     const nextRetry = (d.retryCount ?? 0) + 1;
     if (nextRetry > STACK_DROP_MAX_RETRY) {
       if (isRiftMat(d.itemId)) {
-        console.error(`[rift-drop-trace] GIVE UP char=${d.characterId} item=${d.itemId} qty=${d.qty} retry=${d.retryCount}/${STACK_DROP_MAX_RETRY} reason=${reason}`);
+        console.error(`[stack-drops] GIVE UP char=${d.characterId} item=${d.itemId} qty=${d.qty} retry=${d.retryCount}/${STACK_DROP_MAX_RETRY} reason=${reason}`);
       }
       continue;
     }
     enqueueStackDrop({ ...d, retryCount: nextRetry });
-    if (isRiftMat(d.itemId)) {
-      console.log(`[rift-drop-trace] RETRY enqueue char=${d.characterId} item=${d.itemId} qty=${d.qty} retry=${nextRetry}/${STACK_DROP_MAX_RETRY} reason=${reason}`);
-    }
+    // RETRY info 로그 제거 (DEADLOCK warn 에서 이미 표시됨)
   }
 }
 
@@ -891,20 +887,7 @@ export async function flushPendingStackDrops(): Promise<void> {
       charInfo.set(row.id, { used, maxSlots: BASE_INVENTORY_SLOTS + (row.bonus || 0) });
     }
 
-    // [rift-drop-trace] 시공 재료 보유 캐릭의 슬롯 사용량 로그
-    for (const characterId of allCharIds) {
-      const bucket = byChar.get(characterId);
-      if (!bucket) continue;
-      const hasRift = [...bucket.byItem.keys()].some(isRiftMat);
-      if (!hasRift) continue;
-      const info = charInfo.get(characterId);
-      if (!info) {
-        console.log(`[rift-drop-trace] Q1 char=${characterId} charInfo MISSING — 캐릭 row 조회 실패 (삭제됨?)`);
-        continue;
-      }
-      const free = info.maxSlots - info.used.size;
-      console.log(`[rift-drop-trace] Q1 char=${characterId} used=${info.used.size}/${info.maxSlots} free=${free}`);
-    }
+    // Q1/Q2 진단 로그 제거 (2026-05-20). 실제 손실 발생 시 plan/DROP/DEADLOCK 로그가 표시됨.
 
     await Promise.resolve(); // event loop yield
 
@@ -929,18 +912,7 @@ export async function flushPendingStackDrops(): Promise<void> {
       }
     }
 
-    // [rift-drop-trace] 시공 재료 기존 stack 상태 — cap(stackSize) 도달 여부
-    for (const characterId of allCharIds) {
-      const bucket = byChar.get(characterId);
-      if (!bucket) continue;
-      for (const [itemId, dInfo] of bucket.byItem) {
-        if (!isRiftMat(itemId)) continue;
-        const existing = stacksByCharItem.get(`${characterId}:${itemId}`) ?? [];
-        const stackQtys = existing.map(e => e.quantity).join(',');
-        const totalRoom = existing.reduce((s, e) => s + Math.max(0, dInfo.stackSize - e.quantity), 0);
-        console.log(`[rift-drop-trace] Q2 char=${characterId} item=${itemId} pendingQty=${dInfo.qty} existingStacks=[${stackQtys}] roomInExisting=${totalRoom}`);
-      }
-    }
+    // Q2 진단 로그 제거 (2026-05-20).
 
     await Promise.resolve(); // event loop yield
 
@@ -967,10 +939,7 @@ export async function flushPendingStackDrops(): Promise<void> {
 
       for (const [itemId, dInfo] of bucket.byItem) {
         const traceRift = isRiftMat(itemId);
-        const initialQty = dInfo.qty;
         let remaining = dInfo.qty;
-        let mergedQty = 0;
-        let newSlotsClaimed = 0;
         const existing = stacksByCharItem.get(`${characterId}:${itemId}`) ?? [];
         for (const ex of existing) {
           if (remaining <= 0) break;
@@ -980,24 +949,19 @@ export async function flushPendingStackDrops(): Promise<void> {
           allUpdates.push({ id: ex.id, addQty: add });
           ex.quantity += add;
           remaining -= add;
-          mergedQty += add;
         }
         while (remaining > 0) {
           const slot = claimSlot();
           if (slot === null) {
-            // 가방 full — silent drop (이전에는 로그 없이 폐기)
+            // 가방 full — silent drop. 시공 재료는 손실 로그 유지 (실제 문제).
             if (traceRift) {
-              console.warn(`[rift-drop-trace] DROP char=${characterId} item=${itemId} lostQty=${remaining} reason=가방가득(claimSlot null) maxSlots=${maxSlots}`);
+              console.warn(`[stack-drops] DROP char=${characterId} item=${itemId} lostQty=${remaining} reason=가방가득 maxSlots=${maxSlots}`);
             }
             break;
           }
           const qty = Math.min(remaining, dInfo.stackSize);
           allInserts.push({ characterId, itemId, slot, qty, bound: dInfo.bound });
           remaining -= qty;
-          newSlotsClaimed++;
-        }
-        if (traceRift) {
-          console.log(`[rift-drop-trace] plan char=${characterId} item=${itemId} initialQty=${initialQty} merged=${mergedQty} newSlots=${newSlotsClaimed} lost=${remaining}`);
         }
       }
     }
@@ -1072,7 +1036,7 @@ export async function flushPendingStackDrops(): Promise<void> {
             [idsArr, qtyArr]
           );
           if (hasRiftDrops && (r.rowCount ?? 0) !== charUpdates.length) {
-            console.warn(`[rift-drop-trace] Q3 char=${characterId} UPDATE rowCount mismatch expected=${charUpdates.length} actual=${r.rowCount ?? 0}`);
+            console.warn(`[stack-drops] UPDATE mismatch char=${characterId} expected=${charUpdates.length} actual=${r.rowCount ?? 0}`);
           }
         }
 
@@ -1095,9 +1059,7 @@ export async function flushPendingStackDrops(): Promise<void> {
           const insertRowCount = r.rowCount ?? 0;
           const riftExpected = riftInsertExpectedByChar.get(characterId) ?? 0;
           if (riftExpected > 0 && insertRowCount !== charInserts.length) {
-            console.warn(`[rift-drop-trace] Q4 char=${characterId} INSERT rowCount mismatch expected=${charInserts.length} actual=${insertRowCount} (ON CONFLICT silent drop 가능)`);
-          } else if (riftExpected > 0) {
-            console.log(`[rift-drop-trace] Q4 char=${characterId} INSERT ok rift=${riftExpected}/${charInserts.length}`);
+            console.warn(`[stack-drops] INSERT mismatch char=${characterId} expected=${charInserts.length} actual=${insertRowCount} (ON CONFLICT silent drop)`);
           }
         }
 
@@ -1117,7 +1079,7 @@ export async function flushPendingStackDrops(): Promise<void> {
           const code = (err as { code?: string }).code ?? '?';
           if (hasRiftDrops) {
             const riftQty = original.filter(d => isRiftMat(d.itemId)).reduce((s, d) => s + d.qty, 0);
-            console.warn(`[rift-drop-trace] DEADLOCK char=${characterId} code=${code} riftQty=${riftQty} → 재적재 시도`);
+            console.warn(`[stack-drops] DEADLOCK char=${characterId} code=${code} riftQty=${riftQty} → 재적재`);
           }
           reEnqueueStackDrops(original, code);
         } else {
@@ -1125,9 +1087,9 @@ export async function flushPendingStackDrops(): Promise<void> {
           const original = snapByChar.get(characterId) ?? [];
           const riftDrops = original.filter(d => isRiftMat(d.itemId));
           if (riftDrops.length > 0) {
-            console.error(`[rift-drop-trace] FATAL char=${characterId} drops=${riftDrops.length} (non-retryable)`, err);
+            console.error(`[stack-drops] FATAL char=${characterId} riftDrops=${riftDrops.length} (non-retryable)`, err);
           } else {
-            console.error(`[stack-drops-batch] char=${characterId} non-retryable err`, err);
+            console.error(`[stack-drops] non-retryable char=${characterId}`, err);
           }
         }
       }
@@ -1136,7 +1098,7 @@ export async function flushPendingStackDrops(): Promise<void> {
       await Promise.resolve();
     }
   } catch (err) {
-    // [rift-drop-trace] 시공 재료가 큐에 있었으면 ALL drops 폐기됨 (snap.clear 이후 throw)
+    // 시공 재료가 큐에 있었으면 ALL drops 폐기됨 (snap.clear 이후 throw)
     const riftPending: Array<{ cid: number; iid: number; qty: number }> = [];
     for (const [cid, drops] of snap) {
       for (const d of drops) {
@@ -1145,9 +1107,9 @@ export async function flushPendingStackDrops(): Promise<void> {
     }
     if (riftPending.length > 0) {
       const summary = riftPending.map(r => `char${r.cid}:item${r.iid}×${r.qty}`).join(', ');
-      console.error(`[rift-drop-trace] FLUSH FAILED — 시공 재료 ${riftPending.length}건 폐기 [${summary}]`, err);
+      console.error(`[stack-drops] FLUSH FAILED — 시공 재료 ${riftPending.length}건 폐기 [${summary}]`, err);
     } else {
-      console.error('[stack-drops-batch] err', err);
+      console.error('[stack-drops] flush err', err);
     }
   }
 }
