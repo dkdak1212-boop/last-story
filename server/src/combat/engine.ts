@@ -321,8 +321,11 @@ interface ActiveSession {
   // raidEventId 가 set 되면 RAID 분기 활성 (보스 행동/dmg 누적/사망 처리 분기)
   raidEventId: number | null;
   raidStartedAtMs: number; // 보스 spawn 시각 (광폭 단계 계산 기준)
-  raidDmgBuffer: number; // flush 전 누적 raw dmg
+  raidDmgBuffer: number; // flush 전 누적 raw dmg (delta — 1초 단위 인터벌 flush)
   raidHitsBuffer: number; // flush 전 누적 타격 수
+  // 2026-05-19: 입장 무한 + 최고 단일 run 등록 정책. 현재 run 누적 데미지 (입장 시점 0 리셋).
+  // flushRaidDamage 가 매 초 raidRunTotalDmg 로 total_damage = GREATEST(existing, run) 갱신.
+  raidRunTotalDmg: number;
   comboKills: number; // 도적 전용: 연속킬 카운터 (combo_kill_bonus)
   hasFirstSkill: boolean; // 도적 전용: shadow_strike (전투 시작 후 첫 스킬)
   // ── 차원의 정수 (Paragon) 키스톤 상태 ──
@@ -5630,22 +5633,24 @@ async function flushGuildBossDamage(s: ActiveSession): Promise<void> {
   }
 }
 
-// raid-bosses-v2 Step 3.3 — 레이드 데미지 buffer flush (world_event_participants UPDATE)
-// attack_count 는 "입장 횟수" 의미 — flush 에서 가산 안 함. 입장 시점(/enter)이 책임.
+// raid-bosses-v2 Step 3.3 — 레이드 데미지 buffer flush
+// 2026-05-19 정책 변경: 입장 무한 + 최고 단일 run 등록.
+//   - 매 초 raidRunTotalDmg (현재 run 누적) 로 total_damage 갱신
+//   - INSERT ... ON CONFLICT DO UPDATE 의 SET 절에서 GREATEST(existing, $runTotal)
+//   - row 는 /enter 에서 미리 생성됨 (안전망 대비 INSERT 도 raidRunTotalDmg 로)
 async function flushRaidDamage(s: ActiveSession): Promise<void> {
   if (!s.raidEventId) return;
-  if (s.raidDmgBuffer <= 0) return;
-  const dmg = s.raidDmgBuffer;
+  if (s.raidRunTotalDmg <= 0) return;
+  const runTotal = s.raidRunTotalDmg;
   s.raidDmgBuffer = 0;
   s.raidHitsBuffer = 0;
   try {
-    // 누적 dmg 만 UPDATE — row 는 /enter 에서 미리 생성됨 (ON CONFLICT 도 안전망 대비)
     await query(
       `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
        VALUES ($1, $2, $3, 1, NOW())
        ON CONFLICT (event_id, character_id) DO UPDATE SET
-         total_damage = world_event_participants.total_damage + EXCLUDED.total_damage`,
-      [s.raidEventId, s.characterId, dmg]
+         total_damage = GREATEST(world_event_participants.total_damage, EXCLUDED.total_damage)`,
+      [s.raidEventId, s.characterId, runTotal]
     );
   } catch (e) {
     console.error('[raid] flushRaidDamage fail', e);
@@ -5987,6 +5992,7 @@ async function handlePlayerDeath(s: ActiveSession): Promise<void> {
     s.raidStartedAtMs = 0;
     s.raidDmgBuffer = 0;
     s.raidHitsBuffer = 0;
+    s.raidRunTotalDmg = 0;
     await flushCharBatch(s.characterId);
     await query(
       'UPDATE characters SET hp=max_hp, location=$1, last_online_at=NOW() WHERE id=$2',
@@ -6461,10 +6467,12 @@ async function combatTick(): Promise<void> {
           s.guildBossDmgBuffer += dealtThisAction;
           s.guildBossHitsBuffer += 1;
         }
-        // raid-bosses-v2 Step 3.3 — 레이드 모드 데미지 누적 (raidDmgBuffer)
+        // raid-bosses-v2 Step 3.3 — 레이드 모드 데미지 누적 (raidDmgBuffer + runTotal)
+        // 2026-05-19: raidRunTotalDmg 도 함께 누적. flushRaidDamage 가 max(existing, runTotal) 로 갱신.
         if (s.raidEventId && dealtThisAction > 0) {
           s.raidDmgBuffer += dealtThisAction;
           s.raidHitsBuffer += 1;
+          s.raidRunTotalDmg += dealtThisAction;
         }
         handleDummyTick(s, hpBeforePl);
         if (s.monsterHp <= 0 && !isDummyMonster(s)) { const tk = Date.now(); await handleMonsterDeath(s); perfSeg.killMs += Date.now() - tk; return 'break'; }
@@ -6968,6 +6976,7 @@ export async function endRaidCombatSession(characterId: number): Promise<void> {
   s.raidStartedAtMs = 0;
   s.raidDmgBuffer = 0;
   s.raidHitsBuffer = 0;
+  s.raidRunTotalDmg = 0;
   activeSessions.delete(characterId);
 }
 
@@ -7311,6 +7320,7 @@ async function startCombatSessionInner(
     raidStartedAtMs: opts?.raidStartedAtMs ?? 0,
     raidDmgBuffer: 0,
     raidHitsBuffer: 0,
+    raidRunTotalDmg: 0,
   };
 
   // 광분 타이머 기준 시각 — run 의 DB started_at 사용 (탭 이동 어뷰즈 차단)

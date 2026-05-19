@@ -8,8 +8,7 @@ import { startRaidCombatSession } from '../combat/engine.js';
 const router = Router();
 
 const RAID_DEATH_COOLDOWN_MS = 3_600_000; // 1시간 사망 쿨다운 (raid-bosses-v2, 2026-05-17)
-// 일일 입장 1회 제한 (2026-05-18) — 1 event = 하루 1회 spawn 이므로 attack_count >= 1 이면 거절
-const RAID_MAX_ENTRIES_PER_EVENT = 1;
+// 2026-05-19 정책: 입장 무한 (이전 1회 가드 제거). 데미지 등록은 단일 run 최고치 (flushRaidDamage GREATEST).
 
 router.get('/status', authRequired, async (req: AuthedRequest, res) => {
   const event = await getActiveEvent();
@@ -76,7 +75,7 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
       return res.status(400).json({ error: `Lv.${event.min_level} 이상만 참여 가능합니다.` });
     }
 
-    // 사망 쿨다운 + 일일 입장 제한 체크
+    // 사망 쿨다운 체크 (입장 횟수 제한 없음 — 2026-05-19 정책)
     let existing: { rows: { last_attack_at: string | null; attack_count: number }[] };
     try {
       existing = await query<{ last_attack_at: string | null; attack_count: number }>(
@@ -87,12 +86,6 @@ router.post('/enter/:characterId', authRequired, async (req: AuthedRequest, res)
     } catch (e: any) {
       console.error('[raid/enter] cooldown SELECT fail', e);
       return res.status(500).json({ error: `cooldown SELECT: ${e?.message || String(e)}` });
-    }
-    // 일일 1회 입장 제한 — 1 event 당 attack_count >= 1 이면 재입장 불가 (2026-05-18)
-    if ((existing.rows[0]?.attack_count ?? 0) >= RAID_MAX_ENTRIES_PER_EVENT) {
-      return res.status(400).json({
-        error: '이미 오늘 레이드에 입장하셨습니다. (1일 1회 입장 가능)',
-      });
     }
     if (existing.rows[0]?.last_attack_at) {
       const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();

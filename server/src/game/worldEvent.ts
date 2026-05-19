@@ -9,8 +9,7 @@ import { calcDotTickDamage, buildDotEntry, decrementEffects } from '../combat/sh
 
 const ATTACK_COOLDOWN_MS = 10_000; // 10초 쿨다운
 const DEATH_COOLDOWN_MS = 3_600_000; // 사망 시 1시간 쿨다운 (raid-bosses-v2, 2026-05-17)
-// 일일 입장 1회 제한 (2026-05-18) — 1 event = 하루 1회. attack_count >= 1 이면 재입장 거절.
-const MAX_ENTRIES_PER_EVENT = 1;
+// 2026-05-19 정책: 입장 무한. 데미지 등록은 단일 run 최고치 (engine flushRaidDamage 가 GREATEST 갱신).
 
 // raid-bosses-v2: 보스 행동 시점에 사용. spawn 후 t초 → 광폭화 단계 = floor(t/30), 데미지 = base × 2^단계
 function calcEnrageStage(startedAtMs: number): number {
@@ -65,10 +64,7 @@ export async function attackBoss(characterId: number) {
     [event.id, characterId]
   );
   if (existing.rows[0]) {
-    // 일일 1회 입장 제한 (2026-05-18) — 같은 event 에 이미 참여했으면 거절.
-    if ((existing.rows[0].attack_count ?? 0) >= MAX_ENTRIES_PER_EVENT) {
-      return { error: '이미 오늘 레이드에 입장하셨습니다. (1일 1회 입장 가능)' };
-    }
+    // 입장 횟수 제한 없음 (2026-05-19 정책). 사망 쿨다운만 적용.
     const elapsed = Date.now() - new Date(existing.rows[0].last_attack_at).getTime();
     const cd = (char.hp <= 1) ? DEATH_COOLDOWN_MS : ATTACK_COOLDOWN_MS;
     if (elapsed < cd) {
@@ -441,11 +437,13 @@ export async function attackBoss(characterId: number) {
   const newBossHp = upd.rows[0]?.current_hp ?? event.current_hp;
 
   // 참여자 업서트
+  // 2026-05-19 정책: 단일 run 최고치 등록. /attack 은 옛 10초 시뮬이라 한 번 호출 = 1 run.
+  // total_damage = MAX(existing, this attack burst) 로 갱신.
   await query(
     `INSERT INTO world_event_participants (event_id, character_id, total_damage, attack_count, last_attack_at)
      VALUES ($1, $2, $3, 1, NOW())
      ON CONFLICT (event_id, character_id) DO UPDATE
-     SET total_damage = world_event_participants.total_damage + $3,
+     SET total_damage = GREATEST(world_event_participants.total_damage, $3),
          attack_count = world_event_participants.attack_count + 1,
          last_attack_at = NOW()`,
     [event.id, characterId, totalDmgDealt]
