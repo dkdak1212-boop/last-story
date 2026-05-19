@@ -1537,10 +1537,14 @@ const CC_EFFECT_TYPES = new Set(['stun', 'gauge_freeze', 'gauge_reset', 'accurac
 const GUILD_BOSS_INVINCIBLE_MAX_ACTIONS = 30;
 
 function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
-  // 길드 보스: 플레이어가 건 CC/디버프 면역 (speed_mod 음수 포함)
+  // 2026-05-19: damage_taken_up 은 CC 가 아니라 단순 데미지 증폭(표적/약화) — 보스 면역에서 제외.
+  // 이전: CC_EFFECT_TYPES 에 포함되어 길드 보스/cc_immune 몬스터에서 silently drop.
+  // 궁수 약점 표시/추적 표식 + marked_damage_amp 노드 콤보가 보스 컨텐츠에서 무용지물이던 버그.
+  const isCcType = CC_EFFECT_TYPES.has(effect.type) && effect.type !== 'damage_taken_up';
+  // 길드 보스: 플레이어가 건 CC/디버프 면역 (speed_mod 음수 포함, damage_taken_up 제외)
   if (s.guildBossRunId && effect.source === 'player') {
     const isSlow = effect.type === 'speed_mod' && effect.value < 0;
-    if (CC_EFFECT_TYPES.has(effect.type) || isSlow) {
+    if (isCcType || isSlow) {
       return; // 적용 없이 조용히 무시
     }
   }
@@ -1550,10 +1554,10 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
     const bx = getPassive(s, 'buff_extend');
     if (bx > 0) effect.remainingActions += bx;
   }
-  // 110 몬스터: cc_immune 플래그 — 플레이어가 건 CC/슬로우 무시
+  // 110 몬스터: cc_immune 플래그 — 플레이어가 건 CC/슬로우 무시 (damage_taken_up 제외)
   if (s.monsterCcImmune && effect.source === 'player') {
     const isSlow = effect.type === 'speed_mod' && effect.value < 0;
-    if (CC_EFFECT_TYPES.has(effect.type) || isSlow) return;
+    if (isCcType || isSlow) return;
   }
   // 길드 보스: 플레이어 자가 무적 버프 지속시간 상한 (1분 환산 ~30행동)
   if (s.guildBossRunId && effect.type === 'invincible' && effect.source === 'monster') {
