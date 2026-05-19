@@ -782,7 +782,7 @@ export function InventoryScreen() {
           {/* 전체 판매 + T4 추출 + 필터 설정 */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
             <button onClick={async () => {
-              if (!active || !confirm('잠금되지 않은 모든 장비를 폐기하시겠습니까? (골드 지급 없음)\n\n※ 100레벨 미만 T4 장비는 안전을 위해 자동 제외됩니다.')) return;
+              if (!active || !confirm('잠금되지 않은 모든 장비를 폐기하시겠습니까? (골드 지급 없음)\n\n※ 100레벨 이상 T4 장비는 안전을 위해 자동 제외됩니다. (잠금 후 일괄 추출 워크플로)')) return;
               setMsg('');
               try {
                 const res = await api<{ count: number }>(`/characters/${active.id}/sell-bulk`, { method: 'POST', body: JSON.stringify({}) });

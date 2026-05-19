@@ -816,15 +816,17 @@ router.post('/:id/sell-bulk', async (req: AuthedRequest, res: Response) => {
   if (!char) return res.status(404).json({ error: 'not found' });
 
   // 잠금 안 된 장비 (소모품/재료 제외)
-  // 100레벨 미만 + T4 접두사 보유 장비는 묶음 폐기 차단 (사용자 결정 2026-05-10) —
-  // T4 추출 가루 farming 보호 + 실수 폐기 방지. 100레벨 T4 는 정상 폐기.
+  // 정책 반전 (2026-05-19): 보호 대상을 100레벨 미만 → 100레벨 이상 T4 로 변경.
+  // 사유: 100제 미만 T4 는 사용처 거의 없음, 100제 T4 는 엔드템·추출 핵심 가치.
+  // 워크플로 — 전체폐기로 저렙 T4 까지 정리 → 남은 100제 T4 중 살릴 것만 잠금
+  //   → /craft/extract-bulk 로 나머지 가루화. 실수 폐기 사고 감소.
   const items = await query<{ id: number; quantity: number; sell_price: number; name: string }>(
     `SELECT ci.id, ci.quantity, i.sell_price, i.name
      FROM character_inventory ci JOIN items i ON i.id = ci.item_id
      WHERE ci.character_id = $1 AND ci.locked = FALSE AND i.sell_price > 0
        AND i.type IN ('weapon','armor','accessory')
        AND NOT (
-         COALESCE(i.required_level, 1) < 100
+         COALESCE(i.required_level, 1) >= 100
          AND EXISTS (
            SELECT 1 FROM item_prefixes ip
             WHERE ip.id = ANY(ci.prefix_ids) AND ip.tier = 4
