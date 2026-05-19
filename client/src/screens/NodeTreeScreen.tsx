@@ -270,9 +270,24 @@ export function NodeTreeScreen() {
     );
     if (useExplicit) {
       const scale = active?.className === 'summoner' ? 30 : 38;
+      // 2026-05-19: 각 zone 의 평균 좌표를 (0,0) 으로 평행이동 — viewport 중앙 정렬.
+      // 사용자 보고: 직업별 전용 노드가 화면 중앙에 안 있어 불편. 노드 간 상대 배치는 유지.
+      let sumX = 0, sumY = 0, n = 0;
+      for (const node of zoneNodes) {
+        if ((node.positionX ?? 0) !== 0 || (node.positionY ?? 0) !== 0) {
+          sumX += node.positionX ?? 0;
+          sumY += node.positionY ?? 0;
+          n++;
+        }
+      }
+      const cx = n > 0 ? sumX / n : 0;
+      const cy = n > 0 ? sumY / n : 0;
       const m = new Map<number, Position>();
-      for (const n of zoneNodes) {
-        m.set(n.id, { x: (n.positionX ?? 0) * scale, y: (n.positionY ?? 0) * scale });
+      for (const node of zoneNodes) {
+        m.set(node.id, {
+          x: ((node.positionX ?? 0) - cx) * scale,
+          y: ((node.positionY ?? 0) - cy) * scale,
+        });
       }
       return m;
     }
