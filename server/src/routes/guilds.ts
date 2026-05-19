@@ -58,7 +58,7 @@ router.get('/', async (_req, res) => {
               COALESCE((SELECT level FROM guild_skills WHERE guild_id = g.id AND skill_key = 'hp'), 0) AS skill_hp
        FROM guilds g JOIN characters c ON c.id = g.leader_id
      ) x
-     ORDER BY level_sum DESC, member_count DESC, created_at ASC LIMIT 100`
+     ORDER BY level_sum DESC, member_count DESC, created_at ASC LIMIT 500`
   );
   res.json(r.rows.map(row => ({
     id: row.id, name: row.name, description: row.description,
