@@ -304,6 +304,9 @@ interface ActiveSession {
   dexBuffAddedCri: number;
   dexBuffAddedDodge: number;
   dexBuffAddedAccuracy: number;
+  // 2026-05-19: 자세: 집중 등 self_cri_buff — cri 임시 +N. 만료 시 정확 회수.
+  critAmpTempRemainingActions: number;
+  critAmpTempAddedCri: number;
   rogueDotCarry?: { value: number; remainingActions: number; dotMult: number; dotUseMatk: boolean }[]; // 도적 전용: 처치 시 캡처해 다음 몬스터로 전이할 독 스택 (cap 20)
   guildBossRunId: string | null; // 길드 보스 세션 플래그 (null이면 일반 사냥)
   guildBossBoss: GuildBossData | null; // 길드 보스 메타데이터 (스폰 시 재사용)
@@ -2733,7 +2736,10 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const dtUpEffForSummon = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
   const dtUpMulForSummon = dtUpEffForSummon ? (1 + dtUpEffForSummon.value / 100) : 1.0;
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
-  const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
+  // 2026-05-19: summon_crit_dmg_buff_active 효과 (술식: 시력 강화) 도 합산.
+  const summonCritDmgBuffEff = findEffectOfType(s, 'summon_crit_dmg_buff_active' as any, e => e.remainingActions > 0);
+  const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0)
+    + (summonCritDmgBuffEff ? summonCritDmgBuffEff.value : 0);
   // 본체 치명타 데미지 보너스 (crit_dmg_pct/paragon_crit_dmg_pct/DEX×0.35/cri-overflow 등) 도 소환수에 합산.
   // 상태창에 표기되는 치피가 실제 데미지에 반영 안 되던 혼란 픽스 (2026-05-13).
   const playerCritDmgBonus = getCritDmgBonus(s);
@@ -3757,8 +3763,15 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'self_cri_buff': {
-      // 자기 cri +effect_value (스택형) effect_duration 행동 — 미사용 effect 보존
-      addEffect(s, { type: 'crit_amp_temp', value: skill.effect_value, remainingActions: skill.effect_duration, source: 'player' });
+      // 자기 cri +effect_value 임시. 기존 'crit_amp_temp' 효과는 dead key 였음 (어디서도 안 읽힘).
+      // 2026-05-19: DexBuff 패턴으로 playerStats.cri 직접 가산 + 만료 시 정확 회수.
+      //   소환수 데미지에 사용되는 (s.playerStats.cri || 0) 에도 즉시 반영됨.
+      if (s.critAmpTempRemainingActions > 0) {
+        s.playerStats.cri = Math.max(0, (s.playerStats.cri || 0) - s.critAmpTempAddedCri);
+      }
+      s.playerStats.cri = (s.playerStats.cri || 0) + skill.effect_value;
+      s.critAmpTempAddedCri = skill.effect_value;
+      s.critAmpTempRemainingActions = skill.effect_duration;
       addLog(s, `[${skill.name}] 자신 치명 +${skill.effect_value}% ${skill.effect_duration}행동`);
       break;
     }
@@ -4090,6 +4103,16 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     }
 
     case 'summon_buff': {
+      // 2026-05-19: 술식: 시력 강화 — 설명상 "소환수 치명타 데미지 +50%" 인데 일반 데미지 버프로
+      // 처리되던 불일치 수정. 별도 type 'summon_crit_dmg_buff_active' 로 분리해 processSummons 의
+      // critDmgBonus 합산에만 반영.
+      if (skill.name === '술식: 시력 강화') {
+        s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_crit_dmg_buff_active');
+        bumpEffectVer(s);
+        addEffect(s, { type: 'summon_crit_dmg_buff_active' as any, value: skill.effect_value, remainingActions: skill.effect_duration, source: 'monster' });
+        addLog(s, `[${skill.name}] 소환수 치명타 데미지 +${skill.effect_value}% ${skill.effect_duration}행동!`);
+        break;
+      }
       // 소환수 버프 (지휘/군주의 위엄) — 중복 제거 후 단일 인스턴스 갱신
       s.statusEffects = s.statusEffects.filter(e => e.type !== 'summon_buff_active');
       bumpEffectVer(s);
@@ -6413,6 +6436,15 @@ async function combatTick(): Promise<void> {
             addLog(s, '[민첩 강화] 효과 만료');
           }
         }
+        // 2026-05-19: self_cri_buff (자세: 집중) 만료 — 매 액션 -1, 0 도달 시 cri 회수
+        if (s.critAmpTempRemainingActions > 0) {
+          s.critAmpTempRemainingActions--;
+          if (s.critAmpTempRemainingActions === 0 && s.critAmpTempAddedCri > 0) {
+            s.playerStats.cri = Math.max(0, (s.playerStats.cri || 0) - s.critAmpTempAddedCri);
+            s.critAmpTempAddedCri = 0;
+            addLog(s, '[치명 강화] 효과 만료');
+          }
+        }
         // gauge_on_crit_pct: 액션 시작 시 누적 카운터 리셋 (이번 액션의 75% cap 다시 적용)
         s.gaugeOnCritGainedThisAction = 0;
         // 길드보스 element 추적 리셋 — 매 액션 첫 스킬 element 만 사용
@@ -7262,6 +7294,8 @@ async function startCombatSessionInner(
     dexBuffAddedCri: 0,
     dexBuffAddedDodge: 0,
     dexBuffAddedAccuracy: 0,
+    critAmpTempRemainingActions: 0,
+    critAmpTempAddedCri: 0,
     comboKills: 0,
     hasFirstSkill: true,
     paragonFailurePending: false,
