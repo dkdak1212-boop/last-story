@@ -3858,6 +3858,13 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
     case 'shield': {
       // 공격 + 보호막 (damage_mult > 0이면 데미지도 처리) — judge_amp 등 풀 파이프라인 적용
       dealBuffSkillDamage(s, skill, useMatk);
+      // 2026-05-19: 명령: 영역 선포 — 적 받는 데미지 +50% (5턴) 부가 효과는 쉴드 가드 전에 처리.
+      // 이전 위치(아래) 는 기존 쉴드 활성 시 early break 로 약화 효과까지 통째로 skip 되던 버그.
+      // 술식: 수호 같은 50% 쉴드 먼저 시전된 상태에서 영역 선포 발동 시 약화 미적용 보고.
+      if (skill.name === '명령: 영역 선포') {
+        pushEffect(s, { id: `v2_dominion_dtup_${s.actionCount}`, type: 'damage_taken_up' as any, value: 50, remainingActions: 5, source: 'player' } as any);
+        addLog(s, `[${skill.name}] 적 받는 데미지 +50% (5턴)`);
+      }
       // 쉴드 중첩 불가 + 끊김 없는 유지: 활성 쉴드 remainingActions > 1 이면 새 쉴드 보류 (만료 직전에 덮어쓰기 허용).
       const activeShield = findEffectOfType(s, 'shield', e =>
         e.source === 'monster' && e.value > 0 && e.remainingActions > 1
@@ -3879,11 +3886,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       if (shieldAmp > 0) shieldHp = Math.round(shieldHp * (1 + shieldAmp / 100));
       addEffect(s, { type: 'shield', value: shieldHp, remainingActions: skill.effect_duration || 3, source: 'monster' });
       addLog(s, `[${skill.name}] 실드 ${shieldHp}!`);
-      // 명령: 영역 선포 — 적 받는 데미지 +50% (5턴) 추가 (소환사 100Lv 궁극)
-      if (skill.name === '명령: 영역 선포') {
-        pushEffect(s, { id: `v2_dominion_dtup_${s.actionCount}`, type: 'damage_taken_up' as any, value: 50, remainingActions: 5, source: 'player' } as any);
-        addLog(s, `[${skill.name}] 적 받는 데미지 +50% (5턴)`);
-      }
+      // 영역 선포 의 damage_taken_up 추가 효과는 위쪽(shield 가드 진입 전)에서 이미 처리됨.
       break;
     }
 
