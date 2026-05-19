@@ -420,32 +420,76 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   );
 
   // 프리셋 노드 투자 — paragon 은 paragon_points, 그 외는 node_points 에서 차감
+  // 2026-05-19: prereq / class_exclusive / branch-pair 검증 추가 — 옛 프리셋이 신규 prereq 를
+  // 우회하지 못하도록. tier 오름차순 정렬 후 prereq 충족된 것만 invest.
   const charR = await query<{ node_points: number; paragon_points: number }>(
     'SELECT node_points, COALESCE(paragon_points, 0) AS paragon_points FROM characters WHERE id = $1', [id]
   );
   let points = charR.rows[0].node_points;
   let paragonPoints = charR.rows[0].paragon_points;
   let invested = 0;
+  let skipped = 0;
 
-  const nodeDefsR = await query<{ id: number; cost: number; zone: string }>(
-    'SELECT id, cost, zone FROM node_definitions WHERE id = ANY($1::int[])', [targetNodeIds]
+  const nodeDefsR = await query<{ id: number; cost: number; zone: string; tier: string; class_exclusive: string | null; prerequisites: number[] | null }>(
+    'SELECT id, cost, zone, tier, class_exclusive, prerequisites FROM node_definitions WHERE id = ANY($1::int[])', [targetNodeIds]
   );
   const nodeMap = new Map(nodeDefsR.rows.map(r => [r.id, r]));
 
-  for (const nid of targetNodeIds) {
-    const def = nodeMap.get(nid);
-    if (!def) continue;
-    const isParagon = def.zone === 'paragon';
-    if (isParagon) {
-      if (paragonPoints < def.cost) continue;
-      paragonPoints -= def.cost;
-    } else {
-      if (points < def.cost) continue;
-      points -= def.cost;
+  // tier 오름차순 정렬 — small(1) → medium(2) → large(3) → huge(4) 순으로 처리해야 prereq 충족됨.
+  const TIER_ORDER: Record<string, number> = { small: 1, medium: 2, large: 3, huge: 4 };
+  const ordered = [...targetNodeIds].sort((a, b) => {
+    const da = nodeMap.get(a); const db = nodeMap.get(b);
+    return (TIER_ORDER[da?.tier || ''] ?? 99) - (TIER_ORDER[db?.tier || ''] ?? 99);
+  });
+
+  // 갈래 상호배제 (invest 라우트 BRANCH_PAIRS 와 동일).
+  const BRANCH_PAIRS_LOAD: Record<string, string> = {
+    north_warrior_berserk: 'north_warrior_guard',
+    north_warrior_guard: 'north_warrior_berserk',
+    north_mage_burst: 'north_mage_dot',
+    north_mage_dot: 'north_mage_burst',
+    north_cleric_guard: 'north_cleric_radiant',
+    north_cleric_radiant: 'north_cleric_guard',
+  };
+  const investedZones = new Set<string>();
+
+  // tier 오름차순으로 한 번 더 prereq cascade 가능하도록 2-pass.
+  // 첫 pass 에서 prereq 미충족이라도 두 번째 pass 에서 다른 노드가 충족시켰을 수 있음.
+  const investedSet = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const nid of ordered) {
+      if (investedSet.has(nid)) continue;
+      const def = nodeMap.get(nid);
+      if (!def) continue;
+      // 클래스 제한
+      if (def.class_exclusive && def.class_exclusive !== char.class_name) { continue; }
+      // 갈래 상호배제
+      const opp = BRANCH_PAIRS_LOAD[def.zone];
+      if (opp && investedZones.has(opp)) { continue; }
+      // prereq 충족
+      const prereqs = def.prerequisites || [];
+      if (prereqs.length > 0 && !prereqs.every(p => investedSet.has(p))) { continue; }
+      // 비용
+      const isParagon = def.zone === 'paragon';
+      if (isParagon) {
+        if (paragonPoints < def.cost) continue;
+        paragonPoints -= def.cost;
+      } else {
+        if (points < def.cost) continue;
+        points -= def.cost;
+      }
+      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+      investedSet.add(nid);
+      investedZones.add(def.zone);
+      invested++;
+      changed = true;
     }
-    await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
-    invested++;
   }
+  // 검증 통과 못 한 노드 수
+  skipped = targetNodeIds.length - invested;
+
   await query(
     'UPDATE characters SET node_points = $1, paragon_points = $2 WHERE id = $3',
     [points, paragonPoints, id]
@@ -457,7 +501,7 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
 
   await refreshSessionStats(id).catch(() => {});
 
-  res.json({ ok: true, invested, remainingPoints: points, remainingParagonPoints: paragonPoints });
+  res.json({ ok: true, invested, skipped, remainingPoints: points, remainingParagonPoints: paragonPoints });
 });
 
 // 프리셋 이름 변경
