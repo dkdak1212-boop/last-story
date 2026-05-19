@@ -8,6 +8,19 @@ import { refreshSessionStats } from '../combat/engine.js';
 const router = Router();
 router.use(authRequired);
 
+// 2026-05-19: 오프라인 사냥 중 노드 조작 차단.
+// 오프라인 모드(last_offline_at IS NOT NULL) 는 인메모리 세션이 없어 activeSessions 검사로 못 잡힘.
+// 노드 환불(reset-all / preset-load) 시 포인트 분배 무한 어뷰즈 가능 — 명시 가드 필요.
+async function assertNotOfflineMode(characterId: number): Promise<string | null> {
+  const r = await query<{ last_offline_at: string | null }>(
+    'SELECT last_offline_at FROM characters WHERE id = $1', [characterId]
+  );
+  if (r.rows[0]?.last_offline_at) {
+    return '오프라인 사냥 중에는 노드를 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.';
+  }
+  return null;
+}
+
 // ── 반대의 균형 어뷰즈 차단 ──
 // 분배된 VIT/DEX 의 max_hp 기여는 inversion 보유 시 (DEX×20) / 미보유 시 (VIT×20).
 // 노드 toggle 시 (invest/reset/preset-load) 직후 max_hp 를 정확히 재계산해 무한 중첩 차단.
@@ -112,6 +125,8 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
     const { activeSessions } = await import('../combat/engine.js');
     if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드를 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
   } catch {}
+  const offlineErr = await assertNotOfflineMode(id);
+  if (offlineErr) return res.status(400).json({ error: offlineErr });
 
   const parsed = investSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
@@ -300,6 +315,8 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
     const { activeSessions } = await import('../combat/engine.js');
     if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드를 리셋할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
   } catch {}
+  const offlineErr = await assertNotOfflineMode(id);
+  if (offlineErr) return res.status(400).json({ error: offlineErr.replace('변경할', '리셋할') });
 
   const cost = 5000;
   if (char.gold < cost) return res.status(400).json({ error: 'not enough gold' });
@@ -398,6 +415,8 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
     const { activeSessions } = await import('../combat/engine.js');
     if (activeSessions.has(id)) return res.status(400).json({ error: '전투 중에는 노드 프리셋을 변경할 수 없습니다. 마을로 귀환 후 시도해주세요.' });
   } catch {}
+  const offlineErr = await assertNotOfflineMode(id);
+  if (offlineErr) return res.status(400).json({ error: offlineErr });
 
   const pr = await query<{ node_ids: number[] }>(
     'SELECT node_ids FROM character_node_presets WHERE character_id = $1 AND preset_idx = $2', [id, idx]
