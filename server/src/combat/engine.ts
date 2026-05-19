@@ -2713,11 +2713,11 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const matk = s.playerStats.matk;
   const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
-  // 2026-05-19: spell_amp (스킬 데미지 증폭 — 전 직업 적용 코멘트되어 있지만 소환수 미적용이던 문제 수정).
-  // 노드 + 접두사 합산하여 소환수 데미지에도 일관 반영.
-  const spellAmpForSummon = getPassive(s, 'spell_amp') + (s.equipPrefixes.spell_amp || 0);
-  // multi_hit_amp_pct (다단 데미지 증가) — 본체 multi_hit 스킬에만 적용되던 것을, 야수의 분노(2회)
-  // hits>1 인 소환수 다단 공격에도 적용. frenzy 활성 시만 가산되어 일반 1회 공격엔 영향 없음.
+  // 2026-05-19: spell_amp (스킬 데미지 증폭) — 본체 스킬에만 적용되던 것을 소환수에도 일관 반영.
+  // 현재 노드/접두사로는 spell_amp 소스가 없지만(향후 신규 노드/접두사 대비 코드 경로 유지).
+  const spellAmpForSummon = getPassive(s, 'spell_amp');
+  // multi_hit_amp_pct (격류/급류/해일/쓰나미 접두사) — 본체 multi_hit 스킬에만 적용되던 것.
+  // 다중 소환수 자체가 다단 공격(N마리 × 1타) 이라 항상 적용. 사용자 보고 "다단 데미지 증가 미적용" 대응.
   const multiHitAmpForSummon = getPassive(s, 'multi_hit_amp_pct') + (s.equipPrefixes.multi_hit_amp_pct || 0);
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
   const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
@@ -2829,8 +2829,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       // 외부 임시 배수 — 모든 소환수 공격 시전 시 ×2 등
       if (extraDmgMul !== 1.0) dmg = Math.round(dmg * extraDmgMul);
       // 2026-05-19: spell_amp / multi_hit_amp_pct 본체와 동일 적용 (소환수 누락 수정)
+      // multi_hit_amp_pct 는 다중 소환수 = 다단 공격 으로 간주, frenzy 무관 항상 적용.
       if (spellAmpForSummon > 0) dmg = Math.round(dmg * (1 + spellAmpForSummon / 100));
-      if (hits > 1 && multiHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + multiHitAmpForSummon / 100));
+      if (multiHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + multiHitAmpForSummon / 100));
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
