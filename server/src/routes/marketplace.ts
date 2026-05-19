@@ -422,10 +422,12 @@ router.get('/mine/:characterId', async (req: AuthedRequest, res: Response) => {
     ends_at: string; settled: boolean; cancelled: boolean;
     item_name: string; item_grade: string;
   }>(
+    // 2026-05-19: LIMIT 50 → 200 (계정당 활성 등록 한도 100 + 최근 만료/취소 일부 동시 노출).
+    // 사용자 보고: 일정 갯수 이상 등록 시 내 등록창에 보이지 않음.
     `SELECT a.id, a.item_id, a.item_quantity, a.buyout_price, a.ends_at, a.settled, a.cancelled,
             i.name AS item_name, i.grade AS item_grade
      FROM auctions a JOIN items i ON i.id = a.item_id
-     WHERE a.seller_id = $1 ORDER BY a.created_at DESC LIMIT 50`,
+     WHERE a.seller_id = $1 ORDER BY a.created_at DESC LIMIT 200`,
     [cid]
   );
   res.json(r.rows.map(row => ({
