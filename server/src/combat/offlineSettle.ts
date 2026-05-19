@@ -334,9 +334,12 @@ export async function settleOfflineRewards(charId: number): Promise<OfflineRewar
     const killsInc    = Math.floor(c.online_kill_rate * elapsedCapped);
     // dropMult — 온라인 rollDrops 와 동일 구조:
     //   personal boost × event_drop × (1 + flat 길드/접두사/영지 합) × 글로벌이벤트 배수
+    // 2026-05-20: 오프라인 드랍률 ×2 (사용자 결정) — 보상 체감 상향.
+    const OFFLINE_DROP_BONUS = 2.0;
     const dropMult    = dropBoostMul * eventDropMul
                       * (1 + flatDropBonusPct / 100)
-                      * geDropEffective;
+                      * geDropEffective
+                      * OFFLINE_DROP_BONUS;
 
     // 5) 드랍 — killsInc 가상 킬 시뮬 (multi-Bernoulli, 원본 rollDrops 와 동일 분포)
     //    online_drop_rate 는 EMA 통계용으로만 유지, 정산 추첨엔 사용 안 함 (인플레 방지).
