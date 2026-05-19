@@ -321,7 +321,7 @@ const SIGNATURE_BY_CLASS: Record<string, SignatureEntry[]> = {
     },
     {
       name: '치명의 일격',
-      desc: '치명타 발동 시 적에게 입히는 피해 +20%. 본체·분신·다타·2회차·반격 등 치명 판정이 있는 모든 경로에 일관 적용.',
+      desc: '치명타 발동 시 적에게 입히는 피해 +20%. 본체·분신·다타·2회차·반격 등 모든 치명타에 적용.',
     },
   ],
   cleric: [
