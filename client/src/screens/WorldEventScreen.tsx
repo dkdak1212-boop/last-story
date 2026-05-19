@@ -296,15 +296,10 @@ function ClassLeaderboard({
         데미지 순위 (직업별)
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 12 }}>
-        같은 클래스 안에서 비교됩니다. 각 열은 클래스 내 톱 순위.
+        같은 클래스 안에서 비교됩니다. 각 박스를 위아래로 스크롤해 확인.
       </div>
-      {/* 6 열 가로 나열 — 데스크탑 6열, 좁은 화면은 가로 스크롤 */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(6, minmax(150px, 1fr))',
-        gap: 10,
-        overflowX: 'auto',
-      }}>
+      {/* 클래스별 박스를 세로로 스택 — 모바일에서 풀폭 사용해 유저명 가독성 확보 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {CLASS_ORDER.map(cls => {
           const list = grouped.get(cls) ?? [];
           const isMine = myClassName === cls;
@@ -315,47 +310,51 @@ function ClassLeaderboard({
                 background: isMine ? 'rgba(218,165,32,0.08)' : 'var(--bg)',
                 border: `1px solid ${isMine ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: 6,
-                padding: 10,
-                minWidth: 0,
+                padding: '10px 12px',
               }}
             >
               <div style={{
-                fontSize: 13, fontWeight: 700,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                fontSize: 14, fontWeight: 700,
                 color: isMine ? 'var(--accent)' : 'var(--text)',
                 marginBottom: 8, paddingBottom: 6,
                 borderBottom: `1px solid ${isMine ? 'var(--accent)' : 'var(--border)'}`,
-                textAlign: 'center',
               }}>
-                {CLASS_KO[cls] || cls}{isMine ? ' (나)' : ''}
-                <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--text-dim)', marginLeft: 6 }}>
+                <span>{CLASS_KO[cls] || cls}{isMine ? ' (나)' : ''}</span>
+                <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-dim)' }}>
                   {list.length}명
                 </span>
               </div>
               {list.length === 0 ? (
-                <div style={{ color: 'var(--text-dim)', fontSize: 11, textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ color: 'var(--text-dim)', fontSize: 12, textAlign: 'center', padding: '8px 0' }}>
                   참여자 없음
                 </div>
-              ) : list.map(e => (
-                <div key={`${e.className}-${e.rank}`} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                  padding: '3px 0', fontSize: 11,
-                  borderBottom: '1px solid var(--border)',
-                  color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)',
-                  fontWeight: e.rank <= 3 ? 700 : 400,
-                  gap: 4,
-                }}>
-                  <span style={{
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    flex: '1 1 auto', minWidth: 0,
+              ) : (
+                list.map(e => (
+                  <div key={`${e.className}-${e.rank}`} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    padding: '5px 0', fontSize: 13,
+                    borderBottom: '1px solid var(--border)',
+                    color: e.rank <= 3 ? 'var(--accent)' : 'var(--text)',
+                    fontWeight: e.rank <= 3 ? 700 : 400,
+                    gap: 8,
                   }}>
-                    <span style={{ color: 'var(--text-dim)', marginRight: 4 }}>{e.rank}.</span>
-                    {e.characterName}
-                  </span>
-                  <span style={{ flex: '0 0 auto', fontVariantNumeric: 'tabular-nums', fontSize: 10 }}>
-                    {e.damage.toLocaleString()}
-                  </span>
-                </div>
-              ))}
+                    <span style={{
+                      flex: '1 1 auto', minWidth: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      <span style={{
+                        display: 'inline-block', minWidth: 26,
+                        color: 'var(--text-dim)', marginRight: 6,
+                      }}>{e.rank}.</span>
+                      {e.characterName}
+                    </span>
+                    <span style={{ flex: '0 0 auto', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
+                      {e.damage.toLocaleString()}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           );
         })}
