@@ -1,6 +1,6 @@
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { query } from '../db/pool.js';
+import { query, withTransaction } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import { refreshSessionStats } from '../combat/engine.js';
@@ -205,69 +205,81 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
       return res.status(400).json({ error: '반대 갈래에 이미 투자됨 — 두 갈래는 동시에 투자할 수 없습니다 (리스펙 후 다시 시도)' });
     }
   }
-  // 이미 투자
-  const dup = await query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
-  if (dup.rowCount && dup.rowCount > 0) return res.status(400).json({ error: 'already invested' });
-
-  // 반대의 균형 toggle 추적 — invest 전 상태
+  // 2026-05-19: 트랜잭션 + characters FOR UPDATE 로 race condition 차단.
+  // 이전: SELECT dup → INSERT → UPDATE 가 별도 쿼리로 분리되어, 같은 캐릭에 동시 invest
+  //   2건 시 양쪽이 dup 통과 → INSERT 1번 (ON CONFLICT) + UPDATE 2번 = 포인트만 2배 차감.
+  //   2건 chars 통계상 99 미달 case 의 원인 (사용자 보고).
+  // 반대의 균형 toggle 전 상태는 트랜잭션 밖에서 측정 (별도 쿼리, 영향 적음).
   const hadInvBefore = await hasBalanceInversion(id);
 
-  // 4포인트 노드: 경로상 미습득 선행 노드 자동 습득
-  const investedR = await query<{ node_id: number }>(
-    'SELECT node_id FROM character_nodes WHERE character_id = $1', [id]
-  );
-  const investedSet = new Set(investedR.rows.map(r => r.node_id));
+  type InvestResult =
+    | { ok: true; totalCost: number; investCount: number; remainingPoints: number }
+    | { ok: false; status: number; error: string };
 
-  // 재귀적으로 미습득 선행 노드 수집
-  async function collectUnmetPrereqs(nid: number, collected: Map<number, number>): Promise<void> {
-    if (collected.has(nid) || investedSet.has(nid)) return;
-    const nr = await query<{ cost: number; prerequisites: number[]; class_exclusive: string | null }>(
-      'SELECT cost, prerequisites, class_exclusive FROM node_definitions WHERE id = $1', [nid]
+  const txResult = await withTransaction<InvestResult>(async (tx) => {
+    // 1) characters 행 잠금 — 같은 캐릭 다른 invest 요청 직렬화
+    const lockR = await tx.query<{ node_points: number; paragon_points: number }>(
+      'SELECT node_points, COALESCE(paragon_points, 0) AS paragon_points FROM characters WHERE id = $1 FOR UPDATE', [id]
     );
-    if (nr.rowCount === 0) return;
-    const n = nr.rows[0];
-    if (n.class_exclusive && n.class_exclusive !== char!.class_name) return;
-    // 먼저 하위 선행 노드 수집
-    if (n.prerequisites && n.prerequisites.length > 0) {
-      for (const pid of n.prerequisites) {
-        await collectUnmetPrereqs(pid, collected);
+    if (lockR.rowCount === 0) return { ok: false, status: 404, error: 'character not found' };
+    const curNp = lockR.rows[0].node_points;
+    const curPp = lockR.rows[0].paragon_points;
+
+    // 2) dup 재확인 (락 안에서)
+    const dup = await tx.query('SELECT 1 FROM character_nodes WHERE character_id=$1 AND node_id=$2', [id, nodeId]);
+    if (dup.rowCount && dup.rowCount > 0) return { ok: false, status: 400, error: 'already invested' };
+
+    // 3) 현재 invested set 재로드 (락 안에서)
+    const investedR = await tx.query<{ node_id: number }>(
+      'SELECT node_id FROM character_nodes WHERE character_id = $1', [id]
+    );
+    const investedSet = new Set(investedR.rows.map(r => r.node_id));
+
+    // 4) 미습득 선행 노드 재귀 수집
+    async function collectUnmetPrereqs(nid: number, collected: Map<number, number>): Promise<void> {
+      if (collected.has(nid) || investedSet.has(nid)) return;
+      const nr = await tx.query<{ cost: number; prerequisites: number[]; class_exclusive: string | null }>(
+        'SELECT cost, prerequisites, class_exclusive FROM node_definitions WHERE id = $1', [nid]
+      );
+      if (nr.rowCount === 0) return;
+      const n = nr.rows[0];
+      if (n.class_exclusive && n.class_exclusive !== char!.class_name) return;
+      if (n.prerequisites && n.prerequisites.length > 0) {
+        for (const pid of n.prerequisites) await collectUnmetPrereqs(pid, collected);
       }
+      if (!investedSet.has(nid)) collected.set(nid, n.cost);
     }
-    if (!investedSet.has(nid)) {
-      collected.set(nid, n.cost);
-    }
-  }
 
-  // 모든 노드: 미습득 선행 노드 자동 습득
-  const toInvest = new Map<number, number>();
-  if (node.prerequisites && node.prerequisites.length > 0) {
-    for (const pid of node.prerequisites) {
-      await collectUnmetPrereqs(pid, toInvest);
+    const toInvest = new Map<number, number>();
+    if (node.prerequisites && node.prerequisites.length > 0) {
+      for (const pid of node.prerequisites) await collectUnmetPrereqs(pid, toInvest);
     }
-  }
-  toInvest.set(nodeId, node.cost);
+    toInvest.set(nodeId, node.cost);
+    const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
 
-  const totalCost = Array.from(toInvest.values()).reduce((a, b) => a + b, 0);
-  // paragon 노드: paragon_points 풀 사용. 일반 노드: node_points 풀.
-  if (isParagon) {
-    const ppR = await query<{ paragon_points: number }>('SELECT COALESCE(paragon_points, 0) AS paragon_points FROM characters WHERE id = $1', [id]);
-    const pp = ppR.rows[0]?.paragon_points ?? 0;
-    if (pp < totalCost) {
-      return res.status(400).json({ error: `paragon 포인트 부족 (필요: ${totalCost}, 보유: ${pp}). EXP 250억 = 1pt 구매 가능.` });
+    // 5) 비용 검증 + INSERT + UPDATE (모두 락 안)
+    if (isParagon) {
+      if (curPp < totalCost) {
+        return { ok: false, status: 400, error: `paragon 포인트 부족 (필요: ${totalCost}, 보유: ${curPp}). EXP 250억 = 1pt 구매 가능.` };
+      }
+      for (const [nid] of toInvest) {
+        await tx.query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+      }
+      await tx.query('UPDATE characters SET paragon_points = paragon_points - $1 WHERE id = $2', [totalCost, id]);
+      return { ok: true, totalCost, investCount: toInvest.size, remainingPoints: curNp };
+    } else {
+      if (curNp < totalCost) {
+        return { ok: false, status: 400, error: `포인트 부족 (필요: ${totalCost}, 보유: ${curNp})` };
+      }
+      for (const [nid] of toInvest) {
+        await tx.query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
+      }
+      await tx.query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
+      return { ok: true, totalCost, investCount: toInvest.size, remainingPoints: curNp - totalCost };
     }
-    for (const [nid] of toInvest) {
-      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
-    }
-    await query('UPDATE characters SET paragon_points = paragon_points - $1 WHERE id = $2', [totalCost, id]);
-  } else {
-    if (char.node_points < totalCost) {
-      return res.status(400).json({ error: `포인트 부족 (필요: ${totalCost}, 보유: ${char.node_points})` });
-    }
-    for (const [nid] of toInvest) {
-      await query('INSERT INTO character_nodes (character_id, node_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, nid]);
-    }
-    await query('UPDATE characters SET node_points = node_points - $1 WHERE id = $2', [totalCost, id]);
-  }
+  });
+
+  if (!txResult.ok) return res.status(txResult.status).json({ error: txResult.error });
 
   // 반대의 균형 toggle 후 max_hp diff 적용 (어뷰즈 차단)
   const hasInvAfter = await hasBalanceInversion(id);
@@ -276,7 +288,7 @@ router.post('/:id/nodes/invest', async (req: AuthedRequest, res: Response) => {
   // 전투 중 노드 투자 시 인메모리 세션 갱신 (패시브/스탯 즉시 반영)
   await refreshSessionStats(id).catch(() => {});
 
-  res.json({ ok: true, remainingPoints: char.node_points - totalCost, invested: toInvest.size });
+  res.json({ ok: true, remainingPoints: txResult.remainingPoints, invested: txResult.investCount });
 });
 
 // 전체 리셋 — 차원(paragon) 노드는 유지. 차원 리셋은 /paragon/:cid/reset 사용.
