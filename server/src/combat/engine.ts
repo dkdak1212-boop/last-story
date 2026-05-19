@@ -6228,7 +6228,13 @@ async function combatTick(): Promise<void> {
   for (const [charId, s] of activeSessions) {
     const startedAt = sessionStartedMap.get(charId) || 0;
     const inGrace = startedAt > 0 && (now - startedAt) < SESSION_SUBSCRIBE_GRACE_MS;
-    if (!inGrace && !sessionHasSubscriber(charId)) {
+    // 2026-05-19: 레이드(월드 보스) 세션은 구독자 없어도 계속 시뮬레이션.
+    // 사용자가 탭 이동/브라우저 닫음 → 소켓 disconnect → sessionHasSubscriber false 가 되더라도
+    // 이벤트 endsAt 까지 자연 데미지 누적. 사망 / event finishEvent / 24h cleanup 면제 로 종료.
+    // (이전: 라이드도 일반 경로로 onSessionGoOffline → activeSessions.delete 되어 즉시 종료. 사용자
+    //  보고 "탭 이동 시 전투 즉시 종료" 대응.)
+    const isRaid = !!s.raidEventId;
+    if (!inGrace && !isRaid && !sessionHasSubscriber(charId)) {
       // fire-and-forget — 다음 tick 까지 정리 완료, 이번 tick 은 시뮬 안 함
       onSessionGoOffline(s).catch(err => console.error('[combat] go-offline err', charId, err));
       continue;
@@ -7852,6 +7858,10 @@ setInterval(() => {
       stopCombatSession(charId, { keepLocation: false }).catch(e => console.error('[rift-110] timeout err', charId, e));
       continue;
     }
+    // 2026-05-19: 레이드 세션은 24h cleanup 면제 — 이벤트 endsAt 까지 자연 종료.
+    // stopCombatSession 이 라이드 분기에서 last_attack_at=NOW (60분 쿨다운) 처리하는
+    // 사이드이펙트 차단. 이벤트는 보통 9시간이라 24h cleanup 이 트리거되지 않지만 방어적 가드.
+    if (s.raidEventId) continue;
     // 세션 시작 시각 기록 (초회)
     if (!sessionStartedMap.has(charId)) {
       sessionStartedMap.set(charId, now);
