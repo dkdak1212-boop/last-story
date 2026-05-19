@@ -135,20 +135,26 @@ export function CombatScreen() {
 
       if (newLines.length > 0) {
         const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
+        // 2026-05-19: 숫자 패턴 쉼표 허용 (소환수 로그 등 toLocaleString 포맷 대응)
+        const NUMP = /\d{1,3}(?:,\d{3})*/;
+        const toIntC = (s: string) => parseInt(s.replace(/,/g, ''), 10);
+        const dotPopRe = new RegExp(`\\[도트\\] 몬스터에게 (${NUMP.source})`);
+        const skillPopRe = new RegExp(`\\[(.+?)\\]\\s+(?:\\d+타\\s+)?(?:추가 고정\\s+)?(${NUMP.source})\\s*(?:데미지)?(!)?`);
+        const extraPopRe = new RegExp(`추가 타격!\\s+(${NUMP.source})`);
         for (const line of newLines) {
-          const dotMatch = line.match(/\[도트\] 몬스터에게 (\d+)/);
+          const dotMatch = dotPopRe.exec(line);
           if (dotMatch) {
-            pops.push({ id: ++popupIdRef.current, value: parseInt(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
+            pops.push({ id: ++popupIdRef.current, value: toIntC(dotMatch[1]), crit: false, x: 20 + Math.random() * 40 });
             continue;
           }
-          const skillDmgMatch = line.match(/\[(.+?)\]\s+(?:\d+타\s+)?(?:추가 고정\s+)?(\d+)\s*(?:데미지)?(!)?/);
+          const skillDmgMatch = skillPopRe.exec(line);
           if (skillDmgMatch && skillDmgMatch[1] !== '도트') {
             const crit = !!skillDmgMatch[3];
-            pops.push({ id: ++popupIdRef.current, value: parseInt(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
+            pops.push({ id: ++popupIdRef.current, value: toIntC(skillDmgMatch[2]), crit, x: 10 + Math.random() * 60 });
           }
-          const extraMatch = line.match(/추가 타격! (\d+)/);
+          const extraMatch = extraPopRe.exec(line);
           if (extraMatch) {
-            pops.push({ id: ++popupIdRef.current, value: parseInt(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
+            pops.push({ id: ++popupIdRef.current, value: toIntC(extraMatch[1]), crit: false, x: 30 + Math.random() * 40 });
           }
           const fxMatch = line.match(/\[(.+?)\]/);
           if (fxMatch) {
@@ -1975,13 +1981,19 @@ const DamageMeter = memo(function DamageMeter({ log }: { log: string[] }) {
     //  3) 2회 발동:    "[스킬] 2회 발동! N"
     //  4) 데미지 라인: "[스킬] ... N 데미지(!)" — 독 폭발/실드 파괴/체력 비례 등 서두 포함
     //  5) 추가 타격:    "추가 타격! N"
-    const multiHitRe = /\[([^\]]+?)\]\s+\d+타\s+(\d+)(!?)/;
-    const doubleRe = /\[([^\]]+?)\]\s+2회 발동!\s+(\d+)(!?)/;
-    const damageRe = /\[([^\]]+?)\][^\[\n]*?(\d+)\s*데미지(!?)/;
+    // 2026-05-19: 숫자 패턴에 쉼표 허용 (\d{1,3}(?:,\d{3})*) — 서버 로그 중 소환수 라인이
+    // toLocaleString 으로 "1,234,567 데미지" 출력해 종전 \d+ 가 한 청크만 잡아 DPS 미스카운트.
+    const NUM = '\\d{1,3}(?:,\\d{3})*';
+    const multiHitRe = new RegExp(`\\[([^\\]]+?)\\]\\s+\\d+타\\s+(${NUM})(!?)`);
+    const doubleRe = new RegExp(`\\[([^\\]]+?)\\]\\s+2회 발동!\\s+(${NUM})(!?)`);
+    const damageRe = new RegExp(`\\[([^\\]]+?)\\][^\\[\\n]*?(${NUM})\\s*데미지(!?)`);
+    const dotRe = new RegExp(`\\[도트\\]\\s+몬스터에게\\s+(${NUM})`);
+    const extraRe = new RegExp(`추가 타격!\\s+(${NUM})`);
+    const toInt = (s: string) => parseInt(s.replace(/,/g, ''), 10);
     for (const line of newLines) {
-      const dotMatch = line.match(/\[도트\]\s+몬스터에게\s+(\d+)/);
+      const dotMatch = dotRe.exec(line);
       if (dotMatch) {
-        const dmg = parseInt(dotMatch[1]);
+        const dmg = toInt(dotMatch[1]);
         dotAccRef.current.total += dmg;
         dotAccRef.current.hits++;
         totalDmgRef.current += dmg;
@@ -1990,16 +2002,16 @@ const DamageMeter = memo(function DamageMeter({ log }: { log: string[] }) {
       const skillMatch = multiHitRe.exec(line) || doubleRe.exec(line) || damageRe.exec(line);
       if (skillMatch && skillMatch[1] !== '도트') {
         const name = skillMatch[1];
-        const dmg = parseInt(skillMatch[2]);
+        const dmg = toInt(skillMatch[2]);
         const crit = !!skillMatch[3];
         if (!accRef.current.has(name)) accRef.current.set(name, { total: 0, hits: 0, crits: 0, max: 0 });
         const s = accRef.current.get(name)!;
         s.total += dmg; s.hits++; if (crit) s.crits++; if (dmg > s.max) s.max = dmg;
         totalDmgRef.current += dmg;
       }
-      const extraMatch = line.match(/추가 타격!\s+(\d+)/);
+      const extraMatch = extraRe.exec(line);
       if (extraMatch) {
-        const dmg = parseInt(extraMatch[1]);
+        const dmg = toInt(extraMatch[1]);
         if (!accRef.current.has('추가 타격')) accRef.current.set('추가 타격', { total: 0, hits: 0, crits: 0, max: 0 });
         const s = accRef.current.get('추가 타격')!;
         s.total += dmg; s.hits++;
