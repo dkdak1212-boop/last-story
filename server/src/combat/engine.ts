@@ -2719,6 +2719,12 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   // multi_hit_amp_pct (격류/급류/해일/쓰나미 접두사) — 본체 multi_hit 스킬에만 적용되던 것.
   // 다중 소환수 자체가 다단 공격(N마리 × 1타) 이라 항상 적용. 사용자 보고 "다단 데미지 증가 미적용" 대응.
   const multiHitAmpForSummon = getPassive(s, 'multi_hit_amp_pct') + (s.equipPrefixes.multi_hit_amp_pct || 0);
+  // 2026-05-19: damage_taken_up 디버프 (영역 선포 +50%, 신수 형 +25%, 방패 강타 +20% 등)
+  // 본체 스킬은 buildDmgPrefixCache/applyDamagePrefixes 에서 합산되지만 processSummons 에는
+  // 미반영되어 소환사 주력 DPS인 소환수에 약화가 무용지물이던 버그. 같은 source='player' 디버프
+  // 를 합산하여 소환수 데미지 곱연산에 추가.
+  const dtUpEffForSummon = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
+  const dtUpMulForSummon = dtUpEffForSummon ? (1 + dtUpEffForSummon.value / 100) : 1.0;
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
   const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
   // 본체 치명타 데미지 보너스 (crit_dmg_pct/paragon_crit_dmg_pct/DEX×0.35/cri-overflow 등) 도 소환수에 합산.
@@ -2832,6 +2838,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       // multi_hit_amp_pct 는 다중 소환수 = 다단 공격 으로 간주, frenzy 무관 항상 적용.
       if (spellAmpForSummon > 0) dmg = Math.round(dmg * (1 + spellAmpForSummon / 100));
       if (multiHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + multiHitAmpForSummon / 100));
+      // damage_taken_up 디버프 (영역 선포 등) — 소환수 데미지에도 적용
+      if (dtUpMulForSummon !== 1.0) dmg = Math.round(dmg * dtUpMulForSummon);
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
