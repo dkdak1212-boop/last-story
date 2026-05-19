@@ -1544,6 +1544,12 @@ function addEffect(s: ActiveSession, effect: Omit<StatusEffect, 'id'>) {
       return; // 적용 없이 조용히 무시
     }
   }
+  // 2026-05-19: buff_extend 패시브 (소환사 north_summoner_v2 "마도 술식 지속") —
+  // 타임드 효과 remainingActions 를 +N. dead key 활성화.
+  if (effect.remainingActions > 0) {
+    const bx = getPassive(s, 'buff_extend');
+    if (bx > 0) effect.remainingActions += bx;
+  }
   // 110 몬스터: cc_immune 플래그 — 플레이어가 건 CC/슬로우 무시
   if (s.monsterCcImmune && effect.source === 'player') {
     const isSlow = effect.type === 'speed_mod' && effect.value < 0;
@@ -2241,6 +2247,9 @@ function getCritDmgBonus(s: ActiveSession): number {
   let bonus = getPassive(s, 'crit_damage') + (s.equipPrefixes.crit_dmg_pct || 0);
   // 차원의 정수 — 잔혹 (paragon_crit_dmg_pct, value 1 = +1% 치명타 데미지)
   bonus += getPassive(s, 'paragon_crit_dmg_pct');
+  // 2026-05-19: 소환사 north_summoner_v2 노드 (괴수 치명타 강화 등) key=crit_dmg_amp 가
+  // 어디서도 안 읽혀 사실상 dead 였음. 본체 치피 합산에 추가하여 활성화.
+  bonus += getPassive(s, 'crit_dmg_amp');
   // 망토 정수 강화 — crit_dmg_lv × 0.5
   bonus += s.cloakCritDmgPct || 0;
   bonus += (s.playerStats.dex || 0) * 0.35;
@@ -2704,6 +2713,12 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const matk = s.playerStats.matk;
   const summonAmp = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
   const summonDouble = getPassive(s, 'summon_double_hit') + (s.equipPrefixes.summon_double_hit || 0);
+  // 2026-05-19: spell_amp (스킬 데미지 증폭 — 전 직업 적용 코멘트되어 있지만 소환수 미적용이던 문제 수정).
+  // 노드 + 접두사 합산하여 소환수 데미지에도 일관 반영.
+  const spellAmpForSummon = getPassive(s, 'spell_amp') + (s.equipPrefixes.spell_amp || 0);
+  // multi_hit_amp_pct (다단 데미지 증가) — 본체 multi_hit 스킬에만 적용되던 것을, 야수의 분노(2회)
+  // hits>1 인 소환수 다단 공격에도 적용. frenzy 활성 시만 가산되어 일반 1회 공격엔 영향 없음.
+  const multiHitAmpForSummon = getPassive(s, 'multi_hit_amp_pct') + (s.equipPrefixes.multi_hit_amp_pct || 0);
   // 소환수 치명타 데미지 추가 % — equipPrefixes / passive 양쪽 합산. (구) summon_max_extra 대체
   const summonCritDmgAmp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0);
   // 본체 치명타 데미지 보너스 (crit_dmg_pct/paragon_crit_dmg_pct/DEX×0.35/cri-overflow 등) 도 소환수에 합산.
@@ -2813,6 +2828,9 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       if (paragonMult !== 1.0) dmg = Math.round(dmg * paragonMult);
       // 외부 임시 배수 — 모든 소환수 공격 시전 시 ×2 등
       if (extraDmgMul !== 1.0) dmg = Math.round(dmg * extraDmgMul);
+      // 2026-05-19: spell_amp / multi_hit_amp_pct 본체와 동일 적용 (소환수 누락 수정)
+      if (spellAmpForSummon > 0) dmg = Math.round(dmg * (1 + spellAmpForSummon / 100));
+      if (hits > 1 && multiHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + multiHitAmpForSummon / 100));
       s.monsterHp -= dmg;
       totalSummonDmg += dmg;
       if (lifesteal > 0) totalLifesteal += Math.round(dmg * lifesteal / 100);
@@ -4753,7 +4771,8 @@ function monsterAction(s: ActiveSession): void {
       dmg = Math.round(dmg * (1 - dtDown / 100));
     }
     // 직업 전용 노드 — 받는 데미지 감소 (incoming_dmg_pct_down, 패시브 합산)
-    const passDtDown = getPassive(s, 'incoming_dmg_pct_down');
+    // 2026-05-19: damage_reduce_passive 도 합산 (소환사 north_summoner_v2 "신수 받피감 강화" dead key 활성화)
+    const passDtDown = getPassive(s, 'incoming_dmg_pct_down') + getPassive(s, 'damage_reduce_passive');
     if (passDtDown > 0 && dmg > 0) {
       dmg = Math.round(dmg * (1 - passDtDown / 100));
     }
@@ -6274,6 +6293,19 @@ async function combatTick(): Promise<void> {
       // HP 가득이어도 회복 환원 키스톤은 의도된 회복량(오버회복분 포함) 누적.
       if (s.equipPrefixes.hp_regen && s.playerHp > 0) {
         const intended = Math.round((s.equipPrefixes.hp_regen / 10) * tickScale);
+        if (intended > 0) {
+          if (s.playerHp < s.playerMaxHp) {
+            s.playerHp = Math.min(s.playerMaxHp, s.playerHp + intended);
+            s.dirty = true;
+          }
+          trackHealForKeystone(s, intended);
+        }
+      }
+      // 2026-05-19: hp_regen_pct 패시브 (소환사 north_summoner_v2 "신수 재생" 등) —
+      // dead key 였음. maxHp 의 N% 를 초당 (100ms 당 N/10 %) 회복.
+      const hpRegenPct = getPassive(s, 'hp_regen_pct');
+      if (hpRegenPct > 0 && s.playerHp > 0 && s.playerMaxHp > 0) {
+        const intended = Math.round((s.playerMaxHp * hpRegenPct / 100 / 10) * tickScale);
         if (intended > 0) {
           if (s.playerHp < s.playerMaxHp) {
             s.playerHp = Math.min(s.playerMaxHp, s.playerHp + intended);
