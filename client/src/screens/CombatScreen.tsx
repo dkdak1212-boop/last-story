@@ -136,10 +136,11 @@ export function CombatScreen() {
       if (newLines.length > 0) {
         const pops: { id: number; value: number; crit: boolean; x: number }[] = [];
         // 2026-05-19: 숫자 패턴 쉼표 허용 (소환수 로그 등 toLocaleString 포맷 대응)
+        //             + 데미지/피해 양쪽 접미사 매칭 (분신/반격 로그는 '피해' 사용)
         const NUMP = /\d{1,3}(?:,\d{3})*/;
         const toIntC = (s: string) => parseInt(s.replace(/,/g, ''), 10);
         const dotPopRe = new RegExp(`\\[도트\\] 몬스터에게 (${NUMP.source})`);
-        const skillPopRe = new RegExp(`\\[(.+?)\\]\\s+(?:\\d+타\\s+)?(?:추가 고정\\s+)?(${NUMP.source})\\s*(?:데미지)?(!)?`);
+        const skillPopRe = new RegExp(`\\[(.+?)\\]\\s+(?:\\d+타\\s+)?(?:추가 고정\\s+)?(${NUMP.source})\\s*(?:데미지|피해)?(!)?`);
         const extraPopRe = new RegExp(`추가 타격!\\s+(${NUMP.source})`);
         for (const line of newLines) {
           const dotMatch = dotPopRe.exec(line);
@@ -1984,9 +1985,11 @@ const DamageMeter = memo(function DamageMeter({ log }: { log: string[] }) {
     // 2026-05-19: 숫자 패턴에 쉼표 허용 (\d{1,3}(?:,\d{3})*) — 서버 로그 중 소환수 라인이
     // toLocaleString 으로 "1,234,567 데미지" 출력해 종전 \d+ 가 한 청크만 잡아 DPS 미스카운트.
     const NUM = '\\d{1,3}(?:,\\d{3})*';
+    // 2026-05-19: 분신/반격/기타 일부 로그가 '피해' 접미사 사용 — '데미지' 와 둘 다 매칭.
+    const HIT_END = '(?:데미지|피해)';
     const multiHitRe = new RegExp(`\\[([^\\]]+?)\\]\\s+\\d+타\\s+(${NUM})(!?)`);
     const doubleRe = new RegExp(`\\[([^\\]]+?)\\]\\s+2회 발동!\\s+(${NUM})(!?)`);
-    const damageRe = new RegExp(`\\[([^\\]]+?)\\][^\\[\\n]*?(${NUM})\\s*데미지(!?)`);
+    const damageRe = new RegExp(`\\[([^\\]]+?)\\][^\\[\\n]*?(${NUM})\\s*${HIT_END}(!?)`);
     const dotRe = new RegExp(`\\[도트\\]\\s+몬스터에게\\s+(${NUM})`);
     const extraRe = new RegExp(`추가 타격!\\s+(${NUM})`);
     const toInt = (s: string) => parseInt(s.replace(/,/g, ''), 10);
