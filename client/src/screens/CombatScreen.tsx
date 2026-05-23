@@ -8,6 +8,7 @@ import { MonsterIcon } from '../components/ui/MonsterIcon';
 import type { ClassName, CombatSnapshot, CombatSkillInfo, StatusEffect } from '../types';
 import { io as socketIo, Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/authStore';
+import { startKeepAlive, stopKeepAlive } from '../util/keepAlive';
 
 const API_BASE = '';
 
@@ -104,6 +105,8 @@ export function CombatScreen() {
 
     socket.on('connect', () => {
       socket.emit('combat:subscribe', active.id);
+      // 백그라운드 탭 스로틀 방지 (방치 전투 화면이 멈추는 문제) — 무음 오디오 keepalive
+      startKeepAlive();
     });
 
     socket.on(`combat:${active.id}`, (snapshot: CombatSnapshot) => {
@@ -193,10 +196,26 @@ export function CombatScreen() {
       }
     }).catch(() => {});
 
+    // 탭 복귀 시 재동기화 — 백그라운드 스로틀로 밀린 상태를 즉시 최신화 + 소켓 깨우기
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      startKeepAlive(); // 정지됐을 수 있는 오디오 컨텍스트 재개
+      if (!socket.connected) { try { socket.connect(); } catch { /* noop */ } }
+      // 밀려있던 로그 폭주 방지: 최신 상태로 스냅 + 로그 기준점 리셋
+      api<CombatSnapshot>(`/characters/${active.id}/combat/state`).then(s => {
+        prevLogRef.current = [...s.log];
+        if (s.monster) prevMonsterHp.current = s.monster.hp;
+        setState(s);
+      }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
       socket.emit('combat:unsubscribe', active.id);
       socket.disconnect();
       socketRef.current = null;
+      stopKeepAlive();
     };
   }, [active?.id, token]);
 
