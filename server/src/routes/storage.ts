@@ -124,8 +124,12 @@ router.post('/deposit', async (req: AuthedRequest, res: Response) => {
     );
     if (inv.rowCount === 0) return { error: '아이템 없음', status: 404 };
     const it = inv.rows[0];
-    // 창고에는 장비만 보관 가능
-    if (!it.item_slot) return { error: '창고에는 장비만 보관할 수 있습니다.', status: 400 };
+    // 창고에는 장비만 보관 가능 — 단, 신비한 가루(910)는 예외.
+    // 비귀속 T4 장비는 어차피 창고로 옮겨 추출하면 가루가 넘어가므로 제한이 무의미했음 (유저 건의 2026-05-23)
+    const MYSTIC_POWDER_ID = 910;
+    if (!it.item_slot && it.item_id !== MYSTIC_POWDER_ID) {
+      return { error: '창고에는 장비와 신비한 가루만 보관할 수 있습니다.', status: 400 };
+    }
     // 망토는 캐릭 영구 장착 — 창고 이동 차단 (2026-05-18)
     if (it.item_slot === 'cloak') return { error: '망토는 창고에 보관할 수 없습니다.', status: 400 };
     if (it.item_id === 320) return { error: '찢어진 스크롤은 창고에 보관할 수 없습니다.', status: 400 };
