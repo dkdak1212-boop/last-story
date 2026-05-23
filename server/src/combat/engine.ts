@@ -3,7 +3,7 @@ import { query } from '../db/pool.js';
 import { calcDamage, type EffectiveStats } from '../game/formulas.js';
 import { applyExpGain } from '../game/leveling.js';
 import { clampCharacterPoints } from '../game/pointClamper.js';
-import { getGuildSkillsForCharacter, contributeGuildExp, GUILD_SKILL_PCT } from '../game/guild.js';
+import { getGuildSkillsForCharacter, contributeGuildExp, guildSkillTotalPct } from '../game/guild.js';
 import { addTerritoryScore, getTerritoryBonusForChar } from '../game/territory.js';
 import { loadCharacter, getEffectiveStats, getNodePassives } from '../game/character.js';
 import { addItemToInventory, deliverToMailbox, BASE_INVENTORY_SLOTS, type EquipPreroll } from '../game/inventory.js';
@@ -6612,9 +6612,9 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
   // 3) 길드 버프 (길드 스킬 + 24시간 길드 버프 합산)
   try {
     const gskills = await getGuildSkillsForCharacter(s.characterId);
-    let goldPct = gskills.gold * GUILD_SKILL_PCT.gold;
-    let expPct = gskills.exp * GUILD_SKILL_PCT.exp;
-    let dropPct = gskills.drop * GUILD_SKILL_PCT.drop;
+    let goldPct = guildSkillTotalPct('gold', gskills.gold);
+    let expPct = guildSkillTotalPct('exp', gskills.exp);
+    let dropPct = guildSkillTotalPct('drop', gskills.drop);
 
     // 길드 전체 24시간 버프 (+25%) — guild_boss_shop 의 guild_buff_24h_all 로 적립
     const gbR = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
@@ -6630,7 +6630,7 @@ async function refreshSessionMeta(s: ActiveSession): Promise<void> {
       if (gbR.rows[0].drop_boost_until && new Date(gbR.rows[0].drop_boost_until) > now) dropPct += 25;
     }
 
-    s.cachedGuildBuffs = { hp: gskills.hp * GUILD_SKILL_PCT.hp, gold: goldPct, exp: expPct, drop: dropPct };
+    s.cachedGuildBuffs = { hp: guildSkillTotalPct('hp', gskills.hp), gold: goldPct, exp: expPct, drop: dropPct };
   } catch {}
 
   s.metaDirty = false;

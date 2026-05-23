@@ -212,15 +212,15 @@ router.get('/:characterId/status', async (req: AuthedRequest, res: Response) => 
 
   // ── 획득 보너스 요약 (gold/exp/drop) ──
   // 소스: 접두사 + 길드 스킬(+ 길드 이벤트 부스트) + 영토 + 개인 부스트 + 글로벌 이벤트
-  const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('../game/guild.js');
+  const { getGuildSkillsForCharacter, guildSkillTotalPct } = await import('../game/guild.js');
   const { getTerritoryBonusForChar } = await import('../game/territory.js');
   const { getActiveGlobalEvent } = await import('../game/globalEvent.js');
   const now = new Date();
 
   const gskills = await getGuildSkillsForCharacter(cid);
-  let guildGoldPct = gskills.gold * GUILD_SKILL_PCT.gold;
-  let guildExpPct = gskills.exp * GUILD_SKILL_PCT.exp;
-  let guildDropPct = gskills.drop * GUILD_SKILL_PCT.drop;
+  let guildGoldPct = guildSkillTotalPct('gold', gskills.gold);
+  let guildExpPct = guildSkillTotalPct('exp', gskills.exp);
+  let guildDropPct = guildSkillTotalPct('drop', gskills.drop);
   try {
     const gbR = await query<{ exp_boost_until: string | null; gold_boost_until: string | null; drop_boost_until: string | null }>(
       `SELECT g.exp_boost_until, g.gold_boost_until, g.drop_boost_until

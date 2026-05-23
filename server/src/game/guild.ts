@@ -3,7 +3,7 @@
 
 import { query } from '../db/pool.js';
 
-export const GUILD_MAX_LEVEL = 20;
+export const GUILD_MAX_LEVEL = 40;
 export const GUILD_EXP_RATIO = 0.05; // 멤버 사냥 EXP의 5% 기여
 export const DAILY_DONATION_CAP = 1_000_000;
 
@@ -25,21 +25,40 @@ export const GUILD_SKILL_LABEL: Record<GuildSkillKey, string> = {
   drop: '드랍',
 };
 
-export const GUILD_SKILL_MAX = 10;
+export const GUILD_SKILL_MAX = 20;
+// 11단계부터 %/단계 효과 절반 (인플레 완화)
+export const GUILD_SKILL_TAPER_LEVEL = 10;
 
-// 스킬 업그레이드 비용 (다음 단계 비용)
-export function getGuildSkillUpgradeCost(nextLevel: number): number {
-  return nextLevel * 100_000;
+// 스킬 누적 효과(%) — 테이퍼 반영. 1~10단계 전체 효과, 11~20단계 절반.
+export function guildSkillTotalPct(key: GuildSkillKey, level: number): number {
+  const pct = GUILD_SKILL_PCT[key];
+  if (level <= GUILD_SKILL_TAPER_LEVEL) return level * pct;
+  return GUILD_SKILL_TAPER_LEVEL * pct + (level - GUILD_SKILL_TAPER_LEVEL) * pct / 2;
 }
 
-// 스킬 업그레이드 길드레벨 요구치
+// 다음 단계로 올릴 때의 증가폭 (테이퍼 반영) — 클라 표시용
+export function guildSkillNextIncrement(key: GuildSkillKey, level: number): number {
+  if (level >= GUILD_SKILL_MAX) return 0;
+  return guildSkillTotalPct(key, level + 1) - guildSkillTotalPct(key, level);
+}
+
+// 스킬 업그레이드 비용 (다음 단계 비용) — 11단계+ 가파르게(자금 기부 의미 복원)
+export function getGuildSkillUpgradeCost(nextLevel: number): number {
+  if (nextLevel <= GUILD_SKILL_TAPER_LEVEL) return nextLevel * 100_000;
+  return 1_000_000 + (nextLevel - GUILD_SKILL_TAPER_LEVEL) * 2_000_000;
+}
+
+// 스킬 업그레이드 길드레벨 요구치 (스킬 N단계 = 길드 2N) → 스킬20 = 길드40
 export function getGuildSkillReqLevel(nextLevel: number): number {
   return nextLevel * 2;
 }
 
 // 길드 EXP → 다음 레벨 임계치
+//  - 1~19: 기존 곡선 유지 (저렙 길드 영향 없음)
+//  - 20+: 엔드게임 곡선 (20→40 합계 약 2.2조, 상위 길드도 1~2달+)
 export function expToNextGuild(level: number): number {
-  return Math.floor(200_000 * Math.pow(level, 2.4));
+  if (level < 20) return Math.floor(200_000 * Math.pow(level, 2.4));
+  return Math.floor(15_000_000_000 * Math.pow(1.18, level - 20));
 }
 
 // 길드 스킬 캐시 (단순 in-memory, 5초 TTL)

@@ -4,9 +4,10 @@ import { query, withTransaction } from '../db/pool.js';
 import { authRequired, type AuthedRequest } from '../middleware/auth.js';
 import { loadCharacterOwned } from '../game/character.js';
 import {
-  GUILD_SKILL_KEYS, GUILD_SKILL_PCT, GUILD_SKILL_MAX, GUILD_SKILL_LABEL,
+  GUILD_SKILL_KEYS, GUILD_SKILL_MAX, GUILD_SKILL_LABEL,
   GUILD_MAX_LEVEL, DAILY_DONATION_CAP,
   expToNextGuild, getGuildSkillUpgradeCost, getGuildSkillReqLevel,
+  guildSkillTotalPct, guildSkillNextIncrement,
   invalidateGuildSkillCache,
   setMemberGuild, clearMemberGuild,
 } from '../game/guild.js';
@@ -134,8 +135,8 @@ router.get('/my/:characterId', async (req: AuthedRequest, res: Response) => {
     return {
       key, label: GUILD_SKILL_LABEL[key],
       level, max: GUILD_SKILL_MAX,
-      pctPerLevel: GUILD_SKILL_PCT[key],
-      currentPct: level * GUILD_SKILL_PCT[key],
+      pctPerLevel: guildSkillNextIncrement(key, level), // 다음 단계 증가폭(테이퍼 반영)
+      currentPct: guildSkillTotalPct(key, level),
       nextCost: level >= GUILD_SKILL_MAX ? 0 : getGuildSkillUpgradeCost(next),
       nextReqLevel: level >= GUILD_SKILL_MAX ? 0 : getGuildSkillReqLevel(next),
     };

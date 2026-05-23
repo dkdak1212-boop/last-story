@@ -158,10 +158,10 @@ export async function getEffectiveStats(char: CharacterRow): Promise<EffectiveSt
   for (const [k, v] of Object.entries(setBonus)) {
     combinedNodeBonus[k as keyof Stats] = (combinedNodeBonus[k as keyof Stats] ?? 0) + (v as number);
   }
-  // 길드 HP 버프 (1%/단계)
-  const { getGuildSkillsForCharacter, GUILD_SKILL_PCT } = await import('./guild.js');
+  // 길드 HP 버프 (테이퍼 반영)
+  const { getGuildSkillsForCharacter, guildSkillTotalPct } = await import('./guild.js');
   const gskills = await getGuildSkillsForCharacter(char.id);
-  const guildHpBonus = gskills.hp * GUILD_SKILL_PCT.hp;
+  const guildHpBonus = guildSkillTotalPct('hp', gskills.hp);
   const adjustedMaxHp = Math.round(char.max_hp * (1 + guildHpBonus / 100));
 
   // 무한의 정수 — 영구 주력 스탯 보너스 (STR/DEX/INT/VIT 캡 +200)
