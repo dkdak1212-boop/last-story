@@ -392,7 +392,13 @@ router.post('/:id/node-presets/:idx/save', async (req: AuthedRequest, res: Respo
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
-  const nr = await query<{ node_id: number }>('SELECT node_id FROM character_nodes WHERE character_id = $1', [id]);
+  // 차원(paragon) 노드는 프리셋에 저장하지 않음 — 노드 프리셋은 일반 노드 전용.
+  const nr = await query<{ node_id: number }>(
+    `SELECT node_id FROM character_nodes
+       WHERE character_id = $1
+         AND node_id NOT IN (SELECT id FROM node_definitions WHERE zone = 'paragon')`,
+    [id]
+  );
   const nodeIds = nr.rows.map(r => r.node_id);
 
   await query(
@@ -426,28 +432,29 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
 
   // 현재 노드 환불 — paragon zone 과 normal 분리 (reset 라우트와 동일 정책)
   // LEFT JOIN — orphan character_nodes 누락 차단.
-  const totalR = await query<{ paragon_total: string; normal_total: string }>(
-    `SELECT
-        COALESCE(SUM(CASE WHEN nd.zone = 'paragon' THEN COALESCE(nd.cost, 0) ELSE 0 END), 0)::text AS paragon_total,
-        COALESCE(SUM(CASE WHEN nd.zone IS NULL OR nd.zone <> 'paragon' THEN COALESCE(nd.cost, 1) ELSE 0 END), 0)::text AS normal_total
+  // 일반(non-paragon) 노드만 환불 — 차원 노드는 프리셋이 건드리지 않음.
+  const totalR = await query<{ normal_total: string }>(
+    `SELECT COALESCE(SUM(CASE WHEN nd.zone IS NULL OR nd.zone <> 'paragon' THEN COALESCE(nd.cost, 1) ELSE 0 END), 0)::text AS normal_total
        FROM character_nodes cn
        LEFT JOIN node_definitions nd ON nd.id = cn.node_id
       WHERE cn.character_id = $1`,
     [id]
   );
-  const paragonRefund = Number(totalR.rows[0].paragon_total);
   const normalRefund = Number(totalR.rows[0].normal_total);
 
   // 반대의 균형 toggle 추적 — preset-load 전 상태
   const hadInvBefore = await hasBalanceInversion(id);
 
-  await query('DELETE FROM character_nodes WHERE character_id = $1', [id]);
+  // 차원(paragon) 노드 보존 — 일반 노드만 삭제·환불.
   await query(
-    `UPDATE characters
-        SET node_points = node_points + $1,
-            paragon_points = COALESCE(paragon_points, 0) + $2
-      WHERE id = $3`,
-    [normalRefund, paragonRefund, id]
+    `DELETE FROM character_nodes
+       WHERE character_id = $1
+         AND node_id NOT IN (SELECT id FROM node_definitions WHERE zone = 'paragon')`,
+    [id]
+  );
+  await query(
+    `UPDATE characters SET node_points = node_points + $1 WHERE id = $2`,
+    [normalRefund, id]
   );
 
   // 프리셋 노드 투자 — paragon 은 paragon_points, 그 외는 node_points 에서 차감
@@ -494,6 +501,7 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
       if (investedSet.has(nid)) continue;
       const def = nodeMap.get(nid);
       if (!def) continue;
+      if (def.zone === 'paragon') continue; // 차원 노드는 프리셋 로드 대상 아님 — 현재 차원 노드 보존
       // 클래스 제한
       if (def.class_exclusive && def.class_exclusive !== char.class_name) { continue; }
       // 갈래 상호배제
@@ -521,9 +529,10 @@ router.post('/:id/node-presets/:idx/load', async (req: AuthedRequest, res: Respo
   // 검증 통과 못 한 노드 수
   skipped = targetNodeIds.length - invested;
 
+  // 차원 노드를 건드리지 않으므로 paragon_points 는 갱신하지 않음 (node_points 만).
   await query(
-    'UPDATE characters SET node_points = $1, paragon_points = $2 WHERE id = $3',
-    [points, paragonPoints, id]
+    'UPDATE characters SET node_points = $1 WHERE id = $2',
+    [points, id]
   );
 
   // 반대의 균형 toggle 후 max_hp diff 적용
