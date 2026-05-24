@@ -1146,13 +1146,20 @@ async function runMigrations() {
       await query(`
         CREATE TABLE IF NOT EXISTS character_skill_presets (
           character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-          preset_idx   INTEGER NOT NULL CHECK (preset_idx BETWEEN 1 AND 3),
+          preset_idx   INTEGER NOT NULL CHECK (preset_idx BETWEEN 1 AND 6),
           name         TEXT NOT NULL DEFAULT '',
           skill_ids    INTEGER[] NOT NULL DEFAULT '{}',
           PRIMARY KEY (character_id, preset_idx)
         )
       `);
     } catch (e) { console.error('[migration] skill_presets error:', e); }
+  }
+  // 프리셋 슬롯 3 → 6 확장 (노드·장비·스킬). 기존 테이블 CHECK 제약(preset_idx 1~3)을 1~6 으로 재설정 (멱등).
+  for (const t of ['character_node_presets', 'character_equip_presets', 'character_skill_presets']) {
+    try {
+      await query(`ALTER TABLE ${t} DROP CONSTRAINT IF EXISTS ${t}_preset_idx_check`);
+      await query(`ALTER TABLE ${t} ADD CONSTRAINT ${t}_preset_idx_check CHECK (preset_idx BETWEEN 1 AND 6)`);
+    } catch (e) { console.error(`[migration] preset slots 6 (${t}):`, e); }
   }
   // VIT 1당 HP +10 → +20 변경에 따른 소급 보너스 (1회만)
   {

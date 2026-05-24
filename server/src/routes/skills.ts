@@ -143,8 +143,8 @@ router.get('/:id/skill-presets', async (req: AuthedRequest, res: Response) => {
     `SELECT preset_idx, name, skill_ids FROM character_skill_presets WHERE character_id = $1 ORDER BY preset_idx`,
     [id]
   );
-  // 3개 슬롯 보장
-  const presets = [1, 2, 3].map(idx => {
+  // 6개 슬롯 보장
+  const presets = [1, 2, 3, 4, 5, 6].map(idx => {
     const found = r.rows.find(row => row.preset_idx === idx);
     return {
       idx,
@@ -160,7 +160,7 @@ router.get('/:id/skill-presets', async (req: AuthedRequest, res: Response) => {
 router.post('/:id/skill-presets/:idx/save', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const idx = Number(req.params.idx);
-  if (![1, 2, 3].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
+  if (![1, 2, 3, 4, 5, 6].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
@@ -189,7 +189,7 @@ router.post('/:id/skill-presets/:idx/save', async (req: AuthedRequest, res: Resp
 router.post('/:id/skill-presets/:idx/load', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const idx = Number(req.params.idx);
-  if (![1, 2, 3].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
+  if (![1, 2, 3, 4, 5, 6].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
 
@@ -239,7 +239,7 @@ router.post('/:id/skill-presets/:idx/load', async (req: AuthedRequest, res: Resp
 router.post('/:id/skill-presets/:idx/rename', async (req: AuthedRequest, res: Response) => {
   const id = Number(req.params.id);
   const idx = Number(req.params.idx);
-  if (![1, 2, 3].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
+  if (![1, 2, 3, 4, 5, 6].includes(idx)) return res.status(400).json({ error: 'invalid preset index' });
   const char = await loadCharacterOwned(id, req.userId!);
   if (!char) return res.status(404).json({ error: 'not found' });
   const name = (req.body?.name || '').toString().trim().slice(0, 20);
