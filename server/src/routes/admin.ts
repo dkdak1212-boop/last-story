@@ -517,7 +517,7 @@ const rogueShadowResetHandler = async (_req: AuthedRequest, res: Response) => {
       ('그림자 가속',     '스피드 +50',                'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"spd","value":50}]'::jsonb, 32, -19),
       ('독의 군주',       '독 도트 +30%',              'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"poison_amp","value":30}]'::jsonb, 33, -19),
       ('회피 강화',       '회피 +10',                  'north_rogue', 'medium', 2, 'rogue', '[{"type":"stat","stat":"dodge","value":10}]'::jsonb, 34, -19),
-      ('그림자 흡혈',     '본체+분신 데미지 5% 흡혈',  'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"lifesteal_amp","value":5}]'::jsonb, 35, -19),
+      ('그림자 흡혈',     '본체+분신 데미지 5% 흡혈',  'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"lifesteal_pct","value":5}]'::jsonb, 35, -19),
       ('분신 다단',       '분신 25% 확률 2회 공격',    'north_rogue', 'medium', 2, 'rogue', '[{"type":"passive","key":"clone_double_hit_pct","value":25}]'::jsonb, 36, -19)`);
 
     // large 3 (4pt) — y=-21
