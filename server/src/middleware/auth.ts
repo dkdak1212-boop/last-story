@@ -14,7 +14,7 @@ export interface AuthedRequest extends Request {
 
 export function signToken(userId: number, username: string): string {
   return jwt.sign({ userId, username }, SECRET, {
-    expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'],
+    expiresIn: (process.env.JWT_EXPIRES_IN || '30d') as jwt.SignOptions['expiresIn'],
   });
 }
 
