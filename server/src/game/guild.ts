@@ -1,7 +1,7 @@
 // 길드 시스템 헬퍼 — v1.0
 // 길드 레벨, 스킬, 기여도
 
-import { query } from '../db/pool.js';
+import { query, withTransaction } from '../db/pool.js';
 
 export const GUILD_MAX_LEVEL = 40;
 export const GUILD_EXP_RATIO = 0.05; // 멤버 사냥 EXP의 5% 기여
@@ -240,4 +240,84 @@ export function startGuildContribFlushLoop(): void {
 }
 export function stopGuildContribFlushLoop(): void {
   if (flushInterval) { clearInterval(flushInterval); flushInterval = null; }
+}
+
+// ── 길드장 자동 인계 ──
+// 길드장이 LEADER_INACTIVE_DAYS 일 이상 미접속이면 자동 위임.
+// 후계자 우선순위: 활동 중(3일 이내 접속) 부길드장(officer) → 없거나 부길드장도 미접이면 활동 중 일반 멤버.
+//   (둘 다 3일 이내 접속 필수 — 더 비활성인 사람에게 넘기지 않음. 활동자 없으면 스킵.)
+//   officer 다수면 최근 접속순, member 동점이면 기여 exp 높은 순.
+// ※ 현재 부길드장 임명 기능 미구현(officer 0명) → 사실상 활동 멤버로 동작. officer 생기면 자동 우선.
+// 구·신 길드장에게 메일 통보. 매시간 + 시작 직후 1회 실행 (index.ts).
+export const LEADER_INACTIVE_DAYS = 3;
+
+export async function autoTransferInactiveLeaders(): Promise<void> {
+  let scan;
+  try {
+    scan = await query<{ guild_id: number; guild_name: string; leader_id: number; leader_name: string }>(
+      `SELECT g.id AS guild_id, g.name AS guild_name, g.leader_id, c.name AS leader_name
+         FROM guilds g
+         JOIN characters c ON c.id = g.leader_id
+        WHERE g.leader_id IS NOT NULL
+          AND c.last_online_at IS NOT NULL
+          AND c.last_online_at < NOW() - ($1 || ' days')::interval`,
+      [String(LEADER_INACTIVE_DAYS)]
+    );
+  } catch (e) {
+    console.error('[guild-auto-succession] scan err', e);
+    return;
+  }
+
+  for (const g of scan.rows) {
+    try {
+      // 후계자: 활동 중(3일 이내) 부길드장 우선 → 활동 중 일반 멤버. 활동자 없으면 스킵.
+      const sr = await query<{ character_id: number; name: string; role: string }>(
+        `SELECT gm.character_id, c.name, gm.role
+           FROM guild_members gm
+           JOIN characters c ON c.id = gm.character_id
+           LEFT JOIN guild_contributions gc ON gc.guild_id = gm.guild_id AND gc.character_id = gm.character_id
+          WHERE gm.guild_id = $1
+            AND gm.role IN ('officer', 'member')
+            AND c.last_online_at IS NOT NULL
+            AND c.last_online_at >= NOW() - ($2 || ' days')::interval
+          ORDER BY (gm.role = 'officer') DESC, c.last_online_at DESC, COALESCE(gc.exp_contributed, 0) DESC
+          LIMIT 1`,
+        [g.guild_id, String(LEADER_INACTIVE_DAYS)]
+      );
+      if (sr.rowCount === 0) continue; // 활동 중인 부길드장·멤버 없음 → 스킵
+      const successor = sr.rows[0];
+
+      // 트랜잭션 + 락 + 재확인 (락 사이에 길드장이 재접속/이미 교체됐을 수 있음)
+      const transferred = await withTransaction(async (tx) => {
+        const chk = await tx.query<{ leader_id: number; inactive: boolean }>(
+          `SELECT g.leader_id, (c.last_online_at < NOW() - ($2 || ' days')::interval) AS inactive
+             FROM guilds g JOIN characters c ON c.id = g.leader_id
+            WHERE g.id = $1 FOR UPDATE`,
+          [g.guild_id, String(LEADER_INACTIVE_DAYS)]
+        );
+        if (chk.rowCount === 0) return false;
+        if (chk.rows[0].leader_id !== g.leader_id) return false; // 이미 길드장 변경됨
+        if (!chk.rows[0].inactive) return false;                 // 길드장 재접속함
+        await tx.query(`UPDATE guild_members SET role = 'member' WHERE character_id = $1 AND guild_id = $2`, [g.leader_id, g.guild_id]);
+        await tx.query(`UPDATE guild_members SET role = 'leader' WHERE character_id = $1 AND guild_id = $2`, [successor.character_id, g.guild_id]);
+        await tx.query(`UPDATE guilds SET leader_id = $1 WHERE id = $2`, [successor.character_id, g.guild_id]);
+        return true;
+      });
+      if (!transferred) continue;
+
+      // 구·신 길드장 메일 통보
+      const subject = '길드장 자동 인계';
+      await query(
+        `INSERT INTO mailbox (character_id, subject, body) VALUES ($1, $2, $3)`,
+        [g.leader_id, subject, `${LEADER_INACTIVE_DAYS}일 이상 미접속으로 [${g.guild_name}] 길드장이 ${successor.name} 님에게 자동 위임되었습니다.`]
+      );
+      await query(
+        `INSERT INTO mailbox (character_id, subject, body) VALUES ($1, $2, $3)`,
+        [successor.character_id, subject, `전 길드장(${g.leader_name})의 장기 미접속으로 [${g.guild_name}]의 새 길드장이 되었습니다.`]
+      );
+      console.log(`[guild-auto-succession] ${g.guild_name}: ${g.leader_name}(${g.leader_id}) → ${successor.name}(${successor.character_id})`);
+    } catch (e) {
+      console.error('[guild-auto-succession] transfer err guild=' + g.guild_id, e);
+    }
+  }
 }

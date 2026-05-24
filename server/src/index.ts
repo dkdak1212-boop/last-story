@@ -78,6 +78,7 @@ import {
   startGuildContribFlushLoop,
   stopGuildContribFlushLoop,
   flushGuildContributions,
+  autoTransferInactiveLeaders,
 } from './game/guild.js';
 import { query } from './db/pool.js';
 
@@ -289,6 +290,9 @@ httpServer.listen(PORT, () => {
     loadUniqueItemIds().catch(e => console.error('[drop] unique load error', e));
     startPointClamper();
     startGuildContribFlushLoop();
+    // 길드장 3일 미접 자동 인계 — 시작 1분 후 1회 + 매시간
+    setTimeout(() => { autoTransferInactiveLeaders().catch(e => console.error('[guild-auto-succession] init err', e)); }, 60_000);
+    setInterval(() => { autoTransferInactiveLeaders().catch(e => console.error('[guild-auto-succession] loop err', e)); }, 60 * 60 * 1000);
   })();
 });
 
