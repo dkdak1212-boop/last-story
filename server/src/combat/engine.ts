@@ -196,6 +196,30 @@ function skillFlatWithInt(skill: { name: string; flat_damage: number }, intStat:
   return skill.flat_damage + (perInt > 0 ? intStat * perInt : 0);
 }
 
+// 2026-05-24: INT 비례 곱연산 계수. 고정뎀(SKILL_INT_FLAT)은 유지하고, 같은 주요 스킬의
+// damage_mult 에 'INT 1당 +0.25%' 를 곱한다(요청값). 고정뎀과 달리 skillMult 에 곱해져
+// 딜 인플레와 함께 성장 → INT 투자 가치 회복. 값 = per-INT 추가 배율(0.0025 = INT 1당 +0.25%).
+// ⚠️ 0.25%/INT 는 고INT 구간에서 큰 배수(INT 400→+100%, 800→+200%) — 배포 전 DPS 확인 권장.
+const SKILL_INT_MULT: Record<string, number> = {
+  '마나 폭주': 0.0025,
+  '운석 폭격': 0.0025,
+  '별의 종말': 0.0025,
+  '원소 대폭발': 0.0025,
+  '창세의 빛': 0.0025,
+};
+
+function skillIntMultFactor(skill: { name: string }, intStat: number): number {
+  const perInt = SKILL_INT_MULT[skill.name] || 0;
+  return perInt > 0 ? 1 + perInt * intStat : 1;
+}
+
+// 2026-05-24: 도적 공통 데미지 증폭 — SPD 1당 +0.05% × 공명 스택당 +10%(최대 5).
+// 모든 도적 데미지 경로(스킬 타격·평타·독 틱·맹독 폭발·공명 폭발)에 일관 적용. 비도적은 1.0.
+function rogueDamageAmp(s: ActiveSession): number {
+  if (s.className !== 'rogue') return 1;
+  return (1 + s.playerStats.spd * 0.0005) * (1 + Math.min(5, s.resonanceStacks || 0) * 0.10);
+}
+
 // 접두사 + 노드 흡혈(lifesteal_pct) — 모든 타격 경로에서 공통 적용. 세션.playerHp 갱신 + 로그.
 // 반환: 회복량 (0이면 미적용)
 function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
@@ -295,6 +319,8 @@ interface ActiveSession {
   dummyTrackStart: number; // 허수아비 존: 측정 시작 ms (0=미시작)
   mageOverkillCarry: number; // 마법사 전용: 오버킬 캐리 (다음 스폰 HP에서 차감)
   poisonResonance: number; // 도적 전용: 독의 공명 게이지 (0~10)
+  resonanceStacks: number; // 도적 전용: 적에게 누적된 공명 스택 (0~5, 스택당 받는 데미지 +10%). 몬스터 교체 시 리셋.
+  manaFlowRecasting?: boolean; // 마법사 전용: 마나의 흐름 더블캐스트 재시전 중 플래그 (재시전이 버스트 차지를 소모하지 않게 가드).
   soulCharge: number; // 궁수 전용: 혼의 화살 차지 (0~5) — 치명타 발동 시 +1
   soulArrowPending: boolean; // 궁수 전용: 이번 스킬 캐스트가 5 차지 소비 중인지 (모든 hit 데미지 ×6)
   // 절대 정밀 등 'self_dex_buff' — DEX 임시 뻥튀기. 만료 시 자동 회수. 회수 정확성 위해 추가분 박제.
@@ -1769,6 +1795,10 @@ function applyDamagePrefixes(
   if (s.className === 'mage' && s.manaFlowActive > 0) {
     dmg = Math.round(dmg * 1.5);
   }
+  // 2026-05-24: 마법사 화상(dot) 걸린 적에게 +25% (dot/멀티히트 라우팅 스킬 커버. 인라인 'damage' 케이스는 별도 적용).
+  if (s.className === 'mage' && someEffectOfType(s, 'dot', e => e.source === 'player' && e.remainingActions > 0)) {
+    dmg = Math.round(dmg * 1.25);
+  }
   // 패시브: spell_amp (스킬 데미지 증폭 — 전 직업 적용, 노드 합산)
   // 2026-05-10 버그 수정: case 'damage' 인라인 파이프라인엔 있었지만 이 공통 파이프라인엔 누락 →
   //   multi_hit / multi_hit_poison / shield_break(아래) / holy_strike 등 17 스킬에서 +N% 가 무시되던 문제.
@@ -1968,6 +1998,11 @@ function applyDamagePrefixes(
   const executePct = s.equipPrefixes.execute_pct || 0;
   if (executePct > 0 && s.monsterMaxHp > 0 && !endlessHpPctImmune(s) && s.monsterHp / s.monsterMaxHp <= 0.20) {
     dmg = Math.round(dmg * (1 + executePct / 100));
+  }
+  // 2026-05-24: 도적 SPD/공명 증뎀 (poison/multi_hit_poison/dot 라우팅 커버)
+  {
+    const rAmp = rogueDamageAmp(s);
+    if (rAmp !== 1) dmg = Math.round(dmg * rAmp);
   }
   // 110 몬스터 dr_pct — 받는 데미지 감쇠 (마지막 단계에 적용)
   {
@@ -2387,8 +2422,11 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
   if (result.totalDamage <= 0) return;
 
   if (target === 'monster') {
-    s.monsterHp -= result.totalDamage;
-    addLog(s, `[도트] 몬스터에게 ${result.totalDamage} 데미지 (${result.count}중첩, 방어 50% 무시)`);
+    // 2026-05-24: 도적 SPD/공명 증뎀 — 독 틱에도 적용 (전부 포함)
+    const dotRAmp = rogueDamageAmp(s);
+    const dotTotal = dotRAmp !== 1 ? Math.round(result.totalDamage * dotRAmp) : result.totalDamage;
+    s.monsterHp -= dotTotal;
+    addLog(s, `[도트] 몬스터에게 ${dotTotal} 데미지 (${result.count}중첩, 방어 50% 무시)`);
     // #4 paragon_dot_burst — 도트 합산의 50% 를 추가로 즉시 직접 데미지로 변환
     if (getPassive(s, 'paragon_dot_burst') > 0) {
       const burst = Math.round(result.totalDamage * 0.5);
@@ -2863,6 +2901,8 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
   for (const p of arr) {
     if (p.source === 'player' && p.remainingActions > 0) burst += p.value * p.remainingActions * 2;
   }
+  // 2026-05-24: 도적 SPD/공명 증뎀 — 공명 폭발에도 적용 (전부 포함). 현재 스택 기준(이번 폭발 +1 이전).
+  if (burst > 0) burst = Math.round(burst * rogueDamageAmp(s));
   if (burst > 0) {
     s.monsterHp -= burst;
     addLog(s, `[독의 공명] 폭발! ${burst} 데미지`);
@@ -2879,6 +2919,9 @@ function tryPoisonResonanceBurst(s: ActiveSession): void {
       const cTag = cloneCount > 1 ? ` ${i}` : '';
       addLog(s, `[그림자 분신${cTag}] 독의 공명 폭발! ${cloneBurst} 데미지`);
     }
+    // 2026-05-24: 폭발 시 적에게 공명 스택 +1 (최대 5). 스택당 받는 데미지 +10% — 단일 보스 지속딜 보강.
+    s.resonanceStacks = Math.min(5, (s.resonanceStacks || 0) + 1);
+    addLog(s, `[공명 스택] ${s.resonanceStacks}/5 — 받는 데미지 +${s.resonanceStacks * 10}%`);
     s.poisonResonance = 0;
   }
 }
@@ -2998,7 +3041,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       } : s.monsterStats;
       // INT 스케일링 고정 데미지 (마나폭주/별의종말/창세의빛 등) — SKILL_INT_FLAT 참조
       const totalFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
-      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult, useMatk, totalFlat, criBonus);
+      // INT 비례 곱연산 계수 (주요 마법사 스킬만, 비대상은 ×1)
+      const intMult = skillIntMultFactor(skill, s.playerStats.int || 0);
+      const d = calcDamage(s.playerStats, defModStats, skill.damage_mult * intMult, useMatk, totalFlat, criBonus);
       // 도적 기습: 치명타 확정 상태 — 원래 크리가 아니었다면 강제로 2배 + 크리 플래그
       const critGuaranteed = findEffectOfType(s, 'crit_guaranteed', e => e.source === 'monster' && e.remainingActions > 0);
       if (critGuaranteed && !d.miss && !d.crit) {
@@ -3028,6 +3073,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const playerActive = (e: StatusEffect) => e.source === 'player' && e.remainingActions > 0;
           const monsterDot = someEffectOfType(s, 'dot', playerActive) || someEffectOfType(s, 'poison', playerActive);
           if (monsterDot) { dmg = Math.round(dmg * 1.3); addLog(s, `[원소 침식] 도트 상태 +30%`); }
+          // 2026-05-24: 화상(dot) 걸린 적에게 +25% 추가 데미지. (요청 항목. 위 원소 침식 +30% 와 조건 중첩 — 정책 확정 필요.)
+          const monsterBurn = someEffectOfType(s, 'dot', playerActive);
+          if (monsterBurn) { dmg = Math.round(dmg * 1.25); addLog(s, `[화상 가속] 화상 상태 +25%`); }
           // 마력 과부하: 자신 스피드 감소 디버프 중일 때 마법 데미지 +80%
           const selfSlow = someEffectOfType(s, 'speed_mod', e => e.source === 'monster' && e.value < 0 && e.remainingActions > 0);
           if (selfSlow) { dmg = Math.round(dmg * 1.8); addLog(s, `[마력 과부하] 과부하 상태 +80%`); }
@@ -3127,6 +3175,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         // 궁수 혼의 화살 ×6 (캐스트 단위 박제, applyDamagePrefixes 와 동일)
         if (s.soulArrowPending) dmg = Math.round(dmg * 6);
+        // 2026-05-24: 도적 SPD/공명 증뎀 (dr 직전 적용)
+        {
+          const rAmp = rogueDamageAmp(s);
+          if (rAmp !== 1) dmg = Math.round(dmg * rAmp);
+        }
         // 110 몬스터 dr_pct — 받는 데미지 감쇠
         if (s.monsterDrPct > 0) {
           dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
@@ -3313,7 +3366,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // multi_hit_amp_pct 는 hit_mult 가 아니라 최종 데미지에 적용 (아래 dmg × (1+multiAmp/100)).
       // 이전엔 damage_mult 에만 곱해져 신의 타격/천상 강림처럼 damage_mult=0 + flat 베이스인
       // 스킬에 효과가 없었음. 이제 mult/flat 모두 동일하게 +multiAmp% 보강.
-      const hitMult = baseChain;
+      // INT 비례 곱연산 계수 (연쇄 번개 등 multi_hit 라우팅 주요 스킬, 비대상은 ×1)
+      const hitMult = baseChain * skillIntMultFactor(skill, s.playerStats.int || 0);
       let firstLandedHit = true;
       let landedCount = 0;
       // 신의 타격: 본인 최대 HP × 20 — 몬스터 mdef 감쇠 적용 (방어력 무시 아님)
@@ -3471,7 +3525,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
 
     case 'dot': {
       const dotFlat = skillFlatWithInt(skill, s.playerStats.int || 0);
-      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, dotFlat);
+      // INT 비례 곱연산 계수 (운석 폭격 등 dot 라우팅 주요 스킬). dot 틱(matk 기반)은 미적용.
+      const dotIntMult = skillIntMultFactor(skill, s.playerStats.int || 0);
+      const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult * dotIntMult, useMatk, dotFlat);
       if (!d.miss) {
         const dmg = applyDamagePrefixes(s, d.damage, d.crit, { skillName: skill.name });
         s.monsterHp -= dmg;
@@ -3501,7 +3557,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         }
         // effect_value > 0이면 N% 확률로 2회 발동 (운석 폭격 등)
         if (skill.effect_value > 0 && Math.random() * 100 < skill.effect_value) {
-          const d2 = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, useMatk, skill.flat_damage);
+          const d2 = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult * dotIntMult, useMatk, skill.flat_damage);
           if (!d2.miss) {
             // one-shot(first_strike/ambush) 은 첫 타격에서 이미 소비
             const dmg2 = applyDamagePrefixes(s, d2.damage, d2.crit, { consumeOneShot: false, skillName: skill.name });
@@ -3555,6 +3611,9 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         totalBurst = Math.round(baseAtk * 4);
         addLog(s, `[${skill.name}] 독 없음 → 기본 공격 ${totalBurst}`);
       }
+      // 2026-05-24: 도적 SPD/공명 증뎀 — 맹독 폭발에도 적용 (전부 포함)
+      const burstRAmp = rogueDamageAmp(s);
+      if (burstRAmp !== 1) totalBurst = Math.round(totalBurst * burstRAmp);
       s.monsterHp -= totalBurst;
       if (poisons.length > 0) {
         addLog(s, `[${skill.name}] 독 폭발! ${totalBurst} 데미지 (독 유지)`);
@@ -4181,9 +4240,12 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
   // 버스트 중 사용한 스킬은 스택에 포함되지 않고, 각 사용마다 남은 행동 1 감소.
   if (s.className === 'mage') {
     if (s.manaFlowActive > 0) {
-      s.manaFlowActive--;
-      if (s.manaFlowActive === 0) {
-        addLog(s, `[마나의 흐름] 효과 종료`);
+      // 2026-05-24: 더블캐스트 재시전은 버스트 차지를 소모하지 않음 (1 액션당 1 소모 유지).
+      if (!s.manaFlowRecasting) {
+        s.manaFlowActive--;
+        if (s.manaFlowActive === 0) {
+          addLog(s, `[마나의 흐름] 효과 종료`);
+        }
       }
     } else {
       s.manaFlowStacks++;
@@ -4393,6 +4455,22 @@ async function autoAction(s: ActiveSession): Promise<void> {
       perfSeg.pSkillCalls++;
       addSkillTime(s.className, dt2, sk.name);
     }
+    // 2026-05-24: 마법사 마나의 흐름 버스트 중 — 100% 확률로 마법 1회 추가 발동(두 번씩 시전).
+    // autoAction 레벨이라 재호출된 executeSkill 은 이 검사를 다시 트리거하지 않음 → 무한 재귀 없음.
+    if (s.className === 'mage' && s.manaFlowActive > 0) {
+      addLog(s, `🔮 [마나의 흐름] 마법 재발동!`);
+      const tSkMf = Date.now();
+      s.manaFlowRecasting = true;
+      try {
+        await executeSkill(s, sk);
+      } finally {
+        s.manaFlowRecasting = false;
+      }
+      const dtMf = Date.now() - tSkMf;
+      perfSeg.pSkillMs += dtMf;
+      perfSeg.pSkillCalls++;
+      addSkillTime(s.className, dtMf, sk.name);
+    }
     if (s.className === 'summoner') processSummons(s);
     if (s.className === 'rogue') processShadowClones(s, sk);
     return;
@@ -4410,6 +4488,9 @@ async function autoAction(s: ActiveSession): Promise<void> {
     // 파라곤 데미지 배수 — 단발/멀티히트 스킬과 동일 키스톤 평타에도 적용
     const basicParaMult = paragonAlwaysOnMult(s);
     if (basicParaMult !== 1.0) dmg = Math.max(1, Math.round(dmg * basicParaMult));
+    // 2026-05-24: 도적 SPD/공명 증뎀 — 평타에도 적용 (전부 포함)
+    const basicRogueAmp = rogueDamageAmp(s);
+    if (basicRogueAmp !== 1) dmg = Math.max(1, Math.round(dmg * basicRogueAmp));
     s.monsterHp -= dmg;
     addLog(s, `${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
     const pLsBasic = applyPrefixLifesteal(s, dmg);
@@ -5657,6 +5738,8 @@ function handleDummyTick(s: ActiveSession, hpBefore: number): void {
 }
 
 function spawnMonsterForSession(s: ActiveSession): void {
+  // 도적 공명 스택은 적에게 누적되는 디버프 — 새 몬스터 등장 시 초기화.
+  s.resonanceStacks = 0;
   // 종언의 기둥 — fieldId === 1000. floor 기반 monster 추첨 + 스케일링.
   // (endless 진행 데이터 / floor_started_at 은 startCombatSession 에서 미리 로드되어 있음.
   //  cold-start 가드 — 정상 흐름에선 fire 안됨.)
@@ -7251,6 +7334,7 @@ async function startCombatSessionInner(
     dummyTrackStart: 0,
     mageOverkillCarry: 0,
     poisonResonance: 0,
+    resonanceStacks: 0,
     soulCharge: 0,
     soulArrowPending: false,
     dexBuffRemainingActions: 0,
