@@ -18,6 +18,13 @@ export function LoginScreen() {
   const [showTerms, setShowTerms] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const inAppBrowser = isInAppBrowser();
+  // 토큰 만료로 로그인 화면으로 돌아온 경우 안내 (api/client.ts 에서 플래그 설정)
+  const [sessionExpired] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const v = sessionStorage.getItem('session_expired') === '1';
+    if (v) sessionStorage.removeItem('session_expired');
+    return v;
+  });
 
   function startDeletion() {
     const a = confirm(
@@ -133,6 +140,15 @@ export function LoginScreen() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {sessionExpired && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 6,
+              background: 'rgba(201,162,77,0.12)', border: '1px solid var(--accent)',
+              color: 'var(--accent)', fontSize: 13, lineHeight: 1.5, textAlign: 'center',
+            }}>
+              로그인 정보가 만료되어 로그아웃되었어요. 다시 로그인해 주세요.
+            </div>
+          )}
           {inAppBrowser && (
             <div style={{
               padding: '12px 14px', borderRadius: 6,
