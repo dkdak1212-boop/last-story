@@ -226,7 +226,9 @@ function applyPrefixLifesteal(s: ActiveSession, dmg: number): number {
   // 110 몬스터 — 피흡 면역 (대상 몬스터에게서 흡혈 시도 시 0)
   if (s.monsterLifestealImmune) return 0;
   // 접두사 lifesteal_pct + 노드 패시브 lifesteal_pct (예: 궁수 '인내의 화살' +5%) 합산
-  const pct = (s.equipPrefixes.lifesteal_pct || 0) + getPassive(s, 'lifesteal_pct');
+  // 차원 #928 회복 환원 키스톤 보유 시 깡 흡혈 10% (회복 소스 없어도 환원 자급용).
+  const pct = (s.equipPrefixes.lifesteal_pct || 0) + getPassive(s, 'lifesteal_pct')
+    + (getPassive(s, 'paragon_heal_to_damage') > 0 ? 10 : 0);
   if (pct <= 0 || dmg <= 0) return 0;
   let heal = Math.round(dmg * pct / 100);
   const lsAmp = getPassive(s, 'lifesteal_amp');
@@ -3184,6 +3186,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (s.monsterDrPct > 0) {
           dmg = Math.round(dmg * (1 - Math.min(95, s.monsterDrPct) / 100));
         }
+        // 차원 #928 회복 환원 — 누적 회복량을 flat 으로 추가 (multiplier·dr 이후). 단일 'damage' 케이스 누락 보강.
+        {
+          const healFlat = consumeHealStoredFlat(s);
+          if (healFlat > 0) { dmg += healFlat; addLog(s, `[회복 환원] +${healFlat} flat`); }
+        }
         s.monsterHp -= dmg;
         if (rageProc) {
           addLog(s, `[분노 폭발] 3행동 동안 데미지 ×3 발동! ${dmg} 데미지`);
@@ -4491,6 +4498,11 @@ async function autoAction(s: ActiveSession): Promise<void> {
     // 2026-05-24: 도적 SPD/공명 증뎀 — 평타에도 적용 (전부 포함)
     const basicRogueAmp = rogueDamageAmp(s);
     if (basicRogueAmp !== 1) dmg = Math.max(1, Math.round(dmg * basicRogueAmp));
+    // 차원 #928 회복 환원 — 누적 회복량 flat 추가 (평타 누락 보강)
+    {
+      const healFlat = consumeHealStoredFlat(s);
+      if (healFlat > 0) { dmg += healFlat; addLog(s, `[회복 환원] +${healFlat} flat`); }
+    }
     s.monsterHp -= dmg;
     addLog(s, `${dmg} 데미지${d.crit ? ' (치명타!)' : ''}`);
     const pLsBasic = applyPrefixLifesteal(s, dmg);
