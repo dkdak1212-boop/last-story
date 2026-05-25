@@ -516,14 +516,16 @@ export function NodeTreeScreen() {
     if (!confirm('직업 노드 전체 리셋 (5,000G)\n차원의 정수 노드는 유지됩니다.')) return;
     setLoading(true);
     try {
-      const r = await api<{ refundedPoints: number; refundedParagonPoints: number }>(
+      const r = await api<{ refundedPoints: number; refundedParagonPoints: number; bonusGranted?: number; totalPoints?: number }>(
         `/characters/${active.id}/nodes/reset-all`, { method: 'POST' }
       );
       await fetchNodes(); await refreshActive();
       const parts: string[] = [];
       if (r.refundedPoints > 0) parts.push(`노드 ${r.refundedPoints}pt`);
       if (r.refundedParagonPoints > 0) parts.push(`차원의 정수 ${r.refundedParagonPoints}pt`);
-      setMsg(parts.length > 0 ? `리셋 완료! 환불: ${parts.join(' / ')}` : '리셋 완료!');
+      if (r.bonusGranted && r.bonusGranted > 0) parts.push(`유실 보충 ${r.bonusGranted}pt`);
+      const total = typeof r.totalPoints === 'number' ? ` (보유 ${r.totalPoints}pt)` : '';
+      setMsg(parts.length > 0 ? `리셋 완료! 환불: ${parts.join(' / ')}${total}` : `리셋 완료!${total}`);
     } catch (e: any) { setMsg(e?.message || '실패'); }
     setLoading(false);
   }

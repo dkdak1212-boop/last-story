@@ -345,13 +345,22 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
          AND node_id NOT IN (SELECT id FROM node_definitions WHERE zone = 'paragon')`,
     [id]
   );
-  await query(
+
+  // 일반 노드를 전부 제거했으므로 정상 상태라면 node_points 는 정확히 (레벨-1) 이어야 한다.
+  // 과거 동시성 버그(invest 중복 차감) · clamper 과다차감 등으로 유실된 포인트는
+  // 이 시점에 (레벨-1) 까지 보충한다. 환불(node_points+normalRefund) 결과가 이미 그 이상이면
+  // 깎지 않는다(GREATEST) — 잉여 제거는 clamper 담당, 여기선 부족분만 +지급.
+  const expected = Math.max(0, char.level - 1);
+  const updR = await query<{ node_points: number }>(
     `UPDATE characters
-        SET node_points = node_points + $1,
-            gold = gold - $2
-      WHERE id = $3`,
-    [normalRefund, cost, id]
+        SET node_points = GREATEST(node_points + $1, $2),
+            gold = gold - $3
+      WHERE id = $4
+    RETURNING node_points`,
+    [normalRefund, expected, cost, id]
   );
+  const finalPoints = updR.rows[0]?.node_points ?? char.node_points + normalRefund;
+  const bonusGranted = Math.max(0, finalPoints - (char.node_points + normalRefund));
 
   // 반대의 균형 사라진 경우 max_hp diff 적용
   await applyInversionMaxHpDiff(id, hadInvBefore, false);
@@ -361,6 +370,8 @@ router.post('/:id/nodes/reset-all', async (req: AuthedRequest, res: Response) =>
   res.json({
     ok: true,
     refundedPoints: normalRefund,
+    bonusGranted,           // (레벨-1) 까지 부족분 보충량
+    totalPoints: finalPoints,
     refundedParagonPoints: 0,
     goldSpent: cost,
   });
