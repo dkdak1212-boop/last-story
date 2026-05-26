@@ -5870,7 +5870,9 @@ function spawnMonsterForSession(s: ActiveSession): void {
     s.monsterId = -999;
     s.monsterDef = {
       id: -999, name: '태고의 용왕 발라카스', level: 80,
-      max_hp: RAID_BOSS_HP, exp: 0, gold_min: 0, gold_max: 0,
+      // handleMonsterDeath 가 읽는 필드는 exp_reward/gold_reward — 과거 exp/gold_min/gold_max 명칭이라
+      // undefined 로 읽혀 previewExp/finalGold 가 NaN 이 되던 버그. 레이드 직접 보상은 0(결산은 데미지 랭킹).
+      max_hp: RAID_BOSS_HP, exp_reward: 0, gold_reward: 0,
       stats: { str: 200, dex: 200, int: 200, vit: 200, spd: 1000, cri: 0, atk: 0, matk: 0, def: 200, mdef: 200, dodge: 0, accuracy: 80 } as any,
       drop_table: [], avg_kill_time_sec: 999999,
     } as any;
