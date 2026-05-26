@@ -126,9 +126,11 @@ const pendingContrib = new Map<number, { guildId: number; expPending: number }>(
 
 // 호출부 fire-and-forget 호환: void 반환, 내부에서 멤버 캐시 miss 시 async 폴백
 export function contributeGuildExp(characterId: number, expGained: number): void {
-  if (expGained <= 0) return;
+  // NaN/Infinity 차단 — Math.floor(NaN)=NaN 이고 (NaN<=0)===false 라 가드를 통과해
+  // pendingContrib 에 NaN 이 누적되면 flush 시 bigint 22P02 로 길드 UPDATE 전체가 실패함.
+  if (!Number.isFinite(expGained) || expGained <= 0) return;
   const contrib = Math.floor(expGained * GUILD_EXP_RATIO);
-  if (contrib <= 0) return;
+  if (!Number.isFinite(contrib) || contrib <= 0) return;
 
   // 캐시 hit 시 즉시 누적
   if (memberCacheReady) {
@@ -163,9 +165,12 @@ export async function flushGuildContributions(): Promise<void> {
   // snapshot + clear (다음 주기 fill 과 격리)
   const batch: { characterId: number; guildId: number; exp: number }[] = [];
   for (const [charId, v] of pendingContrib) {
-    batch.push({ characterId: charId, guildId: v.guildId, exp: v.expPending });
+    // 방어: 비유한값/음수 exp 는 제외 — 한 항목이 길드 UPDATE 전체를 22P02 로 막는 것 차단
+    if (!Number.isFinite(v.expPending) || v.expPending <= 0) continue;
+    batch.push({ characterId: charId, guildId: v.guildId, exp: Math.floor(v.expPending) });
   }
   pendingContrib.clear();
+  if (batch.length === 0) return;
 
   // 삭제된 캐릭의 pending 이 남아있으면 FK 위반으로 batch 전체가 실패함.
   // characters 존재 여부 사전 검증 — 없는 char 는 batch에서 제외 + 캐시 무효화.

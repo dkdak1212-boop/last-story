@@ -491,6 +491,9 @@ const charBatch = new Map<number, CharWriteBatch>();
 // 업적 체크 last-run timestamps — 캐릭별 30s throttle (handleMonsterDeath 에서 사용).
 // 매 킬마다 3쿼리 (character/pvp_stats/achievements SELECT) 가 985 세션 환경에서 풀 고갈 주범.
 const lastAchievementCheckAt = new Map<number, number>();
+// 보상 NaN 진단 로그 throttle — 데이터 이상으로 previewExp/finalGold 가 비유한값이 되면
+// 어느 인자가 원인인지 1회/10s 로 기록 (전 세션 공용). 스팸 방지.
+let lastRewardNanLogAt = 0;
 // 트랙 가능한 활성 퀘스트 몬스터 ID 캐시 — 세션 종료 시 정리, 30s TTL 으로 신규 퀘스트 수락 반영.
 // 캐시 hit & 빈 set 이면 trackMonsterKill 호출 자체를 스킵(SELECT/UPDATE 둘 다 절약).
 const questMonsterCache = new Map<number, { ids: Set<number>; loadedAt: number }>();
@@ -5283,9 +5286,34 @@ async function handleMonsterDeath(s: ActiveSession): Promise<void> {
   const offlineMult = 1;
   // console.log 제거 — 매 킬마다 JSON 출력은 성능 저하 원인
   // gold_reward 는 DB 에 최종값 저장 (과거 전역 -50% 정책은 DB 값에 이미 반영됨)
-  const finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold * offlineMult);
+  let finalGold = Math.floor(m.gold_reward * (1 + goldBonusPct / 100) * (1 + guildGoldBonus / 100) * (goldBoostActive ? 1.5 : 1.0) * ge.gold * offlineMult);
   const levelDiffMult = computeLevelDiffExpMult(charMetaLevel, m.level);
-  const previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult * personalExpMult * offlineMult);
+  let previewExp = Math.floor(m.exp_reward * (isExpBoosted ? 1.5 : 1.0) * (1 + expBonusPct / 100) * (1 + guildExpBonus / 100) * ge.exp * levelDiffMult * eventExpMult * personalExpMult * offlineMult);
+
+  // NaN/Infinity 차단 — 곱셈 인자 중 하나라도 비유한값이면 보상 전체가 NaN 이 된다.
+  // previewExp 가 NaN 이면 batchAdd(expDelta)·s.cachedExp 박제·길드 기여·AFK 누적이 모두 오염되어
+  // 해당 세션은 재접속 전까지 EXP 적립/레벨업 불가 + flushCharBatch/flushGuild 가 bigint 22P02 로 실패한다.
+  // 안전값(몬스터 기본 보상)으로 클램프하고 어느 인자가 원인인지 진단 로그를 남긴다.
+  if (!Number.isFinite(previewExp) || previewExp < 0 || !Number.isFinite(finalGold) || finalGold < 0) {
+    const nowNan = Date.now();
+    if (nowNan - lastRewardNanLogAt >= 10_000) {
+      lastRewardNanLogAt = nowNan;
+      console.error(
+        `[combat] 보상 NaN — char ${s.characterId} monster ${m.id} ` +
+        `expRaw=${m.exp_reward} goldRaw=${m.gold_reward} expBonus=${expBonusPct} goldBonus=${goldBonusPct} ` +
+        `guildExp=${guildExpBonus} guildGold=${guildGoldBonus} geExp=${ge.exp} geGold=${ge.gold} ` +
+        `lvlDiff=${levelDiffMult} eventMult=${eventExpMult} personalMult=${personalExpMult} → previewExp=${previewExp} finalGold=${finalGold}`
+      );
+    }
+    if (!Number.isFinite(previewExp) || previewExp < 0) {
+      const baseExp = Math.floor(Number(m.exp_reward));
+      previewExp = Number.isFinite(baseExp) && baseExp > 0 ? baseExp : 0;
+    }
+    if (!Number.isFinite(finalGold) || finalGold < 0) {
+      const baseGold = Math.floor(Number(m.gold_reward));
+      finalGold = Number.isFinite(baseGold) && baseGold > 0 ? baseGold : 0;
+    }
+  }
 
   if (ge.active) {
     addLog(s, `🎉 [${ge.name}] EXP×${ge.exp} 골드×${ge.gold} 드랍×${ge.drop} 적용`);
