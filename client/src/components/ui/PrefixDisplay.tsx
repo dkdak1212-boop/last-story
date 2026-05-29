@@ -48,6 +48,12 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   summon_crit_dmg_amp: v => `소환수 치명타 데미지 +${v}%`,
   // 성직자 — 실드 효과 강화 (시공의 차원의 홀 등)
   shield_amp: v => `실드 효과 ${v}% 증가`,
+  // 종언의 회랑 — 신규 효과형 접두사 5종
+  single_hit_amp_pct: v => `단일 타격 스킬 데미지 +${v}%`,
+  enemy_frenzy: v => `적 속도 +${v}% / 적 데미지 -${(v * 0.1).toFixed(1)}%`,
+  boss_slayer_pct: v => `보스·엘리트 대상 데미지 +${v}%`,
+  spd_to_dmg_pct: v => `속도 비례 데미지 (1000속도당 +${v}%, 최대 +40%)`,
+  crit_resist_pierce_pct: v => `적 치명타 저항 -${v}%p`,
   // 110제 craft 추가 옵션
   execute_pct: v => `적 HP 20% 이하 시 데미지 +${v}%`,
   undispellable: () => `버프 디스펠 면역`,

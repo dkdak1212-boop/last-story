@@ -380,6 +380,8 @@ interface ActiveSession {
   monsterDrPct: number;                       // 현재 몬스터 받는 데미지 감쇠 % (0~100)
   monsterCcImmune: boolean;                   // CC 면역 플래그
   monsterLifestealImmune: boolean;            // 피흡 면역 (110 몬스터 — 흡혈/회복 0)
+  monsterIsBossElite: boolean;                // 보스/엘리트 판정 (boss_slayer_pct 대상). stats.is_boss/is_elite
+  enemyFrenzyDmgDownPct: number;              // 적 광폭화(enemy_frenzy) — 몬스터 가하는 데미지 감소 % (적속도↑의 0.1배)
   monsterRageActivated: boolean;              // 분노 패시브 1회 발동 플래그
   bossPhase2Triggered: boolean;               // 보스 페이즈2 (HP 50% 소환) 1회 발동
   healBlockUntilMs: number;                   // 치유 봉쇄 만료 시각 (ms)
@@ -1259,6 +1261,8 @@ function monsterToEffective(m: MonsterDef): EffectiveStats {
     // 몬스터 accuracy 고정 80 — 플레이어 dodge 를 accBonus 로 깎지 않음.
     // 결과: 플레이어 dodge 표기 70% = 실전 70% (dodge = effectiveDodge).
     accuracy: 80,
+    // 종언의 회랑 등 — 치명타 저항(%). calcDamage 에서 치명 발생 시 이 확률로 취소.
+    critResistPct: Number((s as any).crit_resist ?? 0),
   };
 }
 
@@ -1776,7 +1780,7 @@ function applyDamagePrefixes(
   s: ActiveSession,
   dmg: number,
   isCrit: boolean,
-  opts: { consumeOneShot?: boolean; skillName?: string } = {},
+  opts: { consumeOneShot?: boolean; skillName?: string; isMultiHit?: boolean } = {},
   cache?: DmgPrefixCache,
 ): number {
   const consume = opts.consumeOneShot !== false;
@@ -2032,6 +2036,25 @@ function applyDamagePrefixes(
     if (speedToDmg > 0) {
       const spdBonus = Math.round(s.playerStats.spd * speedToDmg / 100);
       if (spdBonus > 0) dmg += spdBonus;
+    }
+  }
+  // ── 신규 효과형 접두사 (종언의 회랑 업데이트) ──
+  // ① single_hit_amp_pct — 단일타격 스킬 데미지 +X% (multi_hit 후속타엔 미적용)
+  if (!opts.isMultiHit) {
+    const singleAmp = s.equipPrefixes.single_hit_amp_pct || 0;
+    if (singleAmp > 0) dmg = Math.round(dmg * (1 + singleAmp / 100));
+  }
+  // ③ boss_slayer_pct — 보스/엘리트 대상 데미지 +X%
+  if (s.monsterIsBossElite || s.guildBossRunId || s.raidEventId) {
+    const slayer = s.equipPrefixes.boss_slayer_pct || 0;
+    if (slayer > 0) dmg = Math.round(dmg * (1 + slayer / 100));
+  }
+  // ④ spd_to_dmg_pct — 속도 비례 데미지 (값 V = 1000속도당 V%, 최대 +40% 상한)
+  {
+    const spdAmp = s.equipPrefixes.spd_to_dmg_pct || 0;
+    if (spdAmp > 0) {
+      const bonusPct = Math.min(40, spdAmp * (s.playerStats.spd || 0) / 1000);
+      if (bonusPct > 0) dmg = Math.round(dmg * (1 + bonusPct / 100));
     }
   }
   // 크리 추가 배율 (crit_damage 패시브 + 날카로움)
@@ -3423,6 +3446,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
             let dmg = applyDamagePrefixes(s, d.damage, d.crit, {
               consumeOneShot: firstLandedHit,
               skillName: skill.name,
+              isMultiHit: true,
             }, _prefixCache);
             // 다단 효과 강화 — damage_mult 와 flat 데미지 모두에 동일 비율로 적용
             if (multiAmp > 0) dmg = Math.round(dmg * (1 + multiAmp / 100));
@@ -3517,6 +3541,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           const dmg = applyDamagePrefixes(s, d.damage, d.crit, {
             consumeOneShot: firstLandedHitMP,
             skillName: skill.name,
+            isMultiHit: true,
           }, _prefixCacheMP);
           firstLandedHitMP = false;
           s.monsterHp -= dmg;
@@ -4798,6 +4823,10 @@ function monsterAction(s: ActiveSession): void {
     }
   } else {
     let dmg = d.damage;
+    // 적 광폭화(enemy_frenzy) — 몬스터 가하는 데미지 −(V×0.1)%
+    if (s.enemyFrenzyDmgDownPct > 0) {
+      dmg = Math.max(1, Math.round(dmg * (1 - Math.min(95, s.enemyFrenzyDmgDownPct) / 100)));
+    }
     if (bossPattern !== 'normal' && bossAttackName) {
       addLog(s, `[${s.monsterName}] ${bossAttackName}!${enrageMult > 1 ? ` 광분×${enrageMult}` : ''} (×${skillMultForAttack.toFixed(1)})`);
     } else if (enrageMult > 1) {
@@ -5964,9 +5993,22 @@ function spawnMonsterForSession(s: ActiveSession): void {
   s.monsterDrPct = typeof ms.dr_pct === 'number' ? ms.dr_pct : 0;
   s.monsterCcImmune = ms.cc_immune === true;
   s.monsterLifestealImmune = ms.lifesteal_immune === true;
+  // 보스/엘리트 판정 (boss_slayer_pct 접두사 대상). cc_immune 몬스터도 보스로 간주.
+  s.monsterIsBossElite = (ms as any).is_boss === true || (ms as any).is_elite === true || ms.cc_immune === true;
   s.monsterSkillCooldowns = new Map<string, number>();
   s.monsterRageActivated = false;
   s.bossPhase2Triggered = false;
+  // 적 광폭화(enemy_frenzy) — 장착 접두사로 대상 적 속도 +V% & 적 데미지 −(V×0.1)%.
+  // 회피·반격 빌드 가치 상승 의도(적이 더 자주 공격). 데미지 감소는 소폭.
+  {
+    const frenzy = s.equipPrefixes.enemy_frenzy || 0;
+    if (frenzy > 0) {
+      s.monsterStats.spd = Math.round(s.monsterStats.spd * (1 + frenzy / 100));
+      s.enemyFrenzyDmgDownPct = frenzy * 0.1;
+    } else {
+      s.enemyFrenzyDmgDownPct = 0;
+    }
+  }
   s.monsterSpeed = s.monsterStats.spd;
   s.monsterGauge = 0;
   s.hasFirstStrike = true; // 새 몬스터 → 첫 공격 보너스 다시
@@ -7398,6 +7440,8 @@ async function startCombatSessionInner(
     monsterDrPct: 0,
     monsterCcImmune: false,
     monsterLifestealImmune: false,
+    monsterIsBossElite: false,
+    enemyFrenzyDmgDownPct: 0,
     monsterRageActivated: false,
     bossPhase2Triggered: false,
     healBlockUntilMs: 0,
@@ -7920,6 +7964,8 @@ export function applyCombatStatBoost(
   }
   if (equipPrefixes.atk_pct) eff.atk = Math.round(eff.atk * (1 + equipPrefixes.atk_pct / 100));
   if (equipPrefixes.matk_pct) eff.matk = Math.round(eff.matk * (1 + equipPrefixes.matk_pct / 100));
+  // 치명 관통(crit_resist_pierce_pct) — calcDamage 에서 대상 치명저항을 이만큼 차감.
+  eff.critResistPierce = equipPrefixes.crit_resist_pierce_pct || 0;
 }
 
 // 장비/노드 변경 시 인메모리 세션 스탯 갱신

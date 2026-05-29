@@ -10,6 +10,8 @@ export interface EffectiveStats extends Stats {
   dodge: number;    // 회피 %
   accuracy: number; // 명중 %
   unconditionalDodge?: boolean; // true 면 공격자 명중률로 감소하지 않고 dodge 값 그대로 적용 (길드 보스)
+  critResistPct?: number;    // 방어자(몬스터) 치명타 저항 % — 치명 발생 시 이 확률로 치명 취소 (종언의 회랑 등)
+  critResistPierce?: number; // 공격자 치명 관통 %p — 대상 critResistPct 를 이만큼 차감 (접두사 crit_resist_pierce_pct)
 }
 
 // 장비 스탯 합산
@@ -125,7 +127,13 @@ export function calcDamage(
   base = Math.max(rawAtk * 0.10, base);
   base = base * skillMult + flatDamage;
   // 치명타 (확률 어렵게, 데미지 강하게)
-  const crit = Math.random() * 100 < (attacker.cri + criBonus);
+  let crit = Math.random() * 100 < (attacker.cri + criBonus);
+  // 몬스터 치명타 저항 — 치명이 떴어도 (저항% − 공격자 관통%p) 확률로 취소.
+  // cri≥100(항상치명) 빌드도 저항% 만큼 치명이 무력화되도록 "발생 후 취소" 방식 사용.
+  if (crit) {
+    const resist = (defender.critResistPct ?? 0) - (attacker.critResistPierce ?? 0);
+    if (resist > 0 && Math.random() * 100 < resist) crit = false;
+  }
   if (crit) base *= 2.0;
   // ±10% 랜덤
   base *= 0.9 + Math.random() * 0.2;
