@@ -144,9 +144,10 @@ export async function generateSinglePrefixOfTier(
   itemLevel: number,
   tier: number,
   excludeStatKeys: Set<string> = new Set(),
+  fixedLevelScale?: number, // 지정 시 itemLevel 무시하고 이 값으로 스케일 (낡은 망토 포인트 굴림 = 1.5 고정)
 ): Promise<{ prefixId: number; statKey: string; value: number } | null> {
   await loadPrefixes();
-  const levelScale = 0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4;
+  const levelScale = fixedLevelScale ?? (0.4 + (Math.min(70, Math.max(1, itemLevel)) / 70) * 1.4);
   let candidates = tierCandidates(tier, excludeStatKeys);
   if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
   if (candidates.length === 0) return null;

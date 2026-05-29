@@ -67,6 +67,7 @@ import paragonRoutes from './routes/paragon.js';
 import dailyQuestRoutes from './routes/dailyQuests.js';
 import guildBossRoutes from './routes/guildBoss.js';
 import guildBossShopRoutes from './routes/guildBossShop.js';
+import pointShopRoutes from './routes/pointShop.js';
 import sproutBoxRoutes from './routes/sproutBox.js';
 import guildStorageRoutes from './routes/guildStorage.js';
 import achievementRoutes from './routes/achievements.js';
@@ -199,6 +200,7 @@ app.use('/api/paragon', paragonRoutes);
 app.use('/api/characters', dailyQuestRoutes);
 app.use('/api/guild-boss', guildBossRoutes);
 app.use('/api/guild-boss-shop', guildBossShopRoutes);
+app.use('/api/point-shop', pointShopRoutes);
 app.use('/api/sprout-box', sproutBoxRoutes);
 app.use('/api/guild-storage', guildStorageRoutes);
 app.use('/api/characters', achievementRoutes);
@@ -2973,6 +2975,20 @@ async function runEquipOverhaul() {
       }
     } catch (e) {
       console.error('[late] online_rate_v1 error:', e);
+    }
+  }
+
+  // 포인트 재화 — 만렙 후 EXP→포인트 전환 + 포인트 상점 (종언의 회랑 업데이트)
+  {
+    try {
+      const applied = await query(`SELECT 1 FROM _migrations WHERE name = 'points_currency_v1'`);
+      if (!applied.rowCount) {
+        await query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS points BIGINT NOT NULL DEFAULT 0`);
+        await query(`INSERT INTO _migrations (name) VALUES ('points_currency_v1')`);
+        console.log('[late] points_currency_v1: 완료');
+      }
+    } catch (e) {
+      console.error('[late] points_currency_v1 error:', e);
     }
   }
 

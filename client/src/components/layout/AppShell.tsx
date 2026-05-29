@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { to: '/skills', label: '스킬' },
   { to: '/nodes', label: '노드 트리' },
   { to: '/shop', label: '상점' },
+  { to: '/point-shop', label: '포인트 상점' },
   { to: '/enhance', label: '강화' },
   { to: '/craft', label: '제작' },
   { to: '/daily-quests', label: '일일임무' },
