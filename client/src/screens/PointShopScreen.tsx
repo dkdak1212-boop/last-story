@@ -33,7 +33,7 @@ const EFFECT_DESC: Record<string, (v: number) => string> = {
   berserk_pct: v => `HP 35%↓ 데미지 +${v}%`, def_pierce_pct: v => `적 방어 ${v}% 무시`,
   single_hit_amp_pct: v => `단일 타격 +${v}%`, enemy_frenzy: v => `적 속도 +${v}% / 적뎀 -${(v * 0.1).toFixed(1)}%`,
   boss_slayer_pct: v => `보스·엘리트 +${v}%`, spd_to_dmg_pct: v => `속도 비례 (1000당 +${v}%, 최대 40%)`,
-  crit_resist_pierce_pct: v => `적 치명저항 -${v}%p`,
+  crit_resist_pierce_pct: v => `적 치명저항 -${v}%`,
 };
 function describe(statKey: string, value: number): string {
   const f = EFFECT_DESC[statKey];

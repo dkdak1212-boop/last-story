@@ -92,7 +92,7 @@ const PREFIX_LABEL: Record<string, string> = {
   enemy_frenzy: '적 광폭화 (적 속도 +%, 적 데미지 -)',
   boss_slayer_pct: '보스·엘리트 특효 +%',
   spd_to_dmg_pct: '속도 비례 데미지 (1000속도당 +%, 최대 +40%)',
-  crit_resist_pierce_pct: '치명타 저항 관통 -%p',
+  crit_resist_pierce_pct: '치명타 저항 관통 -%',
   // 유니크 전용
   shield_amp: '실드 효과 +%',
   summon_amp: '소환수 데미지 +%',

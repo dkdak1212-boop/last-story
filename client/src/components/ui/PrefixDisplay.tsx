@@ -53,7 +53,7 @@ const EFFECT_FORMATS: Record<string, (v: number) => string> = {
   enemy_frenzy: v => `적 속도 +${v}% / 적 데미지 -${(v * 0.1).toFixed(1)}%`,
   boss_slayer_pct: v => `보스·엘리트 대상 데미지 +${v}%`,
   spd_to_dmg_pct: v => `속도 비례 데미지 (1000속도당 +${v}%, 최대 +40%)`,
-  crit_resist_pierce_pct: v => `적 치명타 저항 -${v}%p`,
+  crit_resist_pierce_pct: v => `적 치명타 저항 -${v}%`,
   // 110제 craft 추가 옵션
   execute_pct: v => `적 HP 20% 이하 시 데미지 +${v}%`,
   undispellable: () => `버프 디스펠 면역`,
