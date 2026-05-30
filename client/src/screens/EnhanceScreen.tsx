@@ -41,7 +41,7 @@ const STAT_KEY_LABEL: Record<string, string> = {
 const TIER_COLOR: Record<number, string> = { 1: '#5b8ecc', 2: '#b060cc', 3: '#ffcc33', 4: '#ff4444' };
 
 const SLOT_LABEL: Record<string, string> = {
-  weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화', ring: '반지', amulet: '목걸이',
+  weapon: '무기', helm: '투구', chest: '갑옷', boots: '장화', ring: '반지', amulet: '목걸이', cloak: '망토',
 };
 
 export function EnhanceScreen() {
@@ -651,8 +651,8 @@ export function EnhanceScreen() {
                 </div>
               )}
 
-              {/* 품질 재굴림 섹션 — 장비라면 항상 표시 */}
-              {selected.equipSlot !== undefined || selected.kind === 'inventory' ? (
+              {/* 품질 재굴림 섹션 — 장비라면 항상 표시 (망토 제외: 일반강화만) */}
+              {(selected.equipSlot !== undefined || selected.kind === 'inventory') && selected.itemSlot !== 'cloak' ? (
                 <div style={{ marginTop: 12, padding: 10, border: '1px solid #333', borderRadius: 4 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
                     <span>현재 품질</span>
@@ -675,8 +675,8 @@ export function EnhanceScreen() {
                 </div>
               ) : null}
 
-              {/* T1/T2/T3 보장 추첨권 / 3옵 보장 굴림권 — 유니크에도 사용 가능 (고정 옵션 보존) */}
-              {selected.itemSlot ? (
+              {/* T1/T2/T3 보장 추첨권 / 3옵 보장 굴림권 — 유니크에도 사용 가능 (고정 옵션 보존). 망토 제외 */}
+              {selected.itemSlot && selected.itemSlot !== 'cloak' ? (
                 <div style={{ marginTop: 12, padding: 10, border: '1px solid #a24bff', borderRadius: 4 }}>
                   <div style={{ fontSize: 11, color: '#a24bff', marginBottom: 8, fontWeight: 700 }}>접두사 보장 추첨권</div>
                   {([1, 2, 3] as const).map(tier => {

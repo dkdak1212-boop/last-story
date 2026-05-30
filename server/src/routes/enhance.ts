@@ -83,11 +83,12 @@ router.get('/:characterId/list', async (req: AuthedRequest, res: Response) => {
      ORDER BY ci.slot_index`,
     [cid]
   );
-  // 장착 — 망토 슬롯은 정수 전용이라 제외
+  // 장착 — 망토(cloak)도 일반 강화 대상 포함 (정수 7효과는 character_cloak_levels 에서 별도 합산되어
+  //   강화 배수와 무관 — base def 만 강화 배수 적용됨)
   const eq = await query<{ slot: string; item_id: number; enhance_level: number; enhance_pity: number; name: string; grade: string; item_slot: string; stats: Record<string, number> | null; unique_prefix_stats: Record<string, number> | null; prefix_ids: number[] | null; prefix_stats: Record<string, number> | null; quality: number; required_level: number }>(
     `SELECT ce.slot, ce.item_id, ce.enhance_level, COALESCE(ce.enhance_pity, 0) AS enhance_pity, i.name, i.grade, i.slot AS item_slot, i.stats, i.unique_prefix_stats, ce.prefix_ids, ce.prefix_stats, COALESCE(ce.quality, 0) AS quality, COALESCE(i.required_level, 1) AS required_level
      FROM character_equipped ce JOIN items i ON i.id = ce.item_id
-     WHERE ce.character_id = $1 AND ce.slot <> 'cloak'`,
+     WHERE ce.character_id = $1`,
     [cid]
   );
 
@@ -269,10 +270,9 @@ router.post('/:characterId/attempt', async (req: AuthedRequest, res: Response) =
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
 
-  // 망토는 정수(/cloak/apply) 로만 강화 가능
-  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
-    return res.status(400).json({ error: '망토는 정수로만 강화할 수 있습니다.' });
-  }
+  // 망토(cloak)도 일반 강화 허용 (2026-05-30) — base def 만 강화 배수 적용되며,
+  //   정수 7효과(character_cloak_levels)는 별도 합산이라 강화로 오르지 않음.
+  //   단, 접두사 굴림·티어 추첨·3옵 굴림은 여전히 isCloakTarget 으로 차단됨.
 
   // 대상 아이템 조회 (pity 같이)
   let currentLevel: number;
@@ -550,6 +550,11 @@ router.post('/:characterId/reroll-quality', async (req: AuthedRequest, res: Resp
     slotKey: z.union([z.number().int().min(0), z.string()]),
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid input' });
+
+  // 망토는 품질 재굴림 대상 아님 (일반 강화만 허용)
+  if (await isCloakTarget(cid, parsed.data.kind, parsed.data.slotKey)) {
+    return res.status(400).json({ error: '망토는 품질 재굴림을 할 수 없습니다.' });
+  }
 
   // 재굴림권 소모
   const ticketR = await query<{ id: number; quantity: number }>(
