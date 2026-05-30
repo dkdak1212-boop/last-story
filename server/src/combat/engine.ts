@@ -2038,25 +2038,9 @@ function applyDamagePrefixes(
       if (spdBonus > 0) dmg += spdBonus;
     }
   }
-  // ── 신규 효과형 접두사 (종언의 회랑 업데이트) ──
-  // ① single_hit_amp_pct — 단일타격 스킬 데미지 +X% (multi_hit 후속타엔 미적용)
-  if (!opts.isMultiHit) {
-    const singleAmp = s.equipPrefixes.single_hit_amp_pct || 0;
-    if (singleAmp > 0) dmg = Math.round(dmg * (1 + singleAmp / 100));
-  }
-  // ③ boss_slayer_pct — 보스/엘리트 대상 데미지 +X%
-  if (s.monsterIsBossElite || s.guildBossRunId || s.raidEventId) {
-    const slayer = s.equipPrefixes.boss_slayer_pct || 0;
-    if (slayer > 0) dmg = Math.round(dmg * (1 + slayer / 100));
-  }
-  // ④ spd_to_dmg_pct — 속도 비례 데미지 (값 V = 1000속도당 V%, 최대 +40% 상한)
-  {
-    const spdAmp = s.equipPrefixes.spd_to_dmg_pct || 0;
-    if (spdAmp > 0) {
-      const bonusPct = Math.min(40, spdAmp * (s.playerStats.spd || 0) / 1000);
-      if (bonusPct > 0) dmg = Math.round(dmg * (1 + bonusPct / 100));
-    }
-  }
+  // ── 신규 효과형 접두사 3종 (종언의 회랑 업데이트) — 단일타격/보스특효/속도비례 ──
+  // 우회 경로(소환수·분신·반격 등)와 동일 로직 공유(ampNewPrefixes).
+  dmg = ampNewPrefixes(s, dmg, !!opts.isMultiHit);
   // 크리 추가 배율 (crit_damage 패시브 + 날카로움)
   if (isCrit) {
     const critDmgBonus = cache ? cache.critDmgBonusPct : getCritDmgBonus(s);
@@ -2484,6 +2468,28 @@ function critSurvivesResist(s: ActiveSession): boolean {
   return Math.random() * 100 >= resist;
 }
 
+// 신규 효과형 접두사 3종(단일타격/보스특효/속도비례)을 calcDamage·applyDamagePrefixes 우회 경로에
+// 수동 적용. applyDamagePrefixes 도 이 헬퍼를 호출(단일 출처). DOT/반사/이월 경로엔 적용하지 않음.
+//  - isMultiHit=true 면 single_hit_amp 제외 (다단 후속타·소환 계열).
+//  - boss_slayer_pct: 대상이 보스/엘리트(길드보스·레이드 포함)일 때.
+//  - spd_to_dmg_pct: 1000속도당 V%, 최대 +40% 상한.
+function ampNewPrefixes(s: ActiveSession, dmg: number, isMultiHit = false): number {
+  if (!isMultiHit) {
+    const sa = s.equipPrefixes.single_hit_amp_pct || 0;
+    if (sa > 0) dmg = Math.round(dmg * (1 + sa / 100));
+  }
+  if (s.monsterIsBossElite || s.guildBossRunId || s.raidEventId) {
+    const bs = s.equipPrefixes.boss_slayer_pct || 0;
+    if (bs > 0) dmg = Math.round(dmg * (1 + bs / 100));
+  }
+  const spdAmp = s.equipPrefixes.spd_to_dmg_pct || 0;
+  if (spdAmp > 0) {
+    const bonusPct = Math.min(40, spdAmp * (s.playerStats.spd || 0) / 1000);
+    if (bonusPct > 0) dmg = Math.round(dmg * (1 + bonusPct / 100));
+  }
+  return dmg;
+}
+
 // ── 소환수 처리 ──
 // extraDmgMul: 외부에서 임시 배수 부여 (예: 모든 소환수 공격 시전 시 2.0). 1.0 이면 효과 없음.
 // ── summoner_v2 (대소환사) — 활성 변환 form 수만큼 소환수 1마리씩 ──
@@ -2611,6 +2617,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
         const hitCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
+        hit = ampNewPrefixes(s, hit, true); // 보스특효·속도비례 (소환 계열=다단 취급)
         const hitFinal = Math.max(1, hit - defReduce);
         s.monsterHp -= hitFinal;
         addLog(s, `${hitLabel} ${hitFinal} 피해`);
@@ -2633,6 +2640,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
     const isCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
     if (isCrit) { dmg = Math.round(dmg * 1.5); label += ' (치명타!)'; }
     if (dmg > 0) {
+      dmg = ampNewPrefixes(s, dmg, true); // 보스특효·속도비례 (소환 계열=다단 취급)
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
       addLog(s, `${label} ${finalDmg} 피해`);
@@ -2722,6 +2730,8 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
         dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
         dmg = applyRogueCritBonus(s, dmg, true);
       }
+      // 신규 접두사 3종 (분신은 본체 스킬 타수 따라 단일/다단 판정)
+      dmg = ampNewPrefixes(s, dmg, skillHits > 1);
       // 방어 일부 차감
       let finalDmg = Math.max(1, dmg - Math.round(def * 0.5));
       // 파라곤 데미지 배수 — 본체 applyDamagePrefixes 와 동일 키스톤 분신에도 적용
@@ -2893,6 +2903,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       if (spellAmpForSummon > 0) dmg = Math.round(dmg * (1 + spellAmpForSummon / 100));
       if (multiHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + multiHitAmpForSummon / 100));
       if (singleHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + singleHitAmpForSummon / 100));
+      // 보스특효·속도비례 (single 은 위에서 이미 적용 → isMultiHit=true 로 중복 방지)
+      dmg = ampNewPrefixes(s, dmg, true);
       // damage_taken_up 디버프 (영역 선포 등) — 소환수 데미지에도 적용
       if (dtUpMulForSummon !== 1.0) dmg = Math.round(dmg * dtUpMulForSummon);
       s.monsterHp -= dmg;
@@ -3176,6 +3188,8 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           rageProc = true;
         }
         if (s.rageProcRemaining > 0) dmg = Math.round(dmg * 3);
+        // 신규 효과형 접두사 3종 (단일 'damage' 케이스 — applyDamagePrefixes 인라인 복제 경로 누락 보강)
+        dmg = ampNewPrefixes(s, dmg, false);
         // ── 차원의 정수 (Paragon) 키스톤 데미지 보정 — 단일 'damage' case 누락 보강 ──
         if (getPassive(s, 'paragon_heavy_blade') > 0) dmg = Math.round(dmg * 2.0);
         if (getPassive(s, 'paragon_fate_lock') > 0) dmg = Math.round(dmg * 1.75);
@@ -3334,6 +3348,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
               }
               // 전사 분노 폭발 — 2회차 추가타에도 ×3 적용 (이전 누락: 최후의 일격/치명 절격 등)
               if (s.rageProcRemaining > 0) dmg2 = Math.round(dmg2 * 3);
+              dmg2 = ampNewPrefixes(s, dmg2, false); // 신규 접두사 3종 (2회차 추가타)
               s.monsterHp -= dmg2;
               addLog(s, `[${skill.name}] 2회 발동! ${dmg2}${d2.crit ? '!' : ''}${s.rageProcRemaining > 0 ? ' (분노)' : ''}`);
               // 치명타 후속 (재충전·흡혈) — 2회차 타격에도 적용 (이전 누락)
@@ -3366,10 +3381,11 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
         if (extraHit > 0 && Math.random() * 100 < extraHit) {
           const d2 = calcDamage(s.playerStats, defModStats, skill.damage_mult * 0.5, useMatk);
           if (!d2.miss) {
-            s.monsterHp -= d2.damage;
-            addLog(s, `추가 타격! ${d2.damage}`);
+            const ehDmg = ampNewPrefixes(s, d2.damage, false); // 신규 접두사 3종 (추가 타격)
+            s.monsterHp -= ehDmg;
+            addLog(s, `추가 타격! ${ehDmg}`);
             // 치명타 후속 (재충전·흡혈) — 추가 타격에도 적용 (이전 누락)
-            applyCritPostEffects(s, d2.damage, d2.crit, '추가타');
+            applyCritPostEffects(s, ehDmg, d2.crit, '추가타');
           }
         }
         // blade_flurry: 칼날 추가타 확률 (일반 공격에 추가 타격)
@@ -4024,6 +4040,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
           if (critDmgBonus > 0) dmg = Math.round(dmg * (1 + critDmgBonus / 100));
           dmg = applyRogueCritBonus(s, dmg, true);
         }
+        dmg = ampNewPrefixes(s, dmg, false); // 신규 접두사 3종 (수동 접두사 경로 누락 보강)
         s.monsterHp -= dmg;
         const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
         addLog(s, `[${skill.name}] ${dmg} 데미지${d.crit ? '!' : ''}${suffix}`);
@@ -4238,7 +4255,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 사용자 요청 (2026-05-05): 모든 소환수 데미지 ×2 임시 부여 (이번 시전 1회 한정).
       if (skill.damage_mult > 0) {
         const d = calcDamage(s.playerStats, s.monsterStats, skill.damage_mult, true);
-        if (!d.miss) { s.monsterHp -= d.damage; addLog(s, `[${skill.name}] 본체 ${d.damage}${d.crit ? '!' : ''}`); }
+        if (!d.miss) { const bodyDmg = ampNewPrefixes(s, d.damage, false); s.monsterHp -= bodyDmg; addLog(s, `[${skill.name}] 본체 ${bodyDmg}${d.crit ? '!' : ''}`); }
       }
       processSummons(s, 2.0);
       // 소환수 턴 유지 +N 행동 (summon_extend 와 동일한 SUMMON_REMAIN_CAP 적용)
@@ -4264,7 +4281,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       const strongest = summons.reduce((a, b) => a.value > b.value ? a : b);
       s.statusEffects = s.statusEffects.filter(e => e.id !== strongest.id);
       bumpEffectVer(s);
-      const sacDmg = Math.round(s.playerStats.matk * strongest.value / 100 * skill.damage_mult);
+      const sacDmg = ampNewPrefixes(s, Math.round(s.playerStats.matk * strongest.value / 100 * skill.damage_mult), true);
       s.monsterHp -= sacDmg;
       addLog(s, `[${skill.name}] 소환수 희생! ${sacDmg.toLocaleString()} 폭발 데미지`);
       break;
@@ -4274,7 +4291,7 @@ async function executeSkill(s: ActiveSession, skill: SkillDef): Promise<void> {
       // 영혼 폭풍: 소환수 수 × MATK × mult
       const cnt = getActiveSummons(s).length;
       if (cnt === 0) { addLog(s, `[${skill.name}] 소환수가 없습니다!`); break; }
-      const stormDmg = Math.round(s.playerStats.matk * skill.damage_mult * cnt);
+      const stormDmg = ampNewPrefixes(s, Math.round(s.playerStats.matk * skill.damage_mult * cnt), true);
       s.monsterHp -= stormDmg;
       addLog(s, `[${skill.name}] ${cnt}마리 × MATK x${Math.round(skill.damage_mult * 100)}% = ${stormDmg.toLocaleString()}`);
       break;
@@ -4540,6 +4557,8 @@ async function autoAction(s: ActiveSession): Promise<void> {
     // 2026-05-24: 도적 SPD/공명 증뎀 — 평타에도 적용 (전부 포함)
     const basicRogueAmp = rogueDamageAmp(s);
     if (basicRogueAmp !== 1) dmg = Math.max(1, Math.round(dmg * basicRogueAmp));
+    // 신규 효과형 접두사 3종 (기본 평타 누락 보강)
+    dmg = ampNewPrefixes(s, dmg, false);
     // 차원 #928 회복 환원 — 누적 회복량 flat 추가 (평타 누락 보강)
     {
       const healFlat = consumeHealStoredFlat(s);
@@ -4830,6 +4849,7 @@ function monsterAction(s: ActiveSession): void {
           counterDmg = applyRogueCritBonus(s, counterDmg, true);
           counterTag = ' (치명타!)';
         }
+        counterDmg = ampNewPrefixes(s, counterDmg, false); // 신규 접두사 3종 (회피 반격)
         counterDmg = Math.max(1, counterDmg - Math.round(def * 0.5));
         s.monsterHp -= counterDmg;
         addLog(s, `[그림자 도주] 반격!${counterTag} ${counterDmg} 피해`);
@@ -4975,6 +4995,7 @@ function monsterAction(s: ActiveSession): void {
           const cBonus = getCritDmgBonus(s);
           counterDmg = Math.round(counterDmg * (1.5 + cBonus / 100));
         }
+        counterDmg = ampNewPrefixes(s, counterDmg, false); // 신규 접두사 3종 (전사 수호자 반격)
         s.monsterHp -= counterDmg;
         addLog(s, `[반격] ${counterDmg} 데미지`);
       }
