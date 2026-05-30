@@ -61,7 +61,7 @@ export function PointShopScreen() {
       const data = await api<InfoState>(`/point-shop/${active.id}/info`);
       setInfo(data);
     } catch (e: any) {
-      setMsg(typeof e?.message === 'string' ? e.message : 'load failed');
+      setMsg(typeof e?.message === 'string' ? e.message : '불러오기 실패');
     } finally {
       setLoading(false);
     }
@@ -205,7 +205,7 @@ export function PointShopScreen() {
           style={btn(!busy && info.points >= info.rates.rollCost && (!full || selectedSlot !== null))}>
           {full ? '선택 슬롯 재굴림' : '새 접두사 굴림'}
         </button>
-        <div style={{ fontSize: 11, color: '#777', marginTop: 6 }}>※ 낡은 망토는 거래 불가(귀속). 수치는 levelScale 1.5 고정 적용.</div>
+        <div style={{ fontSize: 11, color: '#777', marginTop: 6 }}>※ 낡은 망토는 거래할 수 없습니다(귀속). 접두사 수치는 고정 배율로 굴려집니다.</div>
       </div>
 
       {/* §4-2 포인트 → 골드 환전 */}
