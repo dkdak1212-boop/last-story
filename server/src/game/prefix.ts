@@ -169,7 +169,9 @@ export async function generate3PrefixesT1T2(
   let maxTier = 0;
   for (let i = 0; i < 3; i++) {
     const tier = Math.random() < 0.5 ? 1 : 2;
-    let candidates = tierCandidates(tier, usedStatKeys);
+    // 중복 허용 — 첫 옵션은 새 stat, 이후는 15% 확률로 중복 가능 (드롭과 동일)
+    const allowDuplicate = i > 0 && Math.random() * 100 < DUPLICATE_PREFIX_CHANCE;
+    let candidates = tierCandidates(tier, allowDuplicate ? null : usedStatKeys);
     if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
@@ -183,7 +185,7 @@ export async function generate3PrefixesT1T2(
   return { prefixIds, bonusStats, maxTier };
 }
 
-// 3옵 보장 — 지정된 stat_key 중복 없이 새 prefix 3개 생성 (tier는 정상 확률 분포)
+// 3옵 보장 — 새 prefix 3개 생성 (tier는 정상 확률 분포, 중복 15% 허용)
 // minTier: 옵션 — 지정 시 해당 티어 미만은 굴리지 않음 (예: 거래소 미확인 구매 = T2 이상)
 export async function generateGuaranteed3Prefixes(
   itemLevel: number,
@@ -198,7 +200,9 @@ export async function generateGuaranteed3Prefixes(
   const tierFn = minTier >= 2 ? rollTierMinT2 : rollTier;
   for (let i = 0; i < 3; i++) {
     const tier = tierFn();
-    let candidates = tierCandidates(tier, usedStatKeys);
+    // 중복 허용 — 첫 옵션은 새 stat, 이후는 15% 확률로 중복 가능 (드롭과 동일)
+    const allowDuplicate = i > 0 && Math.random() * 100 < DUPLICATE_PREFIX_CHANCE;
+    let candidates = tierCandidates(tier, allowDuplicate ? null : usedStatKeys);
     if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
@@ -306,7 +310,9 @@ export async function generateT3Guaranteed3Prefixes(
   // 슬롯 1, 2: 일반 분포 (rollTier — T1 90% / T2 9% / T3 0.9% / T4 0.1%)
   for (let i = 0; i < 2; i++) {
     const tier = rollTier();
-    let candidates = tierCandidates(tier, usedStatKeys);
+    // 중복 허용 — 15% 확률로 기존 슬롯과 같은 stat 가능 (드롭과 동일)
+    const allowDuplicate = Math.random() * 100 < DUPLICATE_PREFIX_CHANCE;
+    let candidates = tierCandidates(tier, allowDuplicate ? null : usedStatKeys);
     if (candidates.length === 0) candidates = prefixesByTier?.get(tier) ?? [];
     if (candidates.length === 0) continue;
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
