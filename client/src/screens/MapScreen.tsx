@@ -142,7 +142,8 @@ export function MapScreen() {
             const lb = Number(b.name.match(/\d+/)?.[0] ?? 0);
             return la - lb;
           }
-          return a.requiredLevel - b.requiredLevel;
+          // 같은 요구레벨이면 id 오름차순 (시공의 균열 23 → 종언의 회랑 24 순서 고정)
+          return (a.requiredLevel - b.requiredLevel) || (a.id - b.id);
         }).map((f) => {
           const locked = (active?.level ?? 1) < f.requiredLevel;
           const isOpen = expanded === f.id;

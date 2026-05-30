@@ -83,7 +83,7 @@ const HP_BOSS = 100_000_000_000;    // 1,000억 — 중위 ~67초 (다인/최상
   await pool.query(
     `INSERT INTO fields (id, name, required_level, monster_pool, description)
      VALUES ($1, '종언의 회랑', 100, $2::jsonb,
-             '시공의 균열 너머, 종언으로 이어지는 회랑. 만렙 도달 후 입장하는 상시 사냥터. 극히 드물게 신비한 가루를 떨군다.')
+             '시공의 균열 너머, 종언으로 이어지는 회랑. 100레벨 도달 후 입장하는 상시 사냥터. 극히 드물게 신비한 가루 드롭.')
      ON CONFLICT (id) DO UPDATE SET
        name=EXCLUDED.name, required_level=EXCLUDED.required_level,
        monster_pool=EXCLUDED.monster_pool, description=EXCLUDED.description`,

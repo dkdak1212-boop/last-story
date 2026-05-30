@@ -642,7 +642,7 @@ export function InventoryScreen() {
                     <StatSummary stats={(item as any).baseStats || item.stats} enhanceLevel={item.enhanceLevel || 0} quality={(item as any).quality || 0} />
                   </div>
                   {slot === 'cloak' ? (
-                    /* 망토 — 7효과 누적 단계 표시. 해제/강화 불가 (영구 고정) */
+                    /* 망토 — 7효과 누적 단계 + 포인트 상점 굴림 접두사 표시. 해제/강화 불가 (영구 고정) */
                     <div style={{ marginTop: 4, fontSize: 11 }}>
                       {(() => {
                         const list = (cloak?.effects ?? []).filter(e => e.level > 0);
@@ -655,6 +655,10 @@ export function InventoryScreen() {
                       })()}
                       {cloak && cloak.totalEssencesUsed > 0 && (
                         <div style={{ opacity: 0.6, marginTop: 3 }}>누적 정수 {cloak.totalEssencesUsed}개</div>
+                      )}
+                      {/* 포인트 상점에서 굴린 접두사 */}
+                      {item.prefixStats && Object.keys(item.prefixStats).length > 0 && (
+                        <PrefixDisplay prefixStats={item.prefixStats} prefixTiers={(item as any).prefixTiers} uniquePrefixStats={(item as any).uniquePrefixStats} enhanceLevel={item.enhanceLevel} />
                       )}
                     </div>
                   ) : (

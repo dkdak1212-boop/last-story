@@ -67,7 +67,9 @@ router.get('/', async (req, res) => {
     requiredLevel: f.requiredLevel,
     description: f.description,
     ownerGuildName: ownerMap.get(f.id) || null,
-    monsters: (f.monsterPool || []).map(mid => {
+    // monster_pool 은 스폰 가중치용으로 같은 몬스터가 중복될 수 있음(회랑=100항목).
+    // 목록 표시는 종류별 1회만 노출되도록 중복 제거.
+    monsters: [...new Set(f.monsterPool || [])].map(mid => {
       const m = monsterMap.get(mid);
       if (!m) return null;
       // gold/exp 모두 base (레벨차 페널티·부스트·접두사 제외된 기준값)

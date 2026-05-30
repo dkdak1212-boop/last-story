@@ -87,6 +87,12 @@ const PREFIX_LABEL: Record<string, string> = {
   gauge_on_crit_pct: '치명타 시 게이지/속도 +%',
   miss_combo_pct: '빗나감 누적 보너스 +%',
   evasion_burst_pct: '회피 직후 다음 공격 +%',
+  // 종언의 회랑 — 효과형 접두사 5종
+  single_hit_amp_pct: '단일 타격 데미지 +%',
+  enemy_frenzy: '적 광폭화 (적 속도 +%, 적 데미지 -)',
+  boss_slayer_pct: '보스·엘리트 특효 +%',
+  spd_to_dmg_pct: '속도 비례 데미지 (1000속도당 +%, 최대 +40%)',
+  crit_resist_pierce_pct: '치명타 저항 관통 -%p',
   // 유니크 전용
   shield_amp: '실드 효과 +%',
   summon_amp: '소환수 데미지 +%',
