@@ -172,7 +172,7 @@ export function PointShopScreen() {
 
       {/* §4-1 낡은 망토 접두사 굴림 */}
       <div style={card}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#cda', marginBottom: 8 }}>낡은 망토 접두사 굴림 <span style={{ fontSize: 12, color: '#888' }}>({info.rates.rollCost.toLocaleString()} 포인트 / 회 · T1 95% · T4 0.1%)</span></div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#cda', marginBottom: 8 }}>낡은 망토 접두사 굴림 <span style={{ fontSize: 12, color: '#888' }}>({info.rates.rollCost.toLocaleString()} 포인트 / 회 · T1 95% · T2 4% · T3 0.9% · T4 0.1%)</span></div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
           {Array.from({ length: info.maxSlots }).map((_, i) => {
             const slot = info.cloak[i];
