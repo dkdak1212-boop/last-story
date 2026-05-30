@@ -2474,6 +2474,16 @@ function processDots(s: ActiveSession, target: 'player' | 'monster') {
 const MATK_CLASSES = new Set(['mage', 'cleric', 'summoner']);
 const MAX_SUMMONS = 3;
 
+// 몬스터 치명타 저항 — calcDamage 를 우회하는 플레이어→몬스터 치명 경로
+// (소환수·그림자 분신·반격 등)에서 치명 발생 후 취소 여부 판정.
+// calcDamage 와 동일 규칙: (대상 critResistPct − 플레이어 crit_resist_pierce_pct) 확률로 치명 취소.
+// 반환 true=치명 유지, false=저항으로 취소.
+function critSurvivesResist(s: ActiveSession): boolean {
+  const resist = (s.monsterStats.critResistPct ?? 0) - (s.equipPrefixes.crit_resist_pierce_pct ?? 0);
+  if (resist <= 0) return true;
+  return Math.random() * 100 >= resist;
+}
+
 // ── 소환수 처리 ──
 // extraDmgMul: 외부에서 임시 배수 부여 (예: 모든 소환수 공격 시전 시 2.0). 1.0 이면 효과 없음.
 // ── summoner_v2 (대소환사) — 활성 변환 form 수만큼 소환수 1마리씩 ──
@@ -2598,7 +2608,7 @@ function fireSummonerV2Special(s: ActiveSession): void {
         const baseMul = i === 5 ? 810.0 : 405.0;  // 5타째 ×2
         let hit = Math.round(matk * baseMul * atkBuffMul);
         if (paragonMult !== 1.0) hit = Math.max(1, Math.round(hit * paragonMult));
-        const hitCrit = cri > 0 && Math.random() * 100 < cri;
+        const hitCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
         if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
         const hitFinal = Math.max(1, hit - defReduce);
@@ -2619,8 +2629,8 @@ function fireSummonerV2Special(s: ActiveSession): void {
       dmg = Math.round(matk * 1620.0 * atkBuffMul); label = '[천상의 심판]';
     }
     if (paragonMult !== 1.0 && dmg > 0) dmg = Math.max(1, Math.round(dmg * paragonMult));
-    // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기
-    const isCrit = cri > 0 && Math.random() * 100 < cri;
+    // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기 (몬스터 치명저항 적용)
+    const isCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
     if (isCrit) { dmg = Math.round(dmg * 1.5); label += ' (치명타!)'; }
     if (dmg > 0) {
       const finalDmg = Math.max(1, dmg - defReduce);
@@ -2705,8 +2715,8 @@ function processShadowClones(s: ActiveSession, skill?: SkillDef): void {
       let dmg = Math.round(baseAtk * skillMult * cloneDmgPct / 100 * atkBuffMul);
       // 분신 다단 (확률)
       if (cloneDoubleHit > 0 && Math.random() * 100 < cloneDoubleHit) dmg *= 2;
-      // 치명타
-      const isCrit = cri > 0 && Math.random() * 100 < cri;
+      // 치명타 (몬스터 치명저항 적용)
+      const isCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
       if (isCrit) {
         const critDmgBonus = getCritDmgBonus(s);
         dmg = Math.round(dmg * (1.5 + critDmgBonus / 100));
@@ -2860,7 +2870,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       // ±10% 랜덤
       dmg = Math.round(dmg * (0.9 + Math.random() * 0.2));
       // 치명타 — element 별 critDmg + 글로벌 summonCritDmgAmp + 본체 치피 (crit_dmg_pct 등) 합산
-      if (critChance > 0 && Math.random() * 100 < critChance) {
+      // 몬스터 치명저항 적용 (회랑 등) — 발생 후 (저항% − 관통%p) 확률로 취소.
+      if (critChance > 0 && Math.random() * 100 < critChance && critSurvivesResist(s)) {
         dmg = Math.round(dmg * (1.5 + (critDmgBonus + summonCritDmgAmp + playerCritDmgBonus) / 100));
       }
       // 20% 확률 2회 타격 (만물의 군주)
@@ -4808,7 +4819,7 @@ function monsterAction(s: ActiveSession): void {
         const atkBuffEff = findEffectOfType(s, 'atk_buff', e => e.source === 'monster' && e.remainingActions > 0);
         if (atkBuffEff) counterDmg = Math.round(counterDmg * (1 + atkBuffEff.value / 100));
         const cri = s.playerStats.cri || 0;
-        const isCrit = cri > 0 && Math.random() * 100 < cri;
+        const isCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
         let counterTag = '';
         if (isCrit) {
           const critDmgBonus = getCritDmgBonus(s);
@@ -4957,7 +4968,7 @@ function monsterAction(s: ActiveSession): void {
         const def = s.monsterStats.def || 0;
         let counterDmg = Math.max(1, Math.round((s.playerStats.atk || 1) - def * 0.5));
         const cri = s.playerStats.cri || 0;
-        if (cri > 0 && Math.random() * 100 < cri) {
+        if (cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s)) {
           const cBonus = getCritDmgBonus(s);
           counterDmg = Math.round(counterDmg * (1.5 + cBonus / 100));
         }
