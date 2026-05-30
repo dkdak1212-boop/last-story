@@ -2839,7 +2839,21 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
   const globalDmgBonus = summonAmp + allElementDmg + auraDmg + dpsAtk + hybridAll + synergyBonus;
   // paragon_destroyer_will — 파괴자의 의지 (방관 +50): 소환수 공격에도 적용
   const summonDestroyerWill = getPassive(s, 'paragon_destroyer_will') > 0 ? 50 : 0;
-  const globalPen = getPassive(s, 'aura_pen') * auraMultiplier + summonDestroyerWill;
+  // 방어 관통 접두사(def_pierce_pct) — 소환수 관통에도 반영 (2026-05-30, 사용자 요청)
+  const globalPen = getPassive(s, 'aura_pen') * auraMultiplier + summonDestroyerWill + (s.equipPrefixes.def_pierce_pct || 0);
+  // 조건부 데미지 증폭 접두사 — 본체 공격만 받던 것을 소환수에도 적용 (광폭/풀피/약점간파/각성).
+  // first_strike·ambush 는 본체 공격이 소비하는 플래그를 읽기만 함(소비 X) — 조건 충족 시 소환수에도 가산.
+  let condAmpForSummon = 1.0;
+  {
+    const bk = s.equipPrefixes.berserk_pct || 0;
+    if (bk > 0 && s.playerHp / s.playerMaxHp <= 0.35) condAmpForSummon *= (1 + bk / 100);
+    const fh = s.equipPrefixes.full_hp_amp_pct || 0;
+    if (fh > 0 && s.playerHp >= s.playerMaxHp) condAmpForSummon *= (1 + fh / 100);
+    const fs = s.equipPrefixes.first_strike_pct || 0;
+    if (fs > 0 && s.hasFirstStrike) condAmpForSummon *= (1 + fs / 100);
+    const amb = s.equipPrefixes.ambush_pct || 0;
+    if (amb > 0 && s.ticksSinceLastHit >= 50) condAmpForSummon *= (1 + amb / 100);
+  }
   const globalCrit = getPassive(s, 'aura_crit') * auraMultiplier;
   const globalLifesteal = getPassive(s, 'aura_lifesteal') * auraMultiplier;
   // 원소 폭발 (원소 군주 huge): 15% 확률 추가 데미지 100%
@@ -2905,6 +2919,8 @@ function processSummons(s: ActiveSession, extraDmgMul: number = 1.0) {
       if (singleHitAmpForSummon > 0) dmg = Math.round(dmg * (1 + singleHitAmpForSummon / 100));
       // 보스특효·속도비례 (single 은 위에서 이미 적용 → isMultiHit=true 로 중복 방지)
       dmg = ampNewPrefixes(s, dmg, true);
+      // 조건부 증폭 접두사 (광폭/풀피/약점간파/각성)
+      if (condAmpForSummon !== 1.0) dmg = Math.round(dmg * condAmpForSummon);
       // damage_taken_up 디버프 (영역 선포 등) — 소환수 데미지에도 적용
       if (dtUpMulForSummon !== 1.0) dmg = Math.round(dmg * dtUpMulForSummon);
       s.monsterHp -= dmg;
