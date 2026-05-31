@@ -2623,6 +2623,28 @@ function fireSummonerV2Special(s: ActiveSession): void {
   // 2026-05-13: 파라곤 키스톤 데미지 보정 (무거운 검 ×2, 운명의 결박 ×1.75, 고통의 조율 ×1.5,
   // 암살자의 역설 ×3/×0.3, 광기의 미끄럼틀) 누락 픽스. 본체 파이프라인과 동일 위치(crit 직전)에서 곱.
   const paragonMult = paragonAlwaysOnMult(s);
+  // 소환수 접두사 일괄 — 일반 소환수 공격(processSummons)과 동일 세트를 특수기에도 적용 (2026-05-31, 사용자 요청).
+  // 누락돼 있던: summon_amp(소환수 증폭)·multi_hit_amp_pct(다단)·single_hit_amp_pct(단일)·damage_taken_up(약화)·치피 보너스.
+  const summonAmpForSpecial = getPassive(s, 'summon_amp') + (s.equipPrefixes.summon_amp || 0);
+  const multiHitAmpForSpecial = getPassive(s, 'multi_hit_amp_pct') + (s.equipPrefixes.multi_hit_amp_pct || 0);
+  const singleHitAmpForSpecial = s.equipPrefixes.single_hit_amp_pct || 0;
+  const dtUpEffForSpecial = findEffectOfType(s, 'damage_taken_up', e => e.source === 'player' && e.remainingActions > 0);
+  const dtUpMulForSpecial = dtUpEffForSpecial ? (1 + dtUpEffForSpecial.value / 100) : 1.0;
+  // 치명 데미지 보너스 — 소환수 치피(summon_crit_dmg_amp + 시력 강화 버프) + 본체 치피(getCritDmgBonus). 일반 소환수와 동일.
+  const summonCritDmgBuffEffSp = findEffectOfType(s, 'summon_crit_dmg_buff_active' as any, e => e.remainingActions > 0);
+  const summonCritDmgAmpSp = getPassive(s, 'summon_crit_dmg_amp') + (s.equipPrefixes.summon_crit_dmg_amp || 0)
+    + (summonCritDmgBuffEffSp ? summonCritDmgBuffEffSp.value : 0);
+  const playerCritDmgBonusSp = getCritDmgBonus(s);
+  const critDmgMul = 1.5 + (summonCritDmgAmpSp + playerCritDmgBonusSp) / 100;
+  // 데미지 증폭 접두사 일괄 적용 (방어 차감 직전). single 은 여기서 적용 → ampNewPrefixes 는 isMultiHit=true 로 중복 방지.
+  const applySpecialPrefixAmp = (d: number): number => {
+    if (summonAmpForSpecial > 0) d = Math.round(d * (1 + summonAmpForSpecial / 100));
+    if (multiHitAmpForSpecial > 0) d = Math.round(d * (1 + multiHitAmpForSpecial / 100));
+    if (singleHitAmpForSpecial > 0) d = Math.round(d * (1 + singleHitAmpForSpecial / 100));
+    d = ampNewPrefixes(s, d, true); // 보스특효·속도비례 (single 중복 방지)
+    if (dtUpMulForSpecial !== 1.0) d = Math.round(d * dtUpMulForSpecial);
+    return d;
+  };
   for (const form of forms) {
     if (s.v2SpecialCds[form] > 0) { s.v2SpecialCds[form]--; continue; }
 
@@ -2634,8 +2656,8 @@ function fireSummonerV2Special(s: ActiveSession): void {
         if (paragonMult !== 1.0) hit = Math.max(1, Math.round(hit * paragonMult));
         const hitCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
         let hitLabel = `[번개 연쇄 ${i}타${i === 5 ? '·강화' : ''}]`;
-        if (hitCrit) { hit = Math.round(hit * 1.5); hitLabel += ' (치명타!)'; }
-        hit = ampNewPrefixes(s, hit, true); // 보스특효·속도비례 (소환 계열=다단 취급)
+        if (hitCrit) { hit = Math.round(hit * critDmgMul); hitLabel += ' (치명타!)'; }
+        hit = applySpecialPrefixAmp(hit); // 소환수 접두사 일괄(증폭·다단·단일·보스특효·속도비례·약화)
         const hitFinal = Math.max(1, hit - defReduce);
         s.monsterHp -= hitFinal;
         addLog(s, `${hitLabel} ${hitFinal} 피해`);
@@ -2656,9 +2678,9 @@ function fireSummonerV2Special(s: ActiveSession): void {
     if (paragonMult !== 1.0 && dmg > 0) dmg = Math.max(1, Math.round(dmg * paragonMult));
     // 치명타 판정 — 본체 cri% 확률 → ×1.5 + 로그 표기 (몬스터 치명저항 적용)
     const isCrit = cri > 0 && Math.random() * 100 < cri && critSurvivesResist(s);
-    if (isCrit) { dmg = Math.round(dmg * 1.5); label += ' (치명타!)'; }
+    if (isCrit) { dmg = Math.round(dmg * critDmgMul); label += ' (치명타!)'; }
     if (dmg > 0) {
-      dmg = ampNewPrefixes(s, dmg, true); // 보스특효·속도비례 (소환 계열=다단 취급)
+      dmg = applySpecialPrefixAmp(dmg); // 소환수 접두사 일괄(증폭·다단·단일·보스특효·속도비례·약화)
       const finalDmg = Math.max(1, dmg - defReduce);
       s.monsterHp -= finalDmg;
       addLog(s, `${label} ${finalDmg} 피해`);
