@@ -59,6 +59,10 @@ interface CombatSnapshot {
   monster?: {
     name: string; hp: number; maxHp: number; level: number;
     gauge: number; speed: number; effects: StatusEffect[];
+    resists?: {
+      crit?: number; dmgReduce?: number; ccImmune?: boolean;
+      lifestealImmune?: boolean; ccResist?: number;
+    };
   };
   skills: CombatSkillInfoLocal[];
   log: string[];
@@ -2466,6 +2470,20 @@ function critSurvivesResist(s: ActiveSession): boolean {
   const resist = (s.monsterStats.critResistPct ?? 0) - (s.equipPrefixes.crit_resist_pierce_pct ?? 0);
   if (resist <= 0) return true;
   return Math.random() * 100 >= resist;
+}
+
+// 몬스터가 보유한 저항류를 스냅샷용으로 수집 (상태창 표시).
+// 보유 항목만 채우고, 아무것도 없으면 undefined.
+// 상태이상: cc_immune(100%)이면 ccImmune만, 아니면 Lv90+ 70% 확률 저항(monsterResistsCC와 동일 수치).
+function buildMonsterResists(s: ActiveSession): NonNullable<CombatSnapshot['monster']>['resists'] | undefined {
+  const r: NonNullable<NonNullable<CombatSnapshot['monster']>['resists']> = {};
+  const crit = s.monsterStats.critResistPct ?? 0;
+  if (crit > 0) r.crit = Math.round(crit);
+  if ((s.monsterDrPct ?? 0) > 0) r.dmgReduce = Math.round(s.monsterDrPct);
+  if (s.monsterCcImmune) r.ccImmune = true;
+  else if (s.monsterLevel >= 90) r.ccResist = 70; // monsterResistsCC 의 하드코딩 확률(0.70)과 동기화 필요
+  if (s.monsterLifestealImmune) r.lifestealImmune = true;
+  return Object.keys(r).length ? r : undefined;
 }
 
 // 신규 효과형 접두사 3종(단일타격/보스특효/속도비례)을 calcDamage·applyDamagePrefixes 우회 경로에
@@ -7001,6 +7019,7 @@ async function pushCombatState(s: ActiveSession, inCombat: boolean, force = fals
       gauge: Math.min(GAUGE_MAX, s.monsterGauge),
       speed: s.monsterSpeed,
       effects: fromPlayer,
+      resists: buildMonsterResists(s),
     } : undefined,
     skills: buildSkillsSnapshot(s),
     log: s.log,
@@ -7925,6 +7944,7 @@ export async function getCombatSnapshot(characterId: number): Promise<CombatSnap
       gauge: Math.min(GAUGE_MAX, s.monsterGauge),
       speed: s.monsterSpeed,
       effects: s.statusEffects.filter(e => e.source === 'player'),
+      resists: buildMonsterResists(s),
     } : undefined,
     skills: buildSkillsSnapshot(s),
     log: s.log,

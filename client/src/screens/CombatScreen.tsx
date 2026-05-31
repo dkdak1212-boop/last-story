@@ -1098,6 +1098,7 @@ export function CombatScreen() {
               )}
               <GaugeBar percent={monsterGaugePct} color="var(--danger)" label="게이지" />
               <EffectIcons effects={state.monster.effects} />
+              {state.monster.resists && <MonsterResists r={state.monster.resists} />}
               {state.killStats && (
                 <div style={{ display: 'flex', gap: 10, fontSize: 10, color: 'var(--text-dim)', marginTop: 4, flexWrap: 'wrap' }}>
                   <span>현재 <b style={{ color: '#ffaa66' }}>{state.killStats.current.toFixed(1)}s</b></span>
@@ -1428,6 +1429,28 @@ export function GaugeBar({ percent, color, label, highlight }: {
           transition: 'width 100ms linear',
         }} />
       </div>
+    </div>
+  );
+}
+
+// 몹 보유 저항류 표기 — 보유 항목만 한글 뱃지로 표시
+function MonsterResists({ r }: { r: NonNullable<NonNullable<CombatSnapshot['monster']>['resists']> }) {
+  const items: string[] = [];
+  if (r.crit) items.push(`치명타 저항 ${r.crit}%`);
+  if (r.dmgReduce) items.push(`데미지 감소 ${r.dmgReduce}%`);
+  if (r.ccImmune) items.push('상태이상 면역');
+  else if (r.ccResist) items.push(`상태이상 저항 ${r.ccResist}%`);
+  if (r.lifestealImmune) items.push('흡혈 면역');
+  if (items.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+      {items.map((t, i) => (
+        <span key={i} style={{
+          fontSize: 11, padding: '2px 6px', borderRadius: 4,
+          background: 'rgba(120,120,140,0.18)', border: '1px solid var(--border)',
+          color: 'var(--text-dim)',
+        }}>{t}</span>
+      ))}
     </div>
   );
 }

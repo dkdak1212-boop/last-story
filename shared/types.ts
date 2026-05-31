@@ -189,6 +189,13 @@ export interface CombatSnapshot {
     gauge: number;
     speed: number;
     effects: StatusEffect[];
+    resists?: {
+      crit?: number;             // 치명타 저항 % (>0일 때만)
+      dmgReduce?: number;        // 받는 데미지 감소 % (>0일 때만)
+      ccImmune?: boolean;        // 상태이상 면역
+      lifestealImmune?: boolean; // 흡혈 면역
+      ccResist?: number;         // 상태이상 확률 저항 % (Lv90+ → 70, ccImmune이면 생략)
+    };
   };
   skills: CombatSkillInfo[];
   log: string[];
