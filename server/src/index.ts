@@ -244,6 +244,17 @@ httpServer.listen(PORT, () => {
   console.log(`[server] listening on :${PORT}`);
   // 기존 마이그레이션 + 장비 개편을 순차 실행
   (async () => {
+    // fields/monsters 캐시를 마이그레이션보다 먼저 데운다 — listen 직후 WS 가 이미
+    // combat:subscribe 를 받으므로, 캐시가 비어 있는 동안 진입하면 spawnMonsterForSession
+    // 이 null 을 반환해 세션이 "적을 찾는 중" 으로 영구 정지하던 race 를 차단.
+    // (읽는 컬럼은 전부 초기 스키마라 마이그레이션 이전 적재해도 안전.)
+    try {
+      const { prewarmContentCache } = await import('./game/contentCache.js');
+      await prewarmContentCache();
+      console.log('[content-cache] fields/monsters loaded (early)');
+    } catch (e) {
+      console.error('[content-cache] early load error', e);
+    }
     try {
       await runMigrations();
       console.log('[migrations] 기존 마이그레이션 완료');
@@ -272,16 +283,7 @@ httpServer.listen(PORT, () => {
     } catch (e) {
       console.error('[items-cache] load error', e);
     }
-    // fields/monsters 캐시 — pickRandomMonster 의 매 킬 2 sequential query 제거.
-    try {
-      const { getFieldDef, getMonsterDef } = await import('./game/contentCache.js');
-      // 첫 호출이 캐시 적재 트리거 (id 무관)
-      await getFieldDef(1);
-      await getMonsterDef(1);
-      console.log('[content-cache] fields/monsters loaded');
-    } catch (e) {
-      console.error('[content-cache] load error', e);
-    }
+    // fields/monsters 캐시는 위(마이그레이션 이전)에서 이미 prewarm 완료.
     // 길드 멤버십 캐시 — 매 킬 SELECT guild_members 제거용
     try {
       await preloadGuildMemberCache();

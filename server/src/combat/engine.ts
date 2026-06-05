@@ -6511,7 +6511,14 @@ async function combatTick(): Promise<void> {
   const runOne = async ({ charId, s }: SessionTask): Promise<void> => {
     const tickScale = tickScaleGlobal;
     try {
-      if (!s.monsterId) return;
+      // 몬스터 없는 세션 자가복구 — 진입 시점에 콘텐츠 캐시가 아직 안 데워졌으면
+      // (배포 직후 마이그레이션 진행 중 재접속 등) spawnMonsterForSession 이 null 을
+      // 반환해 세션이 영구히 "적을 찾는 중" 으로 멈추던 문제. 매 tick 재스폰을 시도해
+      // 캐시가 준비되는 즉시 다음 tick 에 정상 몬스터가 등장하도록 한다.
+      if (!s.monsterId) {
+        spawnMonsterForSession(s);
+        if (!s.monsterId) return;
+      }
 
       // 종언의 기둥 — 매 층 1분 시간 제한 체크 (인터뷰 A4). 초과 시 사망 처리.
       if (s.fieldId === ENDLESS_FIELD_ID && s.endlessFloorStartedAt > 0) {
