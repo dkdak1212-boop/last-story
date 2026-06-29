@@ -1,13 +1,14 @@
 name: Auto redeploy (zero-downtime)
 
-# 4시간마다 빈 커밋 push → Railway rolling deploy 트리거 → 무중단 인스턴스 교체.
+# 하루 1회 빈 커밋 push → Railway rolling deploy 트리거 → 무중단 인스턴스 교체.
 # 기존 사용자 socket 끊김 X (새 인스턴스 healthy 후 트래픽 전환).
+# 2026-06-29: 유저 소수 + 비용 절감 위해 4시간마다(하루 6회) → 하루 1회로 축소 (빌드 비용 ~6배 절감).
 # 수동 트리거도 가능 (workflow_dispatch).
 
 on:
   schedule:
-    # cron 은 UTC. 0 */4 = 4시간마다 정시 (00, 04, 08, 12, 16, 20시).
-    - cron: '0 */4 * * *'
+    # cron 은 UTC. 19:00 UTC = 04:00 KST (저트래픽 새벽).
+    - cron: '0 19 * * *'
   workflow_dispatch: {}
 
 permissions:
